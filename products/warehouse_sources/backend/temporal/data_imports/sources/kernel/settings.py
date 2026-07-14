@@ -51,3 +51,16 @@ KERNEL_ENDPOINTS: dict[str, KernelEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(KERNEL_ENDPOINTS.keys())
+
+# Credential-bearing fields stripped from every Kernel row before it lands in the warehouse.
+# Kernel app/deployment objects carry `env_vars`; browser objects expose CDP / live-view URLs
+# that embed short-lived access tokens. Importing them verbatim would let anyone who can query
+# the synced table recover deployment secrets or attach to a live browser session. Matched
+# case-insensitively against top-level keys (values here must be lowercase).
+SENSITIVE_FIELDS: frozenset[str] = frozenset(
+    {
+        "env_vars",
+        "cdp_ws_url",
+        "browser_live_view_url",
+    }
+)

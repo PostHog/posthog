@@ -5,10 +5,11 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
     PAGE_SIZE,
-    KernelResumeConfig,
     KernelRetryableError,
+    KernelUnexpectedResponseError,
     _extract_items,
     _next_page,
+    _redact_sensitive_fields,
     get_rows,
     kernel_source,
     validate_credentials,
@@ -35,36 +36,39 @@ def _response(
     return resp
 
 
-class _FakeResumableManager:
-    def __init__(self, state: KernelResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[KernelResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> KernelResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: KernelResumeConfig) -> None:
-        self.saved.append(data)
-
-
 class TestExtractItems:
     @pytest.mark.parametrize(
         "body, expected",
         [
             ([{"id": "a"}], [{"id": "a"}]),
+            ([], []),
             ({"data": [{"id": "b"}]}, [{"id": "b"}]),
             ({"items": [{"id": "c"}]}, [{"id": "c"}]),
             ({"results": [{"id": "d"}]}, [{"id": "d"}]),
-            ({"unexpected": [{"id": "e"}]}, []),
-            ({}, []),
-            (None, []),
+            ({"data": []}, []),
         ],
     )
-    def test_extract_items_handles_shapes(self, body: Any, expected: list[dict]) -> None:
+    def test_recognized_shapes(self, body: Any, expected: list[dict]) -> None:
         assert _extract_items(body) == expected
+
+    @pytest.mark.parametrize("body", [{"unexpected": [{"id": "e"}]}, {}, None, "oops", 42])
+    def test_unexpected_shape_raises(self, body: Any) -> None:
+        # A body we can't parse must fail loudly - returning [] would let a full refresh
+        # overwrite the table with zero rows.
+        with pytest.raises(KernelUnexpectedResponseError):
+            _extract_items(body)
+
+
+class TestRedactSensitiveFields:
+    def test_strips_credential_bearing_keys_case_insensitively(self) -> None:
+        item = {
+            "id": "b1",
+            "env_vars": {"SECRET": "x"},
+            "CDP_WS_URL": "wss://token@example",
+            "browser_live_view_url": "https://token@example",
+            "region": "us",
+        }
+        assert _redact_sensitive_fields(item) == {"id": "b1", "region": "us"}
 
 
 class TestNextPage:
@@ -118,9 +122,9 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    def _collect(self, endpoint: str, manager: _FakeResumableManager) -> list[dict]:
+    def _collect(self, endpoint: str) -> list[dict]:
         rows: list[dict] = []
-        for table in get_rows("sk_test", endpoint, mock.MagicMock(), manager):  # type: ignore[arg-type]
+        for table in get_rows("sk_test", endpoint, mock.MagicMock()):
             rows.extend(table.to_pylist())
         return rows
 
@@ -128,7 +132,7 @@ class TestGetRows:
     def test_single_page_full_refresh(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = _response([{"id": "a1"}, {"id": "a2"}], has_more=False)
 
-        rows = self._collect("apps", _FakeResumableManager())
+        rows = self._collect("apps")
 
         assert rows == [{"id": "a1"}, {"id": "a2"}]
         assert mock_session.return_value.get.call_count == 1
@@ -140,7 +144,7 @@ class TestGetRows:
             _response([{"id": "a2"}], has_more=False),
         ]
 
-        rows = self._collect("deployments", _FakeResumableManager())
+        rows = self._collect("deployments")
 
         assert rows == [{"id": "a1"}, {"id": "a2"}]
         urls = [call.kwargs.get("url") or call.args[0] for call in mock_session.return_value.get.call_args_list]
@@ -150,43 +154,33 @@ class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_first_page_yields_nothing(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = _response([], has_more=False)
-        assert self._collect("profiles", _FakeResumableManager()) == []
+        assert self._collect("profiles") == []
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_browsers_requests_all_statuses(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = _response([{"id": "b1"}], has_more=False)
 
-        self._collect("browsers", _FakeResumableManager())
+        self._collect("browsers")
 
         url = mock_session.return_value.get.call_args.args[0]
         assert "status=all" in url
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_starts_from_saved_offset(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = _response([{"id": "a1"}], has_more=False)
+    def test_sensitive_fields_are_stripped_from_rows(self, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = _response(
+            [{"id": "b1", "browser_live_view_url": "https://token@example", "region": "us"}], has_more=False
+        )
 
-        self._collect("apps", _FakeResumableManager(KernelResumeConfig(offset=250)))
+        rows = self._collect("browsers")
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "offset=250" in url
+        assert rows == [{"id": "b1", "region": "us"}]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_saves_state_after_yielding_a_batch(self, mock_session: Any) -> None:
-        # A batch flushes at 2000 rows; 20 full pages of 100 trigger one yield with more pages left,
-        # so the manager must persist the next offset to resume from.
-        pages = [
-            _response(
-                [{"id": f"p{page}-{i}"} for i in range(PAGE_SIZE)], has_more=True, next_offset=(page + 1) * PAGE_SIZE
-            )
-            for page in range(20)
-        ]
-        pages.append(_response([{"id": "last"}], has_more=False))
-        mock_session.return_value.get.side_effect = pages
+    def test_unexpected_response_shape_raises(self, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = _response({"unexpected": [{"id": "a1"}]}, has_more=False)
 
-        manager = _FakeResumableManager()
-        self._collect("invocations", manager)
-
-        assert manager.saved == [KernelResumeConfig(offset=2000)]
+        with pytest.raises(KernelUnexpectedResponseError):
+            self._collect("apps")
 
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -197,7 +191,7 @@ class TestGetRows:
             _response([{"id": "a1"}], has_more=False),
         ]
 
-        rows = self._collect("apps", _FakeResumableManager())
+        rows = self._collect("apps")
 
         assert rows == [{"id": "a1"}]
         assert mock_session.return_value.get.call_count == 3
@@ -208,7 +202,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response(None, status_code=503)
 
         with pytest.raises(KernelRetryableError):
-            self._collect("apps", _FakeResumableManager())
+            self._collect("apps")
 
         assert mock_session.return_value.get.call_count == 5
 
@@ -217,7 +211,7 @@ class TestKernelSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = KERNEL_ENDPOINTS[endpoint]
-        response = kernel_source("sk_test", endpoint, mock.MagicMock(), mock.MagicMock())
+        response = kernel_source("sk_test", endpoint, mock.MagicMock())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

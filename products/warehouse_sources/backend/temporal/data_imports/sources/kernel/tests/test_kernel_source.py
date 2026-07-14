@@ -4,7 +4,6 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KernelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import KernelResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -121,19 +120,13 @@ class TestKernelSource:
         assert is_valid is expected_valid
         mock_validate.assert_called_once_with("sk_test")
 
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is KernelResumeConfig
-
     @mock.patch(f"{_SOURCE_MODULE}.kernel_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_kernel_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "invocations"
-        manager = mock.MagicMock()
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        self.source.source_for_pipeline(self.config, inputs)
 
         kwargs = mock_kernel_source.call_args.kwargs
         assert kwargs["api_key"] == "sk_test"
         assert kwargs["endpoint"] == "invocations"
-        assert kwargs["resumable_source_manager"] is manager

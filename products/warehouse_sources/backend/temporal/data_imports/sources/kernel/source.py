@@ -13,16 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
-    KernelResumeConfig,
     kernel_source,
     validate_credentials as validate_kernel_credentials,
 )
@@ -31,7 +29,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class KernelSource(ResumableSource[KernelSourceConfig, KernelResumeConfig]):
+class KernelSource(SimpleSource[KernelSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
 
     @property
@@ -122,18 +120,9 @@ You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.
 
         return False, "Invalid Kernel API key"
 
-    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KernelResumeConfig]:
-        return ResumableSourceManager[KernelResumeConfig](inputs, KernelResumeConfig)
-
-    def source_for_pipeline(
-        self,
-        config: KernelSourceConfig,
-        resumable_source_manager: ResumableSourceManager[KernelResumeConfig],
-        inputs: SourceInputs,
-    ) -> SourceResponse:
+    def source_for_pipeline(self, config: KernelSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return kernel_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
         )

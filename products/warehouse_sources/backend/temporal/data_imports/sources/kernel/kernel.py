@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlencode
@@ -10,9 +9,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import (
     KERNEL_ENDPOINTS,
+    SENSITIVE_FIELDS,
     KernelEndpointConfig,
 )
 
@@ -26,11 +25,15 @@ class KernelRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
-class KernelResumeConfig:
-    # Next offset to request. Offset pagination means resuming is just "start from this offset";
-    # merge/full-refresh dedupe on the primary key handles any page re-fetched after a crash.
-    offset: int = 0
+class KernelUnexpectedResponseError(Exception):
+    """Raised when a list response is neither a JSON array nor a recognized wrapped shape.
+
+    Every endpoint is a full refresh, so a body we can't parse must fail loudly: treating it
+    as an empty page would let the sync "succeed" with zero rows and overwrite the existing
+    warehouse table with nothing.
+    """
+
+    pass
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -50,7 +53,10 @@ def _extract_items(body: Any) -> list[dict[str, Any]]:
 
     Kernel signals pagination through headers (X-Has-More / X-Next-Offset), so the body is
     expected to be a bare JSON array. We defensively also accept the common wrapped shapes
-    ({"data": [...]} etc.) since this has not been verified against a live API.
+    ({"data": [...]} etc.) since this has not been verified against a live API. An empty array
+    (or empty wrapped list) is a legitimate "no more rows" signal. Any other shape is
+    unexpected, and we raise rather than return [] - a silent empty result would let a full
+    refresh overwrite the table with zero rows.
     """
     if isinstance(body, list):
         return body
@@ -59,7 +65,18 @@ def _extract_items(body: Any) -> list[dict[str, Any]]:
             value = body.get(key)
             if isinstance(value, list):
                 return value
-    return []
+    raise KernelUnexpectedResponseError(f"Unexpected Kernel list response shape: {type(body).__name__}")
+
+
+def _redact_sensitive_fields(item: dict[str, Any]) -> dict[str, Any]:
+    """Drop credential-bearing fields (see SENSITIVE_FIELDS) before a row is batched.
+
+    Kernel objects are written to the warehouse verbatim, so env vars and token-bearing
+    live-view / CDP URLs would otherwise be queryable by any project user.
+    """
+    if not isinstance(item, dict):
+        return item
+    return {key: value for key, value in item.items() if key.lower() not in SENSITIVE_FIELDS}
 
 
 def _next_page(headers: Any, current_offset: int, page_len: int) -> tuple[bool, int]:
@@ -123,7 +140,6 @@ def get_rows(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[KernelResumeConfig],
 ) -> Iterator[Any]:
     config = KERNEL_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -131,11 +147,10 @@ def get_rows(
     # One session reused across every page so urllib3 keeps the connection alive.
     session = make_tracked_session()
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None else 0
-    if resume is not None:
-        logger.debug(f"Kernel: resuming {endpoint} from offset={offset}")
-
+    # Full refresh only: no resumable offset state. A crashed sync restarts from offset 0 and
+    # the pipeline overwrites the table on the first chunk, so re-fetched pages never duplicate
+    # rows (full-refresh appends have no primary-key dedupe, so resuming mid-table would).
+    offset = 0
     while True:
         params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset, **config.extra_params}
         url = _build_url(config.path, params)
@@ -146,16 +161,12 @@ def get_rows(
             break
 
         for item in items:
-            batcher.batch(item)
+            batcher.batch(_redact_sensitive_fields(item))
 
         has_more, next_offset = _next_page(response.headers, offset, len(items))
 
         if batcher.should_yield():
             yield batcher.get_table()
-            # Save AFTER yielding (and only when more pages remain) so a crash re-fetches the
-            # last window rather than skipping it.
-            if has_more:
-                resumable_source_manager.save_state(KernelResumeConfig(offset=next_offset))
 
         if not has_more:
             break
@@ -170,7 +181,6 @@ def kernel_source(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[KernelResumeConfig],
 ) -> SourceResponse:
     endpoint_config: KernelEndpointConfig = KERNEL_ENDPOINTS[endpoint]
 
@@ -180,7 +190,6 @@ def kernel_source(
             api_key=api_key,
             endpoint=endpoint,
             logger=logger,
-            resumable_source_manager=resumable_source_manager,
         ),
         primary_keys=endpoint_config.primary_keys,
         # Full refresh for every endpoint (see settings.py) - no incremental watermark to order,
