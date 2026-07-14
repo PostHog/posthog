@@ -33,8 +33,19 @@ class LogsViewColumnSerializer(serializers.Serializer):
     )
     width = serializers.IntegerField(
         required=False,
-        help_text="Column width in pixels. Omitted for the default width; ignored for the flex message column.",
+        min_value=1,
+        # Mirrors MAX_ATTRIBUTE_COLUMN_WIDTH in the frontend resizer so a legitimate drag can't
+        # persist a width the API would reject.
+        max_value=2000,
+        help_text="Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A `custom` column is only renderable if it carries an expression to query;
+        # without one the table would show a permanently blank column.
+        if attrs.get("type") == "custom" and not attrs.get("expression"):
+            raise serializers.ValidationError({"expression": "Custom columns require an expression."})
+        return attrs
 
 
 class LogsViewSerializer(serializers.ModelSerializer):
@@ -48,10 +59,10 @@ class LogsViewSerializer(serializers.ModelSerializer):
         child=LogsViewColumnSerializer(),
         required=False,
         allow_null=True,
-        default=None,
         help_text=(
             "Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. "
-            "Null means the view has no column preference and the client renders its default column set."
+            "Null means the view has no column preference and the client renders its default column set. "
+            "Omitting the field on update leaves the saved configuration unchanged; send null to clear it."
         ),
     )
 

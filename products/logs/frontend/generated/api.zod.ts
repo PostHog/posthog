@@ -1474,6 +1474,8 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsViewsCreateBodyNameMax = 400
 
+export const logsViewsCreateBodyColumnsItemWidthMax = 2000
+
 export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsCreateBodyNameMax),
     filters: zod
@@ -1512,20 +1514,24 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 width: zod
                     .number()
+                    .min(1)
+                    .max(logsViewsCreateBodyColumnsItemWidthMax)
                     .optional()
                     .describe(
-                        'Column width in pixels. Omitted for the default width; ignored for the flex message column.'
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
                     ),
             })
         )
         .nullish()
         .describe(
-            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set.'
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
         ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsUpdateBodyNameMax = 400
+
+export const logsViewsUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsUpdateBodyNameMax),
@@ -1565,20 +1571,24 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 width: zod
                     .number()
+                    .min(1)
+                    .max(logsViewsUpdateBodyColumnsItemWidthMax)
                     .optional()
                     .describe(
-                        'Column width in pixels. Omitted for the default width; ignored for the flex message column.'
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
                     ),
             })
         )
         .nullish()
         .describe(
-            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set.'
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
         ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const logsViewsPartialUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
@@ -1618,15 +1628,17 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 width: zod
                     .number()
+                    .min(1)
+                    .max(logsViewsPartialUpdateBodyColumnsItemWidthMax)
                     .optional()
                     .describe(
-                        'Column width in pixels. Omitted for the default width; ignored for the flex message column.'
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
                     ),
             })
         )
         .nullish()
         .describe(
-            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set.'
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
         ),
     pinned: zod.boolean().optional(),
 })
