@@ -1,8 +1,8 @@
 """Fire-and-forget dispatch of the signup enrichment workflow from the request path.
 
 Every guard lives here so the signup serializer stays a one-line call. Dispatch is
-gated by the kill switch, US-only for v0, and a configured Harmonic key, and never
-raises — a Temporal outage degrades to "enrichment did not run". Personal-domain
+gated by the kill switch and US-only for v0, and never raises — a Temporal outage
+degrades to "enrichment did not run". The provider key lives on the workers only. Personal-domain
 signups get no provider lookup, but the work-vs-personal email signal is recorded
 for every signup so consumers can read it either way.
 """
@@ -41,8 +41,10 @@ def _domain_from_email(email: str) -> str | None:
 
 def start_signup_enrichment_workflow(*, organization_id: str, distinct_id: str | None, email: str) -> None:
     """Dispatch enrichment for a freshly signed-up org, once the request transaction commits."""
-    # HARMONIC_API_KEY only exists in ee/settings, so read it defensively for non-EE deploys.
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED or not getattr(settings, "HARMONIC_API_KEY", ""):
+    # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
+    # only on the workers, and a keyless worker fails loudly into the launch alert instead of
+    # web pods silently never dispatching (also keeps the key off the public web fleet).
+    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
         return
     # v0 is US-only.
     if get_instance_region() != "US":

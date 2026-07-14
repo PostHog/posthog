@@ -53,11 +53,13 @@ def test_kill_switch_off_never_dispatches_or_writes():
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="")
-def test_missing_harmonic_key_never_dispatches():
+def test_missing_harmonic_key_still_dispatches():
+    # The key lives on the workers only; web-side dispatch must not depend on it. A keyless
+    # worker fails into the launch alert, which is the observable failure we want.
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
-    connect_mock.assert_not_called()
+    connect_mock.assert_called_once()
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
