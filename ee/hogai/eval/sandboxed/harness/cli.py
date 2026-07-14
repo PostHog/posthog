@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--case-timeout",
         type=int,
         default=None,
-        help=f"Agent-run budget in seconds, started after team setup (default: {_default_case_timeout()}).",
+        help=f"Agent-run budget in seconds, started after team setup; must be at least 1 (default: {_default_case_timeout()}).",
     )
     parser.add_argument(
         "--trials",
@@ -150,6 +150,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         parser.error("--rebuild-sandbox-image only applies to --provider docker")
     if args.trials < 1:
         parser.error("--trials must be at least 1")
+    if args.case_timeout is not None and args.case_timeout < 1:
+        parser.error("--case-timeout must be at least 1")
 
     # A runtime/model mismatch otherwise surfaces minutes into the run as an opaque
     # gateway 403, with the agent finishing without doing anything.
@@ -180,7 +182,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         rebuild_sandbox_image=args.rebuild_sandbox_image,
         create_db=args.create_db,
         list_only=args.list_only,
-        per_case_timeout_seconds=args.case_timeout or _default_case_timeout(),
+        per_case_timeout_seconds=args.case_timeout if args.case_timeout is not None else _default_case_timeout(),
         trials=args.trials,
         fail_under=args.fail_under,
     )
