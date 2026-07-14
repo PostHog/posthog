@@ -417,6 +417,7 @@ the row lists both.
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
 | writesonic              | HTTP                        | requests                                                        | ✅                          |
 | wufoo                   | HTTP                        | requests                                                        | ✅                          |
+| zapier_supported_storage | HTTP                       | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
 | zenloop                 | HTTP                        | requests                                                        | ✅                          |
@@ -864,7 +865,6 @@ doesn't conflict with concurrent PRs.
 - yousign
 - youtube_analytics
 - youtube_data
-- zapier_supported_storage
 - zapsign
 - zellify
 - zendesk_sunshine
