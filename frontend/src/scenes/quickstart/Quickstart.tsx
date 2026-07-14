@@ -2,11 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import * as constructionPng from '@posthog/brand/hoggies/png/construction-1'
 import { IconBook, IconCheckCircle, IconGraduationCap, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
@@ -36,7 +34,8 @@ export const scene: SceneExport = {
     logic: quickstartLogic,
 }
 
-const HedgehogBuilder = pngHoggie(constructionPng)
+const HERO_IMAGE_URL =
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/logs_hogs_5d5e98d9e6.png'
 
 function captureQuickstartAction(action: string, productKey?: string): void {
     posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
@@ -465,8 +464,9 @@ export function Quickstart(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-8 py-4">
-            <section className="rounded-lg border bg-surface-secondary p-4 md:p-6 flex items-center justify-between gap-6 overflow-hidden">
-                <div className="flex flex-col gap-2 min-w-0">
+            <section className="rounded-lg border bg-surface-secondary flex items-stretch gap-6 overflow-hidden">
+                <img src={HERO_IMAGE_URL} alt="" className="w-56 lg:w-72 shrink-0 object-cover hidden md:block" />
+                <div className="flex flex-col justify-center gap-2 min-w-0 p-4 md:p-6 md:pl-0">
                     <h1 className="text-3xl font-bold mb-0">
                         Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                     </h1>
@@ -476,7 +476,6 @@ export function Quickstart(): JSX.Element {
                     </p>
                     {installationComplete && <EventsFlowingStatus />}
                 </div>
-                <HedgehogBuilder className="h-28 shrink-0 hidden md:block" />
             </section>
 
             {!installationComplete && <InstallHeroCard />}
