@@ -44,13 +44,86 @@ function DomainTags({ ids, domains }: { ids: readonly string[]; domains: Organiz
     )
 }
 
-function confirmConfigRemoval(config: IdentityProviderConfigApi, onRemove: () => void): void {
-    LemonDialog.open({
-        title: `Remove ${config.name || 'identity provider configuration'}?`,
-        description: 'Authentication and provisioning for its assigned domains will stop immediately.',
-        primaryButton: { status: 'danger', children: 'Remove configuration', onClick: onRemove },
-        secondaryButton: { children: 'Cancel' },
-    })
+interface IdentityProviderFeatureCardProps {
+    title: string
+    description: string
+    icon: JSX.Element
+    available: boolean
+    upgradeUrl: string
+    config?: IdentityProviderConfigApi
+    domainIds: readonly string[]
+    domains: OrganizationDomainApi[]
+    ready: boolean
+    readyLabel: string
+    configureLabel: string
+    disabledReason?: string | null
+    onConfigure: () => void
+    children?: JSX.Element
+}
+
+function IdentityProviderFeatureCard({
+    title,
+    description,
+    icon,
+    available,
+    upgradeUrl,
+    config,
+    domainIds,
+    domains,
+    ready,
+    readyLabel,
+    configureLabel,
+    disabledReason,
+    onConfigure,
+    children,
+}: IdentityProviderFeatureCardProps): JSX.Element {
+    return (
+        <LemonCard className="p-5 flex h-full flex-col gap-4">
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-xl">{icon}</span>
+                    <h3>{title}</h3>
+                </div>
+                <LemonTag type={ready ? 'success' : 'muted'}>
+                    {config ? (ready ? readyLabel : 'Needs attention') : 'Not configured'}
+                </LemonTag>
+            </div>
+            <p className="text-muted min-h-10">{description}</p>
+            {!available ? (
+                <div className="mt-auto">
+                    <Link to={upgradeUrl}>Upgrade your plan to configure {title}.</Link>
+                </div>
+            ) : (
+                <>
+                    {config ? (
+                        <div className="space-y-4">
+                            <div>
+                                <div className="text-xs font-semibold uppercase text-muted">Configuration</div>
+                                <div className="font-semibold">{config.name || title}</div>
+                            </div>
+                            <div>
+                                <div className="mb-1 text-xs font-semibold uppercase text-muted">Domains</div>
+                                <DomainTags ids={domainIds} domains={domains} />
+                            </div>
+                            {children}
+                        </div>
+                    ) : (
+                        <div className="rounded border border-dashed p-3 text-muted">
+                            Set up {title} and choose which verified domains should use it.
+                        </div>
+                    )}
+                    <LemonButton
+                        className="mt-auto self-start"
+                        type={config ? 'secondary' : 'primary'}
+                        disabledReason={disabledReason}
+                        onClick={onConfigure}
+                    >
+                        {config ? `Edit ${title}` : configureLabel}
+                    </LemonButton>
+                </>
+            )}
+        </LemonCard>
+    )
 }
 
 export function VerifiedDomains(): JSX.Element {
@@ -241,13 +314,8 @@ function IdentityProviderSettings(): JSX.Element {
         isSCIMAvailable,
         isXAAAuthenticationAvailable,
     } = useValues(verifiedDomainsLogic)
-    const {
-        setConfigureSAMLModalId,
-        setConfigureSCIMModalId,
-        setConfigureIdJagModalId,
-        setScimLogsModalId,
-        deleteIdentityProviderConfig,
-    } = useActions(verifiedDomainsLogic)
+    const { setConfigureSAMLModalId, setConfigureSCIMModalId, setConfigureIdJagModalId, setScimLogsModalId } =
+        useActions(verifiedDomainsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const billingUrl = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
     const restrictionReason = useRestrictedArea({
@@ -255,184 +323,92 @@ function IdentityProviderSettings(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
     const showXAA = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
-    const samlConfigs = identityProviderConfigs.filter(
+    const samlConfig = identityProviderConfigs.find(
         (config) =>
             config.saml_domain_ids.length || config.saml_entity_id || config.saml_acs_url || config.saml_x509_cert
     )
-    const scimConfigs = identityProviderConfigs.filter((config) => config.scim_domain_ids.length || config.scim_enabled)
-    const xaaConfigs = identityProviderConfigs.filter(
+    const scimConfig = identityProviderConfigs.find((config) => config.scim_domain_ids.length || config.scim_enabled)
+    const xaaConfig = identityProviderConfigs.find(
         (config) => config.id_jag_domain_ids.length || config.id_jag_issuer_url
     )
-    const actionsFor = (config: IdentityProviderConfigApi, edit: () => void): JSX.Element => (
-        <More
-            overlay={
-                <>
-                    <LemonButton fullWidth onClick={edit}>
-                        Edit configuration
-                    </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        status="danger"
-                        onClick={() => confirmConfigRemoval(config, () => deleteIdentityProviderConfig(config.id))}
-                    >
-                        Remove configuration
-                    </LemonButton>
-                </>
-            }
-        />
-    )
-    const samlColumns: LemonTableColumns<IdentityProviderConfigApi> = [
-        { key: 'name', title: 'Connection', render: (_, config) => config.name || 'Unnamed SAML connection' },
-        {
-            key: 'status',
-            title: 'Status',
-            render: (_, config) => (
-                <LemonTag type={config.has_saml ? 'success' : 'muted'}>{config.has_saml ? 'Ready' : 'Draft'}</LemonTag>
-            ),
-        },
-        {
-            key: 'domains',
-            title: 'Domains',
-            render: (_, config) => <DomainTags ids={config.saml_domain_ids} domains={verifiedDomainsList} />,
-        },
-        {
-            key: 'actions',
-            width: 32,
-            render: (_, config) => actionsFor(config, () => setConfigureSAMLModalId(config.id)),
-        },
-    ]
-    const xaaColumns: LemonTableColumns<IdentityProviderConfigApi> = [
-        {
-            key: 'name',
-            title: 'Trust configuration',
-            render: (_, config) => config.name || 'Unnamed XAA configuration',
-        },
-        {
-            key: 'issuer',
-            title: 'Issuer',
-            render: (_, config) => config.id_jag_issuer_url || <span className="text-muted">Not set</span>,
-        },
-        {
-            key: 'domains',
-            title: 'Domains',
-            render: (_, config) => <DomainTags ids={config.id_jag_domain_ids} domains={verifiedDomainsList} />,
-        },
-        {
-            key: 'actions',
-            width: 32,
-            render: (_, config) => actionsFor(config, () => setConfigureIdJagModalId(config.id)),
-        },
-    ]
     return (
-        <div className="space-y-8">
-            <section className="space-y-3">
-                <div className="flex justify-between gap-4">
-                    <div>
-                        <h2 className="flex items-center gap-2">
-                            <IconShieldLock /> SAML
-                        </h2>
-                        <p className="text-muted">
-                            Create reusable SAML connections and assign each one to multiple domains.
-                        </p>
-                    </div>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => setConfigureSAMLModalId(NEW_IDENTITY_PROVIDER_CONFIG)}
-                        disabledReason={restrictionReason || (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)}
-                    >
-                        Add SAML connection
-                    </LemonButton>
-                </div>
-                {isSAMLAvailable ? (
-                    <LemonTable
-                        dataSource={samlConfigs}
-                        columns={samlColumns}
-                        rowKey="id"
-                        emptyState="No SAML connections yet."
-                    />
-                ) : (
-                    <Link to={billingUrl}>Upgrade your plan to configure SAML.</Link>
-                )}
-            </section>
-            <section className="space-y-3">
-                <div className="flex justify-between gap-4">
-                    <div>
-                        <h2 className="flex items-center gap-2">
-                            <IconPeople /> SCIM
-                        </h2>
-                        <p className="text-muted">
-                            Manage provisioning tokens and endpoints independently from domain policy.
-                        </p>
-                    </div>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => setConfigureSCIMModalId(NEW_IDENTITY_PROVIDER_CONFIG)}
-                        disabledReason={restrictionReason || (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)}
-                    >
-                        Add SCIM configuration
-                    </LemonButton>
-                </div>
-                {!isSCIMAvailable ? (
-                    <Link to={billingUrl}>Upgrade your plan to configure SCIM.</Link>
-                ) : scimConfigs.length === 0 ? (
-                    <LemonCard className="p-4 text-muted">No SCIM provisioning configurations yet.</LemonCard>
-                ) : (
-                    <div className="grid gap-3 md:grid-cols-2">
-                        {scimConfigs.map((config) => (
-                            <LemonCard key={config.id} className="p-4 space-y-3">
-                                <div className="flex justify-between gap-3">
-                                    <div>
-                                        <h3>{config.name || 'Unnamed SCIM configuration'}</h3>
-                                        <LemonTag type={config.has_scim ? 'success' : 'muted'}>
-                                            {config.has_scim ? 'Provisioning enabled' : 'Provisioning disabled'}
-                                        </LemonTag>
-                                    </div>
-                                    {actionsFor(config, () => setConfigureSCIMModalId(config.id))}
+        <section className="space-y-4">
+            <div>
+                <h2>Identity provider settings</h2>
+                <p className="text-muted">
+                    Configure one connection for each authentication feature, then assign it to any verified domains.
+                </p>
+            </div>
+            <div className={`grid gap-4 ${showXAA ? 'xl:grid-cols-3' : 'lg:grid-cols-2'}`}>
+                <IdentityProviderFeatureCard
+                    title="SAML"
+                    description="Let people sign in through your organization’s identity provider."
+                    icon={<IconShieldLock />}
+                    available={isSAMLAvailable}
+                    upgradeUrl={billingUrl}
+                    config={samlConfig}
+                    domainIds={samlConfig?.saml_domain_ids || []}
+                    domains={verifiedDomainsList}
+                    ready={samlConfig?.has_saml || false}
+                    readyLabel="Ready"
+                    configureLabel="Configure SAML"
+                    disabledReason={restrictionReason}
+                    onConfigure={() => setConfigureSAMLModalId(samlConfig?.id || NEW_IDENTITY_PROVIDER_CONFIG)}
+                />
+                <IdentityProviderFeatureCard
+                    title="SCIM"
+                    description="Provision people and groups from your identity provider."
+                    icon={<IconPeople />}
+                    available={isSCIMAvailable}
+                    upgradeUrl={billingUrl}
+                    config={scimConfig}
+                    domainIds={scimConfig?.scim_domain_ids || []}
+                    domains={verifiedDomainsList}
+                    ready={scimConfig?.has_scim || false}
+                    readyLabel="Provisioning enabled"
+                    configureLabel="Configure SCIM"
+                    disabledReason={restrictionReason}
+                    onConfigure={() => setConfigureSCIMModalId(scimConfig?.id || NEW_IDENTITY_PROVIDER_CONFIG)}
+                >
+                    <div className="space-y-2">
+                        {scimConfig?.scim_domain_ids.map((id) => {
+                            const domain = verifiedDomainsList.find((item) => item.id === id)
+                            return domain?.scim_base_url ? (
+                                <div key={id} className="flex items-center justify-between gap-2">
+                                    <span className="truncate font-mono text-sm">{domain.scim_base_url}</span>
+                                    <LemonButton size="xsmall" onClick={() => setScimLogsModalId(id)}>
+                                        View logs
+                                    </LemonButton>
                                 </div>
-                                <DomainTags ids={config.scim_domain_ids} domains={verifiedDomainsList} />
-                                {config.scim_domain_ids.map((id) => {
-                                    const domain = verifiedDomainsList.find((item) => item.id === id)
-                                    return domain?.scim_base_url ? (
-                                        <div key={id} className="flex items-center justify-between gap-2">
-                                            <span className="truncate font-mono text-sm">{domain.scim_base_url}</span>
-                                            <LemonButton size="xsmall" onClick={() => setScimLogsModalId(id)}>
-                                                View logs
-                                            </LemonButton>
-                                        </div>
-                                    ) : null
-                                })}
-                            </LemonCard>
-                        ))}
+                            ) : null
+                        })}
                     </div>
+                </IdentityProviderFeatureCard>
+                {showXAA && (
+                    <IdentityProviderFeatureCard
+                        title="XAA"
+                        description="Trust identity assertions from external applications and integrations."
+                        icon={<IconShuffle />}
+                        available={isXAAAuthenticationAvailable}
+                        upgradeUrl={billingUrl}
+                        config={xaaConfig}
+                        domainIds={xaaConfig?.id_jag_domain_ids || []}
+                        domains={verifiedDomainsList}
+                        ready={xaaConfig?.has_id_jag || false}
+                        readyLabel="Ready"
+                        configureLabel="Configure XAA"
+                        disabledReason={restrictionReason}
+                        onConfigure={() => setConfigureIdJagModalId(xaaConfig?.id || NEW_IDENTITY_PROVIDER_CONFIG)}
+                    >
+                        {xaaConfig?.id_jag_issuer_url ? (
+                            <div>
+                                <div className="text-xs font-semibold uppercase text-muted">Issuer</div>
+                                <div className="truncate font-mono text-sm">{xaaConfig.id_jag_issuer_url}</div>
+                            </div>
+                        ) : undefined}
+                    </IdentityProviderFeatureCard>
                 )}
-            </section>
-            {showXAA && (
-                <section className="space-y-3">
-                    <div className="flex justify-between gap-4">
-                        <div>
-                            <h2 className="flex items-center gap-2">
-                                <IconShuffle /> XAA
-                            </h2>
-                            <p className="text-muted">
-                                Define trusted token issuers and reuse them across integration domains.
-                            </p>
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => setConfigureIdJagModalId(NEW_IDENTITY_PROVIDER_CONFIG)}
-                            disabledReason={restrictionReason}
-                        >
-                            Add XAA configuration
-                        </LemonButton>
-                    </div>
-                    <LemonTable
-                        dataSource={xaaConfigs}
-                        columns={xaaColumns}
-                        rowKey="id"
-                        emptyState="No XAA configurations yet."
-                    />
-                </section>
-            )}
-        </div>
+            </div>
+        </section>
     )
 }
