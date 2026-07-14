@@ -105,3 +105,93 @@ test) were updated. Everything else — the manager, repository, types, and thei
 42 tests — moved unchanged (only the moved `manager.rs` test-module import paths
 were rewritten from `crate::event_restrictions::…` to `crate::…`). Test-only deps
 `rand` (mock repo key suffixes) and `chrono` are declared on the new crate.
+
+## Consumer preprocess pipeline (Phase B2)
+
+Lives entirely in `rust/ingestion-consumer/src/preprocess/` (`headers.rs`,
+`context.rs`, `parse_headers.rs`, `deny_events.rs`, `restrictions.rs`,
+`outputs.rs`, `mod.rs`). The pipeline is `ParseHeaders -> DenyEvents ->
+ApplyEventRestrictions`, built on `common-pipelines` with `Fx = ()` (no plugins
+— the steps are pre-team and emit no ingestion warnings). Gated behind
+`PREPROCESS_MODE` (`off` default): when off, `Preprocessor::from_config` returns
+`None`, the pipeline is never constructed, and `process_collected_batch` is a
+straight passthrough — byte-for-byte the pre-B2 behavior.
+
+### Kill switch is structural, not a branch
+
+`off` isn't a runtime `if` inside the hot path — the `Option<Arc<Preprocessor>>`
+is `None`, so the batch path calls `dispatcher.assign(collected.messages)`
+exactly as before. Zero added allocations or awaits when disabled.
+
+### Commit accounting for removed events
+
+`ProcessedBatch.total_accepted` gates the offset commit. Terminated events
+(drop / DLQ / redirect) are removed from dispatch but returned as
+`PreprocessOutcome.removed_accepted`, which `process_collected_batch` adds to the
+scatter's accepted count. So `survivors_dispatched + removed_accepted ==
+batch_size` and the commit gate still closes. If preprocessing removes *every*
+message, dispatch is skipped entirely and the batch commits on the removed count
+alone (the pre-B2 "no healthy workers" bail is guarded behind a non-empty
+survivor set). Unit tests: `enforce_counts_dropped_as_accepted`,
+`enforce_produces_verdicts_and_counts_accepted`.
+
+### Verdict production (B2.4 — done)
+
+Implemented. In enforce mode with `INGESTION_OUTPUT_DLQ_TOPIC` /
+`INGESTION_OUTPUT_OVERFLOW_TOPIC` configured, `Preprocessor::from_config` builds
+a `common-kafka` `FutureProducer` and a framework `OutputRegistry`, and terminal
+verdicts route through the framework's `handle_results` (Node-parity DLQ /
+redirect provenance headers, produces awaited before the batch reports
+accepted). A terminated event is counted as accepted only after its produce
+acks; any `dlq_failed`/`redirect_failed` fails the batch (process exit,
+redelivery) so nothing meant to land somewhere is silently dropped. Verified
+with `MockProducer` (`enforce_produces_verdicts_and_counts_accepted`); real
+Kafka production is not integration-tested (the POC plan forbids Redpanda
+tests).
+
+**Fallback** (no output topic configured, or the topics are empty): enforce mode
+still enforces drops (removed + counted), but DLQ/redirect verdicts **fail open**
+— the event is passed through to dispatch unchanged and a warning is logged.
+Selected structurally by `outputs: Option<OutputRegistry>` being `None`
+(`enforce_passthrough`).
+
+### Producer liveness handle is shared, not dedicated
+
+The preprocess producer reuses the consumer's `lifecycle::Handle` as its
+`SyncLivenessReporter` rather than registering a dedicated lifecycle component.
+Fine for the POC; a production version would isolate producer liveness so a
+stuck producer trips its own deadline.
+
+### Static restrictions only (dynamic Redis config deferred)
+
+`ApplyEventRestrictions` is fed only the three static env lists
+(`DROP_EVENTS_BY_TOKEN_DISTINCT_ID`,
+`SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID`,
+`INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID`), parsed into a shared
+`common-event-restrictions` `RestrictionManager` (so token/filter matching is the
+same code capture uses). The Redis-backed `EventRestrictionService` background
+refresh is **not** wired (stretch goal per the plan). Consequence: no
+fail-open-on-stale-config path exists here because there is no async config
+source to fail — the static manager is infallible, so `ApplyEventRestrictions`
+is not `fail_open()`-wrapped. `overflow_redirect` is hardcoded `true` whenever
+the pipeline is constructed, so dry-run and enforce compute identical verdicts
+(clean dry-run/enforce comparison); a real lane would gate this on lane config.
+
+### No `Bytes` intake refactor
+
+The consumer still collects messages as `SerializedKafkaMessage` (owned
+`String` payload/key/headers). The pipeline input `RawMessage` is a **clone** of
+each message's `HashMap<String, String>` headers, and DLQ/redirect `RawRecord`s
+re-`Bytes`-wrap the owned `String`s. WP2.1's zero-copy `Bytes` intake is out of
+scope for the POC; both clones vanish once intake hands over `Bytes`. All of
+this cost is gated behind `PREPROCESS_MODE != off`.
+
+### Header parsing parity gaps
+
+`EventHeaders::parse` extracts the same 10 tracked headers as Node's
+`parseEventHeaders` and emits the same `kafka_header_status_total{header,status}`
+counter (present = truthy, mirroring Node). Not ported: `sanitizeString` on
+`token`/`distinct_id` and `normalizeSessionId` on `session_id` — values are taken
+verbatim. `now` is kept as the raw header string (not parsed to a timestamp); the
+restriction `EventContext.now_ts` uses `Utc::now()` since the static manager
+never consults it.

@@ -433,7 +433,11 @@ async fn async_main(config: Config) -> Result<()> {
 
     // Header-only preprocess pipeline (deny events, event restrictions). `None`
     // unless PREPROCESS_MODE is dry_run/enforce — off by default, zero change.
-    let preprocessor = Preprocessor::from_config(&config);
+    // In enforce mode with a DLQ/overflow topic configured this creates a Kafka
+    // producer (reusing the consumer's liveness handle).
+    let preprocessor = Preprocessor::from_config(&config, consumer_handle.clone())
+        .await
+        .context("Failed to build preprocess pipeline")?;
     if let Some(pp) = &preprocessor {
         info!(mode = ?pp.mode(), "Preprocess pipeline enabled");
     }

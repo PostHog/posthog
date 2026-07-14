@@ -11,21 +11,26 @@ pub mod context;
 pub mod deny_events;
 pub mod headers;
 pub mod metrics_consts;
+pub mod outputs;
 pub mod parse_headers;
 pub mod restrictions;
 
 use std::str::FromStr;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use metrics::counter;
 use tracing::warn;
 
 use common_pipelines::{
-    ChunkOutcome, ItemOutcome, MetricsObserver, Observer, Pipeline, VerdictKind,
+    handle_results, ChunkOutcome, ItemOutcome, MetricsObserver, Observer, OutputRegistry, Pipeline,
+    RawRecord, VerdictKind,
 };
 
 use crate::config::Config;
 use crate::types::SerializedKafkaMessage;
+
+use outputs::build_output_registry;
 
 pub use context::{PreprocessOutput, RawMessage, WithHeaders};
 pub use deny_events::DenyEvents;
@@ -90,6 +95,9 @@ pub struct Preprocessor {
     mode: PreprocessMode,
     pipeline: Pipeline<RawMessage, WithHeaders, (), PreprocessOutput>,
     observers: Vec<Arc<dyn Observer>>,
+    /// DLQ / overflow output topics + producer, for enforce mode. `None` leaves
+    /// DLQ/redirect verdicts to fail open (passthrough to dispatch).
+    outputs: Option<OutputRegistry<PreprocessOutput>>,
 }
 
 impl Preprocessor {
@@ -104,14 +112,26 @@ impl Preprocessor {
             mode,
             pipeline,
             observers: vec![Arc::new(MetricsObserver)],
+            outputs: None,
         }
     }
 
+    /// Attach the DLQ / overflow output registry (enables verdict production).
+    pub fn with_outputs(mut self, registry: OutputRegistry<PreprocessOutput>) -> Self {
+        self.outputs = Some(registry);
+        self
+    }
+
     /// Build the preprocessor from config, or `None` when `PREPROCESS_MODE=off`
-    /// (the pipeline is not constructed).
-    pub fn from_config(config: &Config) -> Option<Arc<Preprocessor>> {
+    /// (the pipeline is not constructed). In enforce mode with a DLQ/overflow
+    /// topic configured, a Kafka producer is created and wired for verdict
+    /// production; `liveness` is the producer's liveness reporter.
+    pub async fn from_config(
+        config: &Config,
+        liveness: lifecycle::Handle,
+    ) -> anyhow::Result<Option<Arc<Preprocessor>>> {
         if config.preprocess_mode == PreprocessMode::Off {
-            return None;
+            return Ok(None);
         }
         let restrictions = ApplyEventRestrictions::from_static_lists(
             &config.drop_events_by_token_distinct_id,
@@ -120,10 +140,15 @@ impl Preprocessor {
             true,
             config.overflow_preserve_partition_locality,
         );
-        Some(Arc::new(Preprocessor::build(
-            config.preprocess_mode,
-            restrictions,
-        )))
+        let mut preprocessor = Preprocessor::build(config.preprocess_mode, restrictions);
+
+        if config.preprocess_mode == PreprocessMode::Enforce {
+            if let Some(registry) = build_output_registry(config, liveness).await? {
+                preprocessor = preprocessor.with_outputs(registry);
+            }
+        }
+
+        Ok(Some(Arc::new(preprocessor)))
     }
 
     pub fn mode(&self) -> PreprocessMode {
@@ -167,14 +192,72 @@ impl Preprocessor {
                 }
                 Ok(PreprocessOutcome::passthrough(messages))
             }
-            PreprocessMode::Enforce => Ok(self.enforce(messages, outcome)),
+            PreprocessMode::Enforce => self.enforce(messages, outcome).await,
         }
     }
 
-    /// Enforce verdicts without a verdict producer (B2.4 adds production):
-    /// drops are removed and counted as accepted; DLQ/redirect verdicts fail
-    /// open — the event is passed through to dispatch so nothing is lost.
-    fn enforce(
+    async fn enforce(
+        &self,
+        messages: Vec<SerializedKafkaMessage>,
+        outcome: ChunkOutcome<WithHeaders, PreprocessOutput>,
+    ) -> anyhow::Result<PreprocessOutcome> {
+        match &self.outputs {
+            Some(registry) => self.enforce_produce(messages, outcome, registry).await,
+            None => Ok(self.enforce_passthrough(messages, outcome)),
+        }
+    }
+
+    /// Enforce verdicts and produce DLQ/redirect messages to their topics. A
+    /// terminated event is removed from dispatch and counted as accepted only
+    /// after its produce (if any) is acked; a produce failure fails the batch so
+    /// nothing that was meant to land somewhere is silently lost.
+    async fn enforce_produce(
+        &self,
+        messages: Vec<SerializedKafkaMessage>,
+        outcome: ChunkOutcome<WithHeaders, PreprocessOutput>,
+        registry: &OutputRegistry<PreprocessOutput>,
+    ) -> anyhow::Result<PreprocessOutcome> {
+        let mut survivors = Vec::with_capacity(messages.len());
+        let mut terminated_items = Vec::new();
+        let mut terminated_raws = Vec::new();
+
+        for (msg, item) in messages.into_iter().zip(outcome.items) {
+            if item.is_survivor() {
+                survivors.push(msg);
+            } else {
+                terminated_raws.push(raw_record(msg));
+                terminated_items.push(item);
+            }
+        }
+
+        // `handle_results` produces every DLQ/redirect verdict with Node-parity
+        // provenance headers and awaits all produces before returning; the
+        // built-in metrics observer emits `ingestion_pipeline_results`.
+        let compact = ChunkOutcome {
+            items: terminated_items,
+        };
+        let summary = handle_results(&compact, &terminated_raws, registry, &self.observers).await;
+
+        if summary.dlq_failed > 0 || summary.redirect_failed > 0 {
+            anyhow::bail!(
+                "preprocess verdict produce failed (dlq_failed={}, redirect_failed={}); failing batch",
+                summary.dlq_failed,
+                summary.redirect_failed
+            );
+        }
+
+        let removed_accepted = (summary.dropped + summary.dlq_produced + summary.redirected) as u32;
+        Ok(PreprocessOutcome {
+            survivors,
+            removed_accepted,
+        })
+    }
+
+    /// Enforce without a verdict producer: drops are removed and counted as
+    /// accepted; DLQ/redirect verdicts fail open — the event is passed through
+    /// to dispatch so nothing is lost. (B2.4 fallback when no output topic is
+    /// configured.)
+    fn enforce_passthrough(
         &self,
         messages: Vec<SerializedKafkaMessage>,
         outcome: ChunkOutcome<WithHeaders, PreprocessOutput>,
@@ -209,6 +292,23 @@ impl Preprocessor {
             survivors,
             removed_accepted,
         }
+    }
+}
+
+/// Convert a consumed Kafka message into the raw record result-handling
+/// produces verbatim (original payload / key / headers) to DLQ / overflow.
+fn raw_record(msg: SerializedKafkaMessage) -> RawRecord {
+    RawRecord {
+        payload: msg.value.map(Bytes::from).unwrap_or_default(),
+        key: msg.key.map(Bytes::from),
+        headers: msg
+            .headers
+            .into_iter()
+            .map(|(k, v)| (k, v.into_bytes()))
+            .collect(),
+        source_topic: msg.topic,
+        partition: msg.partition,
+        offset: msg.offset,
     }
 }
 
@@ -253,6 +353,50 @@ mod tests {
         assert_eq!(out.survivors.len() as u32 + out.removed_accepted, 3);
         assert_eq!(out.removed_accepted, 1, "one dropped event counted");
         assert_eq!(out.survivors.len(), 2, "keep + DLQ passthrough dispatched");
+    }
+
+    #[tokio::test]
+    async fn enforce_produces_verdicts_and_counts_accepted() {
+        use common_pipelines::{MockProducer, OutputRegistry};
+
+        let dlq = Arc::new(MockProducer::new());
+        let overflow = Arc::new(MockProducer::new());
+        let mut registry = OutputRegistry::<PreprocessOutput>::new();
+        registry.register(
+            PreprocessOutput::Overflow,
+            "overflow_topic",
+            overflow.clone(),
+        );
+        registry.with_dlq("dlq_topic", dlq.clone());
+
+        let restrictions =
+            ApplyEventRestrictions::from_static_lists("phc_drop", "", "phc_of", true, false);
+        let pp = Preprocessor::build(PreprocessMode::Enforce, restrictions).with_outputs(registry);
+
+        let messages = vec![
+            msg("phc_keep", "$pageview"),  // survivor -> dispatched
+            msg("phc_drop", "$pageview"),  // drop -> removed, no produce
+            msg("phc_keep", "$exception"), // denylist -> DLQ produce
+            msg("phc_of", "$pageview"),    // force overflow -> redirect produce
+        ];
+        let out = pp.process(messages).await.unwrap();
+
+        // Commit-gate invariant: 1 dispatched + 3 removed-accepted == 4.
+        assert_eq!(out.survivors.len(), 1);
+        assert_eq!(out.removed_accepted, 3);
+
+        let dlq_sent = dlq.sent();
+        assert_eq!(dlq_sent.len(), 1);
+        assert_eq!(dlq_sent[0].topic, "dlq_topic");
+        assert_eq!(
+            dlq_sent[0].header("dlq_reason"),
+            Some(&b"event_in_denylist"[..])
+        );
+
+        let overflow_sent = overflow.sent();
+        assert_eq!(overflow_sent.len(), 1);
+        assert_eq!(overflow_sent[0].topic, "overflow_topic");
+        assert!(overflow_sent[0].header("redirect-step").is_some());
     }
 
     #[tokio::test]
