@@ -1,16 +1,16 @@
 ---
-name: writing-sandboxed-evals
+name: writing-evals
 description: >
-  Teaches how to write and run sandboxed agent evals — the `ee/hogai/eval/sandboxed/` suites that execute the real coding agent in a Docker or Modal sandbox against a seeded Hedgebox project and score what it did.
+  Teaches how to write and run evals on the `ee/hogai/eval/sandboxed/` harness — sandboxed agent suites that execute the real coding agent in a Docker or Modal sandbox against a seeded Hedgebox project, and one-shot suites that score a single in-process model invocation per case.
   Use when adding or changing eval suites, cases, scorers, seeders, or synthesizers under `ee/hogai/eval/sandboxed/`, or when running or debugging those evals (`hogli evals:sandboxed`).
-  Covers suite discovery, case anatomy, the seeder/synthesizer split, the one-branch scorer patterns, and how to read results.
+  Covers suite kinds and discovery, case anatomy, the seeder/synthesizer split, the one-branch scorer patterns, and how to read results.
   Not for `ee/hogai/eval/ci/` pytest evals, and not for the LLM Analytics product's evaluation features.
 ---
 
-# Writing and running sandboxed evals
+# Writing and running evals
 
-Sandboxed evals run the real coding agent inside a real sandbox against a seeded Hedgebox project, then score what it did.
-They do **not** run under pytest — a standalone harness boots shared infrastructure once (test DB, Django live server, LLM gateway, MCP server, Temporal, personhog) and runs every selected suite concurrently, with Braintrust as the eval engine.
+The harness under `ee/hogai/eval/sandboxed/` runs two kinds of suites: **sandboxed** suites execute the real coding agent inside a real sandbox against a seeded Hedgebox project and score what it did, and **one-shot** suites score a single in-process model invocation per case.
+Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, LLM gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
 
 Read before writing anything:
 
@@ -41,8 +41,40 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 ```
 
 - One suite = one Braintrust experiment. Bundle related cases into one suite; split only when the scorecard would be heterogeneous (self-skipping scorers stretch a shared scorer list across mildly different cases, but a scorecard where half the scorers skip half the cases is a sign to split).
-- `experiment_name` is the Braintrust history key — renaming it resets cross-run comparison. Existing suites end in `-cli` because the MCP server serves the `cli` surface.
+- `experiment_name` is the Braintrust history key — renaming it resets cross-run comparison. Existing sandboxed suites end in `-cli` because the MCP server serves the `cli` surface.
 - `SandboxedPublicEval` sends logs to Braintrust (summary gets an experiment URL); `SandboxedPrivateEval` runs with `no_send_logs`, so the local log dir is the only record. Use private for cases whose prompts or seeds shouldn't leave the machine.
+
+## One-shot suites
+
+A module-level `SUITE_KIND` declares how a module's suites execute; absent means sandboxed, so existing suites need nothing.
+`SuiteKind.ONE_SHOT` suites skip the sandbox entirely: the harness boots only the test DB, personhog, and demo data for them, and preflight requires only `BRAINTRUST_API_KEY` + `LLM_GATEWAY_ANTHROPIC_API_KEY`.
+
+```python
+from ee.hogai.eval.sandboxed.config import BaseEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
+from ee.hogai.eval.sandboxed.harness.requirements import SuiteKind
+from ee.hogai.eval.sandboxed.one_shot import OneShotPrivateEval
+
+SUITE_KIND = SuiteKind.ONE_SHOT
+
+
+async def eval_my_generation(ctx: EvalContext) -> None:
+    async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
+        return {"answer": ...}  # one model invocation, JSON-serializable
+
+    await OneShotPrivateEval(
+        experiment_name="my-generation",
+        cases=[BaseEvalCase(name="my_case", prompt="...")],
+        scorers=[...],
+        task=task,
+        ctx=ctx,
+    )
+```
+
+- The task function runs once per case under the global one-shot limiter with the standard per-case timeout, and its returned dict **is** the scorer `output` — each one-shot suite defines its own output shape, and its scorers read the keys they know about. The runner backfills `prompt`; an optional `last_message` feeds the local `.summary.txt`.
+- Cases are `BaseEvalCase` (no `repo_fixture`/`setup`); the shared master Hedgebox team is available as `ctx.demo_data.master_team_id` for read-only queries. A task that needs writes should copy a team via `ee.hogai.eval.data_setup.copy_demo_data_to_new_team` under `ctx.demo_slots`.
+- The reference suite is `mcp_benchmark/eval_mcp_sql.py`, porting the sql category of the MCP agent-experience benchmark (`services/mcp/evals/benchmark/tasks.yaml`, read directly as the source of truth).
+- The sandbox-log scorer helpers (`LogParser`, `ExitCodeZero`, tool-call scorers) don't apply to one-shot outputs — write deterministic scorers against your own output dict, and reuse `JudgedScorer` for LLM judges.
 
 ## Case anatomy
 
@@ -50,7 +82,7 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 
 - `name` doubles as the `--eval <substr>` filter target and the per-case log filename — keep it unique within the suite.
 - `expected` is keyed by each scorer's `_name()`. A scorer reads only its own sub-dict and self-skips (or falls back to default behavior) when its key is absent — that is what lets one scorer list span a suite's cases. Judges take payloads like `{"warehouse_answer_correctness": {"expected_answer": "..."}}`.
-- Every case runs in a fresh isolated org/team/user copied from the master Hedgebox team, so cases never see each other's state.
+- Every sandboxed case runs in a fresh isolated org/team/user copied from the master Hedgebox team, so cases never see each other's state. One-shot cases share the master team read-only.
 
 ## Seeding data: seeders and synthesizers
 

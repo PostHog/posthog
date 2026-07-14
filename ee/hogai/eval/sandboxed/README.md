@@ -142,7 +142,7 @@ The harness boots the union of what the selected suites require, and a suite tha
 
 ## Adding an eval suite
 
-The `/writing-sandboxed-evals` skill ([.agents/skills/writing-sandboxed-evals](../../../../.agents/skills/writing-sandboxed-evals/SKILL.md)) covers the full authoring workflow — cases, seeders, synthesizers, scorer patterns, and verification.
+The `/writing-evals` skill ([.agents/skills/writing-evals](../../../../.agents/skills/writing-evals/SKILL.md)) covers the full authoring workflow — cases, seeders, synthesizers, scorer patterns, and verification.
 The short version:
 
 There is no registry. Suites are discovered by convention:
