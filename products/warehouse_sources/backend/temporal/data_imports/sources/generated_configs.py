@@ -1979,7 +1979,7 @@ class KekaSourceConfig(config.Config):
 
 @config.config
 class KernelSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
