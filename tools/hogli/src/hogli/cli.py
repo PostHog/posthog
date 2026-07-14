@@ -78,12 +78,7 @@ class CategorizedGroup(click.Group):
     def invoke(self, ctx: click.Context) -> Any:
         ctx.meta["hogli.start_time"] = _time.monotonic()
         ctx.meta["hogli.has_extra_argv"] = len(sys.argv) > 2
-        try:
-            is_tty = sys.stdout.isatty()
-        except Exception:
-            is_tty = False
-        tally = telemetry.OutputTally(is_tty=is_tty)
-        ctx.meta[telemetry.OUTPUT_TALLY_META_KEY] = tally
+        tally = telemetry.install_output_tally(ctx.meta)
         exit_code = 0
         # Tee stdout+stderr through the tally for the whole run, post-command
         # hooks included -- in an agent session this output is the tool_result
@@ -700,7 +695,7 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             **_env_properties(command),
         }
-        tally = ctx.meta.get(telemetry.OUTPUT_TALLY_META_KEY)
+        tally = telemetry.current_output_tally()
         if tally is not None:
             props.update(tally.telemetry_props())
         # Merge devenv-specific properties (set by dev:generate)

@@ -56,9 +56,9 @@ def is_ci() -> bool:
 # ---------------------------------------------------------------------------
 
 
-# ctx.meta key under which the command lifecycle installs the invocation's
-# OutputTally; consumers read it via current_output_tally().
-OUTPUT_TALLY_META_KEY = "hogli.output_tally"
+# Storage is private to this module: install_output_tally() and
+# current_output_tally() are the interface.
+_OUTPUT_TALLY_META_KEY = "hogli.output_tally"
 
 
 class OutputTally:
@@ -85,10 +85,22 @@ class OutputTally:
         return props
 
 
+def install_output_tally(meta: dict[str, Any]) -> OutputTally:
+    """Create the invocation's OutputTally and register it on the click context
+    meta so current_output_tally() can find it."""
+    try:
+        is_tty = sys.stdout.isatty()
+    except Exception:
+        is_tty = False
+    tally = OutputTally(is_tty=is_tty)
+    meta[_OUTPUT_TALLY_META_KEY] = tally
+    return tally
+
+
 def current_output_tally() -> OutputTally | None:
     """The current invocation's OutputTally, or None outside a command lifecycle."""
     ctx = click.get_current_context(silent=True)
-    return ctx.meta.get(OUTPUT_TALLY_META_KEY) if ctx else None
+    return ctx.meta.get(_OUTPUT_TALLY_META_KEY) if ctx else None
 
 
 class CountingStream:
