@@ -390,6 +390,10 @@ COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
+# Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
+# (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
+# services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
+COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).
