@@ -6,15 +6,20 @@ use axum::response::Response;
 use crate::api::ApiError;
 use crate::state::AppState;
 
-/// The wildcard path is interpolated into the upstream URL; dot segments
-/// could otherwise be normalized out of the `/debug/` prefix and reach other
-/// endpoints on the pod.
+/// The wildcard path is interpolated into the upstream URL; dot segments —
+/// including percent-encoded ones, which URL parsers decode and normalize —
+/// could otherwise escape the `/debug/` prefix and reach other endpoints on
+/// the pod. Debug API paths only ever use simple names, so enforce a strict
+/// character allowlist instead of chasing encodings.
 fn is_safe_debug_path(rest: &str) -> bool {
     !rest.is_empty()
-        && !rest.contains('\\')
-        && rest
-            .split('/')
-            .all(|segment| segment != ".." && segment != ".")
+        && rest.split('/').all(|segment| {
+            !segment.is_empty()
+                && !segment.starts_with('.')
+                && segment
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        })
 }
 
 fn build_upstream_url(target: &str, rest: &str, query: Option<&str>) -> String {
@@ -67,16 +72,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_dot_segments_and_empty_paths() {
+    fn rejects_dot_segments_encodings_and_empty_paths() {
         assert!(is_safe_debug_path("state"));
         assert!(is_safe_debug_path("events"));
-        assert!(is_safe_debug_path("some/nested/path"));
+        assert!(is_safe_debug_path("some/nested/path-1_2.json"));
         assert!(!is_safe_debug_path(""));
         assert!(!is_safe_debug_path(".."));
         assert!(!is_safe_debug_path("../metrics"));
         assert!(!is_safe_debug_path("state/../../admin"));
         assert!(!is_safe_debug_path("./state"));
         assert!(!is_safe_debug_path("..\\metrics"));
+        // Percent-encoded dot segments (single- or double-encoded) would be
+        // normalized out of /debug/ by the upstream URL parser.
+        assert!(!is_safe_debug_path("%2e%2e/metrics"));
+        assert!(!is_safe_debug_path("%252e%252e/metrics"));
+        assert!(!is_safe_debug_path("state//admin"));
     }
 
     #[test]
