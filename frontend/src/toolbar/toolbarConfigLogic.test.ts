@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,60 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check exception reporting', () => {
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        const mockHeadCheckStatus = (status: number): void => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: false, status })
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+        }
+
+        it.each([400, 403, 404, 405, 429])(
+            'does not report an exception for expected 4xx client error %p',
+            async (status) => {
+                mockHeadCheckStatus(status)
+                const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+                logic.mount()
+                await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([500, 502, 504])('reports an exception for 5xx server error %p', async (status) => {
+            mockHeadCheckStatus(status)
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check' })
+            )
+        })
+
+        it('reports an exception for network failures (no http status)', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check' })
+            )
         })
     })
 

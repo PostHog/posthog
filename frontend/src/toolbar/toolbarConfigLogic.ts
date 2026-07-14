@@ -606,6 +606,27 @@ function classifyFetchError(error: unknown): string {
     return 'unknown'
 }
 
+/** Extract the HTTP status from an `HTTP <status>` error, or null if not one. */
+function httpStatusFromError(error: unknown): number | null {
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        const status = Number(error.message.slice('HTTP '.length))
+        return Number.isNaN(status) ? null : status
+    }
+    return null
+}
+
+/**
+ * A 4xx from the uiHost reachability check is an expected outcome: the configured
+ * host simply isn't a current PostHog backend (misconfigured host, a proxy not
+ * forwarding `/toolbar_oauth/*`, or an older self-hosted version). The check is
+ * designed to detect this and falls back to the auth/config path, so it must not
+ * be reported as an exception — only tracked as analytics. Mirrors `toolbarApi`,
+ * which reports only 5xx server errors and treats client errors as expected.
+ */
+function isExpectedUiHostCheckError(httpStatus: number | null): boolean {
+    return httpStatus !== null && httpStatus >= 400 && httpStatus < 500
+}
+
 /**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
@@ -657,13 +678,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            const httpStatus = httpStatusFromError(error)
+            // Expected 4xx misconfigurations are handled below (config modal / fallback) and
+            // would otherwise flood error tracking — don't report them. Genuine network/CORS,
+            // timeout, and 5xx server failures still are.
+            if (!isExpectedUiHostCheckError(httpStatus)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
+                http_status: httpStatus ?? undefined,
                 duration_ms: Date.now() - checkStart,
             })
 
