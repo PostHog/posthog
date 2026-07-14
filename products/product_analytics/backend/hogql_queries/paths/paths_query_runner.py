@@ -453,7 +453,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return ast.SelectQuery(
             select=[ast.Field(chain=["*"]), *path_item_fields],
-            select_from=ast.JoinExpr(table=inner_query),
+            select_from=ast.JoinExpr(table=inner_query, alias="event_query"),
             where=ast.And(exprs=outer_conditions) if outer_conditions else None,
             order_by=[
                 ast.OrderExpr(expr=ast.Field(chain=["person_id"])),
