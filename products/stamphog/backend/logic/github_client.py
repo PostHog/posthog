@@ -390,6 +390,35 @@ class StamphogGitHubClient:
                 break
         return reviews
 
+    def get_pr_discussion(self, repo: str, number: int) -> list[dict]:
+        """Fetch the PR's top-level discussion (issue) comments, paginating through GitHub's endpoint.
+
+        Returns raw GitHub issue-comment objects (``user``, ``body``, ``author_association``, ...). The
+        reviewer uses these as blocker context — a maintainer's top-level "please hold" comment should
+        reach the agent, matching the Action path. Inline review-thread comments are a separate,
+        GraphQL-only surface (thread resolution state) and are not fetched here. Bounded by ``_MAX_PAGES``.
+        """
+        comments: list[dict] = []
+        for page in range(1, _MAX_PAGES + 1):
+            response = self._request(
+                "GET",
+                f"/repos/{repo}/issues/{number}/comments",
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch PR discussion {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            page_comments = self._json(response, f"/repos/{repo}/issues/{number}/comments")
+            if not isinstance(page_comments, list):
+                raise StamphogGitHubError(f"Unexpected PR discussion payload for {repo}#{number}")
+            comments.extend(comment for comment in page_comments if isinstance(comment, dict))
+            if len(page_comments) < _PER_PAGE:
+                break
+        return comments
+
     def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
         """Return the author's merged-PR numbers in this repo (best-effort).
 

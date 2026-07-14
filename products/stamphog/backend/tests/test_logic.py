@@ -89,6 +89,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             pr={"number": 1},
             files=[],
             reviews=reviews,
+            discussion=[],
             author_pr_numbers=[],
             base_sha="base",
             head_sha="head",

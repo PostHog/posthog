@@ -55,7 +55,13 @@ from familiarity import (
     _select_considered_files,
 )
 from gates import POLICY
-from github import PRData, _git_diff_files, _normalize_reviews_for_prompt, is_bot_author
+from github import (
+    PRData,
+    _git_diff_files,
+    _normalize_discussion_for_prompt,
+    _normalize_reviews_for_prompt,
+    is_bot_author,
+)
 from policy import FamiliarityPolicy
 from review_pr import REPO_ROOT, GateResult, Pipeline
 from version import STAMPHOG_VERSION
@@ -100,12 +106,14 @@ def _build_pr_data(context: dict) -> PRData:
     File stats are recomputed locally with the exact function the Action uses
     (`git diff --numstat` over base...head) so PRData.files is identical to a
     real run; the context's file list is only a fallback if the local diff is
-    empty (e.g. a sha failed to fetch). Reviews are carried in the context and
-    normalized with the same helper the Action uses, so the prerequisite gate
-    still blocks on an active CHANGES_REQUESTED. Comments/reactions/check-runs
-    are metadata the slim context does not carry, so they default empty — the
-    reviewer prompt renders their sections as "none", which is strictly a subset
-    of what the Action shows, never a fabrication.
+    empty (e.g. a sha failed to fetch). Reviews and top-level discussion comments
+    are carried in the context and normalized with the same helpers the Action
+    uses, so the prerequisite gate still blocks on an active CHANGES_REQUESTED and
+    the agent sees maintainer discussion. Inline review-thread comments (a
+    GraphQL-only surface with thread-resolution state), reactions, and check-runs
+    are not carried, so they default empty — the reviewer prompt renders those
+    sections as "none", which is strictly a subset of what the Action shows,
+    never a fabrication.
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
@@ -134,7 +142,7 @@ def _build_pr_data(context: dict) -> PRData:
         author_is_bot=is_bot_author(user),
         pr_reactions=[],
         body=pr.get("body") or "",
-        discussion=[],
+        discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
     )
 
 

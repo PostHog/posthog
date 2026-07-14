@@ -126,6 +126,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     files = client.get_pr_files(repo, pull_request.pr_number)
     # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
+    # Top-level discussion comments are blocker context (a maintainer's "please hold").
+    discussion = client.get_pr_discussion(repo, pull_request.pr_number)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
@@ -141,6 +143,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "pr": pr,
         "files": files,
         "reviews": reviews,
+        "discussion": discussion,
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
     }
@@ -170,6 +173,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     pr = output.get("pr", {})
     files = output.get("files", [])
     reviews = output.get("reviews", [])
+    discussion = output.get("discussion", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
@@ -197,6 +201,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         pr=pr,
         files=files,
         reviews=reviews,
+        discussion=discussion,
         author_pr_numbers=author_pr_numbers,
         base_sha=base_sha,
         head_sha=run.head_sha,
