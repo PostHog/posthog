@@ -51,12 +51,13 @@ export const RetentionInsight: Story = {
 
 export const LifecycleInsight: Story = {
     args: { insight: __lifecycle as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    // Wait for the quill-charts canvas to draw before snapshotting.
+    parameters: { testOptions: { waitForSelector: '.ExportedInsight canvas' } },
 }
 
 export const StickinessInsight: Story = {
     args: { insight: __stickiness as any },
-    tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+    parameters: { testOptions: { waitForSelector: '.ExportedInsight canvas' } },
 }
 
 export const UserPathsInsight: Story = {

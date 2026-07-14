@@ -58,10 +58,11 @@ export const FunnelTopToBottomInsightNoResults: Story = {
 }
 
 export const FunnelHistoricalTrendsInsight: Story = {
-    tags: ['test-skip'],
     args: {
         insight: __funnelHistoricalTrends as any,
     },
+    // Rendered as a line chart via quill-charts; wait for its canvas to draw before snapshotting.
+    parameters: { testOptions: { waitForSelector: '.ExportedInsight canvas' } },
 }
 
 export const FunnelTimeToConvertInsight: Story = {
