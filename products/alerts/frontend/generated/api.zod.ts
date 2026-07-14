@@ -53,6 +53,7 @@ export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the detector on.'),
@@ -1121,6 +1122,17 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['FunnelsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod
+                            .enum(['MetricsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
                     }),
                 ])
                 .describe(

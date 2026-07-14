@@ -9097,11 +9097,24 @@ export namespace Schemas {
       type: FunnelsAlertConfigType;
     }
 
+    export type MetricsAlertConfigType = typeof MetricsAlertConfigType[keyof typeof MetricsAlertConfigType];
+
+
+    export const MetricsAlertConfigType = {
+      MetricsAlertConfig: 'MetricsAlertConfig',
+    } as const;
+
+    export interface MetricsAlertConfig {
+      /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
+      check_ongoing_interval?: boolean | null;
+      type: MetricsAlertConfigType;
+    }
+
     /**
      * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
      * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
      */
-    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig;
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -20829,6 +20842,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin: unknown;
     }
 
     export interface ErrorResponse {
@@ -41378,6 +41393,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin?: unknown;
     }
 
     /**
@@ -67554,6 +67571,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -67641,6 +67659,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      Billing: 'Billing',
     } as const;
 
     /**
@@ -67714,6 +67733,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -67789,6 +67809,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      Billing: 'Billing',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
