@@ -20,6 +20,9 @@ production Postgres tables are replicated into the project's data warehouse,
 so cross-team entity metadata **is** queryable with `posthog:execute-sql`.
 Do not stop at `system.insights` when the question spans teams.
 
+This skill is deliberately repo-local (`.agents/skills/`): it documents PostHog's internal dogfood setup,
+applies only to agents working in this repo, and must not move into the packaged `products/*/skills/` bundle that ships to every team.
+
 ## Synced tables
 
 | Entity           | US (prod-us)                     | EU (prod-eu)                        |
@@ -48,21 +51,29 @@ Do not stop at `system.insights` when the question spans teams.
    WHERE table_name = 'postgres.posthog_dashboarditem'
    ```
 
-2. Query with `posthog:execute-sql`, filtering or grouping by `team_id`. Join `postgres.posthog_team` for team names. Example — most active teams by insights created in the last 30 days:
+2. Query with `posthog:execute-sql`, filtering or grouping by `team_id`. Example — most active teams by insights created in the last 30 days:
 
    ```sql
-   SELECT i.team_id, any(t.name) AS team_name, count() AS insights_created
-   FROM postgres.posthog_dashboarditem AS i
-   LEFT JOIN postgres.posthog_team AS t ON t.id = i.team_id
-   WHERE NOT i.deleted AND i.saved AND i.created_at >= now() - INTERVAL 30 DAY
-   GROUP BY i.team_id
+   SELECT team_id, count() AS insights_created
+   FROM postgres.posthog_dashboarditem
+   WHERE NOT deleted AND saved AND created_at >= now() - INTERVAL 30 DAY
+   GROUP BY team_id
    ORDER BY insights_created DESC
    LIMIT 20
    ```
 
+   Join `postgres.posthog_team` on `id = team_id` for team names only when the output stays on an internal surface (see below).
+
 3. Remember the sync lag: these are periodic replicas, not live reads — fine for analysis, not for "right now" state.
 
-## Caveats
+## Output handling (required)
 
-- Query results may contain customer team names and metadata — keep them out of public surfaces (PR descriptions, commit messages, uploaded screenshots).
+Rows in these tables are customer data: team names, insight names, descriptions, and queries.
+
+- Never put customer team names, insight titles, or other row-level metadata on public surfaces — PR titles/descriptions, commit messages, issues, code comments, or uploaded screenshots. Aggregates and `team_id`-level figures without names are the ceiling for public copy.
+- Keep named results in the private conversation, internal docs, or auth-gated links.
+- Access is gated by membership in the internal dogfood project. If a query fails with a permissions error, report it and stop — do not look for another route to cross-team data.
+
+## Related
+
 - For cross-team **event/analytics** data (not entity metadata), see the `query-clickhouse-via-metabase` skill instead.
