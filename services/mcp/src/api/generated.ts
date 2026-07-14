@@ -30241,9 +30241,10 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
-      /** Resolved harness labels seen for this exception, deduped and sorted. */
+      /** Resolved harness labels seen for this failure, deduped and sorted. */
       harnesses: string[];
       last_seen: string;
+      /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
     }
@@ -30275,7 +30276,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -74643,6 +74644,10 @@ export namespace Schemas {
     };
 
     export type TasksListParams = {
+    /**
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     */
+    all_team_tasks?: boolean;
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
      *
