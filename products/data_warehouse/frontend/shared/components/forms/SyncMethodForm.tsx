@@ -91,8 +91,9 @@ export interface FullRefreshAppendConfig {
     retentionValue: number | null
 }
 
-// Sensible starting point when a user first enables snapshot retention (keep the last 3 snapshots).
-const DEFAULT_SNAPSHOT_RETENTION_VALUE = 3
+// Start empty (0) so the user has to deliberately choose how many snapshots to keep; save stays
+// disabled until they enter a value of at least 1.
+const DEFAULT_SNAPSHOT_RETENTION_VALUE = 0
 
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
@@ -620,7 +621,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                 <LemonSwitch
                                     checked={fullRefreshAppend}
                                     onChange={setFullRefreshAppend}
-                                    label="Keep previous snapshots (append)"
+                                    label="Keep previous snapshots"
                                     bordered
                                 />
                                 <p className="mt-2 mb-0 text-secondary text-sm">
