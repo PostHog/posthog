@@ -254,7 +254,7 @@ export function FunnelChart<Meta = unknown>({
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
-            <div className="flex flex-col flex-1 min-h-0">{chart}</div>
+            <div className="flex-1 min-h-0">{chart}</div>
             {bands && bands.length > 0 && <StepFooterRow bands={bands} stepFooter={stepFooter} />}
         </div>
     )
