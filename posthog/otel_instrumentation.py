@@ -28,7 +28,7 @@ logger = structlog.get_logger(__name__)
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
     if span and span.is_recording():
         actual_path = request.path
-        http_method = request.method
+        http_method = request.method or ""
         span.set_attribute("http.method", http_method)
         span.set_attribute("http.url", actual_path)
         # span.update_name(f"{http_method} {actual_path}") # Use with caution - high cardinality
@@ -41,7 +41,7 @@ def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpR
         route = resolver_match.route if resolver_match else None
         if route:
             span.set_attribute("http.route", route)
-            http_method = sanitize_method(request.method.strip())
+            http_method = sanitize_method((request.method or "").strip())
             span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
