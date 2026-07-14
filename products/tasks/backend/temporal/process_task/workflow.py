@@ -22,7 +22,12 @@ from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
-from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .activities.cleanup_sandbox import (
+    CleanupSandboxInput,
+    CompleteRunStreamInput,
+    cleanup_sandbox,
+    complete_run_stream,
+)
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
@@ -53,7 +58,11 @@ from .activities.provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .activities.relay_sandbox_events import (
+    RelaySandboxEventsInput,
+    relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
+)
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
@@ -193,9 +202,25 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
+# Defers stream completion to cleanup without breaking existing histories.
+_PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
+_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-cleanup-failure"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
+
+
+def _defer_run_stream_completion() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_DEFER_RUN_STREAM_COMPLETION)
+
+
+def _complete_stream_after_cleanup_failure() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE)
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -463,6 +488,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
         sandbox_cleaned = False
+        run_stream_completed = False
         timed_out = False
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
@@ -730,7 +756,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             await self._update_task_run_status("cancelled", run_id=run_id)
             if current_sandbox_id:
-                await self._cleanup_sandbox(current_sandbox_id)
+                complete_stream = _defer_run_stream_completion()
+                await self._cleanup_sandbox(
+                    current_sandbox_id,
+                    complete_stream=complete_stream,
+                )
+                run_stream_completed = complete_stream
                 sandbox_id = None
                 self._sandbox_id_for_cleanup = None
             raise
@@ -800,9 +831,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)
-                await self._cleanup_sandbox(cleanup_sandbox_id)
+                await self._cleanup_sandbox(
+                    cleanup_sandbox_id,
+                    complete_stream=_defer_run_stream_completion(),
+                )
                 sandbox_cleaned = True
                 self._sandbox_id_for_cleanup = None
+            elif not run_stream_completed and (
+                (self._context is None or self._context.environment == "cloud") and _defer_run_stream_completion()
+            ):
+                await self._complete_run_stream(run_id)
 
             if sandbox_cleaned and self._slack_thread_context and self._context:
                 await self._post_slack_update(sandbox_cleaned=True)
@@ -994,17 +1032,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms=launch_ms,
         )
 
-    async def _cleanup_sandbox(self, sandbox_id: str) -> None:
+    async def _cleanup_sandbox(self, sandbox_id: str, *, complete_stream: bool = False) -> None:
         context = self._context
         cleanup_input = CleanupSandboxInput(
             sandbox_id=sandbox_id,
             run_id=context.run_id if context else None,
-            complete_stream_on_cleanup=bool(context and context.sandbox_event_ingest_enabled),
+            complete_stream_on_cleanup=bool(context and complete_stream),
         )
+        try:
+            await workflow.execute_activity(
+                cleanup_sandbox,
+                cleanup_input,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            if context and complete_stream and _complete_stream_after_cleanup_failure():
+                await self._complete_run_stream(context.run_id)
+            raise
+
+    async def _complete_run_stream(self, run_id: str) -> None:
         await workflow.execute_activity(
-            cleanup_sandbox,
-            cleanup_input,
-            start_to_close_timeout=timedelta(minutes=5),
+            complete_run_stream,
+            CompleteRunStreamInput(run_id=run_id),
+            start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -1359,8 +1410,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 slack_thread_context=self._slack_thread_context,
                 is_agent_design_enabled=self._is_agent_design_enabled,
             )
+            relay_activity = (
+                relay_sandbox_events_deferred_completion if _defer_run_stream_completion() else relay_sandbox_events
+            )
             await workflow.execute_activity(
-                relay_sandbox_events,
+                relay_activity,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,

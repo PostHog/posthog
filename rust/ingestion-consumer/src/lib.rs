@@ -3,6 +3,7 @@ pub mod consumer;
 pub mod discovery;
 pub mod dispatcher;
 pub mod kafka_config;
+pub mod order_sentinel;
 pub mod routing;
 pub mod stash;
 pub mod transport;

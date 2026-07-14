@@ -207,7 +207,10 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 return friendly
         return None
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Bing accounts are few, so `search` is ignored here and the endpoint filters the returned list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
