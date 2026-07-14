@@ -687,7 +687,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     464: ErrorCodeMeta("CANNOT_PARSE_ELF"),
     465: ErrorCodeMeta("CANNOT_PARSE_DWARF"),
     466: ErrorCodeMeta("INSECURE_PATH"),
-    467: ErrorCodeMeta("CANNOT_PARSE_BOOL", category=QueryErrorCategory.USER_ERROR),
+    467: ErrorCodeMeta("CANNOT_PARSE_BOOL", user_safe=True),
     468: ErrorCodeMeta("CANNOT_PTHREAD_ATTR"),
     469: ErrorCodeMeta("VIOLATED_CONSTRAINT"),
     471: ErrorCodeMeta("INVALID_SETTING_VALUE"),
