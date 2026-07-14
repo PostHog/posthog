@@ -666,9 +666,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
-    @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -676,12 +674,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             group_type="organization",
         )
-        group = create_group(
-            team_id=self.team.pk,
-            group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs"},
-        )
+        with freeze_time("2021-05-02"):
+            group = create_group(
+                team_id=self.team.pk,
+                group_type_index=typed_group_type_index(group_type_mapping.group_type_index),
+                group_key="org:5",
+                properties={"industry": "finance", "name": "Mr. Krabs"},
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",

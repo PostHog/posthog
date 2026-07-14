@@ -766,6 +766,15 @@ class HogQLCohortQuery:
         condition = build_conditions(self.property_groups)
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
+        if isinstance(condition.query, ast.SelectSetQuery) and any(
+            node.set_operator.startswith("UNION") for node in condition.query.subsequent_select_queries
+        ):
+            # Keep membership unique if parallel set branches return the same person.
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["id"])],
+                distinct=True,
+                select_from=ast.JoinExpr(table=condition.query),
+            )
         return condition.query
 
 
