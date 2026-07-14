@@ -124,7 +124,9 @@ tools:
             reused, it must be multivariate with 2 to 20 variants, otherwise the call returns 400 ("Feature flag must
             have at least 2 variants (a baseline and at least one test variant)" or "Feature flag must have at most 20
             variants"). No specific variant key is required — the analysis baseline defaults to the variant keyed
-            "control" when present, else the first variant.
+            "control" when present, else the first variant. Exception: copying a web experiment requires the reused
+            target flag to have a variant keyed "control", otherwise the call returns 400 ("Web experiments require a
+            variant with key 'control'").
 
 
             Returns 400 if the source experiment uses legacy metrics ("Copying is not supported for experiments using
@@ -993,7 +995,8 @@ tools:
                     the flag's own filters shape. This is the canonical input for flag config. Set
                     filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100;
                     the analysis baseline defaults to the variant keyed 'control' when present, else the first
-                    variant) to change the variant split. Set
+                    variant — except web experiments, which must keep a variant keyed 'control') to change the
+                    variant split. Set
                     filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
                     overall rollout. Config this object omits is preserved from the flag's current state. On a running
                     experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
