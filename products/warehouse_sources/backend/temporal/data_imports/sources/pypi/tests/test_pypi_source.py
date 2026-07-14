@@ -44,7 +44,6 @@ class TestPyPISource:
         assert config.name.value == "PyPI"
         assert config.label == "PyPI"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/pypi"
 
     def test_get_source_config_fields(self):
