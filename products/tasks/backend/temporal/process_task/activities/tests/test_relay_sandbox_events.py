@@ -555,7 +555,9 @@ class TestRelaySandboxEventsErrorHandling:
             "type": "notification",
             "notification": {"method": "_posthog/task_complete"},
         }
-        task_run = SimpleNamespace(id="run-id")
+        # mode="interactive" keeps the turn-complete thread-update path out of
+        # this test, which only cares about permission dispatch.
+        task_run = SimpleNamespace(id="run-id", mode="interactive")
         dispatch_mock = MagicMock()
 
         class SuccessfulEventSource:
