@@ -133,7 +133,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async (_, breakpoint) => {
+                getAllTemplates: async (_: void, breakpoint) => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
