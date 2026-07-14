@@ -21,6 +21,7 @@ const SAVED_QUERIES_URL = '/api/environments/:team_id/warehouse_saved_queries/'
 const WAREHOUSE_TABLES_URL = '/api/environments/:team_id/warehouse_tables/'
 const SOURCES_URL = '/api/projects/:team_id/custom_property_sources/'
 const SOURCE_URL = '/api/projects/:team_id/custom_property_sources/:id/'
+const PROPERTY_DEFINITIONS_URL = '/api/projects/:team_id/property_definitions/'
 
 // Loosely-typed warehouse table — the logic only reads id/name/external_schema.id.
 const buildTable = (overrides: Record<string, any> = {}): any => ({
@@ -76,6 +77,7 @@ const defaultMocks = (): Parameters<typeof useMocks>[0] => ({
         [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] },
         [SAVED_QUERIES_URL]: { count: 1, results: [buildView()] },
         [WAREHOUSE_TABLES_URL]: { count: 1, results: [buildTable()] },
+        [PROPERTY_DEFINITIONS_URL]: { count: 1, results: [{ id: 'p1', name: 'existing_prop' }] },
     },
     post: {
         [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }),
@@ -356,6 +358,25 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.selectedWarehouseSchemaId).toBe('schema-1')
         // Trims and drops incomplete pairs.
         expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
+    })
+
+    it('warns when a person mapping targets an identity or already-existing property', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadPersonPropertyDefinitionsSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValue('columnMappings', [
+            { column: 'a', property: 'plan_tier' }, // fine
+            { column: 'b', property: 'email' }, // identity property
+            { column: 'c', property: '$browser' }, // $-prefixed
+            { column: 'd', property: 'existing_prop' }, // already defined on persons
+        ])
+        const warnings = logic.values.columnMappingWarnings
+        expect(warnings[0]).toBeNull()
+        expect(warnings[1]).toContain('identity property')
+        expect(warnings[2]).toContain('identity property')
+        expect(warnings[3]).toContain('already exists')
     })
 
     it('updates an existing source via PATCH without the create-only fields', async () => {

@@ -51,7 +51,7 @@ const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] 
 // column → person-property mappings. The binding + mappings are create-only on the backend, so
 // they're read-only once a source exists (only the key column + enabled switch stay editable).
 function PersonSourceEditor(): JSX.Element {
-    const { customPropertyForm, warehouseTables, warehouseTablesLoading, editingDefinition } =
+    const { customPropertyForm, warehouseTables, warehouseTablesLoading, editingDefinition, columnMappingWarnings } =
         useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue } = useActions(customPropertyDefinitionsLogic)
 
@@ -108,31 +108,38 @@ function PersonSourceEditor(): JSX.Element {
                         Map each warehouse column to the person property name it should set.
                     </span>
                     {mappings.map((mapping, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                            <LemonInput
-                                value={mapping.column}
-                                onChange={(column) =>
-                                    setMappings(mappings.map((m, i) => (i === index ? { ...m, column } : m)))
-                                }
-                                placeholder="Warehouse column"
-                                fullWidth
-                            />
-                            <span className="text-secondary">→</span>
-                            <LemonInput
-                                value={mapping.property}
-                                onChange={(property) =>
-                                    setMappings(mappings.map((m, i) => (i === index ? { ...m, property } : m)))
-                                }
-                                placeholder="Person property"
-                                fullWidth
-                            />
-                            <LemonButton
-                                icon={<IconTrash />}
-                                size="small"
-                                tooltip="Remove mapping"
-                                disabledReason={mappings.length === 1 ? 'At least one mapping is required' : undefined}
-                                onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
-                            />
+                        <div key={index} className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <LemonInput
+                                    value={mapping.column}
+                                    onChange={(column) =>
+                                        setMappings(mappings.map((m, i) => (i === index ? { ...m, column } : m)))
+                                    }
+                                    placeholder="Warehouse column"
+                                    fullWidth
+                                />
+                                <span className="text-secondary">→</span>
+                                <LemonInput
+                                    value={mapping.property}
+                                    onChange={(property) =>
+                                        setMappings(mappings.map((m, i) => (i === index ? { ...m, property } : m)))
+                                    }
+                                    placeholder="Person property"
+                                    fullWidth
+                                />
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="small"
+                                    tooltip="Remove mapping"
+                                    disabledReason={
+                                        mappings.length === 1 ? 'At least one mapping is required' : undefined
+                                    }
+                                    onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
+                                />
+                            </div>
+                            {columnMappingWarnings[index] && (
+                                <span className="text-warning text-xs">{columnMappingWarnings[index]}</span>
+                            )}
                         </div>
                     ))}
                     <LemonButton

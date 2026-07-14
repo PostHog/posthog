@@ -8,7 +8,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import type { DataWarehouseSavedQuery, DataWarehouseTable } from '~/types'
+import type { DataWarehouseSavedQuery, DataWarehouseTable, PropertyDefinition } from '~/types'
+import { PropertyDefinitionType } from '~/types'
 
 import {
     customPropertyDefinitionsCreate,
@@ -108,6 +109,10 @@ const serializeDefinition = ({
         : {}),
 })
 
+// Identity-critical person properties a warehouse source shouldn't silently overwrite. `$`-prefixed
+// props are also warned on (see columnMappingWarnings). Warn-only — the user can still proceed.
+const RESERVED_PERSON_PROPERTY_NAMES = new Set(['email', 'name', 'username'])
+
 // The backend stores column_property_map as a JSON object; the form edits it as an ordered list.
 const parseColumnPropertyMap = (value: unknown): ColumnPropertyMapping[] => {
     if (!value || typeof value !== 'object') {
@@ -198,6 +203,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     const response = await api.dataWarehouseTables.list()
                     // Only synced tables carry an external_schema, which is what a person source binds to.
                     return response.results.filter((table) => !!table.external_schema)
+                },
+            },
+        ],
+        personPropertyDefinitions: [
+            [] as PropertyDefinition[],
+            {
+                loadPersonPropertyDefinitions: async (): Promise<PropertyDefinition[]> => {
+                    const response = await api.propertyDefinitions.list({
+                        type: PropertyDefinitionType.Person,
+                        limit: 1000,
+                    })
+                    return response.results
                 },
             },
         ],
@@ -346,6 +363,27 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
                 ),
         ],
+        // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
+        // an identity property, or already defined on persons could overwrite existing values.
+        columnMappingWarnings: [
+            (s) => [s.customPropertyForm, s.personPropertyDefinitions],
+            (form: CustomPropertyFormValues, personPropertyDefinitions: PropertyDefinition[]): (string | null)[] => {
+                const existing = new Set(personPropertyDefinitions.map((definition) => definition.name))
+                return form.columnMappings.map((mapping) => {
+                    const name = mapping.property.trim()
+                    if (!name) {
+                        return null
+                    }
+                    if (name.startsWith('$') || RESERVED_PERSON_PROPERTY_NAMES.has(name)) {
+                        return `"${name}" is an identity property — writing to it may overwrite SDK-set values.`
+                    }
+                    if (existing.has(name)) {
+                        return `A person property "${name}" already exists — this source will overwrite it.`
+                    }
+                    return null
+                })
+            },
+        ],
         editingReferences: [
             (s) => [s.definitions, s.editingDefinition],
             (
@@ -365,10 +403,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             actions.resetCustomPropertyForm()
             actions.loadSavedQueries()
             actions.loadWarehouseTables()
+            actions.loadPersonPropertyDefinitions()
         },
         openEditModal: ({ definition }) => {
             actions.loadSavedQueries()
             actions.loadWarehouseTables()
+            actions.loadPersonPropertyDefinitions()
             const isPerson = definition.target_type === 'person'
             actions.setCustomPropertyFormValues({
                 name: definition.name,
