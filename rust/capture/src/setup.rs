@@ -342,7 +342,7 @@ pub async fn build_components(
         create_event_restriction_service(
             &config,
             handle,
-            Pipeline::for_capture_mode(config.capture_mode),
+            crate::event_restrictions::pipelines_for_capture_mode(config.capture_mode),
         )
     } else {
         None

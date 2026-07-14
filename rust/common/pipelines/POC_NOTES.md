@@ -87,3 +87,21 @@ The design (§3.10) layers the output registry over `common/kafka`'s
 `rdkafka` `ClientContext`, so a caller can pass a `common/kafka` producer without
 this crate depending on `common-kafka`. Keeps the framework free of a
 service-adjacent dependency for the POC.
+
+## Event restrictions promotion (A6)
+
+`rust/capture/src/event_restrictions/` moved verbatim to the new
+`common-event-restrictions` crate (`rust/common/event-restrictions`). Capture
+re-exports it (`pub use common_event_restrictions::*;` in a thin
+`capture/src/event_restrictions.rs` shim), so every existing
+`crate::event_restrictions::…` path in capture still resolves and capture code is
+untouched beyond imports.
+
+One method could not move as-is: `Pipeline::for_capture_mode(CaptureMode)`
+depended on capture's `config::CaptureMode`, which the shared crate must not know
+about. It became a free function `pipelines_for_capture_mode(mode)` in the capture
+shim (with its own unit test); its two call sites (`setup.rs`, a `process.rs`
+test) were updated. Everything else — the manager, repository, types, and their
+42 tests — moved unchanged (only the moved `manager.rs` test-module import paths
+were rewritten from `crate::event_restrictions::…` to `crate::…`). Test-only deps
+`rand` (mock repo key suffixes) and `chrono` are declared on the new crate.

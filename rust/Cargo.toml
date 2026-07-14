@@ -16,6 +16,7 @@ members = [
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/event-restrictions",
   "common/health",
   "common/kafka",
   "common/liveness",

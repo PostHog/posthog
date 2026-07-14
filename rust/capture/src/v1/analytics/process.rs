@@ -1471,7 +1471,9 @@ mod tests {
         token: &str,
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
-        let pipelines = Pipeline::for_capture_mode(crate::config::CaptureMode::Events);
+        let pipelines = crate::event_restrictions::pipelines_for_capture_mode(
+            crate::config::CaptureMode::Events,
+        );
         let service = EventRestrictionService::new(pipelines, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(pipeline, token, restrictions);
