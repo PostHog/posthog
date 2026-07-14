@@ -37,9 +37,7 @@ SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10
 SELECT count() AS total FROM system.insight_variables
 ```
 
-All entities are scoped by a team by default. You cannot access another team's data through `system.*` tables unless you switch teams.
-One exception: another team's or instance's data may have been replicated into this project's data warehouse (e.g. a Postgres source syncing those tables).
-Before concluding cross-team data is inaccessible, list warehouse tables via `system.information_schema.tables` (`table_type = 'data_warehouse'`) and check whether a synced table covers it.
+All entities are scoped by a team by default. You cannot access data of another team unless you switch a team.
 
 ##### 2. Captured Data (Analytics Data)
 
