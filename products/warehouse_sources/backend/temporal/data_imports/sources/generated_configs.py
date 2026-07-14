@@ -1055,7 +1055,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DigitalOceanSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
