@@ -552,6 +552,18 @@ class SLAWaiter:
         """Coroutine used to wait for SLA seconds."""
         await asyncio.sleep(self.sla.total_seconds())
 
+        # Temporal re-executes the workflow from the start on every replay (worker recovery,
+        # cache eviction, queries), which re-resolves the timer above from history and would
+        # re-emit a false, late "SLA breached" long after the run finished.
+        #
+        # The guard has to sit *here*, after the timer resolves, not around task creation:
+        # the `asyncio.sleep` above is a deterministic Temporal timer, so the task must be
+        # created on every replay or history diverges. And `is_replaying()` is time-varying
+        # (True while catching up, False once live), so it's only meaningful at the instant
+        # the side effect fires — suppress the log, never the timer.
+        if workflow.in_workflow() and workflow.unsafe.is_replaying():
+            return
+
         self._over_sla.set()
         LOGGER.warning(
             "SLA breached",
