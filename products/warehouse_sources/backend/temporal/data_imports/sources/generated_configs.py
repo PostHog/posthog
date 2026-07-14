@@ -186,7 +186,7 @@ class AikidoSecuritySourceConfig(config.Config):
 
 @config.config
 class AirOpsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

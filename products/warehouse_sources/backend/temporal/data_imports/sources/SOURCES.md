@@ -48,6 +48,7 @@ the row lists both.
 | agilecrm                  | HTTP                        | requests                                                        | ✅                          |
 | aha                       | HTTP                        | requests                                                        | ✅                          |
 | aircall                   | HTTP                        | requests                                                        | ✅                          |
+| airops                    | HTTP                        | requests                                                        | ✅                          |
 | airtable                  | HTTP                        | requests                                                        | ✅                          |
 | algolia                   | HTTP                        | requests                                                        | ✅                          |
 | alguna                    | HTTP                        | requests                                                        | ✅                          |
@@ -469,7 +470,6 @@ doesn't conflict with concurrent PRs.
 - ahrefs
 - aikido_security
 - airbyte
-- airops
 - aiven
 - akeneo
 - alpaca_broker_api
