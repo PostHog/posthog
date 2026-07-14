@@ -14,6 +14,9 @@
 //!   nothing to classify
 //!   against, the recorded site's own domain must not pass through. A real hostname survives only
 //!   as a classified external domain, keeping first-party and external URLs distinguishable.
+//! - An external host under a multi-tenant CDN/hosting suffix has its identifying labels masked:
+//!   `d3k9x1.cloudfront.net` -> `[redacted].cloudfront.net`. The suffix names the provider (useful
+//!   signal); the labels before it name the customer's bucket/distribution/tenant.
 
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
@@ -84,6 +87,9 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
                 changed = true;
             }
             out.push_str(&collapsed);
+        } else if let Some(masked) = cdn_masked_host(host_port) {
+            out.push_str(&masked);
+            changed = true;
         } else {
             out.push_str(host_port);
         }
@@ -179,6 +185,64 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
         out.push_str(frag);
     }
     out
+}
+
+/// Multi-tenant CDN / cloud-hosting suffixes whose left-hand labels identify a specific customer
+/// (bucket, distribution, or tenant name) rather than the provider. Matching is
+/// case-insensitive on whole labels (`.{suffix}`); the suffix itself is never masked.
+pub const CDN_HOST_SUFFIXES: &[&str] = &[
+    // AWS
+    "cloudfront.net",
+    "amazonaws.com",
+    // Akamai
+    "akamaized.net",
+    "akamaihd.net",
+    "edgekey.net",
+    "edgesuite.net",
+    // Azure
+    "azureedge.net",
+    "azurefd.net",
+    "core.windows.net",
+    // Google Cloud
+    "storage.googleapis.com",
+    "web.app",
+    "firebaseapp.com",
+    // Cloudflare
+    "r2.dev",
+    "pages.dev",
+    "workers.dev",
+    "cloudflarestorage.com",
+    // Fastly
+    "fastly.net",
+    "fastlylb.net",
+    // App/site hosting
+    "netlify.app",
+    "vercel.app",
+    "herokuapp.com",
+    "digitaloceanspaces.com",
+    // Asset CDNs
+    "b-cdn.net",
+    "imgix.net",
+];
+
+// `[redacted].{suffix}` (port preserved) when the host sits under a CDN suffix, else None.
+fn cdn_masked_host(host_port: &str) -> Option<String> {
+    let (host, port) = match host_port.rfind(':') {
+        Some(ci)
+            if ci + 1 < host_port.len()
+                && host_port[ci + 1..].bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            (&host_port[..ci], &host_port[ci..])
+        }
+        _ => (host_port, ""),
+    };
+    let host = host.to_ascii_lowercase();
+    CDN_HOST_SUFFIXES.iter().find_map(|suffix| {
+        (host.len() > suffix.len() + 1
+            && host.ends_with(suffix)
+            && host.as_bytes()[host.len() - suffix.len() - 1] == b'.')
+            .then(|| format!("[redacted].{suffix}{port}"))
+    })
 }
 
 // Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label

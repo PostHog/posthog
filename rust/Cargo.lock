@@ -8363,6 +8363,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "psl"
+version = "2.1.218"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f558d33d882cb296fb65dbe0246b98b90e761fbe00c552701d2030eb5bbce63a"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
 name = "psm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8980,6 +8995,7 @@ dependencies = [
  "lz4",
  "memchr",
  "neon",
+ "psl",
  "serde",
  "serde_json",
  "simd-json",

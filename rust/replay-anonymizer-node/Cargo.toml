@@ -16,6 +16,9 @@ base64 = { workspace = true }
 libdeflater = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"
+# Public-suffix-list reduction of the SDK-stamped page host to a registrable domain, mirroring
+# the TS `firstPartyHostPatterns` (tldts with private domains).
+psl = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 # `external-buffers`: the JSONL lines cross the FFI as an externally-backed Buffer (no copy).
 # Safe here: the addon only runs in PostHog's Node ingestion workers, never in V8

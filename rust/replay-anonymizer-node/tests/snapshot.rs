@@ -704,3 +704,77 @@ fn mutation_media_attr_past_the_prescan_budget_declines_to_the_parse() {
         "media src past the attribute prescan budget",
     );
 }
+
+#[test]
+fn snapshot_host_property_seeds_first_party_classification() {
+    // `$snapshot_host` sits after `$snapshot_items` (prod key order is not guaranteed, and the
+    // fused walk consumes events before finishing the envelope — the host must come from the
+    // pre-scan, not the walk). With no team patterns, the stamped host must classify its own
+    // registrable domain first-party (a `www.` self-link collapses) and unlock keeping the
+    // external host.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let events = serde_json::to_string(&json!([{
+        "type": 2, "timestamp": TS0,
+        "data": { "node": { "type": 0, "childNodes": [
+            { "type": 2, "tagName": "a", "attributes": { "href": "https://www.acme-site.test/pricing" }, "childNodes": [] },
+            { "type": 2, "tagName": "a", "attributes": { "href": "https://partner-vendor.test/docs" }, "childNodes": [] }
+        ]}, "initialOffset": { "top": 0, "left": 0 } }
+    }]))
+    .unwrap();
+    let inner = format!(
+        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$window_id":"w-1","$snapshot_items":{events},"$snapshot_host":"app.acme-site.test"}}}}"#
+    );
+    let payload = serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
+    let mut bytes = payload.into_bytes();
+    let msg =
+        anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
+            .expect("message should anonymize");
+    let lines = parse_lines(&msg.lines);
+    let href = |i: usize| {
+        lines[0][1]["data"]["node"]["childNodes"][i]["attributes"]["href"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        href(0),
+        "https://example.com/[redacted]",
+        "same-domain self-link must collapse"
+    );
+    assert_eq!(
+        href(1),
+        "https://partner-vendor.test/[redacted]",
+        "external host must survive once the stamped host provides a pattern"
+    );
+}
+
+#[test]
+fn junk_snapshot_host_is_ignored_not_fatal() {
+    // A non-string / unusable `$snapshot_host` must leave the message processing unchanged
+    // (patterns stay empty, every host collapses) — never fail it.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    for host_json in [r#"42"#, r#""""#, r#""not a host!""#, r#"{"nested":true}"#] {
+        let events = serde_json::to_string(&json!([{
+            "type": 2, "timestamp": TS0,
+            "data": { "node": { "type": 0, "childNodes": [
+                { "type": 2, "tagName": "a", "attributes": { "href": "https://partner-vendor.test/docs" }, "childNodes": [] }
+            ]}, "initialOffset": { "top": 0, "left": 0 } }
+        }]))
+        .unwrap();
+        let inner = format!(
+            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$snapshot_items":{events},"$snapshot_host":{host_json}}}}}"#
+        );
+        let payload =
+            serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
+        let mut bytes = payload.into_bytes();
+        let msg =
+            anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
+                .expect("junk $snapshot_host must not fail the message");
+        let lines = parse_lines(&msg.lines);
+        assert_eq!(
+            lines[0][1]["data"]["node"]["childNodes"][0]["attributes"]["href"],
+            "https://example.com/[redacted]",
+            "with no usable host the collapse-all fail-safe must hold (host_json={host_json})"
+        );
+    }
+}

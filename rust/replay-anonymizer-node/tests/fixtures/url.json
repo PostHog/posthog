@@ -229,6 +229,45 @@
     "expected": "https://js.payment-vendor.test/[redacted]"
   },
   {
+    "name": "external cdn host masks the tenant labels and keeps the provider suffix",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://d3k9x1abc.cloudfront.net/assets/hero.png",
+    "collapseHost": false,
+    "expected": "https://[redacted].cloudfront.net/[redacted]/[redacted]"
+  },
+  {
+    "name": "external s3 bucket host masks every label before the provider suffix",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://acme-uploads.s3.eu-west-1.amazonaws.com/reports/2024.pdf",
+    "collapseHost": false,
+    "expected": "https://[redacted].amazonaws.com/[redacted]/[redacted]"
+  },
+  {
+    "name": "first-party cdn host still collapses to example.com",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "d3k9x1abc.cloudfront.net"
+    ],
+    "input": "https://d3k9x1abc.cloudfront.net/index.html",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]"
+  },
+  {
     "name": "lookalike suffix host is not treated as first-party",
     "allow": {
       "text": [],

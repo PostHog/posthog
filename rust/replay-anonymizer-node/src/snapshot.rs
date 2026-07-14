@@ -376,8 +376,13 @@ pub fn anonymize_snapshot_data_opts(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+    mut first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
+    if let Some(pattern) = scan_snapshot_host(inner).as_deref().and_then(host_pattern) {
+        if !first_party_hosts.contains(&pattern) {
+            first_party_hosts.push(pattern);
+        }
+    }
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
@@ -388,6 +393,130 @@ pub fn anonymize_snapshot_data_opts(
         // consumed before the signal, so the tree path re-reads the intact buffer.
         None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
     }
+}
+
+/// Event property the browser SDK stamps on `$snapshot` flushes: the recorded page's hostname
+/// (post URL-masking). Its registrable domain joins the scrub context's first-party patterns, so
+/// the session's own domain classifies as first-party even when the team has no recording domains
+/// or app URLs configured.
+pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
+
+/// Best-effort read of `properties.$snapshot_host` from the intact buffer, before the walk consumes
+/// it (the fused walk streams events out of `$snapshot_items` inline, so the scrub context must be
+/// complete before it starts). Gated on a substring probe: payloads without the property — every
+/// pre-stamp SDK — pay one memmem pass and nothing else. Any structural anomaly yields `None`,
+/// which falls back to the team's configured patterns and therefore fails closed (collapse), never
+/// open.
+fn scan_snapshot_host(inner: &[u8]) -> Option<String> {
+    let needle = format!("\"{SNAPSHOT_HOST_PROPERTY}\"");
+    memchr::memmem::find(inner, needle.as_bytes())?;
+    let mut pos = scan::skip_ws(inner, 0);
+    if inner.get(pos) != Some(&b'{') {
+        return None;
+    }
+    pos += 1;
+    let mut first = true;
+    loop {
+        pos = scan::skip_ws(inner, pos);
+        if inner.get(pos) == Some(&b'}') {
+            return None;
+        }
+        if !first {
+            if inner.get(pos) != Some(&b',') {
+                return None;
+            }
+            pos = scan::skip_ws(inner, pos + 1);
+        }
+        first = false;
+        if inner.get(pos) != Some(&b'"') {
+            return None;
+        }
+        let key_end = scan::skip_string(inner, pos).ok()?;
+        let key = &inner[pos + 1..key_end - 1];
+        pos = scan::skip_ws(inner, key_end);
+        if inner.get(pos) != Some(&b':') {
+            return None;
+        }
+        let vstart = scan::skip_ws(inner, pos + 1);
+        if key != b"properties" {
+            pos = scan::locate_value(inner, vstart).ok()?.1;
+            continue;
+        }
+        if inner.get(vstart) != Some(&b'{') {
+            return None;
+        }
+        let mut ppos = vstart + 1;
+        let mut pfirst = true;
+        loop {
+            ppos = scan::skip_ws(inner, ppos);
+            if inner.get(ppos) == Some(&b'}') {
+                return None;
+            }
+            if !pfirst {
+                if inner.get(ppos) != Some(&b',') {
+                    return None;
+                }
+                ppos = scan::skip_ws(inner, ppos + 1);
+            }
+            pfirst = false;
+            if inner.get(ppos) != Some(&b'"') {
+                return None;
+            }
+            let pkey_end = scan::skip_string(inner, ppos).ok()?;
+            let is_host = &inner[ppos + 1..pkey_end - 1] == SNAPSHOT_HOST_PROPERTY.as_bytes();
+            ppos = scan::skip_ws(inner, pkey_end);
+            if inner.get(ppos) != Some(&b':') {
+                return None;
+            }
+            let pvstart = scan::skip_ws(inner, ppos + 1);
+            let vspan = scan::locate_value(inner, pvstart).ok()?;
+            if is_host {
+                if !scan::is_string(inner, vspan) {
+                    return None;
+                }
+                return scan::unescape(inner, vspan).ok().map(|c| c.into_owned());
+            }
+            ppos = vspan.1;
+        }
+    }
+}
+
+/// Reduce a stamped hostname to a first-party pattern, mirroring the TS `firstPartyHostPatterns`
+/// reduction: registrable domain (public-suffix aware, private suffixes included) when there is
+/// one, IPs and single-label machine names (`localhost`) kept whole, anything else rejected — a
+/// bare public suffix as a pattern would match every host under it.
+fn host_pattern(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > 253 {
+        return None;
+    }
+    let host = trimmed
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return Some(host);
+    }
+    if !host
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    {
+        return None;
+    }
+    let host = host.trim_end_matches('.');
+    if host.is_empty() {
+        return None;
+    }
+    if let Some(domain) = psl::domain_str(host) {
+        return Some(domain.to_string());
+    }
+    let known_suffix = psl::suffix(host.as_bytes())
+        .map(|s| s.is_known())
+        .unwrap_or(false);
+    if !known_suffix && !host.contains('.') {
+        return Some(host.to_string());
+    }
+    None
 }
 
 const MAX_FAIL_DETAIL: usize = 200;
@@ -1367,4 +1496,37 @@ fn anonymize_via_tree_mut(
         sink,
         Route::Tree,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_pattern;
+
+    #[test]
+    fn host_pattern_reduces_like_the_ts_side() {
+        let cases: &[(&str, Option<&str>)] = &[
+            // Registrable-domain reduction: without it, a `www.` self-link would classify as
+            // external once the stamped host makes the pattern set non-empty.
+            ("app.customer-x.com", Some("customer-x.com")),
+            ("APP.Customer-X.COM", Some("customer-x.com")),
+            ("www.acme.co.uk", Some("acme.co.uk")),
+            // Private suffix keeps the tenant label; reducing to `vercel.app` would classify
+            // every Vercel-hosted site as first-party.
+            ("myapp.vercel.app", Some("myapp.vercel.app")),
+            ("localhost", Some("localhost")),
+            ("127.0.0.1", Some("127.0.0.1")),
+            ("[::1]", Some("::1")),
+            // A bare public suffix as a pattern would match every host under it.
+            ("com", None),
+            ("", None),
+            ("not a host!", None),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                host_pattern(input).as_deref(),
+                *expected,
+                "host_pattern({input:?})"
+            );
+        }
+    }
 }
