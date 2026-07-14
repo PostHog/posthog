@@ -115,7 +115,7 @@ function useFormIntegrationId(formLogic: any, formKey: string, integrationField:
     // Saved job_inputs store the id as a JSONB string; coerce so `integration.id === id` matches.
     const raw = findFieldValue(values[formKey]?.payload, integrationField)
     const id = raw === undefined || raw === null || raw === '' ? undefined : Number(raw)
-    return id && Number.isFinite(id) ? id : undefined
+    return id !== undefined && Number.isFinite(id) ? id : undefined
 }
 
 function IntegrationAccountFieldWithDropdown({
