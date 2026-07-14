@@ -84,6 +84,14 @@ class TestLivingArtifacts(TestCase):
     task: ClassVar[Task]
     task_run: ClassVar[TaskRun]
 
+    def setUp(self) -> None:
+        artifacts_flag = patch(
+            "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
+            return_value=True,
+        )
+        artifacts_flag.start()
+        self.addCleanup(artifacts_flag.stop)
+
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -500,6 +508,27 @@ class TestLivingArtifacts(TestCase):
             task_run=self.task_run,
             mentioning_slack_user_id="U123",
         )
+
+    @patch(
+        "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
+        return_value=False,
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_living_artifact_creation_rejected_when_flag_off(
+        self, mock_integration_for_mapping, _mock_flag
+    ) -> None:
+        self._create_mapping_with_full_scopes()
+
+        with self.assertRaisesRegex(ValueError, "Living artifacts are not enabled"):
+            create_living_artifact(
+                run=self.task_run,
+                name="Summary",
+                artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+                content="Result",
+            )
+
+        mock_integration_for_mapping.assert_not_called()
+        self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
 
     @parameterized.expand(
         [
