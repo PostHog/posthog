@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ee.hogai.eval.sandboxed.error_tracking.scorers import (
+from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
     QUERY_ISSUES_LIST_TOOL,

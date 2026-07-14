@@ -8,11 +8,6 @@ from _pytest.terminal import TerminalReporter
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import _django_db_setup  # noqa: F401
 
-# Sandboxed evals run through the standalone harness (python -m
-# ee.hogai.eval.sandboxed.harness), not pytest. Keep pytest out of that tree so
-# only ci/ and offline/ collect here.
-collect_ignore = ["sandboxed"]
-
 
 def pytest_addoption(parser):
     # Example: pytest ee/hogai/eval/ci/eval_sql.py --eval churn - to only run cases containing "churn" in input
