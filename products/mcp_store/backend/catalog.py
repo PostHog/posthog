@@ -164,6 +164,14 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="launchdarkly.com",
     ),
     CatalogEntry(
+        name="Linear",
+        url="https://mcp.linear.app/mcp",
+        description="Manage Linear issues, projects, and team workflows.",
+        auth_type="oauth",
+        category="productivity",
+        icon_domain="linear.app",
+    ),
+    CatalogEntry(
         name="Neon",
         url="https://mcp.neon.tech/mcp",
         description="Manage Neon serverless Postgres projects, branches, and databases.",
