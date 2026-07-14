@@ -15,6 +15,8 @@ If you add an import to one of those modules, check that `--list` still runs.
 
 ## Concurrency
 
+The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORTER`, `update`) are applied in one place — `BraintrustEngine.run_experiment` in [`../engines/braintrust.py`](../engines/braintrust.py), the sole `EvalEngine` implementation — and documented as obligations in its docstring. `_BaseEvalRun.run()` only hands the engine the cases, task, scorers, and metadata. A future engine (e.g. a PostHog-native one) owns its own equivalents.
+
 - **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our concurrency semaphores, so it would kill cases that never started. The budget belongs in the `asyncio.wait_for` inside the slot.
 - **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that the harness's own semaphores are the only limiters.
 - **Acquire `ctx.sandbox_slots` exactly once per case**, around only the sandbox-owning window. It is not reentrant; a second acquisition inside the first deadlocks. `ctx.one_shot_slots` follows the same rules for one-shot cases: acquired once, `wait_for` budget inside, never both semaphores in one case.

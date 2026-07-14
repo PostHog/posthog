@@ -6,7 +6,10 @@ from typing import Any
 
 import pytest
 
+from braintrust.framework import EvalResultWithSummary
+
 from ee.hogai.eval.sandboxed.config import BaseEvalCase
+from ee.hogai.eval.sandboxed.engines.base import EvalTaskFn
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.one_shot import _OneShotEvalRun
 
@@ -14,9 +17,40 @@ from ee.hogai.eval.sandboxed.one_shot import _OneShotEvalRun
 class _StubReporter:
     def __init__(self) -> None:
         self.done: list[tuple[str, str]] = []
+        self.started: list[tuple[str, int]] = []
+        self.summaries: list[tuple[str, Any, int]] = []
 
     async def case_done(self, experiment_name: str, case_name: str, duration_seconds: float, status: str) -> None:
         self.done.append((case_name, status))
+
+    async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
+        self.started.append((experiment_name, planned_cases))
+
+    async def record_summary(self, experiment_name: str, summary: Any, error_count: int) -> None:
+        self.summaries.append((experiment_name, summary, error_count))
+
+
+class _StubEngine:
+    def __init__(self, result: EvalResultWithSummary) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def run_experiment(
+        self,
+        *,
+        project_name: str,
+        cases: Any,
+        task: EvalTaskFn,
+        scorers: Any,
+        trial_count: int,
+        is_public: bool,
+        no_send_logs: bool,
+        metadata: dict[str, Any],
+    ) -> EvalResultWithSummary:
+        self.calls.append(
+            {"project_name": project_name, "cases": list(cases), "trial_count": trial_count, "metadata": metadata}
+        )
+        return self.result
 
 
 def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: str | None = None) -> EvalContext:
@@ -119,3 +153,26 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
 
     run = _build_run(tmp_path, monkeypatch, _build_ctx(case_filter="c2"), task)
     assert [case.input["name"] for case in run._build_eval_cases()] == ["c2"]
+
+
+def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
+        raise AssertionError("the engine is stubbed, so the task must not run")
+
+    canned = EvalResultWithSummary(summary=object(), results=[])
+    engine = _StubEngine(canned)
+    ctx = _build_ctx()
+    run = _build_run(tmp_path, monkeypatch, ctx, task)
+    run.engine = engine
+
+    returned = asyncio.run(run.run())
+
+    assert returned is canned
+    assert len(engine.calls) == 1
+    call = engine.calls[0]
+    assert call["project_name"] == "one-shot-test"
+    assert [case.input["name"] for case in call["cases"]] == ["c1", "c2"]
+    assert call["metadata"] == {"agent_model": "claude-test"}
+    reporter = ctx.reporter
+    assert reporter.started == [("one-shot-test", 2)]  # type: ignore[attr-defined]
+    assert reporter.summaries == [("one-shot-test", canned.summary, 0)]  # type: ignore[attr-defined]

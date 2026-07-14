@@ -8,12 +8,13 @@ from collections.abc import Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
-from braintrust import EvalAsync, EvalCase, EvalHooks
+from braintrust import EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
-from .harness.reporting import QUIET_REPORTER
+from .engines.base import EvalEngine
+from .engines.braintrust import BraintrustEngine
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
@@ -120,19 +121,23 @@ class _BaseEvalRun:
         ctx: EvalContext,
         is_public: bool,
         no_send_logs: bool,
+        engine: EvalEngine | None = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.cases = cases
         self.ctx = ctx
         self.is_public = is_public
         self.no_send_logs = no_send_logs
+        # The execution/reporting backend. Braintrust is the only one today; the
+        # seam lets a PostHog-native engine slot in later (see engines/base.py).
+        self.engine = engine or BraintrustEngine()
 
         # Generate a unique experiment ID per eval run
         self.experiment_id = str(uuid.uuid4())
 
         self.posthog_client = ctx.posthog_client
 
-        # Shared lookups populated by _task(), read after EvalAsync completes.
+        # Shared lookups populated by _task(), read after the experiment run completes.
         self.agent_trace_id_lookup: dict[str, str] = {}
         # Per-case metadata for emitting $ai_trace root events after scoring.
         self.case_trace_meta: dict[str, dict[str, Any]] = {}
@@ -282,26 +287,12 @@ class _BaseEvalRun:
         planned_cases = len(eval_cases) * self.ctx.trials
         await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
 
-        result = await EvalAsync(
-            self._project_name(),
-            data=eval_cases,
+        result = await self.engine.run_experiment(
+            project_name=self._project_name(),
+            cases=eval_cases,
             task=self._task,
-            scores=self.active_scorers,
+            scorers=self.active_scorers,
             trial_count=self.ctx.trials,
-            # Our global concurrency semaphores are the only limiters that should
-            # bind. Braintrust's own per-suite limiter must never gate, so let it
-            # admit every case at once — across all trials.
-            max_concurrency=max(len(eval_cases) * self.ctx.trials, 1),
-            # Braintrust's timeout wraps the whole task invocation, including any time
-            # a case spends queued on our concurrency semaphores — so a queued case
-            # would be killed before it ever started. The real budget is the
-            # ``asyncio.wait_for`` inside ``_execute_case``, which starts only after
-            # slot acquisition.
-            timeout=None,
-            # Suites share one stdout; the quiet reporter stops each experiment from
-            # dumping its own score table into the interleaved stream.
-            reporter=QUIET_REPORTER,
-            update=True,
             is_public=self.is_public,
             no_send_logs=self.no_send_logs,
             # Experiment names stay runtime/model-agnostic so history lines up across
