@@ -8,7 +8,7 @@ substitution dict for `sync_old_schemas_with_new_schemas`.
 from __future__ import annotations
 
 from products.data_warehouse.backend.postgres_helpers import rename_postgres_schemas_to_match_source_schemas
-from products.data_warehouse.backend.sql_warehouse_migration import apply_on_refresh, source_namespace_is_blank
+from products.data_warehouse.backend.sql_warehouse_migration import apply_on_refresh
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 
@@ -32,7 +32,7 @@ def reconcile_refresh_name_substitutions(
         allow_rename=source.is_direct_query,
     )
 
-    if not source.is_direct_query and source_namespace_is_blank(source):
+    if not source.is_direct_query:
         consolidation_substitutions = apply_on_refresh(source=source, team_id=team_id)
         # Chain {discovered: existing} → {discovered: renamed} when consolidate renamed `existing`.
         for old_name, new_name in consolidation_substitutions.items():
