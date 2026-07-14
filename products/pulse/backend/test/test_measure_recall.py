@@ -36,10 +36,12 @@ class TestPulseMeasureRecall(APIBaseTest):
         _brief(
             self.team,
             sections=[{"kind": "what_happened", "title": "Signup drop", "markdown": "Signups fell 20%."}],
+            created_by=self.user,
         )
         _brief(
             self.team,
             sections=[{"kind": "what_happened", "title": "Thin", "markdown": "Nothing much."}],
+            created_by=self.user,
         )
 
         judged = MissedSignals(expected=["signup drop", "onboarding funnel"], missing=["onboarding funnel"])

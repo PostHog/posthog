@@ -56,6 +56,7 @@ async def _judge_brief(brief: ProductBrief) -> MissedSignals:
         model=_JUDGE_MODEL,
         timeout=_LLM_TIMEOUT_SECONDS,
         max_retries=1,
+        user=brief.created_by,
         team=brief.team,
         billable=True,
         posthog_properties={"ai_product": "pulse", "ai_feature": "measure_recall"},
@@ -88,9 +89,16 @@ class Command(BaseCommand):
         team_id: int | None = options["team_id"]
         limit: int = options["limit"]
 
-        # select_related("team"): the FK is read inside the async _measure loop (MaxChatOpenAI
-        # team=brief.team), so it must be eager-loaded or the lazy query trips SynchronousOnlyOperation.
-        briefs_qs = ProductBrief.objects.unscoped().select_related("team").exclude(sections=[]).order_by("-created_at")
+        # select_related: team + created_by are read inside the async _measure loop (MaxChatOpenAI
+        # needs both), so they must be eager-loaded or the lazy query trips SynchronousOnlyOperation.
+        # created_by must be present — the LLM judge bills to a user; user-less (scheduled) briefs are skipped.
+        briefs_qs = (
+            ProductBrief.objects.unscoped()
+            .select_related("team", "created_by")
+            .exclude(sections=[])
+            .filter(created_by__isnull=False)
+            .order_by("-created_at")
+        )
         if team_id is not None:
             briefs_qs = briefs_qs.filter(team_id=team_id)
         briefs = list(briefs_qs[:limit])

@@ -6,6 +6,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.prompts import sanitize_for_prompt
@@ -55,7 +56,7 @@ def _render_seeds(seeds: list[dict]) -> str:
 
 
 async def propose_expansions(
-    seeds: list[dict], *, team: Team, focus_prompt: str, max_proposals: int
+    seeds: list[dict], *, team: Team, user: User, focus_prompt: str, max_proposals: int
 ) -> list[ExpansionProposal]:
     rendered = EXPAND_PROMPT.format(
         focus_prompt=sanitize_for_prompt(focus_prompt or "the whole product"),
@@ -65,6 +66,7 @@ async def propose_expansions(
         model=EXPAND_MODEL,
         timeout=_LLM_TIMEOUT_SECONDS,
         max_retries=1,
+        user=user,
         team=team,
         billable=True,
         posthog_properties={"ai_product": "pulse", "ai_feature": "expand"},

@@ -27,7 +27,7 @@ class TestProposeExpansions:
         plan = ExpansionPlan(proposals=[_proposal(f"intent {i}") for i in range(5)])
         with patch(LLM_PATH, return_value=_mock_llm(plan)):
             proposals = await propose_expansions(
-                [{"title": "seed"}], team=MagicMock(), focus_prompt="growth", max_proposals=3
+                [{"title": "seed"}], team=MagicMock(), user=MagicMock(), focus_prompt="growth", max_proposals=3
             )
         assert len(proposals) == 3
 
