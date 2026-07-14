@@ -34,6 +34,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
+from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
@@ -47,12 +48,9 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
-from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
@@ -80,10 +78,15 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
-from products.feature_flags.backend.api.feature_flag import (
-    FeatureFlagSerializer,
-    parse_created_by_ids,
-    raise_if_flag_has_dependents,
+from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
+from products.feature_flags.backend.facade.api import (
+    archive_flag,
+    create_flag,
+    flag_disable_requires_approval,
+    set_flag_active,
+    unarchive_flag,
+    update_flag,
+    user_can_edit_flag,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1135,26 +1138,27 @@ class ExperimentService:
         config = feature_flag_config or {}
         config_filters = config.get("filters") or {}
         variants = self._flag_config_variants(config) or []
-        aggregation_group_type_index = config_filters.get("aggregation_group_type_index")
 
         groups = config_filters.get("groups")
         experiment_rollout_percentage = DEFAULT_ROLLOUT_PERCENTAGE
         if groups and groups[0].get("rollout_percentage") is not None:
             experiment_rollout_percentage = groups[0]["rollout_percentage"]
 
+        # `groups` and `multivariate` are normalized (the experiment input surface restricts
+        # groups to a single rollout-only entry, and an experiment flag always has variants).
+        # `aggregation_group_type_index` is seeded to None so person-level aggregation stays
+        # the default when the config omits it; the spread overrides the seed when present.
+        # Every other validated filters key — payloads (variant_key -> JSON string, e.g.
+        # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
+        # and any future key — is applied as-is so nothing the serializer accepted is
+        # silently dropped.
         feature_flag_filters = {
+            "aggregation_group_type_index": None,
+            **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
             "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-            "aggregation_group_type_index": aggregation_group_type_index,
             **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
-
-        # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
-        # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
-        # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
-        feature_flag_payloads = config_filters.get("payloads")
-        if feature_flag_payloads:
-            feature_flag_filters["payloads"] = feature_flag_payloads
 
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
@@ -1170,13 +1174,12 @@ class ExperimentService:
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
 
-        context = serializer_context or self._build_serializer_context()
-        feature_flag_serializer = FeatureFlagSerializer(
-            data=feature_flag_data,
-            context=context,
+        feature_flag = create_flag(
+            feature_flag_data,
+            team=self.team,
+            user=self.user,
+            request=(serializer_context or {}).get("request"),
         )
-        feature_flag_serializer.is_valid(raise_exception=True)
-        feature_flag = feature_flag_serializer.save()
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
 
@@ -1482,40 +1485,6 @@ class ExperimentService:
     # Launch
     # ------------------------------------------------------------------
 
-    def _set_flag_active_gated(self, feature_flag: FeatureFlag, active: bool, request: Any) -> None:
-        """Flip a flag's active state THROUGH the approval gate.
-
-        Routing the flip through FeatureFlagSerializer.update() honours the
-        @approval_gate so the feature_flag.enable/disable policies apply. Raises
-        ApprovalRequired (which surfaces as a 409 + change_request_id) when a
-        policy requires approval; in that case the flag is left untouched.
-
-        The gate's detect()/extract_intent() read the serializer's validated_data
-        (the actual change being saved), so the incoming experiment launch/pause/
-        resume request is passed straight through — no synthetic PATCH request is
-        needed.
-
-        Pass BOTH get_team and get_organization so the gate resolves the policy
-        from context rather than falling back to instance derivation.
-        """
-        # Internal callers may omit a request; FeatureFlagSerializer.update() needs
-        # request.user, so fall back to the service's user via a minimal request.
-        flag_request = request if getattr(request, "user", None) is not None else _ServiceRequest(self.user)
-        serializer = FeatureFlagSerializer(
-            instance=feature_flag,
-            data={"active": active},
-            partial=True,
-            context={
-                "request": flag_request,
-                "get_team": lambda: self.team,
-                "get_organization": lambda: self.team.organization,
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
     # Not @transaction.atomic: the flag flip goes through the FeatureFlagSerializer
     # approval workflow, which conflicts with atomic (an ApprovalRequired propagating
     # out of an atomic block would roll back the just-created ChangeRequest). The flag
@@ -1534,7 +1503,7 @@ class ExperimentService:
         # Activate the feature flag through the approval gate first. If approval is
         # required this raises ApprovalRequired (-> 409) before we touch the experiment,
         # so start_date stays None and the experiment is not launched.
-        self._set_flag_active_gated(feature_flag, True, request)
+        set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
 
         # Set start_date
         experiment.start_date = timezone.now()
@@ -1593,29 +1562,23 @@ class ExperimentService:
         experiment.save()
 
         self._archive_linked_feature_flag(
-            experiment, disable_if_active=disable_feature_flag, can_write_feature_flag=can_write_feature_flag
+            experiment,
+            disable_if_active=disable_feature_flag,
+            can_write_feature_flag=can_write_feature_flag,
+            request=request,
         )
 
         self._report_lifecycle_event(experiment, "experiment archived", request=request)
 
         return experiment
 
-    def _user_can_edit_flag(self, feature_flag: FeatureFlag) -> bool:
-        """Whether self.user has editor access to this flag — the same check the feature flag API enforces."""
-        user = self.user
-        if not isinstance(user, User) or user.is_anonymous:
-            return False
-        return UserAccessControl(user=user, team=self.team).check_access_level_for_object(feature_flag, "editor")
-
-    def _flag_disable_requires_approval(self) -> bool:
-        """Whether an enabled approval policy gates disabling a flag for this team/org."""
-        policy = PolicyEngine().get_policy(
-            action_key="feature_flag.disable", team=self.team, organization=self.team.organization
-        )
-        return policy is not None
-
     def _archive_linked_feature_flag(
-        self, experiment: Experiment, *, disable_if_active: bool = False, can_write_feature_flag: bool = True
+        self,
+        experiment: Experiment,
+        *,
+        disable_if_active: bool = False,
+        can_write_feature_flag: bool = True,
+        request: Any | None = None,
     ) -> None:
         """Archive the experiment's flag along with it, so it stops cluttering the flag list.
 
@@ -1643,7 +1606,7 @@ class ExperimentService:
         if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
             return
 
-        can_edit = self._user_can_edit_flag(feature_flag)
+        can_edit = user_can_edit_flag(feature_flag, team=self.team, user=self.user)
 
         if feature_flag.active:
             if not disable_if_active:
@@ -1658,21 +1621,28 @@ class ExperimentService:
                     "You don't have editor access to this experiment's feature flag, so it can't be disabled. "
                     "Archive the experiment without disabling the flag, or ask someone with flag access."
                 )
-            if self._flag_disable_requires_approval():
+            # A side-effect mutation can't be routed through the change-request flow (this runs
+            # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
+            # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
+            if flag_disable_requires_approval(self.team):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
                 )
-            # Mirror the feature flag API's check: don't disable a flag other active flags depend on.
-            raise_if_flag_has_dependents(feature_flag)
-            feature_flag.active = False
         elif not can_edit or not can_write_feature_flag:
             # Implicit cleanup of an already-disabled flag — skip silently when the caller
             # lacks flag editor access or feature_flag:write scope; the experiment still archives.
             return
 
-        feature_flag.archived = True
-        feature_flag.save(update_fields=["archived", "active"])
+        # Gated write: disabling applies the flag API's dependents guard
+        # (raise_if_flag_has_dependents) inside the serializer.
+        archive_flag(
+            feature_flag,
+            team=self.team,
+            user=self.user,
+            request=request,
+            disable_if_active=disable_if_active,
+        )
 
         # Sync the cached relation so the serialized response reflects the flag we just
         # mutated — experiment.feature_flag is a separately-loaded instance otherwise.
@@ -1702,13 +1672,15 @@ class ExperimentService:
         experiment.archived = False
         experiment.save()
 
-        self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag)
+        self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag, request=request)
 
         self._report_lifecycle_event(experiment, "experiment unarchived", request=request)
 
         return experiment
 
-    def _unarchive_linked_feature_flag(self, experiment: Experiment, *, can_write_feature_flag: bool = True) -> None:
+    def _unarchive_linked_feature_flag(
+        self, experiment: Experiment, *, can_write_feature_flag: bool = True, request: Any | None = None
+    ) -> None:
         """Mirror of _archive_linked_feature_flag: bring the flag back with the experiment.
 
         Only undoes an archive this experiment performed — a flag the user archived
@@ -1731,11 +1703,14 @@ class ExperimentService:
             experiment.save(update_fields=["feature_flag_auto_archived"])
             return
 
-        if not can_write_feature_flag or not self._user_can_edit_flag(feature_flag):
+        if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
             return
 
-        feature_flag.archived = False
-        feature_flag.save(update_fields=["archived"])
+        # Gated write inside unarchive_experiment's transaction: safe because an
+        # archived-only payload matches no approval action (enable/disable detect on
+        # `active`, update on `filters`), so the gate can't raise ApprovalRequired here
+        # and roll back a just-created change request.
+        unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
 
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])
@@ -1745,7 +1720,7 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     # Not @transaction.atomic — the flag flip goes through the FeatureFlagSerializer
-    # approval workflow, which conflicts with atomic (see _set_flag_active_gated).
+    # approval workflow, which conflicts with atomic (see the flag facade's set_flag_active).
     def pause_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Pause a running experiment: deactivate its feature flag so it is no longer served by /decide."""
         if experiment.is_draft:
@@ -1761,7 +1736,7 @@ class ExperimentService:
 
         # Deactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # pause before we report it, leaving the flag active.
-        self._set_flag_active_gated(feature_flag, False, request)
+        set_flag_active(feature_flag, False, team=self.team, user=self.user, request=request)
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
@@ -1771,7 +1746,7 @@ class ExperimentService:
         return experiment
 
     # Not @transaction.atomic — the flag flip goes through the FeatureFlagSerializer
-    # approval workflow, which conflicts with atomic (see _set_flag_active_gated).
+    # approval workflow, which conflicts with atomic (see the flag facade's set_flag_active).
     def resume_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Resume a paused experiment: reactivate its feature flag so /decide serves variants again."""
         if experiment.is_draft:
@@ -1787,7 +1762,7 @@ class ExperimentService:
 
         # Reactivate through the approval gate. An ApprovalRequired (-> 409) aborts the
         # resume before we report it, leaving the flag paused.
-        self._set_flag_active_gated(feature_flag, True, request)
+        set_flag_active(feature_flag, True, team=self.team, user=self.user, request=request)
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
@@ -1904,7 +1879,7 @@ class ExperimentService:
                 # rather than locally.
                 new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
 
-                # 5. Persist the narrowed filters via FeatureFlagSerializer.
+                # 5. Persist the narrowed filters via the gated flag write.
                 #
                 # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
                 # but flag approval policies are intentionally field-level and scoped to `active`
@@ -1915,18 +1890,13 @@ class ExperimentService:
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
                 # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
                 # cohort would then need to outlive a pending change request rather than be cleaned up below.
-                flag_serializer = FeatureFlagSerializer(
+                update_flag(
                     locked_flag,
-                    data={"filters": new_filters},
-                    partial=True,
-                    context={
-                        "request": request,
-                        "team_id": self.team.id,
-                        "project_id": self.team.project_id,
-                    },
+                    {"filters": new_filters},
+                    team=self.team,
+                    user=self.user,
+                    request=request,
                 )
-                flag_serializer.is_valid(raise_exception=True)
-                flag_serializer.save()
         except Exception:
             exposure_snapshot.delete()
             raise
@@ -2277,18 +2247,7 @@ class ExperimentService:
         flag = experiment.feature_flag
         new_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
 
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": new_filters},
-            partial=True,
-            context={
-                "request": request,
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        flag_serializer.is_valid(raise_exception=True)
-        flag_serializer.save()
+        update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
@@ -2563,18 +2522,7 @@ class ExperimentService:
             return
 
         if request is not None:
-            flag_serializer = FeatureFlagSerializer(
-                flag,
-                data={"filters": stripped_filters},
-                partial=True,
-                context={
-                    "request": request,
-                    "team_id": self.team.id,
-                    "project_id": self.team.project_id,
-                },
-            )
-            flag_serializer.is_valid(raise_exception=True)
-            flag_serializer.save()
+            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
             # FeatureFlagSerializer needs a real request for its context; for non-HTTP callers
             # write directly — flag caches still refresh via model save signals, only the flag's
@@ -2650,25 +2598,12 @@ class ExperimentService:
             base_filters, variant_key, release_to_everyone=release_to_everyone
         )
 
-        # Update the flag through the serializer to preserve the approval
+        # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises
         # ApprovalRequired which surfaces as a 409 to the caller. The
         # experiment is NOT ended until the change request is approved and
         # the user retries.
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": new_filters},
-            partial=True,
-            context={
-                "request": request,
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-                "get_team": lambda: self.team,
-                "get_organization": lambda: self.team.organization,
-            },
-        )
-        flag_serializer.is_valid(raise_exception=True)
-        flag_serializer.save()
+        update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh the flag instance so the experiment's nested flag reflects
         # the updated filters when serialized in the response.
@@ -2942,7 +2877,7 @@ class ExperimentService:
         # as the sync above: an ApprovalRequired must leave the pending
         # ChangeRequest intact rather than roll it back.
         if experiment.is_draft and update_data.get("start_date") is not None:
-            self._set_flag_active_gated(feature_flag, True, context.get("request"))
+            set_flag_active(feature_flag, True, team=self.team, user=self.user, request=context.get("request"))
 
         with transaction.atomic():
             # --- saved metrics sync (update-in-place) -----------
@@ -3096,11 +3031,6 @@ class ExperimentService:
             config_variants = self._flag_config_variants(feature_flag_config)
             variants = config_variants if config_variants is not None else feature_flag.variants
 
-            if "aggregation_group_type_index" in config_filters:
-                aggregation_group_type_index = config_filters["aggregation_group_type_index"]
-            else:
-                aggregation_group_type_index = existing_filters.get("aggregation_group_type_index")
-
             existing_groups = existing_filters.get("groups", [])
             groups = config_filters.get("groups")
             experiment_rollout_percentage = groups[0].get("rollout_percentage") if groups else None
@@ -3112,32 +3042,27 @@ class ExperimentService:
             else:
                 new_groups = list(existing_groups)
 
+            # `groups` and `multivariate` are normalized (only groups[0].rollout_percentage is
+            # merged, and variants always resolve against the flag); every other validated filters
+            # key is merged as-is over the flag's current filters, so nothing the serializer
+            # accepted is silently dropped.
             new_filters = {
                 **existing_filters,
+                **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
                 "groups": new_groups,
                 "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-                "aggregation_group_type_index": aggregation_group_type_index,
                 **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
             }
-            if "payloads" in config_filters:
-                new_filters["payloads"] = config_filters["payloads"]
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
             if "ensure_experience_continuity" in feature_flag_config:
                 flag_update_data["ensure_experience_continuity"] = feature_flag_config["ensure_experience_continuity"]
 
-            existing_flag_serializer = FeatureFlagSerializer(
-                feature_flag,
-                data=flag_update_data,
-                partial=True,
-                context=context,
-            )
-            existing_flag_serializer.is_valid(raise_exception=True)
-            existing_flag_serializer.save()
+            update_flag(feature_flag, flag_update_data, team=self.team, user=self.user, request=context.get("request"))
         elif "holdout" in update_data:
-            existing_flag_serializer = FeatureFlagSerializer(
+            update_flag(
                 feature_flag,
-                data={
+                {
                     "filters": {
                         **feature_flag.filters,
                         **holdout_filters_for_flag(
@@ -3145,11 +3070,10 @@ class ExperimentService:
                         ),
                     }
                 },
-                partial=True,
-                context=context,
+                team=self.team,
+                user=self.user,
+                request=context.get("request"),
             )
-            existing_flag_serializer.is_valid(raise_exception=True)
-            existing_flag_serializer.save()
 
     def _compute_changed_fields(
         self,
@@ -4236,27 +4160,9 @@ class ExperimentService:
     def _build_serializer_context(self) -> dict:
         """Build minimal DRF serializer context for internal service use."""
         return {
-            "request": _ServiceRequest(self.user),
+            "request": ServiceRequest(self.user),
             "team_id": self.team.id,
             "project_id": self.team.project_id,
             "get_team": lambda: self.team,
             "get_organization": lambda: self.team.organization,
         }
-
-
-class _ServiceRequest:
-    """Minimal request-like object for DRF serializers used from the service layer.
-
-    Provides the subset of the DRF Request interface that FeatureFlagSerializer
-    and other serializers actually use, without DRF's authentication machinery.
-    """
-
-    def __init__(self, user: Any):
-        self.user = user
-        self.method = "POST"
-        self.path = "/"
-        self.data: dict = {}
-        self.GET: dict = {}
-        self.META: dict = {}
-        self.headers: dict = {}
-        self.session: dict = {}
