@@ -225,12 +225,12 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
       `scope_object = "INTERNAL"` blocks full-access (`*`) keys, so only a deliberately
       minted key works. Browser sessions bypass the scope layer and rely on `is_staff`.
 
-    To mint a key (the scope is hidden from the PAT UI picker), while logged in as staff:
-    `POST /api/personal_api_keys/ {"label": "migrations support", "scopes": ["batch_import_support:read", "user:read"]}`.
+    To mint a key (the scope is hidden from the PAT UI picker): create a key in the UI
+    with `user:read`, then add `batch_import_support:read` to its scopes via Django admin.
     `user:read` is required for MCP use: tool discovery verifies staffness via
     `/api/users/@me/` and hides these tools (fail-closed) when it cannot. The key must be
     unscoped - keys with scoped_teams/scoped_organizations are rejected on root-level
-    endpoints.
+    endpoints. Full operator guide: products/managed_migrations/docs/support-mcp-tools.md.
     """
 
     scope_object = "INTERNAL"
