@@ -1016,7 +1016,7 @@ class TestChunkedPartitionMerges:
         final = result.to_pyarrow_table()
         assert final.num_rows == 2 * partition_count
         for i, partition in enumerate(partitions):
-            rows = final.filter(pc.equal(final[PARTITION_KEY], partition))
+            rows = final.filter(pc.equal(final[PARTITION_KEY], pa.scalar(partition)))
             assert dict(zip(rows["id"].to_pylist(), rows["value"].to_pylist())) == {i: "new", 1000 + i: "ins"}
 
         expected_merges = -(-partition_count // MERGE_PARTITION_CHUNK_SIZE)

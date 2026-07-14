@@ -475,7 +475,7 @@ class DeltaTableHelper:
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
-                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+                unique_partitions = pc.unique(data[PARTITION_KEY])
                 partition_sizes = await self._partition_sizes_on_disk(existing_delta_table)
                 partition_chunks = _pack_partition_chunks(unique_partitions.to_pylist(), partition_sizes)
 
