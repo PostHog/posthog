@@ -26,9 +26,10 @@ DEBUG=1 python manage.py sync_mcp_server_templates --skip-probe  # local seed wi
 ## Icons
 
 Templates carry an `icon_domain` (the vendor's brand domain, e.g. `linear.app`).
-The frontend renders `GET /api/projects/:id/mcp_servers/icon/?domain=<icon_domain>`, which proxies logo.dev through `CDPIconsService` (cached, egress-gated — see `posthog/egress/logodev/`).
+The frontend renders `GET /api/projects/:id/mcp_servers/icon/?domain=<icon_domain>&theme=<light|dark>`, which proxies logo.dev through `CDPIconsService` (cached per domain + theme, egress-gated — see `posthog/egress/logodev/`).
+Logos come back as transparent retina PNGs matched to the active UI theme, rather than logo.dev's default white-tiled jpg.
 No image assets are committed; custom installs without a template derive a best-effort domain from their server URL.
-Unknown domains fall back to a generic server icon.
+Domains without a logo return 404 (negative-cached) and the UI falls back to a generic server icon.
 
 ## Auth models
 
