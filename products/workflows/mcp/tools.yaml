@@ -273,7 +273,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        enrich_url: '{id}/workflow'
         title: Publish workflow draft
         description: >
             Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns
@@ -282,7 +281,6 @@ tools:
             and that exact draft_updated_at; a 409 means the draft changed since you read it, so re-read and re-confirm.
             Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and
             the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).
-        ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
         enabled: true

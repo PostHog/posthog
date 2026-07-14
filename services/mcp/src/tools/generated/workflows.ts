@@ -248,27 +248,26 @@ const WorkflowsPublishSchema = HogFlowsPublishCreateParams.omit({ project_id: tr
     HogFlowsPublishCreateBody.shape
 )
 
-const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, WithPostHogUrl<Schemas.HogFlowPublishResponse>> =>
-    withUiApp('workflow', {
-        name: 'workflows-publish',
-        schema: WorkflowsPublishSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsPublishSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.confirm !== undefined) {
-                body['confirm'] = params.confirm
-            }
-            if (params.draft_updated_at !== undefined) {
-                body['draft_updated_at'] = params.draft_updated_at
-            }
-            const result = await context.api.request<Schemas.HogFlowPublishResponse>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
-                body,
-            })
-            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
-        },
-    })
+const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.HogFlowPublishResponse> => ({
+    name: 'workflows-publish',
+    schema: WorkflowsPublishSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPublishSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.confirm !== undefined) {
+            body['confirm'] = params.confirm
+        }
+        if (params.draft_updated_at !== undefined) {
+            body['draft_updated_at'] = params.draft_updated_at
+        }
+        const result = await context.api.request<Schemas.HogFlowPublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+            body,
+        })
+        return result
+    },
+})
 
 const WorkflowsDiscardDraftSchema = HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
 
