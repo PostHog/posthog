@@ -7,6 +7,7 @@ import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
@@ -22,7 +23,12 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, OnboardingStepKey } from '~/types'
 
-import { QuickstartPublication } from './publications'
+import {
+    PublicationFeedKey,
+    QUICKSTART_BLOG_URL,
+    QUICKSTART_NEWSLETTER_URL,
+    QuickstartPublication,
+} from './publications'
 import { QuickstartProduct, quickstartLogic } from './quickstartLogic'
 
 export const scene: SceneExport = {
@@ -252,9 +258,15 @@ function LearnCard({
     )
 }
 
-function PublicationCard({ publication }: { publication: QuickstartPublication }): JSX.Element {
+function PublicationCard({
+    publication,
+    feed,
+}: {
+    publication: QuickstartPublication
+    feed: PublicationFeedKey
+}): JSX.Element {
     return (
-        <LemonCard hoverEffect className="p-0 overflow-hidden">
+        <LemonCard hoverEffect className="p-0 overflow-hidden h-full">
             <Link
                 to={publication.url}
                 target="_blank"
@@ -262,10 +274,11 @@ function PublicationCard({ publication }: { publication: QuickstartPublication }
                 onClick={() =>
                     posthog.capture('quickstart action clicked', {
                         action: 'open_publication',
+                        feed,
                         url: publication.url,
                     })
                 }
-                data-attr="quickstart-publication-card"
+                data-attr={`quickstart-publication-card-${feed}`}
             >
                 {publication.imageUrl && (
                     <img
@@ -314,55 +327,134 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }): JSX.Element
     return <div ref={ref} className="h-px" />
 }
 
-function PublicationsSection(): JSX.Element | null {
-    const { publications, publicationsLoading, hasMorePublications } = useValues(quickstartLogic)
-    const { loadMorePublications } = useActions(quickstartLogic)
+function PublicationSkeletonCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3 h-full">
+            <LemonSkeleton className="w-full h-24 rounded" />
+            <LemonSkeleton className="w-3/4 h-4" />
+            <LemonSkeleton className="w-full h-3" />
+        </LemonCard>
+    )
+}
 
-    if (!publicationsLoading && publications.length === 0) {
+function PublicationRail({
+    feed,
+    title,
+    viewAllUrl,
+    viewAllLabel,
+    endLabel,
+    publications,
+    loading,
+    hasMore,
+    onLoadMore,
+}: {
+    feed: PublicationFeedKey
+    title: string
+    viewAllUrl: string
+    viewAllLabel: string
+    endLabel: string
+    publications: QuickstartPublication[]
+    loading: boolean
+    hasMore: boolean
+    onLoadMore: () => void
+}): JSX.Element | null {
+    if (!loading && publications.length === 0) {
         return null
     }
 
     return (
-        <SectionPanel>
-            <div className="flex items-start justify-between gap-2">
-                <SectionHeader title="Fresh from PostHog" subtitle="What we've been shipping and writing about." />
-                <LemonButton
-                    size="small"
-                    to="https://posthog.com/blog"
-                    targetBlank
-                    onClick={() => captureQuickstartAction('open_blog')}
-                    data-attr="quickstart-publications-view-all"
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold mb-0">{title}</h3>
+                <Link
+                    to={viewAllUrl}
+                    target="_blank"
+                    className="text-sm"
+                    onClick={() => captureQuickstartAction(`view_all_${feed}`)}
+                    data-attr={`quickstart-publications-view-all-${feed}`}
                 >
-                    View all
-                </LemonButton>
+                    {viewAllLabel}
+                </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <ScrollableShadows
+                direction="horizontal"
+                innerClassName="flex items-stretch gap-4 snap-x pb-1"
+                styledScrollbars
+            >
                 {publications.map((publication) => (
-                    <PublicationCard key={publication.url} publication={publication} />
+                    <div key={publication.url} className="w-72 shrink-0 snap-start">
+                        <PublicationCard publication={publication} feed={feed} />
+                    </div>
                 ))}
-                {publicationsLoading &&
-                    Array.from({ length: publications.length === 0 ? 8 : 4 }, (_, index) => (
-                        <LemonCard key={`skeleton-${index}`} hoverEffect={false} className="flex flex-col gap-2 p-3">
-                            <LemonSkeleton className="w-full h-24 rounded" />
-                            <LemonSkeleton className="w-3/4 h-4" />
-                            <LemonSkeleton className="w-full h-3" />
-                        </LemonCard>
+                {loading &&
+                    Array.from({ length: publications.length === 0 ? 4 : 2 }, (_, index) => (
+                        <div key={`skeleton-${index}`} className="w-72 shrink-0">
+                            <PublicationSkeletonCard />
+                        </div>
                     ))}
-            </div>
-            {!publicationsLoading && hasMorePublications && <LoadMoreSentinel onVisible={loadMorePublications} />}
-            {!hasMorePublications && publications.length > 0 && (
-                <div className="flex items-center justify-center gap-2 py-6 text-sm text-secondary">
-                    <span>That's everything recent.</span>
-                    <Link
-                        to="https://posthog.com/blog"
-                        target="_blank"
-                        onClick={() => captureQuickstartAction('open_blog')}
-                        data-attr="quickstart-publications-feed-end"
-                    >
-                        Keep reading on the blog
-                    </Link>
-                </div>
-            )}
+                {!loading && hasMore && <LoadMoreSentinel onVisible={onLoadMore} />}
+                {!loading && !hasMore && publications.length > 0 && (
+                    <div className="w-56 shrink-0 snap-start flex items-center justify-center rounded border border-dashed p-4 text-center">
+                        <Link
+                            to={viewAllUrl}
+                            target="_blank"
+                            className="text-sm"
+                            onClick={() => captureQuickstartAction(`view_all_${feed}`)}
+                            data-attr={`quickstart-publications-feed-end-${feed}`}
+                        >
+                            {endLabel}
+                        </Link>
+                    </div>
+                )}
+            </ScrollableShadows>
+        </div>
+    )
+}
+
+function PublicationsSection(): JSX.Element | null {
+    const {
+        blogPublications,
+        blogPublicationsLoading,
+        newsletterPublications,
+        newsletterPublicationsLoading,
+        publicationsHasMore,
+    } = useValues(quickstartLogic)
+    const { loadMoreBlogPublications, loadMoreNewsletterPublications } = useActions(quickstartLogic)
+
+    const nothingToShow =
+        !blogPublicationsLoading &&
+        blogPublications.length === 0 &&
+        !newsletterPublicationsLoading &&
+        newsletterPublications.length === 0
+    if (nothingToShow) {
+        return null
+    }
+
+    return (
+        <SectionPanel className="flex flex-col gap-4">
+            <SectionHeader title="Fresh from PostHog" subtitle="What we've been shipping and writing about." />
+            <PublicationRail
+                feed="blog"
+                title="From the blog"
+                viewAllUrl={QUICKSTART_BLOG_URL}
+                viewAllLabel="View all posts"
+                endLabel="Keep reading on the blog"
+                publications={blogPublications}
+                loading={blogPublicationsLoading}
+                hasMore={publicationsHasMore.blog}
+                onLoadMore={loadMoreBlogPublications}
+            />
+            <PublicationRail
+                feed="newsletter"
+                title="build mode, our newsletter"
+                viewAllUrl={QUICKSTART_NEWSLETTER_URL}
+                viewAllLabel="Read & subscribe"
+                endLabel="More issues + subscribe"
+                publications={newsletterPublications}
+                loading={newsletterPublicationsLoading}
+                hasMore={publicationsHasMore.newsletter}
+                onLoadMore={loadMoreNewsletterPublications}
+            />
         </SectionPanel>
     )
 }

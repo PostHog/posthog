@@ -7,16 +7,20 @@ export interface QuickstartPublication {
     imageUrl?: string
 }
 
-export const QUICKSTART_PUBLICATIONS_PAGE_SIZE = 8
+export type PublicationFeedKey = 'blog' | 'newsletter'
 
-const RSS_URL = 'https://posthog.com/rss.xml'
+export const QUICKSTART_PUBLICATIONS_PAGE_SIZE = 8
+export const QUICKSTART_BLOG_URL = 'https://posthog.com/blog'
+export const QUICKSTART_NEWSLETTER_URL = 'https://newsletter.posthog.com'
+
+const BLOG_RSS_URL = 'https://posthog.com/rss.xml'
 // Versioned: caches written by earlier revisions held fewer items than a full
 // page and must not be served as page one of the feed
-const CACHE_KEY = 'ph-quickstart-publications-v2'
+const BLOG_CACHE_KEY = 'ph-quickstart-publications-v3-blog'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
-// The feed embeds full post bodies, so reading it whole costs several MB. Items are newest
-// first: the response is streamed and more bytes are pulled only as the user scrolls deeper.
-// The cap is a runaway guard sitting above the full feed size.
+// The blog feed embeds full post bodies, so reading it whole costs several MB. Items are
+// newest first: the response is streamed and more bytes are pulled only as the user scrolls
+// deeper. The cap is a runaway guard sitting above the full feed size.
 const MAX_FEED_CHARS = 8 * 1024 * 1024
 
 export interface PublicationsPage {
@@ -31,7 +35,7 @@ interface PublicationsCache {
 
 const readCache = (): QuickstartPublication[] | null => {
     try {
-        const raw = window.localStorage.getItem(CACHE_KEY)
+        const raw = window.localStorage.getItem(BLOG_CACHE_KEY)
         if (!raw) {
             return null
         }
@@ -51,7 +55,7 @@ const readCache = (): QuickstartPublication[] | null => {
 
 const writeCache = (publications: QuickstartPublication[]): void => {
     try {
-        window.localStorage.setItem(CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), publications }))
+        window.localStorage.setItem(BLOG_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), publications }))
     } catch {
         // Storage unavailable or full. Caching is best-effort.
     }
@@ -103,7 +107,7 @@ class FeedStream {
 
     private async start(): Promise<void> {
         this.started = true
-        const response = await fetch(RSS_URL)
+        const response = await fetch(BLOG_RSS_URL)
         if (!response.ok) {
             this.exhausted = true
             throw new Error(`Failed to load the PostHog RSS feed: ${response.status}`)
@@ -138,8 +142,7 @@ class FeedStream {
 
 let feedStream: FeedStream | null = null
 
-/** Load one page of the feed. The first page may be served from the local cache. */
-export async function fetchPublicationsPage(offset: number): Promise<PublicationsPage> {
+async function fetchBlogPage(offset: number): Promise<PublicationsPage> {
     if (offset === 0) {
         const cached = readCache()
         if (cached) {
@@ -165,4 +168,131 @@ export async function fetchPublicationsPage(offset: number): Promise<Publication
         writeCache(publications)
     }
     return { publications, hasMore }
+}
+
+// Substack sends no CORS headers, so the newsletter feed can't be fetched from the
+// browser. Until it's proxied server-side, the rail ships with a static seed of recent
+// issues served through the same paging interface as the live blog feed.
+const NEWSLETTER_ISSUES: QuickstartPublication[] = [
+    {
+        title: 'Product for Engineers is now build mode',
+        url: 'https://newsletter.posthog.com/p/product-for-engineers-is-now-build',
+        description: 'Same team, same posts. New brand, new focus.',
+        publishedAt: 'Mon, 13 Jul 2026 18:39:17 GMT',
+        author: 'Ian Vanagas',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/fd61ab64-b689-4d1e-b577-eb1849b29f0f_1456x1048.png',
+    },
+    {
+        title: 'Stop being the code review bottleneck',
+        url: 'https://newsletter.posthog.com/p/code-review-tips',
+        description: '4 ways to make AI code review suck less (with prompts)',
+        publishedAt: 'Thu, 09 Jul 2026 19:15:14 GMT',
+        author: 'Jina Yoon',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/1018b66a-6d94-4190-b34b-60e0072e3840_1317x988.png',
+    },
+    {
+        title: 'We used context engineering to 5x conversion and 2x activation',
+        url: 'https://newsletter.posthog.com/p/we-used-ai-to-5x-conversion-and-2x',
+        description: 'The magic behind our AI onboarding wizard',
+        publishedAt: 'Wed, 24 Jun 2026 20:01:49 GMT',
+        author: 'Edwin Lim',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/8b27cd51-6130-413b-bd94-a61af1985aa9_2912x2096.jpeg',
+    },
+    {
+        title: "Why we're bullish on loops",
+        url: 'https://newsletter.posthog.com/p/why-were-bullish-on-loops',
+        description: 'WTF are loops, why is everyone arguing about them, and why do they actually matter?',
+        publishedAt: 'Wed, 17 Jun 2026 17:48:56 GMT',
+        author: 'Ian Vanagas',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/67da4d23-4902-4607-9536-1440c2fb5a8c_2912x2096.jpeg',
+    },
+    {
+        title: "LLMs are picking winners. Here's how to become one",
+        url: 'https://newsletter.posthog.com/p/llms-are-picking-winners-heres-how',
+        description: "A startup's guide to answer engine optimization",
+        publishedAt: 'Mon, 08 Jun 2026 18:11:58 GMT',
+        author: 'Natalia Amorim',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/540f98b0-57fc-4156-99a6-b499d4736334_1569x1048.png',
+    },
+    {
+        title: '24 tips for giving S-tier demos',
+        url: 'https://newsletter.posthog.com/p/how-to-demo',
+        description: "An engineer's guide to giving S-tier project demos",
+        publishedAt: 'Thu, 28 May 2026 18:01:25 GMT',
+        author: 'Jina Yoon',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/7b486099-4af3-4730-bd94-85219da88749_1456x1048.png',
+    },
+    {
+        title: 'The stuff nobody tells you about startup marketing',
+        url: 'https://newsletter.posthog.com/p/the-stuff-nobody-tells-you-about',
+        description: 'Doing weird stuff on the internet is optional but recommended',
+        publishedAt: 'Wed, 06 May 2026 18:01:37 GMT',
+        author: 'Charles Cook',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/81aa278c-cc30-4ac1-b99c-c929bb846051_2912x2096.jpeg',
+    },
+    {
+        title: 'Great companies are built in hackathons',
+        url: 'https://newsletter.posthog.com/p/great-companies-are-built-in-hackathons',
+        description: "You should run more hackathons. Here's how to do them well.",
+        publishedAt: 'Tue, 21 Apr 2026 18:12:27 GMT',
+        author: 'Ian Vanagas',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/7bf0320b-e7db-4bee-9814-0a38c84bb44c_2912x2096.jpeg',
+    },
+    {
+        title: 'The golden rules of agent-first product engineering',
+        url: 'https://newsletter.posthog.com/p/the-golden-rules-of-agent-first-product',
+        description: 'Five principles to develop your product intuition for agents',
+        publishedAt: 'Wed, 08 Apr 2026 19:01:23 GMT',
+        author: 'Jina Yoon',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/29ab8f16-efac-4eaa-a09c-6124ef07b6de_2912x2096.jpeg',
+    },
+    {
+        title: 'What we wish we knew about building AI agents',
+        url: 'https://newsletter.posthog.com/p/what-we-wish-we-knew-before-building',
+        description: 'Lessons learned from two years of building AI agents at PostHog',
+        publishedAt: 'Tue, 24 Mar 2026 18:04:41 GMT',
+        author: 'Ian Vanagas',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/c76757e8-e900-405e-b4a2-e97823ebf2f0_1456x1048.png',
+    },
+    {
+        title: 'WTF does a product manager do? (and why engineers should care)',
+        url: 'https://newsletter.posthog.com/p/an-engineers-guide-to-product-management',
+        description: 'Skills for developers from the product manager playbook',
+        publishedAt: 'Wed, 11 Mar 2026 21:11:01 GMT',
+        author: 'Jina Yoon',
+    },
+    {
+        title: 'The engineeringification of everything',
+        url: 'https://newsletter.posthog.com/p/the-engineeringification-of-everything',
+        description: 'Why every role seems like an engineering role now (and what it means for you)',
+        publishedAt: 'Mon, 23 Feb 2026 19:04:07 GMT',
+        author: 'Ian Vanagas',
+        imageUrl:
+            'https://substack-post-media.s3.amazonaws.com/public/images/b06de6cd-5664-4964-93ca-949d8a287664_3840x2742.png',
+    },
+]
+
+function newsletterPage(offset: number): PublicationsPage {
+    return {
+        publications: NEWSLETTER_ISSUES.slice(offset, offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE),
+        hasMore: offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE < NEWSLETTER_ISSUES.length,
+    }
+}
+
+/** Load one page of a feed. The blog's first page may be served from the local cache. */
+export async function fetchPublicationsPage(feed: PublicationFeedKey, offset: number): Promise<PublicationsPage> {
+    if (feed === 'newsletter') {
+        return newsletterPage(offset)
+    }
+    return await fetchBlogPage(offset)
 }

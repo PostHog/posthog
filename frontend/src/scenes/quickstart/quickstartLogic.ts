@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import type { OnboardingProduct, TeamPublicType, TeamType } from '~/types'
 
-import { QuickstartPublication, fetchPublicationsPage } from './publications'
+import { PublicationFeedKey, QuickstartPublication, fetchPublicationsPage } from './publications'
 import type { quickstartLogicType } from './quickstartLogicType'
 
 export type QuickstartProductStatus = 'active' | 'ready' | 'needs_setup'
@@ -174,48 +174,55 @@ export const quickstartLogic = kea<quickstartLogicType>([
     })),
     actions({
         enableProduct: (productKey: ProductKey) => ({ productKey }),
-        setHasMorePublications: (hasMore: boolean) => ({ hasMore }),
+        setPublicationsHasMore: (feed: PublicationFeedKey, hasMore: boolean) => ({ feed, hasMore }),
     }),
-    loaders(({ actions, values }) => ({
-        publications: [
-            [] as QuickstartPublication[],
-            {
-                // Swallow errors: without data the section simply doesn't render,
-                // and a feed hiccup must never toast at a brand-new user.
-                loadPublications: async (): Promise<QuickstartPublication[]> => {
-                    try {
-                        const page = await fetchPublicationsPage(0)
-                        actions.setHasMorePublications(page.hasMore)
-                        return page.publications
-                    } catch {
-                        actions.setHasMorePublications(false)
-                        return []
-                    }
+    loaders(({ actions, values }) => {
+        // Swallow errors: without data the rail simply doesn't render, and a feed
+        // hiccup must never toast at a brand-new user.
+        const loadFeedPage = async (
+            feed: PublicationFeedKey,
+            current: QuickstartPublication[]
+        ): Promise<QuickstartPublication[]> => {
+            if (current.length > 0 && !values.publicationsHasMore[feed]) {
+                return current
+            }
+            try {
+                const page = await fetchPublicationsPage(feed, current.length)
+                actions.setPublicationsHasMore(feed, page.hasMore)
+                if (current.length === 0) {
+                    return page.publications
+                }
+                // The feed can shift between pages (a new post lands), so drop
+                // anything already shown instead of rendering duplicate cards
+                const seen = new Set(current.map((publication) => publication.url))
+                const merged = [...current, ...page.publications.filter((publication) => !seen.has(publication.url))]
+                posthog.capture('quickstart publications loaded more', { feed, total: merged.length })
+                return merged
+            } catch {
+                actions.setPublicationsHasMore(feed, false)
+                return current
+            }
+        }
+        return {
+            blogPublications: [
+                [] as QuickstartPublication[],
+                {
+                    loadBlogPublications: async (): Promise<QuickstartPublication[]> => await loadFeedPage('blog', []),
+                    loadMoreBlogPublications: async (): Promise<QuickstartPublication[]> =>
+                        await loadFeedPage('blog', values.blogPublications),
                 },
-                loadMorePublications: async (): Promise<QuickstartPublication[]> => {
-                    if (!values.hasMorePublications) {
-                        return values.publications
-                    }
-                    try {
-                        const page = await fetchPublicationsPage(values.publications.length)
-                        actions.setHasMorePublications(page.hasMore)
-                        // The feed can shift between pages (a new post lands), so drop
-                        // anything already shown instead of rendering duplicate cards
-                        const seen = new Set(values.publications.map((publication) => publication.url))
-                        const merged = [
-                            ...values.publications,
-                            ...page.publications.filter((publication) => !seen.has(publication.url)),
-                        ]
-                        posthog.capture('quickstart publications loaded more', { total: merged.length })
-                        return merged
-                    } catch {
-                        actions.setHasMorePublications(false)
-                        return values.publications
-                    }
+            ],
+            newsletterPublications: [
+                [] as QuickstartPublication[],
+                {
+                    loadNewsletterPublications: async (): Promise<QuickstartPublication[]> =>
+                        await loadFeedPage('newsletter', []),
+                    loadMoreNewsletterPublications: async (): Promise<QuickstartPublication[]> =>
+                        await loadFeedPage('newsletter', values.newsletterPublications),
                 },
-            },
-        ],
-    })),
+            ],
+        }
+    }),
     reducers({
         enablingProducts: [
             {} as Record<string, boolean>,
@@ -225,10 +232,10 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 updateCurrentTeamFailure: () => ({}),
             },
         ],
-        hasMorePublications: [
-            true,
+        publicationsHasMore: [
+            { blog: true, newsletter: true } as Record<PublicationFeedKey, boolean>,
             {
-                setHasMorePublications: (_, { hasMore }) => hasMore,
+                setPublicationsHasMore: (state, { feed, hasMore }) => ({ ...state, [feed]: hasMore }),
             },
         ],
     }),
@@ -270,7 +277,8 @@ export const quickstartLogic = kea<quickstartLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        actions.loadPublications()
+        actions.loadBlogPublications()
+        actions.loadNewsletterPublications()
         posthog.capture('quickstart viewed', {
             has_ingested_event: values.hasIngestedEvent,
             active_products: values.products.filter((product) => product.status === 'active').map((p) => p.key),
