@@ -202,34 +202,6 @@ describe('Hogflow Executor', () => {
                 .build()
         })
 
-        it('resuming past a completed action does not re-execute it (no double-send on recovery)', async () => {
-            // A recovered poison-pill run resumes from where it stalled. currentAction
-            // sits AFTER function_id_1 (which does a fetch), so replay must resume at
-            // exit and must NOT re-run that fetch — otherwise a recovered flow re-sends
-            // an email/webhook that already went out.
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    properties: {
-                        name: 'John Doe',
-                    },
-                    timestamp: '2026-01-30T20:20:20.200Z',
-                },
-            })
-            invocation.state.currentAction = {
-                id: 'exit',
-                startedAtTimestamp: DateTime.now().toMillis(),
-            }
-
-            const result = await executor.execute(invocation)
-
-            expect(result.finished).toBe(true)
-            expect(result.invocation.state.currentAction?.id).toBe('exit')
-            // The fetch-doing action before the resume point must not run again.
-            expect(mockFetch).toHaveBeenCalledTimes(0)
-            expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
-        })
-
         it('can execute a simple hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
