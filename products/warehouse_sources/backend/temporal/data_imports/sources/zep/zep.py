@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -71,7 +71,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise ZepRetryableError(f"Zep API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Zep API error: status={response.status_code}, body={response.text}, url={url}")
+        # Never log the response body: Zep error payloads can echo customer content (users,
+        # threads, messages), which must stay inside the access-controlled warehouse tables.
+        logger.error(f"Zep API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -82,7 +84,7 @@ def validate_credentials(api_key: str) -> bool:
     # bad key) means invalid. Never raises; network blips fall through to False.
     url = _build_url("/users-ordered", {"pageSize": 1})
     try:
-        response = make_tracked_session().get(url, headers=_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -147,7 +149,7 @@ def _iter_thread_ids(session: requests.Session, headers: dict[str, str], logger:
         items = data.get("threads") or []
         if not items:
             break
-        thread_ids.extend(item["thread_id"] for item in items if item.get("thread_id"))
+        thread_ids.extend(item["thread_id"] for item in items if item.get("thread_id") is not None)
         total_count = data.get("total_count")
         if (total_count is not None and len(thread_ids) >= total_count) or len(items) < threads_config.page_size:
             break
@@ -180,7 +182,9 @@ def _fan_out_message_rows(
         logger.debug(f"Zep: resuming thread_messages from thread_id={resume.thread_id}, cursor={resume_cursor}")
 
     for index, thread_id in enumerate(remaining):
-        path = config.path.format(thread_id=thread_id)
+        # thread_id is a user-defined string; escape path-significant characters (/, ?, #) so it
+        # can't break out of its path segment and hit the wrong URL.
+        path = config.path.format(thread_id=quote(thread_id, safe=""))
         cursor = resume_cursor or 0
         resume_cursor = None  # only the resumed-into thread uses the saved cursor
 
@@ -223,8 +227,9 @@ def get_rows(
     config = ZEP_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every page (and, for the fan-out, every thread) so urllib3 keeps
-    # the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # the connection alive instead of re-handshaking per request. The API key rides in a custom
+    # `Authorization: Api-Key ...` header the auto-redactor can't recognise, so mask it explicitly.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_threads:
         yield from _fan_out_message_rows(session, headers, logger, resumable_source_manager, config)

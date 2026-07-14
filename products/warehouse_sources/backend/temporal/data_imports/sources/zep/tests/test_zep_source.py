@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZepSourceConfig
@@ -38,6 +38,7 @@ class TestZepSource:
 
         assert len(config.fields) == 1
         api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert api_key_field.required is True

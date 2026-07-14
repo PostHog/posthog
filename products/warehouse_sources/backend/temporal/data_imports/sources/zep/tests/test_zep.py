@@ -102,7 +102,7 @@ class TestFetchPage:
 
     def test_client_error_raises_immediately(self) -> None:
         response = MagicMock(status_code=401, ok=False, text="unauthorized")
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
 
