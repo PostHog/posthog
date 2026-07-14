@@ -24,6 +24,13 @@ run has no ``pull_requests`` association — pushes to master, fork PRs), and ``
 parsed from the squash-merge message's ``(#NNNN)`` suffix. The latter is how a master push run gets
 PR attribution at all, since its ``pull_requests`` association is empty (SPEC §7).
 
+``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
+``created_at``. Consumers windowing this view pair their precise ``created_at`` bound with a coarse
+``created_at_raw >= '<YYYY-MM-DD>'`` floor a day below the window — ISO strings compare
+lexicographically, and a raw-string predicate is the only one the parquet scan can prune on (a
+parsed-column predicate hits a computed column and forces a full scan). ``created_at`` stays the
+precise filter; the raw twin just lets the jobs scan skip.
+
 Nothing here is registered as a global HogQL view; it is provisioned per-team as a non-materialized
 ``DataWarehouseSavedQuery`` by data_modeling's managed-viewset sync (kind ``engineering_analytics``).
 """
@@ -58,6 +65,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "status": StringDatabaseField(name="status"),
     "conclusion": StringDatabaseField(name="conclusion", nullable=True),
     "created_at": DateTimeDatabaseField(name="created_at", nullable=True),
+    "created_at_raw": StringDatabaseField(name="created_at_raw", nullable=True),
     "started_at": DateTimeDatabaseField(name="started_at", nullable=True),
     "completed_at": DateTimeDatabaseField(name="completed_at", nullable=True),
     "duration_seconds": IntegerDatabaseField(name="duration_seconds", nullable=True),
@@ -118,6 +126,7 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
             status,
             conclusion,
             created_at,
+            created_at_raw,
             started_at,
             completed_at,
             duration_seconds,
@@ -142,6 +151,7 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
                 j.status AS status,
                 j.conclusion AS conclusion,
                 j.created_at AS created_at,
+                j.created_at_raw AS created_at_raw,
                 j.started_at AS started_at,
                 j.completed_at AS completed_at,
                 j.duration_seconds AS duration_seconds,

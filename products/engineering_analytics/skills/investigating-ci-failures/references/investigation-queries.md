@@ -47,8 +47,13 @@ FROM engineering_analytics_ci_job_history
 WHERE head_branch = 'master'
   AND job_name = '<failing job name>'          -- e.g. 'Product tests (data-warehouse (1/2))'
   AND created_at >= <first_seen - 2h> AND created_at < <last_seen + 2h>
+  AND created_at_raw >= '<window start date minus 1 day, YYYY-MM-DD>'
 ORDER BY created_at ASC
 ```
+
+The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
+a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the
+window), so keep the precise `created_at` bounds too; the raw floor only shrinks what the scan reads.
 
 Shard suffixes matter: `job_name` includes the `(1/2)` shard. If the test moved shards, run once
 per shard or match with `job_name LIKE 'Product tests (data-warehouse%'`.
@@ -108,6 +113,11 @@ FROM engineering_analytics_ci_job_history
 WHERE head_branch = 'master'
   AND job_name = '<failing job name>'
   AND created_at >= now() - INTERVAL 7 DAY
+  AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
 GROUP BY run_attempt
 ORDER BY run_attempt
 ```
+
+The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
+a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the
+7-day window), so keep the precise `created_at` bound too.

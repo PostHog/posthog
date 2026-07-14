@@ -169,6 +169,9 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         assert value("job-a", "commit_pr_number") == 4242
         assert (value("job-a", "repo_owner"), value("job-a", "repo_name")) == ("PostHog", "posthog")
         assert value("job-a", "head_sha") == "runsha100"
+        # created_at_raw carries the unparsed source string (the scan-pruning floor rides on this),
+        # not the parsed datetime — so it must equal the raw value, distinct from parsed created_at.
+        assert value("job-a", "created_at_raw") == _BASE
 
         # Master push: pr_number 0 (builder semantics kept, not nulled), no (#NNNN) → commit_pr_number NULL.
         assert value("job-b", "pr_number") == 0

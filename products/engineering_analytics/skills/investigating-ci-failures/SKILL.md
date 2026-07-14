@@ -93,6 +93,10 @@ threshold aren't recorded, so there is no honest denominator.
   `commit_pr_number` is the reverting PR — attribution follows the revert, not the original.
 - **Time-bound every logs query.** The failure-log stream is large; unbounded scans hit the read
   cap. 14 days covers almost every investigation.
+- **Pair the warehouse twin too.** A `ci_job_history` query windowed on `created_at` alone forces a
+  full jobs scan — the parsed timestamp is a computed column the parquet scan can't prune on. Add a
+  coarse `created_at_raw >= '<YYYY-MM-DD>'` string floor (a day below the window) alongside the
+  precise `created_at` bound so the scan skips; `created_at` stays the exact filter.
 
 ## Choosing a surface
 
