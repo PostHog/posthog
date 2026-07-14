@@ -27,6 +27,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FunnelsActorsQuery,
     FunnelsDataWarehouseNode,
     FunnelsQuery,
     GoalLine,
@@ -69,6 +70,7 @@ import {
     SessionAttributionExplorerQuery,
     SessionQuery,
     SessionsQuery,
+    StickinessActorsQuery,
     StickinessQuery,
     TracesQuery,
     TrendsFormulaNode,
@@ -151,6 +153,23 @@ export function isActorsQuery(node?: Record<string, any> | null): node is Actors
 
 export function isInsightActorsQuery(node?: Record<string, any> | null): node is InsightActorsQuery {
     return node?.kind === NodeKind.InsightActorsQuery
+}
+
+/**
+ * Actor-query kinds whose `source` is a regular insight query, so a persons drill-down can be turned
+ * back into an `InsightVizNode` (e.g. for the "Back to source" affordance). Covers the generic
+ * `InsightActorsQuery` (Trends/Lifecycle/Paths/Retention) plus the funnel and stickiness variants.
+ * Excludes `FunnelCorrelationActorsQuery` and `ExperimentActorsQuery`, whose `source` is not an
+ * insight query and can't round-trip to an `InsightVizNode`.
+ */
+export function isInsightActorsQueryLike(
+    node?: Record<string, any> | null
+): node is InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery {
+    return (
+        node?.kind === NodeKind.InsightActorsQuery ||
+        node?.kind === NodeKind.FunnelsActorsQuery ||
+        node?.kind === NodeKind.StickinessActorsQuery
+    )
 }
 
 export function isDataTableNode(node?: Record<string, any> | null): node is DataTableNode {

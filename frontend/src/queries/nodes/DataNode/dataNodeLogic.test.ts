@@ -663,4 +663,61 @@ describe('dataNodeLogic', () => {
             'posthog_ai'
         )
     })
+
+    describe('backToSourceQuery', () => {
+        beforeEach(() => {
+            mockedQuery.mockResolvedValue({ results: [] })
+        })
+
+        const trendsSource = setLatestVersionsOnQuery({ kind: NodeKind.TrendsQuery, series: [] })
+        const funnelsSource = setLatestVersionsOnQuery({ kind: NodeKind.FunnelsQuery, series: [] })
+        const stickinessSource = setLatestVersionsOnQuery({ kind: NodeKind.StickinessQuery, series: [] })
+
+        // A persons drill-down opened as a data table ("Open as new insight" / "Back to source") must be
+        // able to reconstruct its source insight. Regression guard: this used to only handle the generic
+        // InsightActorsQuery (trends/lifecycle/paths), so funnel and stickiness drill-downs silently lost
+        // the "Back to source" affordance.
+        it.each([
+            ['InsightActorsQuery', { kind: NodeKind.InsightActorsQuery, source: trendsSource }, trendsSource],
+            [
+                'FunnelsActorsQuery',
+                { kind: NodeKind.FunnelsActorsQuery, source: funnelsSource, funnelStep: 1 },
+                funnelsSource,
+            ],
+            [
+                'StickinessActorsQuery',
+                { kind: NodeKind.StickinessActorsQuery, source: stickinessSource },
+                stickinessSource,
+            ],
+        ])('reconstructs the source InsightVizNode for a %s drill-down', (_name, actorsSource, expectedSource) => {
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: { kind: NodeKind.ActorsQuery, source: actorsSource as any, select: ['person'] },
+            })
+            logic.mount()
+
+            expect(logic.values.backToSourceQuery).toEqual({
+                kind: NodeKind.InsightVizNode,
+                source: expectedSource,
+                full: true,
+            })
+        })
+
+        it('returns null for a FunnelCorrelationActorsQuery drill-down (source is not an insight query)', () => {
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: {
+                    kind: NodeKind.ActorsQuery,
+                    source: {
+                        kind: NodeKind.FunnelCorrelationActorsQuery,
+                        source: { kind: NodeKind.FunnelCorrelationQuery, source: funnelsSource },
+                    } as any,
+                    select: ['person'],
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.backToSourceQuery).toBeNull()
+        })
+    })
 })
