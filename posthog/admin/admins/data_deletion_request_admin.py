@@ -77,7 +77,7 @@ def dagster_run_url(run_id: str) -> str | None:
     """Link to a Dagster run, or None when the deployment can't be identified (local/self-hosted)."""
     if settings.DAGSTER_DOMAIN:
         return f"https://{settings.DAGSTER_DOMAIN}/runs/{run_id}"
-    deployment = DAGSTER_DEPLOYMENT_BY_CLOUD.get(settings.CLOUD_DEPLOYMENT or "")
+    deployment = DAGSTER_DEPLOYMENT_BY_CLOUD.get((settings.CLOUD_DEPLOYMENT or "").upper())
     if deployment:
         return f"https://posthog.dagster.cloud/{deployment}/runs/{run_id}"
     return None
