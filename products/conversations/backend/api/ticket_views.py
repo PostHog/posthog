@@ -53,6 +53,7 @@ class TicketViewViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
@@ -82,6 +83,9 @@ class TicketViewViewSet(
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         self._track("ticket view created", serializer.save())
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._track("ticket view updated", serializer.save())
 
     def perform_destroy(self, instance: TicketView) -> None:
         self._track("ticket view deleted", instance)
