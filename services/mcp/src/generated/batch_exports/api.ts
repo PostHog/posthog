@@ -41,6 +41,7 @@ export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefa
 export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -304,6 +305,36 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -368,6 +399,7 @@ export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedC
 export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -633,6 +665,36 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
