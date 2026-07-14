@@ -184,7 +184,22 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         workflow_inputs = client.start_workflow.call_args.args[1]
         assert workflow_inputs.engine == "agent"
-        assert client.start_workflow.call_args.kwargs["execution_timeout"] == datetime.timedelta(minutes=55)
+        assert client.start_workflow.call_args.kwargs["execution_timeout"] == datetime.timedelta(minutes=60)
+
+    @parameterized.expand([("expansion_flag_on", True), ("expansion_flag_off", False)])
+    def test_generate_threads_expansion_flag_into_workflow_inputs(
+        self, mock_connect: MagicMock, mock_flag: MagicMock, _name: str, expand_enabled: bool
+    ) -> None:
+        client = _temporal_client()
+        mock_connect.return_value = client
+        # PULSE_FEATURE_FLAG must stay on (permission gate) while only the expansion flag varies.
+        mock_flag.side_effect = lambda flag, *args, **kwargs: (
+            expand_enabled if flag == "pulse-query-expansion" else True
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        workflow_inputs = client.start_workflow.call_args.args[1]
+        assert workflow_inputs.expand is expand_enabled
 
     @parameterized.expand(
         [

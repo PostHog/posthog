@@ -7,9 +7,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.pulse.backend.temporal.inputs import (
+    ExpandMissionInputs,
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
     MarkBriefQuietInputs,
+    MissionBundleDict,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -27,6 +29,11 @@ def _stub_activities(bundle: dict, calls: list[str]) -> list:
     async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
         calls.append("prepare")
         return bundle
+
+    @activity.defn(name="expand_mission_activity")
+    async def expand_mission_activity(inputs: ExpandMissionInputs) -> MissionBundleDict:
+        calls.append("expand")
+        return inputs.bundle
 
     @activity.defn(name="run_agent_activity")
     async def run_agent_activity(inputs: RunAgentInputs) -> dict:
@@ -58,6 +65,7 @@ def _stub_activities(bundle: dict, calls: list[str]) -> list:
 
     return [
         prepare_mission_activity,
+        expand_mission_activity,
         run_agent_activity,
         validate_and_persist_activity,
         mark_brief_quiet_activity,
@@ -67,7 +75,7 @@ def _stub_activities(bundle: dict, calls: list[str]) -> list:
     ]
 
 
-async def _run(engine: str, bundle: dict) -> list[str]:
+async def _run(engine: str, bundle: dict, expand: bool = False) -> list[str]:
     calls: list[str] = []
     task_queue = f"test-pulse-{uuid.uuid4()}"
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -80,7 +88,7 @@ async def _run(engine: str, bundle: dict) -> list[str]:
         ):
             await env.client.execute_workflow(
                 GenerateProductBriefWorkflow.run,
-                GenerateBriefWorkflowInputs(team_id=1, brief_id=str(uuid.uuid4()), engine=engine),
+                GenerateBriefWorkflowInputs(team_id=1, brief_id=str(uuid.uuid4()), engine=engine, expand=expand),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
@@ -97,3 +105,15 @@ async def test_quiet_week_skips_the_agent_entirely() -> None:
 
 async def test_synthesize_engine_path_is_unchanged() -> None:
     assert await _run("synthesize", BUNDLE) == ["gather", "synthesize"]
+
+
+async def test_agent_workflow_expands_when_flag_on() -> None:
+    assert await _run("agent", BUNDLE, expand=True) == ["prepare", "expand", "run_agent", "persist"]
+
+
+async def test_agent_workflow_skips_expansion_when_flag_off() -> None:
+    assert await _run("agent", BUNDLE, expand=False) == ["prepare", "run_agent", "persist"]
+
+
+async def test_quiet_week_skips_expansion_even_when_flag_on() -> None:
+    assert await _run("agent", QUIET_BUNDLE, expand=True) == ["prepare", "quiet"]

@@ -7,6 +7,7 @@ import temporalio.exceptions
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.pulse.backend.temporal.activities import (
+    expand_mission_activity,
     gather_brief_inputs_activity,
     mark_brief_failed_activity,
     mark_brief_quiet_activity,
@@ -16,6 +17,8 @@ from products.pulse.backend.temporal.activities import (
     validate_and_persist_activity,
 )
 from products.pulse.backend.temporal.inputs import (
+    EXPAND_MISSION_ATTEMPTS,
+    EXPAND_MISSION_TIMEOUT,
     GATHER_BRIEF_ATTEMPTS,
     GATHER_BRIEF_TIMEOUT,
     GENERATE_BRIEF_WORKFLOW_NAME,
@@ -32,6 +35,7 @@ from products.pulse.backend.temporal.inputs import (
     SYNTHESIZE_TIMEOUT,
     VALIDATE_PERSIST_ATTEMPTS,
     VALIDATE_PERSIST_TIMEOUT,
+    ExpandMissionInputs,
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
     MarkBriefQuietInputs,
@@ -107,6 +111,16 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=MARK_STATUS_ATTEMPTS),
             )
             return QUIET_BRIEF_STATUS
+        if inputs.expand:
+            bundle = cast(
+                MissionBundleDict,
+                await temporalio.workflow.execute_activity(
+                    expand_mission_activity,
+                    ExpandMissionInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),
+                    start_to_close_timeout=EXPAND_MISSION_TIMEOUT,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=EXPAND_MISSION_ATTEMPTS),
+                ),
+            )
         result: dict = await temporalio.workflow.execute_activity(
             run_agent_activity,
             RunAgentInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),

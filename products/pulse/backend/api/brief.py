@@ -8,6 +8,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -30,7 +31,12 @@ from products.pulse.backend.api.feedback import (
     FeedbackVoteRequestSerializer,
     record_vote,
 )
-from products.pulse.backend.config import AGENT_DAILY_RUN_CAP, AGENT_WORKFLOW_EXECUTION_TIMEOUT, PULSE_FEATURE_FLAG
+from products.pulse.backend.config import (
+    AGENT_DAILY_RUN_CAP,
+    AGENT_WORKFLOW_EXECUTION_TIMEOUT,
+    PULSE_EXPANSION_FLAG,
+    PULSE_FEATURE_FLAG,
+)
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import (
@@ -309,6 +315,20 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         # internal-only gate. The synthesize path survives for the quiet-week cheap
         # path and internal callers, not as a user-selectable engine.
         engine = "agent"
+        # The workflow runs in the Temporal sandbox and can't evaluate flags itself, so the
+        # boolean is resolved here and threaded through, same as engine.
+        user = cast(User, request.user)
+        expand = posthoganalytics.feature_enabled(
+            PULSE_EXPANSION_FLAG,
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
         window_start = timezone.now() - dt.timedelta(hours=24)
         # Count only briefs that consumed (or are consuming) a sandbox run — quiet weeks cost
         # nothing, so they must not burn the cap.
@@ -330,7 +350,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
             config=config,
-            created_by=cast(User, request.user),
+            created_by=user,
             status=ProductBrief.Status.GENERATING,
             trigger=ProductBrief.Trigger.ON_DEMAND,
             period_days=period_days,
@@ -347,6 +367,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                         brief_config_id=str(config.id) if config else None,
                         period_days=period_days,
                         engine=engine,
+                        expand=expand,
                     ),
                     # Keyed on team+config (not brief id) so a second generate while one is
                     # running for the same focus hits WorkflowAlreadyStartedError.
@@ -376,7 +397,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             raise
 
         report_user_action(
-            cast(User, request.user),
+            user,
             "pulse brief generated",
             {
                 "config_id": str(config.id) if config else None,

@@ -1,6 +1,8 @@
 import datetime as dt
 
 from products.pulse.backend.temporal.inputs import (
+    EXPAND_MISSION_ATTEMPTS,
+    EXPAND_MISSION_TIMEOUT,
     GATHER_BRIEF_ATTEMPTS,
     GATHER_BRIEF_TIMEOUT,
     MARK_STATUS_ATTEMPTS,
@@ -18,6 +20,7 @@ from products.pulse.backend.temporal.inputs import (
 # Centralized pulse constants shared across the API and temporal layers.
 
 PULSE_FEATURE_FLAG = "pulse"
+PULSE_EXPANSION_FLAG = "pulse-query-expansion"
 
 # Soft rolling-24h cap on sandbox agent runs per team: the count is deliberately cheap and
 # unlocked, so concurrent requests can slip slightly past it. Single-flight per team+config
@@ -38,9 +41,11 @@ WORKFLOW_EXECUTION_TIMEOUT = (
     + MARK_STATUS_TIMEOUT * MARK_STATUS_ATTEMPTS
     + _EXECUTION_TIMEOUT_MARGIN
 )
-# Agent path: prepare_mission -> run_agent -> validate_and_persist (-> mark-failed on error). ~55min.
+# Agent path: prepare_mission -> [expand_mission] -> run_agent -> validate_and_persist
+# (-> mark-failed on error). ~60min.
 AGENT_WORKFLOW_EXECUTION_TIMEOUT = (
     PREPARE_MISSION_TIMEOUT * PREPARE_MISSION_ATTEMPTS
+    + EXPAND_MISSION_TIMEOUT * EXPAND_MISSION_ATTEMPTS
     + RUN_AGENT_TIMEOUT * RUN_AGENT_ATTEMPTS
     + VALIDATE_PERSIST_TIMEOUT * VALIDATE_PERSIST_ATTEMPTS
     + MARK_STATUS_TIMEOUT * MARK_STATUS_ATTEMPTS

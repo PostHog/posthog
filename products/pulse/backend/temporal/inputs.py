@@ -62,6 +62,10 @@ class GenerateBriefWorkflowInputs:
     # "synthesize" (single LLM call) or "agent" (sandbox mission). User-facing generation
     # is agent-only; synthesize remains for internal callers.
     engine: str = "synthesize"
+    # Flag-gated query-expansion stage between prepare_mission and run_agent. Evaluated in the
+    # API layer (the workflow can't reach flags/DB from the Temporal sandbox) and threaded
+    # through, same as engine.
+    expand: bool = False
 
 
 @dataclasses.dataclass
