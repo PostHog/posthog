@@ -4242,7 +4242,12 @@ class TestPrinter(BaseTest):
             # Scalar WITH alias referenced from inside a sibling subquery CTE. ClickHouse does not propagate a
             # scalar WITH alias into a sibling CTE in the same flat WITH clause, so it must be inlined: the
             # expression appears twice (its own declaration + the inlined reference) and the alias only once.
-            ("inlined_into_sibling_subquery_cte", "WITH plus(1, 2) AS cohort_end, sub AS (SELECT cohort_end AS x) SELECT x FROM sub", 2, 1),
+            (
+                "inlined_into_sibling_subquery_cte",
+                "WITH plus(1, 2) AS cohort_end, sub AS (SELECT cohort_end AS x) SELECT x FROM sub",
+                2,
+                1,
+            ),
             # Scalar WITH alias referenced only from the declaring query keeps the alias — no needless inlining.
             ("kept_when_referenced_in_declaring_query", "WITH plus(1, 2) AS cohort_end SELECT cohort_end AS x", 1, 2),
         ]
