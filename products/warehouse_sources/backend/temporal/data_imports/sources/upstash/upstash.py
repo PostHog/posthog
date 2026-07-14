@@ -41,7 +41,9 @@ def _fetch(session: requests.Session, url: str, auth: tuple[str, str], logger: F
         raise UpstashRetryableError(f"Upstash API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Upstash API error: status={response.status_code}, body={response.text}, url={url}")
+        # Log only status and the (credential-free) URL. Response bodies can carry account data
+        # (e.g. audit-log error payloads), which must not be copied into broadly-readable logs.
+        logger.error(f"Upstash API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -51,28 +53,45 @@ def validate_credentials(email: str, api_key: str) -> tuple[bool, str | None]:
     """Confirm the email + management API key are genuine via GET /v2/teams.
 
     /v2/teams is the cheapest authenticated probe available to any native Upstash account regardless
-    of which resources exist, and it needs no path parameters. 401/403 mean the credentials are bad;
-    anything else is treated as a transient API problem so a blip doesn't block source creation.
+    of which resources exist, and it needs no path parameters. Only a definitive 401/403 rejects the
+    credentials; a 429, a 5xx, or an unreachable API is transient and must not block source creation,
+    since the same statuses are retried during the sync itself and a genuine auth failure still
+    surfaces at sync time via get_non_retryable_errors().
     """
     url = f"{UPSTASH_API_BASE_URL}/teams"
     try:
         response = make_tracked_session().get(url, auth=_auth(email, api_key), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
+    except requests.exceptions.RequestException:
         return True, None
+
     if response.status_code in (401, 403):
         return False, "Invalid Upstash email or management API key"
-    return False, f"Upstash API error: {response.status_code}"
+    return True, None
+
+
+def _fetch_list(session: requests.Session, url: str, auth: tuple[str, str], logger: FilteringBoundLogger) -> list[Any]:
+    """Fetch an endpoint that must return a JSON array. A non-list body is a hard error, not an empty
+    result: silently yielding nothing would replace the warehouse table with zero rows on an API-shape
+    mismatch or a transient proxy body, hiding the failure instead of surfacing it."""
+    data = _fetch(session, url, auth, logger)
+    if not isinstance(data, list):
+        raise ValueError(f"Upstash API returned a non-list response for {url}")
+    return data
+
+
+def _strip_sensitive(row: dict[str, Any], sensitive_fields: frozenset[str]) -> dict[str, Any]:
+    """Drop credential-bearing fields (e.g. vector index tokens) before a row reaches the warehouse."""
+    if not sensitive_fields:
+        return row
+    return {key: value for key, value in row.items() if key not in sensitive_fields}
 
 
 def _iter_database_ids(session: requests.Session, auth: tuple[str, str], logger: FilteringBoundLogger) -> list[str]:
-    """List every Redis database id, used to fan out the per-database stats endpoint."""
-    data = _fetch(session, f"{UPSTASH_API_BASE_URL}/redis/databases", auth, logger)
-    if not isinstance(data, list):
-        return []
-    return [db["database_id"] for db in data if isinstance(db, dict) and db.get("database_id")]
+    """List every Redis database id, used to fan out the per-database stats endpoint. A database row
+    missing its `database_id` is an invalid response and raises rather than being silently dropped:
+    the stats sync depends on every id, so a partial list would produce partial usage/billing data."""
+    data = _fetch_list(session, f"{UPSTASH_API_BASE_URL}/redis/databases", auth, logger)
+    return [db["database_id"] for db in data if isinstance(db, dict)]
 
 
 def _fan_out_stats_rows(
@@ -97,7 +116,7 @@ def _fan_out_stats_rows(
                 continue
             raise
         if isinstance(stats, dict):
-            yield {**stats, "database_id": database_id}
+            yield _strip_sensitive({**stats, "database_id": database_id}, config.sensitive_fields)
 
 
 def get_rows(
@@ -108,17 +127,19 @@ def get_rows(
 ) -> Iterator[Any]:
     config = UPSTASH_ENDPOINTS[endpoint]
     auth = _auth(email, api_key)
-    # One session reused across every request so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every request so urllib3 keeps the connection alive. Endpoints whose
+    # responses carry secrets are kept out of HTTP sample capture (the scrubber does not redact tokens).
+    session = make_tracked_session(capture=not config.sensitive_fields)
 
     if config.fan_out_over_databases:
         yield from _fan_out_stats_rows(session, auth, logger, config)
         return
 
     # Every non-fan-out endpoint returns a raw JSON array in one request (no pagination).
-    data = _fetch(session, f"{config.base_url}{config.path}", auth, logger)
-    if isinstance(data, list):
-        yield from (item for item in data if isinstance(item, dict))
+    data = _fetch_list(session, f"{config.base_url}{config.path}", auth, logger)
+    for item in data:
+        if isinstance(item, dict):
+            yield _strip_sensitive(item, config.sensitive_fields)
 
 
 def upstash_source(

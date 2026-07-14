@@ -19,6 +19,10 @@ class UpstashEndpointConfig:
     fan_out_over_databases: bool = False
     # Whether the table is selected for sync by default in the wizard.
     should_sync_default: bool = True
+    # Response fields carrying credentials/secrets. They are stripped from every row before it reaches
+    # the warehouse, and their presence disables HTTP sample capture for the endpoint (the generic
+    # scrubber does not redact fields named `token`).
+    sensitive_fields: frozenset[str] = frozenset()
 
 
 # The Upstash management API is full-refresh only: no list endpoint documents pagination, and none
@@ -49,10 +53,13 @@ UPSTASH_ENDPOINTS: dict[str, UpstashEndpointConfig] = {
         primary_keys=["team_id"],
     ),
     # GET /v2/vector/index -> raw array of VectorIndex objects (config, plan, limits, creation_time).
+    # `token` and `read_only_token` are write-capable index credentials; strip them so warehouse
+    # readers can't retrieve them, and keep the whole response out of HTTP sample capture.
     "vector_indexes": UpstashEndpointConfig(
         name="vector_indexes",
         path="/vector/index",
         primary_keys=["id"],
+        sensitive_fields=frozenset({"token", "read_only_token"}),
     ),
     # GET /auditlogs (unversioned host) -> raw array of AuditLog objects (actor, action, entity,
     # timestamp, ip). No time-range or pagination params documented, so it is full refresh.

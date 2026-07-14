@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -57,16 +58,26 @@ class TestGetRowsListEndpoints:
         assert [r[pk] for r in rows] == ["a", "b"]
         assert calls == [expected_url]
 
-    def test_non_list_response_yields_nothing(self) -> None:
-        # A malformed body (object instead of array) must not crash the sync.
+    def test_non_list_response_raises(self) -> None:
+        # A malformed body (object instead of array) must fail the sync loudly rather than silently
+        # replace the warehouse table with zero rows.
         url = f"{UPSTASH_API_BASE_URL}/teams"
-        rows, _ = _collect("teams", {url: {"unexpected": "shape"}})
-        assert rows == []
+        with pytest.raises(ValueError):
+            _collect("teams", {url: {"unexpected": "shape"}})
 
     def test_non_dict_items_are_skipped(self) -> None:
         url = f"{UPSTASH_API_BASE_URL}/teams"
         rows, _ = _collect("teams", {url: [{"team_id": "t1"}, "garbage", None]})
         assert [r["team_id"] for r in rows] == ["t1"]
+
+    def test_sensitive_fields_are_stripped_from_rows(self) -> None:
+        # Vector index tokens are write-capable credentials; they must never reach warehouse columns.
+        url = f"{UPSTASH_API_BASE_URL}/vector/index"
+        rows, _ = _collect(
+            "vector_indexes",
+            {url: [{"id": "i1", "name": "idx", "token": "secret", "read_only_token": "ro-secret"}]},
+        )
+        assert rows == [{"id": "i1", "name": "idx"}]
 
 
 class TestGetRowsStatsFanOut:
@@ -112,6 +123,30 @@ class TestGetRowsStatsFanOut:
         else:
             raise AssertionError("expected the 500 to propagate")
 
+    def test_database_row_missing_id_raises(self) -> None:
+        # The stats sync fans out over every database id; a row missing its id must fail the sync
+        # rather than be silently dropped, which would yield partial usage/billing data.
+        db_url = f"{UPSTASH_API_BASE_URL}/redis/databases"
+        with pytest.raises(KeyError):
+            _collect("redis_stats", {db_url: [{"database_id": "db1"}, {"not_the_id": "x"}]})
+
+
+class TestHttpSampleCapture:
+    # Responses that carry secrets (vector index tokens) must be excluded from HTTP sample capture,
+    # since the generic scrubber does not redact fields named `token`. Other endpoints keep capture on.
+    @parameterized.expand([("vector_indexes", False), ("teams", True)])
+    def test_capture_flag_tracks_sensitive_endpoints(self, endpoint: str, expected_capture: bool) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_session(*args: Any, **kwargs: Any) -> Any:
+            captured["capture"] = kwargs.get("capture", True)
+            return MagicMock()
+
+        with patch.object(upstash, "make_tracked_session", fake_session):
+            with patch.object(upstash, "_fetch", lambda *a, **k: []):
+                list(get_rows(email="e", api_key="k", endpoint=endpoint, logger=MagicMock()))
+        assert captured["capture"] is expected_capture
+
 
 class TestFetchRetryClassification:
     @parameterized.expand([(429,), (500,), (503,)])
@@ -144,7 +179,9 @@ class TestFetchRetryClassification:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
+    # Only a definitive 401/403 rejects the credentials. 429/5xx are transient (retried during sync)
+    # and must not block source creation during an Upstash outage or rate-limit window.
+    @parameterized.expand([(200, True), (401, False), (403, False), (429, True), (500, True)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
         response = requests.Response()
         response.status_code = status
@@ -166,13 +203,15 @@ class TestValidateCredentials:
         assert session.get.call_args[0][0] == f"{UPSTASH_API_BASE_URL}/teams"
         assert kwargs["auth"] == ("me@example.com", "secret")
 
-    def test_request_exception_is_handled(self) -> None:
+    def test_request_exception_does_not_block_creation(self) -> None:
+        # An unreachable API is transient, not a credential rejection; a genuine auth failure still
+        # surfaces at sync time.
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(upstash, "make_tracked_session", lambda *a, **k: session):
             ok, error = validate_credentials("e", "k")
-        assert ok is False
-        assert error == "boom"
+        assert ok is True
+        assert error is None
 
 
 class TestUpstashSource:
