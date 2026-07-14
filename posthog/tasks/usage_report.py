@@ -899,7 +899,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             query_template="""
             SELECT
                 team_id,
-                uniqExact(tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))) AS count
+                uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
             FROM events
             PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
             WHERE event = '$mcp_tool_call'

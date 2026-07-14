@@ -1446,7 +1446,7 @@ class TestQueryUsageReportSQL:
 
         mcp_query = mock_sync_execute.call_args.args[0]
         assert "event = '$mcp_tool_call'" in mcp_query
-        assert "uniqExact(tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)))" in mcp_query
+        assert "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))" in mcp_query
         assert result["mcp_tool_call_events"] == [(1, 4)]
 
         # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).

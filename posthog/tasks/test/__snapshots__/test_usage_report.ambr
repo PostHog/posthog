@@ -143,7 +143,7 @@
   '''
   
   SELECT team_id,
-         uniqExact(tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))) AS count
+         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-11 00:00:00'
   WHERE event = '$mcp_tool_call'
