@@ -1036,19 +1036,6 @@
                 }
             ]
         },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
         "AnyEntityNode<LifecycleDataWarehouseNode>": {
             "anyOf": [
                 {
@@ -24659,14 +24646,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -24737,6 +24717,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsQuerySeriesNode": {
+            "$ref": "#/definitions/FunnelsQuerySeriesNodeUnion"
+        },
+        "FunnelsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
