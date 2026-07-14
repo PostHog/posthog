@@ -28,6 +28,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "description",
             "auth_type",
             "icon_key",
+            "icon_domain",
             "category",
             "oauth_issuer_url",
             "oauth_metadata",

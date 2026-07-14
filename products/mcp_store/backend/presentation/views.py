@@ -1,3 +1,4 @@
+import re
 import time
 import hashlib
 import secrets
@@ -24,6 +25,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -158,10 +160,21 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     return not credentials.get("client_id")
 
 
+# A bare hostname (logo.dev's icon id) — rejects paths, schemes, and query junk so the icon
+# endpoint can't be steered anywhere but img.logo.dev/{domain}.
+_ICON_DOMAIN_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+")
+
+
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
+    icon_domain = serializers.CharField(
+        read_only=True,
+        help_text="The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time "
+        "via the logo.dev proxy endpoint. Empty when no brand icon is known.",
+    )
+
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"]
+        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_domain", "category"]
 
 
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -183,17 +196,27 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False)
+    def icon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        domain = request.GET.get("domain", "")
+        if not _ICON_DOMAIN_RE.fullmatch(domain):
+            raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
+        return CDPIconsService().get_icon_http_response(domain)
+
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
-    icon_key = serializers.CharField(
-        source="template.icon_key",
+    icon_domain = serializers.CharField(
+        source="template.icon_domain",
         read_only=True,
         default="",
-        help_text="Lowercase key from the linked template for brand icons. Empty if custom install (no template).",
+        help_text="Brand domain from the linked template, rendered via the logo.dev icon proxy. "
+        "Empty if custom install (no template).",
     )
     proxy_url = serializers.SerializerMethodField()
     tool_count = serializers.SerializerMethodField(
@@ -209,7 +232,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "id",
             "template_id",
             "name",
-            "icon_key",
+            "icon_domain",
             "display_name",
             "url",
             "description",
