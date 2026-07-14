@@ -25,6 +25,7 @@ from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
+    get_default_model_for_runtime_adapter,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
@@ -243,7 +244,15 @@ class LoopWriteSerializer(serializers.Serializer):
     runtime_adapter = serializers.ChoiceField(
         choices=[adapter.value for adapter in RuntimeAdapter], help_text="Runtime adapter: 'claude' or 'codex'."
     )
-    model = serializers.CharField(help_text="LLM model identifier, validated against `runtime_adapter`'s catalog.")
+    model = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "LLM model identifier, validated against `runtime_adapter`'s catalog. "
+            "Leave blank to let PostHog pick a sensible default at run time."
+        ),
+    )
     reasoning_effort = serializers.ChoiceField(
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
         required=False,
@@ -312,7 +321,7 @@ class LoopWriteSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         runtime_adapter = attrs.get("runtime_adapter")
         model = attrs.get("model")
-        if runtime_adapter is not None and model is not None:
+        if runtime_adapter is not None and model:
             allowed_models = get_models_for_runtime_adapter(runtime_adapter)
             if allowed_models and model not in allowed_models:
                 raise serializers.ValidationError(
@@ -320,10 +329,14 @@ class LoopWriteSerializer(serializers.Serializer):
                 )
 
         reasoning_effort = attrs.get("reasoning_effort")
-        if runtime_adapter is not None and model is not None and reasoning_effort is not None:
-            error = get_reasoning_effort_error(runtime_adapter, model, reasoning_effort)
-            if error:
-                raise serializers.ValidationError({"reasoning_effort": error})
+        if runtime_adapter is not None and reasoning_effort is not None:
+            # A blank model means "PostHog picks at run time", so the effort is
+            # validated against the model that would actually run.
+            effective_model = model or get_default_model_for_runtime_adapter(runtime_adapter)
+            if effective_model:
+                error = get_reasoning_effort_error(runtime_adapter, effective_model, reasoning_effort)
+                if error:
+                    raise serializers.ValidationError({"reasoning_effort": error})
 
         if "sandbox_environment" in attrs:
             sandbox_environment = attrs.pop("sandbox_environment")

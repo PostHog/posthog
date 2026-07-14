@@ -1110,7 +1110,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     visibility = models.CharField(max_length=16, choices=Visibility, default=Visibility.PERSONAL)
     instructions = models.TextField()
     runtime_adapter = models.CharField(max_length=32)
-    model = models.CharField(max_length=128)
+    model = models.CharField(max_length=128, blank=True, default="")
     reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
     repositories = models.JSONField(default=list, blank=True)
     sandbox_environment = models.ForeignKey(

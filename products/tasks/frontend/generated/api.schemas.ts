@@ -335,8 +335,8 @@ export interface LoopWriteApi {
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter: RuntimeAdapterEnumApi
-    /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
-    model: string
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+    model?: string
     /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
      *
      * * `low` - low
@@ -397,7 +397,7 @@ export interface PatchedLoopWriteApi {
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi
-    /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
     model?: string
     /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
      *

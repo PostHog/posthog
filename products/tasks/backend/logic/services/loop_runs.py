@@ -24,6 +24,7 @@ from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Loop, LoopFire, LoopTrigger, Task, TaskRun
+from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +240,9 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "loop_trigger_id": str(trigger.id) if trigger is not None else None,
         "trigger_context": trigger_context,
         "runtime_adapter": loop.runtime_adapter,
-        "model": loop.model,
+        # A loop with no pinned model deliberately stays unset on the row; the
+        # default is resolved per fire so it can improve over time.
+        "model": loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter),
         "reasoning_effort": loop.reasoning_effort,
         "config_snapshot": config_snapshot,
     }

@@ -35672,8 +35672,8 @@ export namespace Schemas {
        * * `claude` - claude
        * * `codex` - codex */
       runtime_adapter: RuntimeAdapterEnum;
-      /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
-      model: string;
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+      model?: string;
       /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
        *
        * * `low` - low
@@ -47048,7 +47048,7 @@ export namespace Schemas {
        * * `claude` - claude
        * * `codex` - codex */
       runtime_adapter?: RuntimeAdapterEnum;
-      /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
       model?: string;
       /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
        *

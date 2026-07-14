@@ -191,6 +191,22 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     return ()
 
 
+# Applied at fire time when a loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting
+# stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
+    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
+    RuntimeAdapter.CODEX.value: "gpt-5",
+}
+
+
+def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
+    if runtime_adapter is None:
+        return None
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return DEFAULT_MODEL_BY_RUNTIME_ADAPTER.get(adapter_value)
+
+
 def get_provider_for_runtime_adapter(
     runtime_adapter: RuntimeAdapter | str | None,
 ) -> LLMProvider | None:

@@ -28,6 +28,7 @@ export const loopsCreateBodyNameMax = 400
 
 export const loopsCreateBodyDescriptionDefault = ``
 export const loopsCreateBodyVisibilityDefault = `personal`
+export const loopsCreateBodyModelDefault = ``
 export const loopsCreateBodyRepositoriesItemFullNameMax = 255
 
 export const loopsCreateBodyRepositoriesMax = 1
@@ -66,7 +67,12 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             .enum(['claude', 'codex'])
             .describe('\* `claude` - claude\n\* `codex` - codex')
             .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod.string().describe("LLM model identifier, validated against `runtime_adapter`'s catalog."),
+        model: zod
+            .string()
+            .default(loopsCreateBodyModelDefault)
+            .describe(
+                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
+            ),
         reasoning_effort: zod
             .union([
                 zod
@@ -273,6 +279,7 @@ export const loopsPartialUpdateBodyNameMax = 400
 
 export const loopsPartialUpdateBodyDescriptionDefault = ``
 export const loopsPartialUpdateBodyVisibilityDefault = `personal`
+export const loopsPartialUpdateBodyModelDefault = ``
 export const loopsPartialUpdateBodyRepositoriesItemFullNameMax = 255
 
 export const loopsPartialUpdateBodyRepositoriesMax = 1
@@ -312,7 +319,12 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `claude` - claude\n\* `codex` - codex')
             .optional()
             .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod.string().optional().describe("LLM model identifier, validated against `runtime_adapter`'s catalog."),
+        model: zod
+            .string()
+            .default(loopsPartialUpdateBodyModelDefault)
+            .describe(
+                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
+            ),
         reasoning_effort: zod
             .union([
                 zod
