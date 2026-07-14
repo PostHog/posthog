@@ -1162,3 +1162,9 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
+# allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
+# on a team sees numbers from the same code path. 0 disables (allowlist only),
+# 100 enrolls every team. Set per deployment — region rollouts are independent.
+WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env("WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", 0, type_cast=int)
