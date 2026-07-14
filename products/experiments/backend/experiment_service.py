@@ -3152,7 +3152,7 @@ class ExperimentService:
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not
-        # deleted, and a valid control/variant configuration.
+        # deleted, and a valid variant configuration.
         if experiment.is_draft and update_data.get("start_date") is not None:
             self._assert_flag_not_deleted_for_launch(feature_flag)
             self._validate_existing_flag(feature_flag)

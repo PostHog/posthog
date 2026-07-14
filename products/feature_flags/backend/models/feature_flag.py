@@ -103,9 +103,11 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
 
 
 # The single flag-side rule for "this flag can back an experiment": multivariate with
-# 2-20 variants and 'control' as the first variant. Enforced in three matching shapes —
-# experiment_eligibility_error (in-memory), FeatureFlagQuerySet.eligible_for_experiment
-# (JSONB filter), and FeatureFlagSerializer.is_eligible_for_experiment (API field).
+# 2-20 variants. No variant key is required — the baseline defaults to 'control' when
+# present, else the first variant (see get_baseline_variant_key). Enforced in three
+# matching shapes — experiment_eligibility_error (in-memory), FeatureFlagQuerySet.
+# eligible_for_experiment (JSONB filter), and FeatureFlagSerializer.is_eligible_for_experiment
+# (API field).
 EXPERIMENT_MIN_VARIANTS = 2
 EXPERIMENT_MAX_VARIANTS = 20
 
@@ -113,18 +115,15 @@ EXPERIMENT_MAX_VARIANTS = 20
 def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str | None:
     """Why these flag variants can't back an experiment, or None when they can."""
     if not variants or len(variants) < EXPERIMENT_MIN_VARIANTS:
-        return "Feature flag must have at least 2 variants (control and at least one test variant)"
+        return "Feature flag must have at least 2 variants (a baseline and at least one test variant)"
     if len(variants) > EXPERIMENT_MAX_VARIANTS:
         return f"Feature flag must have at most {EXPERIMENT_MAX_VARIANTS} variants"
-    if variants[0].get("key") != "control":
-        keys = [variant.get("key") for variant in variants]
-        return f"Feature flag must have 'control' as its first variant. Got variant keys: {keys}"
     return None
 
 
 class FeatureFlagQuerySet(RootTeamQuerySet):
     def eligible_for_experiment(self) -> "FeatureFlagQuerySet":
-        """JSONB twin of experiment_eligibility_error: multivariate, 2-20 variants, 'control' first."""
+        """JSONB twin of experiment_eligibility_error: multivariate with 2-20 variants."""
         return self.annotate(
             _experiment_variant_count=Func(
                 KeyTransform("variants", KeyTransform("multivariate", "filters")),
@@ -134,7 +133,6 @@ class FeatureFlagQuerySet(RootTeamQuerySet):
         ).filter(
             _experiment_variant_count__gte=EXPERIMENT_MIN_VARIANTS,
             _experiment_variant_count__lte=EXPERIMENT_MAX_VARIANTS,
-            filters__multivariate__variants__0__key="control",
         )
 
 

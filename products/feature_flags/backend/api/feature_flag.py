@@ -912,7 +912,7 @@ class FeatureFlagSerializer(
     is_used_in_replay_settings = serializers.SerializerMethodField()
     is_eligible_for_experiment = serializers.BooleanField(
         read_only=True,
-        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants and 'control' as the first variant.",
+        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
     )
 
     name = serializers.CharField(

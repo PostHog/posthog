@@ -8,14 +8,14 @@ def _variants(*keys: str) -> list[dict]:
 
 
 class TestExperimentEligibility(BaseTest):
-    # (key, multivariate variants or None, eligible) — covers the historical disagreements:
-    # control first vs merely present, and the 2-20 variant bounds.
+    # (key, multivariate variants or None, eligible) — multivariate with 2-20 variants;
+    # no 'control' variant is required (the baseline defaults downstream).
     CASES = [
         ("boolean-flag", None, False),
         ("single-variant", _variants("control"), False),
         ("control-first", _variants("control", "test"), True),
-        ("control-not-first", _variants("test", "control"), False),
-        ("control-missing", _variants("test-1", "test-2"), False),
+        ("control-not-first", _variants("test", "control"), True),
+        ("control-missing", _variants("test-1", "test-2"), True),
         ("twenty-variants", _variants("control", *[f"test-{i}" for i in range(19)]), True),
         ("twenty-one-variants", _variants("control", *[f"test-{i}" for i in range(20)]), False),
     ]

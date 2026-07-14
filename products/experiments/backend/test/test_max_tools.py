@@ -306,6 +306,7 @@ class TestCreateExperimentTool(APIBaseTest):
         assert variants[2]["key"] == "variant_c"
 
     async def test_create_experiment_flag_without_control_variant(self):
+        # No 'control' variant is required; the baseline defaults to the first variant downstream.
         await self._create_multivariate_flag(
             key="no-control-flag",
             name="No Control Flag",
@@ -322,11 +323,12 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="no-control-flag",
         )
 
-        assert "Failed to create" in result
-        assert "must have 'control' as its first variant" in result
-        assert "'baseline'" in result
-        assert artifact is not None
-        assert artifact.get("error") is not None
+        assert "Successfully created" in result
+
+        experiment = await Experiment.objects.aget(name="Test Experiment", team=self.team)
+        flag = await FeatureFlag.objects.aget(key="no-control-flag", team=self.team)
+        assert experiment.feature_flag_id == flag.id
+        assert [v["key"] for v in flag.variants] == ["baseline", "test"]
 
 
 class TestExperimentSummaryTool(APIBaseTest):

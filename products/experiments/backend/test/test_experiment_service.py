@@ -4706,13 +4706,13 @@ class TestExperimentService(APIBaseTest):
     # Eligible feature flags
     # ------------------------------------------------------------------
 
-    def test_get_eligible_feature_flags_only_returns_control_first_multivariate_flags(self) -> None:
+    def test_get_eligible_feature_flags_only_returns_multivariate_flags_within_variant_bounds(self) -> None:
         eligible_flag = self._create_flag(key="eligible-flag")
-        self._create_flag(
-            key="wrong-order-flag",
+        no_control_flag = self._create_flag(
+            key="no-control-flag",
             variants=[
-                {"key": "test", "name": "Test", "rollout_percentage": 50},
-                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "test-1", "name": "Test 1", "rollout_percentage": 50},
+                {"key": "test-2", "name": "Test 2", "rollout_percentage": 50},
             ],
         )
         self._create_flag(
@@ -4722,8 +4722,8 @@ class TestExperimentService(APIBaseTest):
 
         result = self._service().get_eligible_feature_flags(order="key")
 
-        assert result["count"] == 1
-        assert [flag.key for flag in result["results"]] == [eligible_flag.key]
+        assert result["count"] == 2
+        assert [flag.key for flag in result["results"]] == [eligible_flag.key, no_control_flag.key]
 
     def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
         self._create_flag(key="search-alpha")

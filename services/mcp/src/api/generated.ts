@@ -23548,7 +23548,7 @@ export namespace Schemas {
      * A single multivariate variant. Extra per-variant keys are dropped.
      */
     export interface ExperimentFlagVariant {
-      /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
+      /** Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant. */
       key: string;
       /** Human-readable variant name. */
       name?: string;
@@ -23564,7 +23564,7 @@ export namespace Schemas {
      * Multivariate config for the experiment's feature flag.
      */
     export interface ExperimentFlagMultivariate {
-      /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+      /** Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant. */
       variants: ExperimentFlagVariant[];
     }
 
@@ -23595,7 +23595,7 @@ export namespace Schemas {
      * reach this validation.
      */
     export interface ExperimentFeatureFlagInput {
-      /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+      /** Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
       filters?: ExperimentFeatureFlagFilters;
       /**
          * Whether the flag persists variant assignment across authentication steps.
@@ -26225,7 +26225,7 @@ export namespace Schemas {
       _should_create_usage_dashboard?: boolean;
       /** Check if this feature flag is used in any team's session recording linked flag setting. */
       readonly is_used_in_replay_settings: boolean;
-      /** Whether this flag can back an experiment: multivariate with 2 to 20 variants and 'control' as the first variant. */
+      /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
       readonly is_eligible_for_experiment: boolean;
     }
 

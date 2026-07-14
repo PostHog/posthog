@@ -33,8 +33,8 @@ CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
 
     # Prerequisites
     **IMPORTANT**: Before creating an experiment, you must first create a multivariate feature flag
-    using the `create_feature_flag` tool with at least two variants (control and test).
-    The first variant MUST be named "control".
+    using the `create_feature_flag` tool with 2 to 20 variants (conventionally control and test).
+    The baseline defaults to the variant named "control" when present, else the first variant.
 
     # Experiment Types
     - **product**: For backend/API changes, server-side experiments
@@ -66,9 +66,10 @@ class CreateExperimentToolArgs(BaseModel):
         Requirements:
         - The flag must already exist (create it first with create_feature_flag)
         - The flag must have multivariate variants defined
-        - The flag must have at least 2 variants
-        - The first variant MUST be named "control"
+        - The flag must have 2 to 20 variants
         - The flag cannot already be used by another experiment
+
+        The baseline defaults to the variant keyed "control" when present, else the first variant.
 
         Example: "pricing-page-experiment"
         """).strip()

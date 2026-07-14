@@ -76,8 +76,8 @@ def _normalized_flag_variants(variants: list) -> list:
     """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
     variants = deepcopy(variants)
     # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-    # to lowercase 'control'. The downstream validator and runtime treat 'control'
-    # as a special key, so a typo in casing was the leading cause of the
+    # to lowercase 'control'. 'control' is the conventional baseline key (the default
+    # baseline when present), and a typo in casing was the leading cause of the
     # "Feature flag variants must contain a control variant" error in MCP traces —
     # most often from LLM-generated payloads. Only rewrite when no exact 'control'
     # match already exists, so we never collapse two distinct keys into a duplicate.
@@ -558,9 +558,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def _assert_flag_variants_valid(config: dict) -> None:
         """Variant rules on the validated (already normalized) config, raised as plain top-level
         errors so the messages surface directly to LLM/API callers. Absent or empty variants are
-        allowed here — the service fills in the default control/test pair. Capitalized 'Control' is
-        auto-normalized (ExperimentFlagMultivariateSerializer), so a control failure here genuinely
-        lacks a leading 'control' variant."""
+        allowed here — the service fills in the default control/test pair."""
         variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
         if not variants:
             return
@@ -784,7 +782,7 @@ class ExperimentFlagVariantSerializer(serializers.Serializer):
     """A single multivariate variant. Extra per-variant keys are dropped."""
 
     key = serializers.CharField(
-        help_text="Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+        help_text="Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
     )
     name = serializers.CharField(
         required=False,
@@ -803,7 +801,7 @@ class ExperimentFlagMultivariateSerializer(_StrictFieldsMixin, serializers.Seria
 
     variants = ExperimentFlagVariantSerializer(
         many=True,
-        help_text="Variant definitions. Exactly one variant key must be the literal string 'control'.",
+        help_text="Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -876,8 +874,9 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
     filters = ExperimentFeatureFlagFiltersSerializer(
         required=False,
         help_text=(
-            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
-            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to "
+            "the variant keyed 'control' when present, else the first variant), "
+            "`groups` (a single group with `rollout_percentage` only; release "
             "conditions are not supported here, edit the feature flag directly), "
             "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
             "On update, config this object omits is preserved from the linked flag's current state."
