@@ -36,7 +36,7 @@ export interface BeforeAccumulationOutput<CBatch> {
 /**
  * Discriminated result of next(). The consumer reads `flushed` to decide what to do: a
  * `flushed: false` turn carries the record pipeline's trimmed results, a `flushed: true` turn
- * carries the flush results (whose steps commit the offsets the batch covers). Both variants carry
+ * carries the flush results. Both variants carry
  * the side effects surfaced this turn (the record pipeline's DLQ/overflow produces on record turns,
  * plus the record-phase produces on a drain-and-flush) so the caller can make them durable before a
  * later flush commits offsets. Offsets themselves are tracked inside the record pipeline's afterBatch.
@@ -110,7 +110,13 @@ export interface AccumulatingPipelineConfig<
  * mints a fresh accumulator after every flush (and before the first feed). The record pipeline's
  * output (typically a BatchingPipeline whose afterBatch trims each result and records its offset)
  * accumulates in feed order and is handed to the flush pipeline as {@link AccumulatedFlushInput};
- * the flush pipeline both persists the accumulator and commits the offsets its records covered.
+ * the flush pipeline persists the accumulator. Offsets stay entirely outside: the record pipeline's
+ * afterBatch tracks them and the caller commits them after a flushed turn's side effects are durable
+ * — the pipeline itself never commits.
+ *
+ * A sibling of BatchingPipeline, deliberately not a reuse of BufferingBatchPipeline (that one is a
+ * passthrough re-emit buffer used by filterMap); the defining difference from both is the batch
+ * boundary spanning many feed() calls.
  *
  * LIVENESS INVARIANT — age-based flush requires next() to be called while idle.
  *
