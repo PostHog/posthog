@@ -146,8 +146,15 @@ def forward_pending_user_message(run_id: str) -> None:
             else:
                 _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
 
+        boot_actor_slack_user_id = state.get("slack_actor_slack_user_id")
+        updates = (
+            {"slack_last_turn_slack_user_id": boot_actor_slack_user_id}
+            if result.success and isinstance(boot_actor_slack_user_id, str) and boot_actor_slack_user_id
+            else None
+        )
         TaskRun.update_state_atomic(
             run_id,
+            updates=updates,
             remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
         )
 

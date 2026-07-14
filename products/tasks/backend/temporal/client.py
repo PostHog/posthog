@@ -470,10 +470,16 @@ def signal_task_followup_message(
     message: str | None,
     artifact_ids: list[str],
     message_id: str | None = None,
+    actor_user_id: int | None = None,
+    context: dict[str, Any] | None = None,
 ) -> None:
+    """New per-message fields go in ``context`` — the positional signal args
+    are frozen for worker deploy compat."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids, message_id]))
+    asyncio.run(
+        handle.signal("send_followup_message", args=[message, artifact_ids, message_id, actor_user_id, context])
+    )
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:

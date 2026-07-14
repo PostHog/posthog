@@ -2551,7 +2551,9 @@ def signal_task_run_user_message(
     *,
     content: str | None,
     artifact_ids: list[str],
+    actor_user_id: int | None = None,
     message_id: str | None = None,
+    actor_slack_user_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2570,7 +2572,8 @@ def signal_task_run_user_message(
     if run is None:
         return None
     try:
-        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id)
+        context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
+        signal_task_followup_message(run.workflow_id, content, artifact_ids, message_id, actor_user_id, context)
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
@@ -2731,8 +2734,20 @@ def relay_task_run_message(
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
 
+    # Tag the actor of the last *completed* turn (stamped on the delivery
+    # ack); the live actor is a fallback for pre-rollout runs, and may point
+    # at the next speaker when a turn outlives the delivery ack.
+    relay_state = run.state or {}
+    mention_slack_user_id = relay_state.get("slack_last_turn_slack_user_id") or relay_state.get(
+        "slack_actor_slack_user_id"
+    )
     try:
-        relay_id = execute_posthog_code_agent_relay_workflow(run_id=str(run.id), text=trimmed, delete_progress=True)
+        relay_id = execute_posthog_code_agent_relay_workflow(
+            run_id=str(run.id),
+            text=trimmed,
+            delete_progress=True,
+            mention_slack_user_id=mention_slack_user_id if isinstance(mention_slack_user_id, str) else None,
+        )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
         return "failed", None

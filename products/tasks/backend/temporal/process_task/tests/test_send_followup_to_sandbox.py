@@ -60,6 +60,11 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     return task_run
 
 
+def _refresh(task_run, actor_id: int | None = 42, scopes="read_only", auth_token=None) -> None:
+    actor = MagicMock(id=actor_id) if actor_id is not None else None
+    _refresh_sandbox_mcp(task_run, scopes, auth_token, actor_user=actor, state=task_run.state)
+
+
 class TestRefreshSandboxMcp:
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
     @patch(
@@ -78,7 +83,7 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
         task_run = _make_task_run_mock()
-        _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
+        _refresh(task_run, auth_token="jwt")
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
@@ -158,7 +163,7 @@ class TestRefreshSandboxMcp:
             CommandResult(success=True, status_code=200),
         ]
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         assert mock_send_refresh.call_count == 2
         mock_sleep.assert_called_once_with(REFRESH_RETRY_DELAY_SECONDS)
@@ -183,7 +188,7 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
 
         # Must not raise.
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         assert mock_send_refresh.call_count == 2
 
@@ -202,7 +207,7 @@ class TestRefreshSandboxMcp:
     ):
         mock_oauth.side_effect = RuntimeError("oauth service down")
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         mock_ph_configs.assert_not_called()
         mock_user_configs.assert_not_called()
@@ -225,7 +230,7 @@ class TestRefreshSandboxMcp:
         mock_ph_configs.return_value = []
         mock_user_configs.return_value = []
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         mock_send_refresh.assert_not_called()
 
@@ -239,17 +244,12 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
     )
-    def test_user_mcp_configs_skipped_when_no_creator(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
+    def test_no_actor_skips_entirely(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
+        # Without a credential user the mint can only fail — skip quietly.
+        _refresh(_make_task_run_mock(created_by_id=None), actor_id=None)
 
-        _refresh_sandbox_mcp(_make_task_run_mock(created_by_id=None), "read_only", auth_token=None)
-
-        mock_user_configs.assert_not_called()
-        mock_send_refresh.assert_called_once()
+        mock_oauth.assert_not_called()
+        mock_send_refresh.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
     @patch(
@@ -269,7 +269,7 @@ class TestRefreshSandboxMcp:
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "full", auth_token=None)
+        _refresh(_make_task_run_mock(), scopes="full")
 
         mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
         mock_ph_configs.assert_called_once_with(
@@ -289,7 +289,7 @@ class TestRefreshIntervalGate:
     def test_skipped_when_token_recently_issued(self, mock_oauth, mock_send_refresh):
         mark_mcp_token_issued("run-1")
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         mock_oauth.assert_not_called()
         mock_send_refresh.assert_not_called()
@@ -310,7 +310,7 @@ class TestRefreshIntervalGate:
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         # Cache entry now exists → next refresh within the interval is gated.
         assert cache.get(_mcp_token_issued_cache_key("run-1")) is True
@@ -337,7 +337,7 @@ class TestRefreshIntervalGate:
             CommandResult(success=True, status_code=200),
         ]
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         assert cache.get(_mcp_token_issued_cache_key("run-1")) is True
 
@@ -360,7 +360,7 @@ class TestRefreshIntervalGate:
         mock_user_configs.return_value = []
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
 
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
+        _refresh(_make_task_run_mock())
 
         # Cache stays empty so the next follow-up retries the dispatch.
         assert cache.get(_mcp_token_issued_cache_key("run-1")) is None
@@ -400,6 +400,7 @@ class TestSendFollowupActivityRefreshOrdering:
 
             yield {
                 "task_run": task_run,
+                "task_run_cls": mock_task_run_cls,
                 "refresh": mock_refresh,
                 "user_msg": mock_user_msg,
                 "conn_token": mock_conn_token,
@@ -432,6 +433,55 @@ class TestSendFollowupActivityRefreshOrdering:
         assert args[0] is _patches["task_run"]
         assert args[1] == "full"
         assert args[2] == "jwt"
+
+    def test_payload_actor_pins_resolution_over_run_state(self, _patches):
+        # A concurrent follow-up (or permission response) may overwrite the
+        # run-state actor between queueing and delivery; the message's own
+        # sender must win.
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+        _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
+        ) as mock_resolve:
+            mock_resolve.return_value = MagicMock(id=99)
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+
+        resolved_state = mock_resolve.call_args.args[1]
+        assert resolved_state["slack_actor_user_id"] == 99
+
+    def test_slack_delivery_stamps_turn_actor(self, _patches):
+        # The durable run-state actor must move at turn boundaries: delivery
+        # persists this message's sender so between-turn consumers (reply
+        # tagging, credential refresh) follow the executing turn.
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+        _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
+        ) as mock_resolve:
+            mock_resolve.return_value = MagicMock(id=99)
+            send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
+                )
+            )
+
+        _patches["task_run_cls"].update_state_atomic.assert_any_call(
+            _patches["task_run"].id,
+            updates={"slack_actor_user_id": 99, "slack_actor_slack_user_id": "U_BOB"},
+        )
+        # The ack also records the completed turn's actor for reply tagging.
+        _patches["task_run_cls"].update_state_atomic.assert_any_call(
+            "run-1", updates={"slack_last_turn_slack_user_id": "U_BOB"}
+        )
+
+    def test_non_slack_delivery_does_not_stamp(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+
+        _patches["task_run_cls"].update_state_atomic.assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)

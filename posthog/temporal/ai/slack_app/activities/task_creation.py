@@ -82,10 +82,11 @@ _THREAD_UPDATE_MAX_MESSAGES = 50
 
 
 def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
-    return {
-        "slack_actor_user_id": user_id,
-        "slack_actor_slack_user_id": slack_user_id,
-    }
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        slack_actor_state_updates,
+    )
+
+    return slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
 def _strip_context_tag(text: str) -> str:
@@ -847,25 +848,11 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Record the live actor so async reply paths tag them instead of the
-    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
+    # Reply-tag fallback for turns with no per-turn actor (boot prompt,
+    # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
-
-    if actor_user and actor_user.id:
-        try:
-            tasks_facade.update_task_run_state(
-                task_run.id,
-                updates=_slack_actor_state_updates(user_id=actor_user.id, slack_user_id=slack_user_id),
-            )
-        except Exception:
-            logger.exception(
-                "posthog_code_followup_actor_state_update_failed",
-                channel=channel,
-                thread_ts=thread_ts,
-                actor_user_id=actor_user.id,
-            )
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(
@@ -974,7 +961,9 @@ def forward_posthog_code_followup_activity(
         task_run.team_id,
         content=user_text,
         artifact_ids=_uploaded_attachment_ids(uploaded_attachments),
+        actor_user_id=actor_user.id if actor_user and actor_user.id else None,
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
+        actor_slack_user_id=slack_user_id,
     )
     if signal_result is not True:
         logger.warning(

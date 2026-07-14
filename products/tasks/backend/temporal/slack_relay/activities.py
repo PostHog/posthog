@@ -351,6 +351,9 @@ class RelaySlackMessageInput:
     user_message_ts: str | None = None
     delete_progress: bool = True
     reaction_emoji: str | None = None
+    # The actor of the turn this message answers, captured at trigger time.
+    # Falls back to the mapping's latest-actor fields when absent.
+    mention_slack_user_id: str | None = None
 
 
 @activity.defn
@@ -408,7 +411,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    target = input.mention_slack_user_id or mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
