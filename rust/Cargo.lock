@@ -1802,6 +1802,7 @@ dependencies = [
  "common-compression",
  "common-continuous-profiling",
  "common-event-restrictions",
+ "common-pipelines",
  "common-redis",
  "common-types",
  "envconfig",

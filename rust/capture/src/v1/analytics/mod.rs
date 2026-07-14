@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod context;
 pub mod handler;
+pub mod pipeline;
 pub mod process;
 pub mod query;
 pub mod response;
