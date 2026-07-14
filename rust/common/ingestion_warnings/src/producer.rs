@@ -10,6 +10,7 @@
 use std::time::Duration;
 
 use rdkafka::error::KafkaError;
+use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::ClientConfig;
 
@@ -33,7 +34,7 @@ impl Default for WarningProducerConfig {
     fn default() -> Self {
         Self {
             kafka_hosts: String::new(),
-            kafka_topic: "clickhouse_ingestion_warnings".to_string(),
+            kafka_topic: "client_ingestion_warning".to_string(),
             kafka_tls: false,
             message_timeout_ms: 5000,
             queue_max_messages: 10_000,
@@ -81,8 +82,16 @@ impl WarningProducer {
     /// `Err` means the message never entered the queue (e.g. `QueueFull`).
     /// Callers may await the returned future off the hot path to observe
     /// delivery outcomes, or drop it — enqueue is complete either way.
-    pub fn send(&self, key: &str, payload: &[u8]) -> Result<DeliveryFuture, KafkaError> {
-        let record = FutureRecord::to(&self.topic).key(key).payload(payload);
+    pub fn send(
+        &self,
+        key: &str,
+        headers: OwnedHeaders,
+        payload: &[u8],
+    ) -> Result<DeliveryFuture, KafkaError> {
+        let record = FutureRecord::to(&self.topic)
+            .key(key)
+            .headers(headers)
+            .payload(payload);
         match self.producer.send_result(record) {
             Ok(delivery_future) => Ok(delivery_future),
             Err((err, _record)) => Err(err),
@@ -118,7 +127,11 @@ mod tests {
     fn send_is_non_blocking_with_unreachable_broker() {
         let producer = WarningProducer::new(&unreachable_config(10)).unwrap();
         let start = std::time::Instant::now();
-        drop(producer.send("tok", b"{}").expect("enqueue must succeed"));
+        drop(
+            producer
+                .send("tok", OwnedHeaders::new(), b"{}")
+                .expect("enqueue must succeed"),
+        );
         assert!(
             start.elapsed() < Duration::from_millis(500),
             "send must never block on broker availability"
@@ -134,7 +147,11 @@ mod tests {
         let start = std::time::Instant::now();
         let mut saw_queue_full = false;
         for i in 0..100_000 {
-            if let Err(err) = producer.send("tok", format!("{{\"i\":{i}}}").as_bytes()) {
+            if let Err(err) = producer.send(
+                "tok",
+                OwnedHeaders::new(),
+                format!("{{\"i\":{i}}}").as_bytes(),
+            ) {
                 assert!(
                     matches!(
                         err,

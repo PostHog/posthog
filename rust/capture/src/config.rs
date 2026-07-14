@@ -343,36 +343,14 @@ pub struct Config {
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
 
-    // --- Ingestion warnings producer (v2, fire-and-forget, best-effort) ---
-    // Fully disjoint from `kafka: KafkaConfig` and the v1 sink configs: the
-    // warnings producer points at its own cluster/topic and must never share
-    // state with event publishing.
+    // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
+    // The single knob. Warnings are emitted as `$$client_ingestion_warning`
+    // events onto the existing `client_ingestion_warning` topic on the main
+    // event cluster (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the
+    // producer reuses the main Kafka connection config; there are no dedicated
+    // broker/topic/tuning env vars. Defaults off (fail open).
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
-
-    /// Brokers for the warnings producer. Required when enabled; when unset
-    /// or empty the emitter stays off (fail open) with a startup warning.
-    pub capture_ingestion_warnings_kafka_hosts: Option<String>,
-
-    #[envconfig(default = "clickhouse_ingestion_warnings")]
-    pub capture_ingestion_warnings_kafka_topic: String,
-
-    #[envconfig(default = "false")]
-    pub capture_ingestion_warnings_kafka_tls: bool,
-
-    #[envconfig(default = "5000")]
-    pub capture_ingestion_warnings_kafka_message_timeout_ms: u32,
-
-    /// Bound on the warnings producer's in-memory queue; overflow drops the
-    /// warning, never blocks request handling.
-    #[envconfig(default = "10000")]
-    pub capture_ingestion_warnings_kafka_queue_max_messages: u32,
-
-    #[envconfig(default = "1")]
-    pub capture_ingestion_warnings_kafka_acks: String,
-
-    #[envconfig(default = "100")]
-    pub capture_ingestion_warnings_kafka_linger_ms: u32,
 }
 
 #[derive(Envconfig, Clone)]

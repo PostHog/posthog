@@ -28,7 +28,7 @@ use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
-use common_ingestion_warnings::{WarningOrigin, WarningType, CAPTURE_V1_ANALYTICS};
+use common_ingestion_warnings::{WarningType, CAPTURE_V1_ANALYTICS};
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
 ///
@@ -300,7 +300,7 @@ fn emit_batch_abort_warning(
     // `empty_batch` aborts have batch_len == 0; the rejected request is still
     // one occurrence, so never charge a count of zero.
     emitter.emit(
-        WarningOrigin::tokenless(context.api_token.clone()),
+        context.api_token.clone(),
         CAPTURE_V1_ANALYTICS,
         warning,
         warning_context_details(context),
@@ -348,7 +348,7 @@ fn emit_validation_drop_warnings(
             details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
         }
         emitter.emit(
-            WarningOrigin::tokenless(context.api_token.clone()),
+            context.api_token.clone(),
             CAPTURE_V1_ANALYTICS,
             warning,
             details,
@@ -3268,7 +3268,7 @@ mod tests {
     // =========================================================================
 
     use common_ingestion_warnings::test_support::CollectingEmitter;
-    use common_ingestion_warnings::{WarningOrigin, WarningType};
+    use common_ingestion_warnings::WarningType;
 
     /// State wired to a `CollectingEmitter` so tests can assert exactly what
     /// `process_batch` emitted (type, count, details) without any Kafka.
@@ -3297,10 +3297,7 @@ mod tests {
         assert_eq!(emitted.len(), 1, "same-tag drops must dedupe to one emit");
         assert_eq!(emitted[0].warning, WarningType::MissingEventName);
         assert_eq!(emitted[0].count, 3);
-        assert_eq!(
-            emitted[0].origin,
-            WarningOrigin::tokenless("phc_test_token")
-        );
+        assert_eq!(emitted[0].token, "phc_test_token");
         // With multiple affected events, per-event identifiers are ambiguous
         // and must be omitted; request-level context is always present.
         assert!(!emitted[0].extra_details.contains_key("distinctId"));

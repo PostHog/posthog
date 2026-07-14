@@ -565,23 +565,20 @@ fn create_ingestion_warning_emitter(
         return None;
     }
 
-    let Some(hosts) = config
-        .capture_ingestion_warnings_kafka_hosts
-        .clone()
-        .filter(|h| !h.is_empty())
-    else {
-        warn!("ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS not set; emitter disabled");
+    // Warnings ride the same event cluster as the `client_ingestion_warning`
+    // topic capture already produces to, so reuse the main Kafka connection
+    // config; only the enable flag is warnings-specific. Fire-and-forget
+    // tuning comes from `WarningProducerConfig::default()`.
+    if config.kafka.kafka_hosts.is_empty() {
+        warn!("ingestion warnings enabled but KAFKA_HOSTS is empty; emitter disabled");
         return None;
-    };
+    }
 
     let producer_config = WarningProducerConfig {
-        kafka_hosts: hosts,
-        kafka_topic: config.capture_ingestion_warnings_kafka_topic.clone(),
-        kafka_tls: config.capture_ingestion_warnings_kafka_tls,
-        message_timeout_ms: config.capture_ingestion_warnings_kafka_message_timeout_ms,
-        queue_max_messages: config.capture_ingestion_warnings_kafka_queue_max_messages,
-        acks: config.capture_ingestion_warnings_kafka_acks.clone(),
-        linger_ms: config.capture_ingestion_warnings_kafka_linger_ms,
+        kafka_hosts: config.kafka.kafka_hosts.clone(),
+        kafka_topic: config.kafka.kafka_client_ingestion_warning_topic.clone(),
+        kafka_tls: config.kafka.kafka_tls,
+        ..WarningProducerConfig::default()
     };
 
     let emitter = match KafkaWarningEmitter::new(&producer_config) {
@@ -619,7 +616,7 @@ fn create_ingestion_warning_emitter(
     }
 
     info!(
-        topic = config.capture_ingestion_warnings_kafka_topic.as_str(),
+        topic = config.kafka.kafka_client_ingestion_warning_topic.as_str(),
         "ingestion warnings emitter enabled"
     );
     Some(emitter)

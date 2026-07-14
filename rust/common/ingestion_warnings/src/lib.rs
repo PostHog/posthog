@@ -1,17 +1,19 @@
-//! Best-effort, fire-and-forget emission of v2 ingestion warnings to Kafka.
+//! Best-effort, fire-and-forget emission of ingestion warnings to Kafka.
 //!
-//! Producers (capture today; other Rust services later, see [`WarningOrigin`]
-//! and [`WarningSource`]) call [`WarningEmitter::emit`] with an origin, a
+//! Producers (capture today; other Rust services later, see [`WarningSource`])
+//! call [`WarningEmitter::emit`] with the offending event's API token, a
 //! source, a registered [`WarningType`], and caller context; the emitter
-//! throttles per `(origin, type)`, serializes the v2 message contract, and
-//! enqueues to a dedicated producer without ever awaiting delivery.
-//! Everything fails open: a throttled, unserializable, or unenqueueable
-//! warning is counted and dropped — the caller's hot path is never blocked or
-//! failed.
+//! throttles per `(token, type)`, builds a `$$client_ingestion_warning`
+//! [`common_types::CapturedEvent`] envelope, and enqueues it to a dedicated
+//! producer without ever awaiting delivery. Everything fails open: a
+//! throttled, unserializable, or unenqueueable warning is counted and dropped —
+//! the caller's hot path is never blocked or failed.
 //!
-//! See `posthog/models/ingestion_warnings/sql_v2.py` for the consuming
-//! ClickHouse stack and `nodejs/src/ingestion/common/ingestion-warnings.ts`
-//! for the Node.js registry this mirrors.
+//! The envelope lands on the `client_ingestion_warning` topic, where the
+//! Node.js `clientwarnings` consumer resolves the token to a `team_id` and
+//! writes the v2 row. That keeps every Rust producer database-free and
+//! identical; see [`serializer`] and
+//! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
 pub mod producer;
 pub mod registry;
@@ -24,13 +26,13 @@ use std::time::Duration;
 use chrono::Utc;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
+use rdkafka::message::OwnedHeaders;
 use rdkafka::types::RDKafkaErrorCode;
 use serde_json::{Map, Value};
 use tracing::warn;
 
 pub use producer::{WarningProducer, WarningProducerConfig};
 pub use registry::WarningType;
-pub use serializer::WarningOrigin;
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`
@@ -42,7 +44,7 @@ pub use throttle::{ThrottleDecision, WarningThrottle};
 /// message): `delivered | delivery_failed`.
 pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
 
-/// Gauge of `(origin, type)` keys currently tracked by the throttle, updated
+/// Gauge of `(token, type)` keys currently tracked by the throttle, updated
 /// on each sweep. The early-warning signal for the cardinality cap.
 pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_keys";
 
@@ -73,15 +75,16 @@ pub trait WarningEmitter: Send + Sync {
     /// Emit one (possibly batch-deduped) warning. Synchronous and non-blocking;
     /// implementations must swallow all failures.
     ///
-    /// `origin` determines team attribution (see [`WarningOrigin`]) and
-    /// scopes the throttle; `source` identifies the producing service and
+    /// `token` is the offending event's API token; the consumer resolves it to
+    /// a team and it also scopes the throttle, so one token's warnings never
+    /// starve another's budget. `source` identifies the producing service and
     /// code path (see [`WarningSource`]). `extra_details` carries caller
     /// context with camelCase keys (`distinctId`, `eventUuid`, `lib`, `path`,
     /// ...); `count` is the number of occurrences this message represents
     /// after per-batch dedup.
     fn emit(
         &self,
-        origin: WarningOrigin,
+        token: String,
         source: WarningSource,
         warning: WarningType,
         extra_details: Map<String, Value>,
@@ -118,17 +121,16 @@ impl KafkaWarningEmitter {
 impl WarningEmitter for KafkaWarningEmitter {
     fn emit(
         &self,
-        origin: WarningOrigin,
+        token: String,
         source: WarningSource,
         warning: WarningType,
         extra_details: Map<String, Value>,
         count: u64,
     ) {
-        // Key by origin (token or team_id) so one team's warnings stay
-        // partition-local and throttle-independent from every other team's,
-        // matching the Node.js producer's keying by team.
-        let key = origin.throttle_key();
-        match self.throttle.check(&key, warning) {
+        // Key by token so one team's warnings stay partition-local and
+        // throttle-independent from every other team's, matching the Node.js
+        // consumer's per-team keying downstream.
+        match self.throttle.check(&token, warning) {
             ThrottleDecision::Emit => {}
             ThrottleDecision::Throttled => {
                 counter!(
@@ -154,15 +156,18 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         }
 
-        let payload = match serializer::serialize_warning(
-            &origin,
+        let serialized = serializer::build_warning_event(
+            &token,
             source,
             warning,
             extra_details,
             count,
             Utc::now(),
-        ) {
-            Ok(payload) => payload,
+        )
+        .and_then(|event| serde_json::to_vec(&event).map(|payload| (payload, event.to_headers())));
+
+        let (payload, headers) = match serialized {
+            Ok((payload, headers)) => (payload, OwnedHeaders::from(headers)),
             Err(err) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
@@ -178,7 +183,7 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         };
 
-        match self.producer.send(&key, &payload) {
+        match self.producer.send(&token, headers, &payload) {
             Ok(delivery_future) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
@@ -236,13 +241,12 @@ fn spawn_delivery_observer(
         return;
     };
     handle.spawn(async move {
+        // Delivery outcome is reported via the `delivery_failed` metric tag
+        // only — no per-message log line, since a broken topic at rollout
+        // would otherwise flood logs at post-throttle volume.
         let outcome = match delivery_future.await {
             Ok(Ok(_partition_offset)) => "delivered",
-            Ok(Err((err, _msg))) => {
-                warn!(warning_type = warning.as_str(), source = source.service, error = %err,
-                    "ingestion warning delivery failed");
-                "delivery_failed"
-            }
+            Ok(Err(_)) => "delivery_failed",
             // Producer dropped before the report arrived (shutdown).
             Err(_canceled) => "delivery_failed",
         };
@@ -273,21 +277,21 @@ mod tests {
 
         let start = std::time::Instant::now();
         emitter.emit(
-            WarningOrigin::tokenless("tok"),
+            "tok".to_string(),
             CAPTURE_V1_ANALYTICS,
             WarningType::MissingEventName,
             Map::new(),
             2,
         );
         emitter.emit(
-            WarningOrigin::tokenless("tok"),
+            "tok".to_string(),
             CAPTURE_V1_ANALYTICS,
             WarningType::MissingEventName,
             Map::new(),
             1,
         );
         emitter.emit(
-            WarningOrigin::tokenless("tok"),
+            "tok".to_string(),
             CAPTURE_V1_ANALYTICS,
             WarningType::EmptyBatch,
             Map::new(),
@@ -296,29 +300,6 @@ mod tests {
         assert!(
             start.elapsed() < std::time::Duration::from_millis(500),
             "emit must be fire-and-forget"
-        );
-    }
-
-    #[test]
-    fn kafka_emitter_accepts_team_origin_without_a_token() {
-        // batch-import-worker-style caller: no token, real team_id instead.
-        let emitter = KafkaWarningEmitter::new(&WarningProducerConfig {
-            kafka_hosts: "192.0.2.1:9092".to_string(),
-            ..WarningProducerConfig::default()
-        })
-        .unwrap();
-
-        let start = std::time::Instant::now();
-        emitter.emit(
-            WarningOrigin::team(42),
-            CAPTURE_V1_ANALYTICS,
-            WarningType::EmptyBatch,
-            Map::new(),
-            1,
-        );
-        assert!(
-            start.elapsed() < std::time::Duration::from_millis(500),
-            "emit must be fire-and-forget regardless of origin"
         );
     }
 
@@ -336,7 +317,7 @@ mod tests {
 
         let start = std::time::Instant::now();
         emitter.emit(
-            WarningOrigin::tokenless("tok"),
+            "tok".to_string(),
             CAPTURE_V1_ANALYTICS,
             WarningType::MissingEventName,
             Map::new(),

@@ -2408,6 +2408,7 @@ name = "common-ingestion-warnings"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-types",
  "governor",
  "metrics",
  "rdkafka",
@@ -2415,6 +2416,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

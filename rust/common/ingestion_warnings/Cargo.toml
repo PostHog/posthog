@@ -8,12 +8,14 @@ workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+common-types = { path = "../types" }
 governor = { workspace = true }
 metrics = { workspace = true }
 rdkafka = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 rstest = "0.26"
