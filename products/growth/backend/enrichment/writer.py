@@ -15,8 +15,10 @@ from django.db import transaction
 
 from posthoganalytics.client import Client
 
+from posthog.exceptions_capture import capture_exception
+
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.models import OrganizationEnrichment
+from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
 
@@ -59,6 +61,23 @@ def write_organization_enrichment(
         str(organization_id),
         properties=fields.to_group_properties(),
     )
+
+
+def archive_provider_fetch(*, organization_id: str, provider: str, payload: dict[str, Any], is_recheck: bool) -> None:
+    """Append one raw provider-response row to the fetch archive.
+
+    Never raises: a raw-archive failure must not break enrichment — the live-store write and
+    the caller's return still happen. One row per fetch, so signup and recheck stay distinct.
+    """
+    try:
+        OrganizationEnrichmentFetch.objects.create(
+            organization_id=organization_id,
+            provider=provider,
+            is_recheck=is_recheck,
+            payload=payload,
+        )
+    except Exception as e:
+        capture_exception(e)
 
 
 def record_signup_work_email(*, organization_id: str, work_email: bool) -> None:
