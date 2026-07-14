@@ -111,11 +111,16 @@ fn reject_to_error(err: StepError) -> Error {
 /// survivor and the output slice is the input slice with stamped state. The
 /// events are moved through the framework executor and moved back.
 ///
-/// The framework's error channel is unreachable here: capture steps are
-/// infallible and length-preserving by construction, so a returned `Err` or a
-/// dropped survivor would be a framework/programming bug, not a per-event
-/// outcome — hence the `expect`. (Capture must never silently lose an event.)
-pub async fn run_in_place(pipeline: &CapturePipeline, events: &mut Vec<WrappedEvent>) {
+/// A step may reject the whole request via [`StepError::reject`] (e.g. the
+/// quota step's billing 402); that surfaces as the typed capture [`Error`]. On
+/// rejection `events` is left empty — the request is aborted, matching the old
+/// `?`-return behavior where the batch never reached the sink. Any other error
+/// is a programming bug (capture steps are otherwise infallible), mapped to a
+/// 500 rather than a panic. Capture must never silently lose an event.
+pub async fn run_in_place(
+    pipeline: &CapturePipeline,
+    events: &mut Vec<WrappedEvent>,
+) -> Result<(), Error> {
     let input_len = events.len();
     let owned = std::mem::take(events);
     let mut fx = CaptureFx;
@@ -123,7 +128,7 @@ pub async fn run_in_place(pipeline: &CapturePipeline, events: &mut Vec<WrappedEv
     let outcome = pipeline
         .run_chunk(owned, &mut fx)
         .await
-        .expect("capture pipeline steps are infallible");
+        .map_err(reject_to_error)?;
 
     debug_assert_eq!(
         outcome.survivor_count(),
@@ -132,6 +137,7 @@ pub async fn run_in_place(pipeline: &CapturePipeline, events: &mut Vec<WrappedEv
     );
 
     *events = outcome.into_survivors();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -181,7 +187,7 @@ mod tests {
             wrapped_event("$click", "user-3"),
         ];
 
-        run_in_place(&pipeline, &mut events).await;
+        run_in_place(&pipeline, &mut events).await.unwrap();
 
         // Length and order preserved — the "dropped" event is NOT removed.
         assert_eq!(events.len(), 3);
@@ -206,7 +212,7 @@ mod tests {
             .step(DropByDistinctId("user-2"))
             .build();
         let mut events: Vec<WrappedEvent> = vec![];
-        run_in_place(&pipeline, &mut events).await;
+        run_in_place(&pipeline, &mut events).await.unwrap();
         assert!(events.is_empty());
     }
 }

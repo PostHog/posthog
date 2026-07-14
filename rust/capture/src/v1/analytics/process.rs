@@ -83,20 +83,17 @@ pub async fn process_batch(
 
     // Verify gateway provenance before the quota limiter so verified events can
     // be exempted from the llm_events meter (they're wallet-billed, not AIO).
-    let provenance = CapturePipeline::builder()
+    let provenance_and_quota = CapturePipeline::builder()
         .step(ApplyGatewayProvenance::new(
             state.ai_gateway_signing_secret.clone(),
             ctx_snapshot.clone(),
         ))
+        .chunk_step(ApplyQuotaLimits::new(
+            state.quota_limiter.clone(),
+            context.api_token.clone(),
+        ))
         .build();
-    super::pipeline::run_in_place(&provenance, &mut events).await;
-
-    crate::v1::quota_limiter_shim::apply_quota_limits(
-        &state.quota_limiter,
-        &context.api_token,
-        &mut events,
-    )
-    .await?;
+    super::pipeline::run_in_place(&provenance_and_quota, &mut events).await?;
 
     // The analytics policy phase as one framework pipeline, in the original v1
     // order: restrictions → historical rerouting → overflow stamping → token:
@@ -136,7 +133,7 @@ pub async fn process_batch(
             ctx_snapshot.clone(),
         ));
     }
-    super::pipeline::run_in_place(&policy.build(), &mut events).await;
+    super::pipeline::run_in_place(&policy.build(), &mut events).await?;
 
     histogram!(
         CAPTURE_V1_PROCESSING_DURATION_SECONDS,
@@ -758,6 +755,45 @@ fn apply_overflow_stamping(
             }
             OverflowLimiterResult::NotLimited => {}
         }
+    }
+}
+
+/// Framework step wrapping [`crate::v1::quota_limiter_shim::apply_quota_limits`].
+/// Async whole-chunk step: billing quota is a per-request decision. The global
+/// limit (and the all-events-limited case) rejects the entire request with
+/// [`Error::BillingLimitExceeded`] via [`StepError::reject`] (HTTP 402); scoped
+/// limits stamp per-event drops. Fail-open lives inside the limiter (cached
+/// Redis with background refresh) — this step is fail-closed only in the sense
+/// that an over-quota request is deliberately rejected.
+pub struct ApplyQuotaLimits {
+    limiter: Arc<crate::quota_limiters::CaptureQuotaLimiter>,
+    token: String,
+}
+
+impl ApplyQuotaLimits {
+    pub fn new(limiter: Arc<crate::quota_limiters::CaptureQuotaLimiter>, token: String) -> Self {
+        Self { limiter, token }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyQuotaLimits {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        crate::v1::quota_limiter_shim::apply_quota_limits(&self.limiter, &self.token, &mut events)
+            .await
+            .map_err(StepError::reject)?;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_quota_limits"
     }
 }
 
