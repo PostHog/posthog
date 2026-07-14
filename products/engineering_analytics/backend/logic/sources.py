@@ -49,12 +49,14 @@ _IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
 
 @dataclass(frozen=True)
 class GitHubTables:
-    """The per-team warehouse table names the curated builders read from."""
+    """The selected GitHub source identity and warehouse tables the curated layer reads."""
 
     pull_requests: str
     workflow_runs: str
     # Optional: present only once the job-level source is synced; None means "no jobs data".
     workflow_jobs: str | None = None
+    # Used to scope cross-store reads such as CI traces to the selected source's repository.
+    repository: str = ""
 
 
 def resolve_github_tables(
@@ -94,6 +96,7 @@ def resolve_github_tables(
                 pull_requests=pull_requests,
                 workflow_runs=workflow_runs,
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
+                repository=_source_repository(source),
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
@@ -131,7 +134,7 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return [
         GitHubSource(
             id=str(source.id),
-            repo=str((source.job_inputs or {}).get("repository") or ""),
+            repo=_source_repository(source),
             prefix=source.prefix or "",
         )
         for source in _github_sources(team, user_access_control)
@@ -159,6 +162,19 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
 # Distinct from the no-source message: the caller picked a source that isn't a usable GitHub
 # source for this team (wrong id, another team's source, or its endpoints aren't synced).
 _NO_SELECTED_SOURCE = "The selected GitHub source isn't connected or has no synced pull_requests/workflow_runs tables."
+
+
+def _source_repository(source: ExternalDataSource) -> str:
+    """The source's configured ``owner/repo`` identity, or '' when unset.
+
+    ``job_inputs`` is an ``EncryptedJSONField`` that can hold any JSON value, so a non-dict
+    (list/str) would crash the ``.get`` below — guard it the same way ``job_logs.coordinator``
+    does, since this resolves for every engineering_analytics endpoint.
+    """
+    job_inputs = source.job_inputs
+    if not isinstance(job_inputs, dict):
+        return ""
+    return str(job_inputs.get("repository") or "").strip()
 
 
 def _as_source_uuid(source_id: str) -> UUID:

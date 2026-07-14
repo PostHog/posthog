@@ -11,7 +11,7 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
-except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
     apply_quarantine_markers = None
 
 from django.conf import settings

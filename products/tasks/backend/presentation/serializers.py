@@ -1839,6 +1839,17 @@ class TaskRunStartRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class TaskRunCancelRequestSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
+    )
+
+
 class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     runtime_adapter = serializers.ChoiceField(
         choices=[RuntimeAdapter.CLAUDE.value],
@@ -2420,7 +2431,10 @@ class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
         help_text="Research run status, or null if the run row could not be loaded.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,
@@ -2462,7 +2476,10 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         help_text="Error captured on terminal failure, or null on success.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,
