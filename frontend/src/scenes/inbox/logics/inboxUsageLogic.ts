@@ -1,9 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
 import { Dayjs } from 'lib/dayjs'
+import { toParams } from 'lib/utils/url'
 import { calculateFreeTier } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import type { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -38,8 +42,8 @@ function perCreditUsd(product: BillingProductV2Type): number | null {
 export const inboxUsageLogic = kea<inboxUsageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxUsageLogic']),
     connect(() => ({
-        values: [billingLogic, ['billing', 'billingLoading', 'canAccessBilling']],
-        actions: [billingLogic, ['loadBilling', 'updateBillingLimits']],
+        values: [billingLogic, ['billing', 'billingLoading', 'canAccessBilling', 'billingPeriodUTC']],
+        actions: [billingLogic, ['loadBilling', 'loadBillingSuccess', 'updateBillingLimits']],
     })),
     actions({
         openModal: true,
@@ -82,6 +86,38 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             },
         },
     })),
+    loaders(({ values }) => ({
+        // Raw signals-credits usage for the current billing period, pulled from the v2 usage
+        // endpoint. The billing product's `current_usage` omits usage before `billing_start_date`
+        // on grandfathered plans — leaving only today's counter, which is why the widget appears to
+        // reset daily. The raw usage timeseries has no such gap, so we sum it for the true total.
+        signalsCreditsUsed: [
+            null as number | null,
+            {
+                loadSignalsUsage: async () => {
+                    // The usage endpoint requires org-admin (IsOrganizationAdmin); skip otherwise.
+                    if (!values.canAccessBilling) {
+                        return null
+                    }
+                    const { start, end } = values.billingPeriodUTC
+                    if (!start || !end) {
+                        return null
+                    }
+                    const params = {
+                        usage_types: JSON.stringify(['signals_credits']),
+                        start_date: start.format('YYYY-MM-DD'),
+                        end_date: end.format('YYYY-MM-DD'),
+                        interval: 'day',
+                    }
+                    const response: BillingUsageResponse = await api.get(`api/billing/usage/?${toParams(params)}`)
+                    return (response?.results ?? []).reduce(
+                        (total, series) => total + (series.data ?? []).reduce((sum, value) => sum + value, 0),
+                        0
+                    )
+                },
+            },
+        ],
+    })),
     selectors({
         product: [
             (s) => [s.billing],
@@ -117,9 +153,16 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 product && creditsPerPr ? Math.round(calculateFreeTier(product) / creditsPerPr) : 0,
         ],
         usedPrs: [
-            (s) => [s.product, s.creditsPerPr],
-            (product, creditsPerPr): number =>
-                product && creditsPerPr ? Math.round((product.current_usage ?? 0) / creditsPerPr) : 0,
+            (s) => [s.product, s.creditsPerPr, s.signalsCreditsUsed],
+            (product, creditsPerPr, signalsCreditsUsed): number => {
+                if (!product || !creditsPerPr) {
+                    return 0
+                }
+                // Prefer the raw period usage; fall back to the billing product's current_usage
+                // when the usage endpoint is unavailable (e.g. non-admins, or still loading).
+                const credits = signalsCreditsUsed ?? product.current_usage ?? 0
+                return Math.round(credits / creditsPerPr)
+            },
         ],
         customLimitUsd: [
             (s) => [s.billing, s.product],
@@ -204,10 +247,16 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             // Seed the field with the current limit (or the free allowance when uncapped).
             actions.setLimitFormValue('prs', values.limitPrs ?? values.freePrs)
         },
+        // The usage fetch needs the billing period, so wait until billing has loaded.
+        loadBillingSuccess: () => {
+            actions.loadSignalsUsage()
+        },
     })),
     afterMount(({ actions, values }) => {
         if (!values.billing) {
             actions.loadBilling()
+        } else {
+            actions.loadSignalsUsage()
         }
     }),
 ])
