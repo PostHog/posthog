@@ -610,13 +610,19 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # query fails with CHQueryErrorNotFoundColumnInBlock. Plain-column sorts must stay on the
         # simpler single-level path (no wrapper), so we don't churn every events query.
         wrapped = self._presorted_uuid_subquery(["properties.$session_id", "timestamp ASC"])
+        assert wrapped.select_from is not None
         inner = wrapped.select_from.table
         assert isinstance(inner, ast.SelectQuery)  # wrapped: SELECT uuid FROM (SELECT uuid, <expr> AS __presort_key_n)
         sort_key_aliases = [c.alias for c in inner.select if isinstance(c, ast.Alias)]
         assert sort_key_aliases == ["__presort_key_0", "__presort_key_1"]
-        assert [o.expr.chain for o in inner.order_by] == [["__presort_key_0"], ["__presort_key_1"]]
+        assert inner.order_by is not None
+        assert [o.expr.chain for o in inner.order_by if isinstance(o.expr, ast.Field)] == [
+            ["__presort_key_0"],
+            ["__presort_key_1"],
+        ]
 
         plain = self._presorted_uuid_subquery(["timestamp DESC"])
+        assert plain.select_from is not None
         assert isinstance(plain.select_from.table, ast.Field)  # unchanged: SELECT uuid FROM events
 
     def test_select_person_column(self):
