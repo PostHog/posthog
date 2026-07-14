@@ -1,11 +1,17 @@
 from datetime import UTC, datetime
 
 import pytest
+from unittest.mock import patch
 
+from parameterized import parameterized
+
+from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
+
+from ee.models.event_definition import EnterpriseEventDefinition
 
 
 def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
@@ -53,6 +59,85 @@ def test_upsert_with_same_session_id_replaces_state(team):
     assert updated.run_phase == RunPhase.COMPLETED
     assert updated.tasks[0].status == TaskStatus.COMPLETED
     assert len(wizard_facade.list_for_team(team.id, limit=100)) == 1
+
+
+@pytest.mark.django_db
+def test_completed_transition_creates_event_definitions_once(team):
+    event_plan = {"events": [{"name": "checkout_started", "description": "A checkout was started"}]}
+    wizard_facade.upsert(_input(team.id, event_plan=event_plan))
+
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, event_plan=event_plan))
+    wizard_facade.upsert(
+        _input(
+            team.id,
+            run_phase=RunPhase.COMPLETED,
+            event_plan={"events": [{"name": "completed_push_only"}]},
+        )
+    )
+
+    event_definition = EventDefinition.objects.get(team=team, project_id=team.project_id, name="checkout_started")
+    assert event_definition.created_at is None
+    assert event_definition.last_seen_at is None
+    assert EventDefinition.objects.filter(team=team, name="checkout_started").count() == 1
+    assert not EventDefinition.objects.filter(name="completed_push_only").exists()
+
+
+@pytest.mark.django_db
+def test_completed_transition_creates_enterprise_description(team):
+    wizard_facade.upsert(
+        _input(
+            team.id,
+            run_phase=RunPhase.COMPLETED,
+            event_plan={"events": [{"name": "subscription_started", "description": "A subscription was started"}]},
+        )
+    )
+
+    event_definition = EnterpriseEventDefinition.objects.get(
+        team=team, project_id=team.project_id, name="subscription_started"
+    )
+    assert event_definition.description == "A subscription was started"
+
+
+@parameterized.expand(
+    [
+        ("empty", ""),
+        ("posthog", "$pageview"),
+        ("too_long", "x" * 401),
+    ]
+)
+@pytest.mark.django_db
+def test_completed_transition_skips_invalid_event_names(_label, event_name, team):
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": event_name}]}))
+
+    assert not EventDefinition.objects.filter(team=team).exists()
+
+
+@pytest.mark.django_db
+def test_completed_transition_caps_event_definitions(team):
+    wizard_facade.upsert(
+        _input(
+            team.id,
+            run_phase=RunPhase.COMPLETED,
+            event_plan={"events": [{"name": f"planned_event_{index}"} for index in range(51)]},
+        )
+    )
+
+    assert EventDefinition.objects.filter(team=team).count() == 50
+    assert not EventDefinition.objects.filter(team=team, name="planned_event_50").exists()
+
+
+@pytest.mark.django_db
+@patch(
+    "products.wizard.backend.logic.sessions.create_placeholder_event_definition",
+    side_effect=RuntimeError("definition write failed"),
+)
+def test_event_definition_failure_does_not_break_completed_upsert(_mock_create_definition, team):
+    session, created = wizard_facade.upsert(
+        _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "checkout_started"}]})
+    )
+
+    assert created is True
+    assert session.run_phase == RunPhase.COMPLETED
 
 
 @pytest.mark.django_db

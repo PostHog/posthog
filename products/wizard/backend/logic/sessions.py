@@ -2,12 +2,23 @@
 Business logic for Wizard sessions.
 """
 
+import logging
+from typing import Any
+
+from posthog.models import Team
+
+from products.event_definitions.backend.facade.api import create_placeholder_event_definition
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
+
+logger = logging.getLogger(__name__)
+
+MAX_PLANNED_EVENT_DEFINITIONS = 50
+MAX_EVENT_NAME_LENGTH = 400
 
 
 def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -44,10 +55,44 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             "error": params.error,
         },
     )
+    if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
+        _create_planned_event_definitions(params.team_id, instance.event_plan)
+
     dto = _to_dto(instance)
     report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
     return dto, created
+
+
+def _create_planned_event_definitions(team_id: int, event_plan: dict[str, Any] | None) -> None:
+    events = event_plan.get("events") if isinstance(event_plan, dict) else None
+    if not isinstance(events, list):
+        return
+
+    try:
+        project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
+    except Exception:
+        logger.exception("Failed to resolve the project for a completed wizard session")
+        return
+
+    for planned_event in events[:MAX_PLANNED_EVENT_DEFINITIONS]:
+        if not isinstance(planned_event, dict):
+            continue
+
+        name = planned_event.get("name")
+        if not isinstance(name, str) or not name.strip() or name.startswith("$") or len(name) > MAX_EVENT_NAME_LENGTH:
+            continue
+
+        description = planned_event.get("description")
+        try:
+            create_placeholder_event_definition(
+                team_id=team_id,
+                project_id=project_id,
+                name=name,
+                description=description if isinstance(description, str) else None,
+            )
+        except Exception:
+            logger.exception("Failed to create an event definition from a completed wizard session")
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
