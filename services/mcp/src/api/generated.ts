@@ -24235,6 +24235,52 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface ExternalAccountListAssignment {
+      /** PostHog user id of the assigned user. */
+      user_id: number;
+      /** Current email address of the assigned user. */
+      email: string;
+      /**
+         * Current display name of the assigned user, or null when the user has no name set.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    /**
+     * Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted.
+     */
+    export type ExternalAccountListItemRelationships = {[key: string]: ExternalAccountListAssignment[]};
+
+    export interface ExternalAccountListItem {
+      /** External account key used by downstream systems. */
+      external_id: string;
+      /** Human-readable account name. */
+      name: string;
+      /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
+      relationships: ExternalAccountListItemRelationships;
+    }
+
+    export interface ExternalAccountListPage {
+      /** Accounts in this page, ordered by account id. */
+      results: ExternalAccountListItem[];
+      /**
+         * Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
+    /**
+     * Validation errors keyed by query parameter.
+     */
+    export type ExternalAccountListValidationErrorError = {[key: string]: string[]};
+
+    export interface ExternalAccountListValidationError {
+      /** Validation errors keyed by query parameter. */
+      error: ExternalAccountListValidationErrorError;
+    }
+
     /**
      * @nullable
      */
@@ -61566,6 +61612,21 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
+
+    export type CustomerAnalyticsExternalAccountsRetrieveParams = {
+    /**
+     * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
+     */
+    assigned_only?: boolean;
+    /**
+     * Account UUID from `next_cursor` to continue listing from. Omit for the first page.
+     */
+    cursor?: string;
+    /**
+     * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
+     */
+    limit?: number;
+    };
 
     export type EnvironmentsAccountsListParams = {
     /**

@@ -167,9 +167,8 @@ class ExternalAccountAssignment:
 
 @dataclass(frozen=True)
 class ExternalAccountListItem:
-    """One account row on the external list wire shape — identity plus active
-    relationship assignments keyed by definition name, matching the
-    ``relationships`` shape of the single-account external endpoint."""
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
 
     external_id: str
     name: str

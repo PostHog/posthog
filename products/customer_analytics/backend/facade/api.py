@@ -324,29 +324,34 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
 
 
 def list_external_accounts(
-    team_id: int, *, cursor: str | None = None, limit: int = 100, assigned_only: bool = False
+    team_id: int,
+    *,
+    organization_id: UUID,
+    cursor: str | None = None,
+    limit: int = 100,
+    assigned_only: bool = False,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
     Account ids are time-ordered UUIDs, so ``id__gt`` is a stable cursor.
     Accounts without an external id are excluded — external consumers key on
-    it. With ``assigned_only``, only accounts holding at least one active
-    relationship assignment are returned; a consumer reconciling by absence
-    still sees the complete assigned set. Assignments mirror the
-    single-account endpoint's ``relationships`` shape (keyed by definition
-    name), with the user's current display name added.
+    it. Only active relationship assignments to current members of the team's
+    organization are exposed. With ``assigned_only``, only accounts holding at
+    least one such assignment are returned; a consumer reconciling by absence
+    still sees the complete assigned set. Assignments mirror the single-account
+    endpoint's ``relationships`` shape (keyed by definition name), with the
+    user's current display name added.
     """
+    active_relationships = AccountRelationship.objects.for_team(team_id).filter(
+        ended_at__isnull=True,
+        user__isnull=False,
+        user__organization_membership__organization_id=organization_id,
+    )
     queryset = (
         Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="").order_by("id")
     )
     if assigned_only:
-        queryset = queryset.filter(
-            Exists(
-                AccountRelationship.objects.for_team(team_id).filter(
-                    account=OuterRef("pk"), ended_at__isnull=True, user__isnull=False
-                )
-            )
-        )
+        queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
     if cursor:
         queryset = queryset.filter(id__gt=cursor)
 
@@ -355,8 +360,7 @@ def list_external_accounts(
 
     relationships_by_account: dict[UUID, dict[str, list[contracts.ExternalAccountAssignment]]] = {}
     for relationship in (
-        AccountRelationship.objects.for_team(team_id)
-        .filter(account__in=accounts, ended_at__isnull=True, user__isnull=False)
+        active_relationships.filter(account__in=accounts)
         .select_related("definition", "user")
         .order_by("definition__name", "user__email")
     ):

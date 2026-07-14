@@ -1,13 +1,17 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 
@@ -26,7 +30,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.url = "/api/customer_analytics/external/accounts"
         self.csm_definition = self._create_definition("CSM")
         csp_enabled = patch(
-            "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
+            "products.customer_analytics.backend.presentation.views.external._customer_analytics_enabled",
             return_value=True,
         )
         self.mock_csp_enabled = csp_enabled.start()
@@ -63,6 +67,29 @@ class TestExternalAccountListAPI(APIBaseTest):
     def _get(self, params=None, token=None):
         return self.client.get(self.url, data=params or {}, **self._auth_headers(token))
 
+    @contextmanager
+    def _rate_limits(self, *, key_rate: str, team_rate: str) -> Iterator[None]:
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountListBurstThrottle.rate",
+                key_rate,
+            ),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountListSustainedThrottle.rate",
+                key_rate,
+            ),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountListTeamBurstThrottle.rate",
+                team_rate,
+            ),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountListTeamSustainedThrottle.rate",
+                team_rate,
+            ),
+        ):
+            yield
+
     # -- Authentication ---------------------------------------------------
 
     def test_requires_auth(self):
@@ -90,10 +117,50 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_rejects_team_without_customer_analytics_enabled(self):
+    def test_disabled_feature_does_not_reveal_key_validity_or_scopes(self):
+        wrong_scope_token = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope-disabled")
         self.mock_csp_enabled.return_value = False
-        response = self._get()
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        for token in [self.psak_token, wrong_scope_token, generate_random_token_secret()]:
+            with self.subTest(token=token):
+                response = self._get(token=token)
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.json(), {"error": "Missing or invalid API key"})
+
+    def test_rate_limit_is_shared_across_project_secret_api_keys(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        second_token = self._create_psak_token(scopes=["account:read"], label="second-key")
+
+        with self._rate_limits(key_rate="100/minute", team_rate="1/minute"):
+            self.assertEqual(self._get().status_code, status.HTTP_200_OK)
+            self.assertEqual(self._get(token=second_token).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_invalid_tokens_share_ip_rate_limit(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with self._rate_limits(key_rate="1/minute", team_rate="100/minute"):
+            self.assertEqual(
+                self._get(token=generate_random_token_secret()).status_code,
+                status.HTTP_401_UNAUTHORIZED,
+            )
+            self.assertEqual(
+                self._get(token=generate_random_token_secret()).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+    def test_disabled_feature_uses_invalid_token_rate_bucket(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.mock_csp_enabled.return_value = False
+
+        with self._rate_limits(key_rate="1/minute", team_rate="100/minute"):
+            self.assertEqual(self._get().status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(
+                self._get(token=generate_random_token_secret()).status_code,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            )
 
     # -- Listing ----------------------------------------------------------
 
@@ -126,6 +193,44 @@ class TestExternalAccountListAPI(APIBaseTest):
                 ],
                 "CSM": [{"user_id": self.user.id, "email": self.user.email, "name": "Anna Exec"}],
             },
+        )
+
+    @parameterized.expand(
+        [
+            ("membership_removed",),
+            ("other_organization_only",),
+        ]
+    )
+    def test_omits_relationship_users_without_current_org_membership(self, membership_state: str) -> None:
+        if membership_state == "membership_removed":
+            relationship_user = User.objects.create_and_join(self.organization, "former@x.com", None)
+            OrganizationMembership.objects.filter(
+                organization=self.organization,
+                user=relationship_user,
+            ).delete()
+        else:
+            other_organization = Organization.objects.create(name="Other organization")
+            relationship_user = User.objects.create_and_join(other_organization, "other-org@x.com", None)
+
+        relationship_user.first_name = "Former"
+        relationship_user.last_name = "Member"
+        relationship_user.save(update_fields=["first_name", "last_name"])
+
+        account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
+        self._assign(account, relationship_user)
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["results"],
+            [
+                {
+                    "external_id": "org-1",
+                    "name": "Acme",
+                    "relationships": {},
+                }
+            ],
         )
 
     def test_omits_ended_and_userless_assignments(self):
@@ -168,6 +273,17 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get()
         self.assertEqual(len(response.json()["results"]), 3)
 
+    def test_assigned_only_excludes_accounts_assigned_only_to_another_organization_member(self) -> None:
+        other_organization = Organization.objects.create(name="Other organization")
+        relationship_user = User.objects.create_and_join(other_organization, "other-org@x.com", None)
+        account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
+        self._assign(account, relationship_user)
+
+        response = self._get({"assigned_only": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
     def test_paginates_with_cursor(self):
         for i in range(3):
             account = create_account(team_id=self.team.id, name=f"Account {i}", external_id=f"org-{i}")
@@ -207,6 +323,8 @@ class TestExternalAccountListAPI(APIBaseTest):
     def test_rejects_invalid_query_param(self, _name, params):
         response = self._get(params)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(set(response.json()), {"error"})
+        self.assertIn(next(iter(params)), response.json()["error"])
 
     def test_clamps_limit(self):
         for i in range(2):

@@ -19,6 +19,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Q
+from django.http import HttpRequest
 
 import structlog
 import posthoganalytics
@@ -31,9 +32,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
+from posthog.api.utils import ErrorResponseSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.customer_analytics.backend.facade import (
     api as facade,
@@ -67,6 +70,26 @@ class ExternalAccountSustainedThrottle(_ExternalAccountThrottle):
     rate = "600/hour"
 
 
+class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "external_account_list_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountListSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "external_account_list_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
+
+
+class ExternalAccountListTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_list_psak_team_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountListTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_list_psak_team_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
+
+
 def _customer_analytics_enabled(team: Team) -> bool:
     organization_id = str(team.organization_id)
     return bool(
@@ -78,6 +101,14 @@ def _customer_analytics_enabled(team: Team) -> bool:
             send_feature_flag_events=False,
         )
     )
+
+
+class ExternalAccountListAuthentication(ProjectSecretAPIKeyAuthentication):
+    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+        result = super().authenticate(request)
+        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+            return None
+        return result
 
 
 HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
@@ -131,16 +162,17 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
 
     authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
     psak = authenticator.project_secret_api_key
-    if EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE not in (psak.scopes or []):
+
+    key_scopes = set(get_authenticator_scopes(authenticator) or [])
+    valid_scopes = {
+        EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE,
+        EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE.replace(":read", ":write"),
+    }
+    if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
         return None, Response(
             {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE}'"},
             status=status.HTTP_403_FORBIDDEN,
         )
-
-    # Same 401 as an unknown key: a valid key for a team without customer
-    # analytics enabled must not be usable to read account data.
-    if not _customer_analytics_enabled(psak.team):
-        return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     return psak.team, None
 
@@ -289,20 +321,6 @@ class ExternalAccountView(APIView):
         return Response(_external_account_body(result.account))
 
 
-def _external_account_list_item_body(item: contracts.ExternalAccountListItem) -> dict[str, Any]:
-    return {
-        "external_id": item.external_id,
-        "name": item.name,
-        "relationships": {
-            definition_name: [
-                {"user_id": assignment.user_id, "email": assignment.email, "name": assignment.name}
-                for assignment in assignments
-            ]
-            for definition_name, assignments in item.relationships.items()
-        },
-    }
-
-
 class ExternalAccountListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
@@ -320,7 +338,10 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
     assigned_only = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="When true, return only accounts with at least one active relationship assignment.",
+        help_text=(
+            "When true, return only accounts with at least one active relationship assignment "
+            "to a current member of the project's organization."
+        ),
     )
 
     def validate_limit(self, value: int) -> int:
@@ -351,7 +372,7 @@ class ExternalAccountListItemSerializer(serializers.Serializer):
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
         help_text=(
-            "Active relationship assignments keyed by relationship definition name "
+            "Active relationship assignments to current organization members, keyed by relationship definition name "
             "(e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted."
         ),
     )
@@ -368,8 +389,11 @@ class ExternalAccountListPageSerializer(serializers.Serializer):
     )
 
 
-class ExternalAccountErrorSerializer(serializers.Serializer):
-    error = serializers.CharField(help_text="Human-readable error message.")
+class ExternalAccountListValidationErrorSerializer(serializers.Serializer):
+    error = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Validation errors keyed by query parameter.",
+    )
 
 
 class ExternalAccountListView(APIView):
@@ -387,18 +411,27 @@ class ExternalAccountListView(APIView):
     explicit scope.
     """
 
-    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    authentication_classes = [ExternalAccountListAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountListBurstThrottle,
+        ExternalAccountListSustainedThrottle,
+        ExternalAccountListTeamBurstThrottle,
+        ExternalAccountListTeamSustainedThrottle,
+    ]
+    scope_object = "account"
 
     @extend_schema(
         parameters=[ExternalAccountListQuerySerializer],
         responses={
             200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
-            400: OpenApiResponse(description="Invalid query parameters."),
-            401: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Authentication failed."),
+            400: OpenApiResponse(
+                response=ExternalAccountListValidationErrorSerializer,
+                description="Invalid query parameters.",
+            ),
+            401: OpenApiResponse(response=ErrorResponseSerializer, description="Authentication failed."),
             403: OpenApiResponse(
-                response=ExternalAccountErrorSerializer,
+                response=ErrorResponseSerializer,
                 description="API key does not carry the account:read scope.",
             ),
         },
@@ -416,21 +449,18 @@ class ExternalAccountListView(APIView):
         assert team is not None
 
         query_serializer = ExternalAccountListQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
+        if not query_serializer.is_valid():
+            return Response({"error": query_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         query_data = query_serializer.validated_data
 
         page = facade.list_external_accounts(
             team.id,
+            organization_id=team.organization_id,
             cursor=query_data.get("cursor"),
             limit=query_data["limit"],
             assigned_only=query_data["assigned_only"],
         )
-        return Response(
-            {
-                "results": [_external_account_list_item_body(item) for item in page.results],
-                "next_cursor": page.next_cursor,
-            }
-        )
+        return Response(ExternalAccountListPageSerializer(page).data)
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
