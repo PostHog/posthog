@@ -36,12 +36,19 @@ LOGGER = get_logger(__name__)
 # row replaces the stale one. cohort_membership then self-heals on the next calculation run,
 # whose FULL OUTER JOIN diff emits 'left' for the old person and 'entered' for the new one.
 #
-# Timing constraint: the person-overrides squash job (SQUASH_PERSON_OVERRIDES_SCHEDULE,
-# weekly by default) folds overrides into the events table and then DELETES the override
-# rows — precalculated_events is not part of that squash, so any override this workflow
-# hasn't seen before deletion becomes unrepairable except by an event backfill re-run. The
-# schedule interval (RECONCILE_PRECALCULATED_EVENTS_INTERVAL_MINUTES) must stay well inside
-# the squash cadence.
+# The override row written at merge time is the invalidation signal: each scheduled run
+# picks up distinct_ids whose override landed within the lookback window
+# (RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS) and repairs just their rows, so the schedule
+# can run at the realtime calculation cadence and a merge is reconciled by the next
+# calculation run instead of hours later. A `full_scan` input ignores the window — use it
+# for first-deploy remediation or after the workflow was down longer than the lookback.
+#
+# Timing constraints: the lookback must comfortably exceed the schedule interval (so no
+# merge falls between runs), and both must stay well inside the person-overrides squash
+# cadence (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default) — the squash folds
+# overrides into the events table and then DELETES the override rows, and
+# precalculated_events is not part of that squash, so any override this workflow never saw
+# becomes unrepairable except by an event backfill re-run.
 
 # Latest surviving mapping per overridden distinct_id; mirrors the HogQL
 # person_distinct_id_overrides lazy table (argmax_select with deleted_field="is_deleted").
@@ -53,6 +60,19 @@ OVERRIDES_QUERY = """
     WHERE team_id = %(team_id)s
     GROUP BY distinct_id
     HAVING argMax(is_deleted, version) = 0
+    FORMAT JSONEachRow
+"""
+
+# Incremental variant: only distinct_ids whose latest override landed inside the lookback
+# window. max(_timestamp) (not argMax) so a re-merge of an old distinct_id re-qualifies it.
+RECENT_OVERRIDES_QUERY = """
+    SELECT
+        distinct_id,
+        argMax(person_id, version) AS person_id
+    FROM person_distinct_id_overrides
+    WHERE team_id = %(team_id)s
+    GROUP BY distinct_id
+    HAVING argMax(is_deleted, version) = 0 AND max(_timestamp) >= toDateTime(%(since)s)
     FORMAT JSONEachRow
 """
 
@@ -82,10 +102,13 @@ class ReconcilePrecalculatedEventsWorkflowInputs:
 
     # Manual override for targeted runs; None reconciles every team with realtime cohorts.
     team_ids: Optional[list[int]] = None
+    # Ignore the overrides lookback window and diff against every override still in the
+    # table. For remediation runs and recovery after downtime longer than the lookback.
+    full_scan: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_ids": self.team_ids}
+        return {"team_ids": self.team_ids, "full_scan": self.full_scan}
 
 
 @dataclasses.dataclass
@@ -93,10 +116,11 @@ class ReconcileTeamInputs:
     """Inputs for reconciling a single team."""
 
     team_id: int
+    full_scan: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id}
+        return {"team_id": self.team_id, "full_scan": self.full_scan}
 
 
 @dataclasses.dataclass
@@ -153,6 +177,19 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
     except ValueError:
         logger.warning("Invalid RECONCILE_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
         kafka_flush_batch_size = 1000
+    try:
+        overrides_lookback_hours = int(os.environ.get("RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS", "48"))
+    except ValueError:
+        logger.warning("Invalid RECONCILE_EVENTS_OVERRIDES_LOOKBACK_HOURS, using default 48")
+        overrides_lookback_hours = 48
+
+    if inputs.full_scan:
+        overrides_query = OVERRIDES_QUERY
+        overrides_params: dict[str, Any] = {"team_id": inputs.team_id}
+    else:
+        since = dt.datetime.now(dt.UTC) - dt.timedelta(hours=overrides_lookback_hours)
+        overrides_query = RECENT_OVERRIDES_QUERY
+        overrides_params = {"team_id": inputs.team_id, "since": since.strftime("%Y-%m-%d %H:%M:%S")}
 
     async with Heartbeater(details=(f"Loading person overrides for team {inputs.team_id}",)) as heartbeater:
         with tags_context(
@@ -162,12 +199,11 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
             query_type="precalculated_events_reconciliation",
         ):
             async with get_client(team_id=inputs.team_id) as client:
-                # Step 1: current mapping for every overridden distinct_id. The squash job
-                # keeps this table small, so it fits in memory per team.
+                # Step 1: current mapping for each distinct_id merged within the lookback
+                # window (or every overridden one, on a full scan). The squash job keeps
+                # the overrides table small, so this fits in memory per team.
                 overrides: dict[str, str] = {}
-                async for row in client.stream_query_as_jsonl(
-                    OVERRIDES_QUERY, query_parameters={"team_id": inputs.team_id}
-                ):
+                async for row in client.stream_query_as_jsonl(overrides_query, query_parameters=overrides_params):
                     overrides[str(row["distinct_id"])] = str(row["person_id"])
 
                 if not overrides:
@@ -288,7 +324,7 @@ class ReconcilePrecalculatedEventsWorkflow(PostHogWorkflow):
             try:
                 result = await temporalio.workflow.execute_activity(
                     reconcile_team_precalculated_events_activity,
-                    ReconcileTeamInputs(team_id=team_id),
+                    ReconcileTeamInputs(team_id=team_id, full_scan=inputs.full_scan),
                     start_to_close_timeout=dt.timedelta(hours=2),
                     heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(

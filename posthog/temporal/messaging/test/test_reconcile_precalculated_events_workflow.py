@@ -50,13 +50,21 @@ def _insert_precalculated_event(
     )
 
 
-def _insert_override(team_id: int, distinct_id: str, person_id: uuid.UUID, version: int = 1) -> None:
+def _insert_override(
+    team_id: int,
+    distinct_id: str,
+    person_id: uuid.UUID,
+    version: int = 1,
+    timestamp: dt.datetime | None = None,
+) -> None:
+    # _timestamp has no column default, so it must always be set explicitly: an epoch value
+    # would put the override outside the incremental lookback window.
     sync_execute(
         """
-        INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version)
+        INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, _timestamp)
         VALUES
         """,
-        [(team_id, distinct_id, str(person_id), version)],
+        [(team_id, distinct_id, str(person_id), version, timestamp or dt.datetime.now(dt.UTC))],
     )
 
 
@@ -113,6 +121,34 @@ class TestReconcileTeamPrecalculatedEventsActivity:
             }
         ]
 
+    async def test_old_override_needs_full_scan(self, team):
+        stale_uuid = uuid.uuid4()
+        old_person, new_person = uuid.uuid4(), uuid.uuid4()
+        _insert_precalculated_event(
+            team.pk, "did-old-merge", old_person, "hash-1", stale_uuid, "cohort_filter_hash-1", dt.date(2024, 1, 1)
+        )
+        _insert_override(
+            team.pk, "did-old-merge", new_person, timestamp=dt.datetime.now(dt.UTC) - dt.timedelta(days=10)
+        )
+
+        mock_producer = MagicMock()
+        with patch(
+            "posthog.temporal.messaging.reconcile_precalculated_events_workflow.get_producer",
+            return_value=mock_producer,
+        ):
+            incremental = await ActivityEnvironment().run(
+                reconcile_team_precalculated_events_activity, ReconcileTeamInputs(team_id=team.pk)
+            )
+            full = await ActivityEnvironment().run(
+                reconcile_team_precalculated_events_activity, ReconcileTeamInputs(team_id=team.pk, full_scan=True)
+            )
+
+        # Incremental runs only react to overrides inside the lookback window; the full
+        # scan is the recovery path for anything older.
+        assert incremental.rows_corrected == 0
+        assert full.rows_corrected == 1
+        assert mock_producer.produce.call_args.kwargs["data"]["person_id"] == str(new_person)
+
     async def test_deleted_override_does_not_correct(self, team):
         person = uuid.uuid4()
         _insert_precalculated_event(
@@ -120,10 +156,10 @@ class TestReconcileTeamPrecalculatedEventsActivity:
         )
         sync_execute(
             """
-            INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted)
+            INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted, _timestamp)
             VALUES
             """,
-            [(team.pk, "did-deleted-override", str(uuid.uuid4()), 2, 1)],
+            [(team.pk, "did-deleted-override", str(uuid.uuid4()), 2, 1, dt.datetime.now(dt.UTC))],
         )
 
         mock_producer = MagicMock()
