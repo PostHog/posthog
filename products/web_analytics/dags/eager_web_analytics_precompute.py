@@ -436,6 +436,11 @@ class EagerWarmConfig(dagster.Config):
     # stable team set - a 24h window shifts between chunks and can drop the unwarmed
     # tail of the previous run.
     active_lookback_hours: int = pydantic.Field(default=24, ge=1, le=168)
+    # Per-team warm concurrency. The insert SELECTs execute on the shared offline
+    # tier, so raising this raises pressure there, not on aux - only go above the
+    # default when offline CPU is quiet (<~40% avg), and watch for 202
+    # TOO_MANY_SIMULTANEOUS_QUERIES, which is the tier's concurrency ceiling biting.
+    team_concurrency: int = pydantic.Field(default=WARM_TEAM_CONCURRENCY, ge=1, le=25)
 
 
 @dagster.op
@@ -581,7 +586,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
             )
             return team_warmed, team_failed
 
-        with ThreadPoolExecutor(max_workers=WARM_TEAM_CONCURRENCY) as pool:
+        with ThreadPoolExecutor(max_workers=config.team_concurrency) as pool:
             for team_warmed, team_failed in pool.map(_warm, eligible):
                 warmed += team_warmed
                 failed += team_failed
