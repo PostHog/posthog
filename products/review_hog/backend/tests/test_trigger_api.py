@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.user import User
 
 TRIGGER_URL = "/api/review_hog/trigger/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
@@ -14,6 +15,12 @@ _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
 
 @override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token", REVIEWHOG_TEAM_ID=99, REVIEWHOG_RUN_USER_ID=42)
 class TestReviewHogTriggerApi(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The class-level REVIEWHOG_RUN_USER_ID=42 must point at a real active user: the trigger
+        # rejects disabled/missing run users (their sandbox credentials 403 and the review hangs).
+        self.run_user = User.objects.create(id=42, email="run-user-42@posthog.com")
+
     @patch(_START, return_value="wf-1")
     def test_valid_trigger_starts_workflow_and_publishes_by_default(self, mock_start):
         resp = self.client.post(
@@ -127,3 +134,37 @@ class TestReviewHogTriggerApi(APIBaseTest):
             )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
+
+    @override_settings(REVIEWHOG_RUN_USER_ID=None)
+    @patch(_START, return_value="wf-1")
+    def test_inactive_integration_creator_falls_back_to_active_org_member(self, mock_start):
+        departed = User.objects.create(email="departed@posthog.com", is_active=False)
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="inst-1",
+            config={},
+            sensitive_config={},
+            created_by=departed,
+        )
+        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+            resp = self.client.post(
+                TRIGGER_URL,
+                {"repo": "PostHog/posthog", "pr_number": 1},
+                format="json",
+                HTTP_AUTHORIZATION="Bearer secret-token",
+            )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
+
+    @patch(_START, return_value="wf-1")
+    def test_disabled_configured_run_user_rejected(self, mock_start):
+        User.objects.filter(id=42).update(is_active=False)
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 1},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_start.assert_not_called()
