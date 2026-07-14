@@ -52,7 +52,6 @@ from .linkedin_ads import (
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/"
 
-
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
