@@ -472,6 +472,7 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
+    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -578,17 +579,10 @@ export interface OrganizationDomainType {
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
     has_saml: boolean
-    saml_entity_id: string
-    saml_acs_url: string
-    saml_x509_cert: string
-    scim_enabled?: boolean
+    has_scim?: boolean
     scim_base_url?: string
-    scim_bearer_token?: string
     has_id_jag?: boolean
-    id_jag_issuer_url?: string | null
-    id_jag_jwks_url?: string | null
-    id_jag_allowed_clients?: string[]
-    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
     identity_provider_config?: string | null
 }
 
@@ -1371,7 +1365,6 @@ export type EncodedRecordingSnapshot = _EncodedRecordingSnapshot
 export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
-export { SnapshotSourceType } from '@posthog/replay-shared'
 
 export type SessionRecordingSnapshotParams = (
     | {
@@ -5418,6 +5411,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -5664,6 +5658,8 @@ export type APIScopeObject =
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
+    | 'data_catalog'
+    | 'data_catalog_approval'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
@@ -6134,7 +6130,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
 }
 
 export interface ExternalDataSource {
@@ -6146,7 +6142,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
-    created_via: 'web' | 'api' | 'mcp' | null
+    created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
@@ -6919,7 +6915,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
-    | ProductKey.MCP_ANALYTICS,
+    | ProductKey.MCP_ANALYTICS
+    | ProductKey.CONVERSATIONS,
     OnboardingProduct
 >
 
@@ -6950,6 +6947,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'

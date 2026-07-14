@@ -135,7 +135,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Outbound email delivery queue — looked up by PK / comment FK from internal
         # tasks (send + sweeper), never by user-supplied ID through an API.
         "EmailOutboxMessage",
-        "InsightCachingState",
         "InstanceSetting",
         "Schedule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
@@ -188,6 +187,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
         "NotificationReadState",
+        "NotificationArchiveState",
         "NotificationViewed",
         "SessionRecordingPlaylistViewed",
         "UserPromptState",
@@ -325,6 +325,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
+        "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
         "ResourceNotebook",  # via Notebook
         "SchemaPropertyGroupProperty",  # via SchemaPropertyGroup

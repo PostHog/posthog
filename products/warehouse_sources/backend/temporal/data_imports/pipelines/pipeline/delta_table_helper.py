@@ -51,6 +51,29 @@ DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 
+async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
+
+    A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
+    markers, and — mid-write — partial `_delta_log` files). Strays are corrupting: a later
+    `write_deltalake` append onto a half-cleared temp then sees a malformed table ("No table metadata
+    or protocol found in delta log"), and a swap copy that lands on top of undeleted live files leaves
+    a merged `_delta_log` whose row count is wrong ("swap verification failed: live > expected").
+    Enumerate and delete explicitly first, then a best-effort recursive sweep.
+
+    The dircache is dropped first: delta-rs writes through its own Rust object store, so s3fs's
+    listing cache never learns about those files — a cached listing would leave exactly them behind.
+    """
+    s3.invalidate_cache()
+    if not await s3._exists(uri):
+        return
+    files = await s3._find(uri)
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+    if await s3._exists(uri):
+        await s3._rm(uri, recursive=True)
+
+
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
     table_data: pa.Table,
@@ -286,9 +309,12 @@ class DeltaTableHelper:
     async def reset_table(self):
         delta_uri = await self._get_delta_table_uri()
 
-        async with aget_s3_client() as s3:
+        # Explicit purge on a fresh client: a stale dircache or an incomplete recursive delete can
+        # leave `_delta_log` strays behind, and the rebuild then commits version 0 into a log that
+        # still holds old commits — recreating exactly the corruption a reset is meant to clear.
+        async with aget_s3_client(fresh_instance=True) as s3:
             try:
-                await s3._rm(delta_uri, recursive=True)
+                await _purge_s3_prefix(s3, delta_uri)
             except FileNotFoundError:
                 pass
 
@@ -777,6 +803,11 @@ class DeltaTableHelper:
         time tracks total files — a high partition_count must not let a table accumulate
         tens of thousands of files while staying under the per-partition bar.
 
+        When `partition_count` is None it is derived from the table's actual layout (the
+        distinct file directories in the delta log, no extra I/O) — only md5 partitioning
+        persists a count on the schema, so datetime/numerical-partitioned tables always
+        arrive here with None.
+
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
         healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
@@ -788,6 +819,11 @@ class DeltaTableHelper:
 
         file_uris = await self.get_file_uris()
         total_files = len(file_uris)
+        if partition_count is None:
+            # One directory per partition value; unpartitioned tables collapse to the single
+            # table root. Without this, a partitioned table with no persisted count reads as
+            # one giant partition and trips the per-partition threshold on every run.
+            partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris})
         # Treat unpartitioned tables as one "partition" for the threshold math.
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions

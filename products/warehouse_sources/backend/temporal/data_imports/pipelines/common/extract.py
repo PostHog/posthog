@@ -263,10 +263,30 @@ async def handle_reset_or_full_refresh(
     schema: "ExternalDataSchema",
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
+    webhook_only: bool = False,
 ) -> None:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import (
+        ExternalDataSchema,
+        update_sync_type_config_keys,
+    )
 
-    if reset_pipeline and not should_resume:
+    if reset_pipeline and webhook_only:
+        # A webhook-only table's rows exist only as webhook-delivered events — the poll does
+        # no backfill, so a wipe could never be rebuilt. Consume the reset request by resuming
+        # webhook ingestion over the existing table: buffered webhook files drain this run, and
+        # any events lost while ingestion was off are unrecoverable either way. Only the flag is
+        # cleared; the incremental watermark and initial_sync_complete are kept since nothing
+        # was wiped.
+        await logger.adebug("Skipping table reset for webhook-only schema; resuming webhook ingestion")
+        await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id, schema.team_id, removes=["reset_pipeline"]
+        )
+        # Also drop it from the in-memory config: a later watermark save (update_incremental_field_values
+        # / V3 staging) persists this same schema's sync_type_config, which would otherwise write
+        # reset_pipeline back and leave every subsequent run treated as a reset.
+        if schema.sync_type_config:
+            schema.sync_type_config.pop("reset_pipeline", None)
+    elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
@@ -306,10 +326,18 @@ async def handle_corrupted_delta_log(
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> bool:
-    """Detect and revive a Delta table whose `_delta_log` is unreadable, before extraction.
+    """Detect and revive a corrupt Delta table before extraction.
 
-    Interrupted repartition swaps and OOM-crashed merges can leave `_delta_log` inconsistent (open raises
-    DeltaError / FileNotFoundError), after which every sync fails to open the table and loops forever.
+    Two corruption signatures trigger it:
+
+    - `_delta_log` unreadable (open raises DeltaError / FileNotFoundError) — interrupted repartition
+      swaps and OOM-crashed merges leave this, after which every sync fails to open the table and
+      loops forever.
+    - The schema's `delta_revive_required` marker — set by the repartition activity when the log
+      opens fine but references data files that are gone from S3 (a hollow table an interleaved swap
+      left behind). Only a full scan discovers that state, so it arrives as a marker rather than a
+      check here.
+
     Runs before extraction so the table self-heals in the same run:
 
     - Salvage: an interrupted repartition swap that left a `ready` temp table is finished from temp (no
@@ -319,15 +347,18 @@ async def handle_corrupted_delta_log(
 
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
-    try:
-        if not await delta_table_helper.is_table_corrupted():
+    revive_marker = schema.delta_revive_required
+    if revive_marker is None:
+        try:
+            if not await delta_table_helper.is_table_corrupted():
+                return False
+        except Exception as e:
+            capture_exception(e)
             return False
-    except Exception as e:
-        capture_exception(e)
-        return False
 
     await logger.awarning(
-        f"handle_corrupted_delta_log: unreadable delta log detected, reviving schema_id={schema.id}",
+        f"handle_corrupted_delta_log: {'revive marker set' if revive_marker else 'unreadable delta log detected'}, "
+        f"reviving schema_id={schema.id}",
         schema_id=str(schema.id),
     )
 
@@ -360,6 +391,15 @@ async def handle_corrupted_delta_log(
                 logger=logger,
             )
             if result.get("outcome") == "completed":
+                from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+                    update_sync_type_config_keys,
+                )
+
+                # The completed swap copied the full temp table over live, so any hollow-table
+                # marker is stale now.
+                await database_sync_to_async_pool(update_sync_type_config_keys)(
+                    schema.id, schema.team_id, removes=["delta_revive_required"]
+                )
                 await logger.ainfo(
                     f"handle_corrupted_delta_log: salvaged from interrupted swap schema_id={schema.id}",
                     schema_id=str(schema.id),
@@ -378,7 +418,7 @@ async def handle_corrupted_delta_log(
     await delta_table_helper.reset_table()
     await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     await database_sync_to_async_pool(update_sync_type_config_keys)(
-        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap"]
+        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap", "delta_revive_required"]
     )
     was_billable = bool(job.billable)
     if job.billable:

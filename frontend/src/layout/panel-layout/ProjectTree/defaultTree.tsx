@@ -33,6 +33,7 @@ import {
     IconAIGateway,
     IconLlmAnalytics,
     IconLlmPromptManagement,
+    IconMCP,
     IconMegaphone,
     IconMessage,
     IconNotebook,
@@ -43,6 +44,7 @@ import {
     IconPlay,
     IconPlaylist,
     IconPlug,
+    IconPullRequest,
     IconReceipt,
     IconRetention,
     IconRewindPlay,
@@ -349,8 +351,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPlaylist />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
     },
+    mcp_analytics: {
+        icon: <IconMCP />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
     visual_review: {
         icon: <IconApp />,
+    },
+    code_review: {
+        icon: <IconPullRequest />,
     },
     exports: {
         icon: <IconDownload />,

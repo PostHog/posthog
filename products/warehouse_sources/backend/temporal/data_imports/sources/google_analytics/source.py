@@ -118,6 +118,23 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
     ) -> tuple[bool, str | None]:
         property_id = normalize_property_id(config.property_id)
         if not property_id.isdigit():
+            # Name the two IDs users most often paste by mistake — both are non-numeric and
+            # look plausible, so the generic "use a numeric ID" hint leaves them hunting.
+            upper_id = property_id.upper()
+            if upper_id.startswith("G-"):
+                return (
+                    False,
+                    f"'{config.property_id}' looks like a Measurement ID (from your GA4 data stream / "
+                    "website tag), not a property ID. Use the numeric property ID from Google Analytics "
+                    "Admin → Property settings → Property details (e.g. '123456789').",
+                )
+            if upper_id.startswith("UA-"):
+                return (
+                    False,
+                    f"'{config.property_id}' is a Universal Analytics property ID. This connector supports "
+                    "Google Analytics 4 only — use the numeric GA4 property ID from Admin → Property "
+                    "settings → Property details (e.g. '123456789').",
+                )
             return (
                 False,
                 f"'{config.property_id}' is not a valid GA4 property ID. Use the numeric ID from "

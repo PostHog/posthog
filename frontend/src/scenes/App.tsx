@@ -17,6 +17,7 @@ import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
+import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -49,6 +50,9 @@ export function bootApp(): void {
     loadPostHogJS()
     // Kea must initialize before any component mounts
     initKea()
+    // Link resolves its drag-to-notebook behavior through a seam so bundles without
+    // notebooks (toolbar, exporter) don't ship them; the app opts in here
+    registerNotebookLinkDrag()
 
     const idle =
         typeof window.requestIdleCallback === 'function'
