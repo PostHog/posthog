@@ -1296,6 +1296,9 @@ def build_sandbox_custom_image(
         parse_image_spec_yaml,
         validate_spec_buildable,
     )
+    from products.tasks.backend.metrics import (
+        observe_custom_image_build,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
@@ -1321,6 +1324,7 @@ def build_sandbox_custom_image(
     image.error = ""
     image.save(update_fields=["spec", "status", "error", "updated_at"])
 
+    observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
     return _reload_image_dto(image.pk)
 
@@ -1522,6 +1526,8 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
 #   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
+#   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
+#     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
 #   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
@@ -1540,6 +1546,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
+        "use_modal_vm_sandbox",
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
