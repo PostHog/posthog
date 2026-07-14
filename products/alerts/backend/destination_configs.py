@@ -6,6 +6,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from django.db import models
+
+
+class DestinationType(models.TextChoices):
+    SLACK = "slack", "Slack"
+    DISCORD = "discord", "Discord"
+    WEBHOOK = "webhook", "Webhook"
+    TEAMS = "teams", "Microsoft Teams"
+
 
 class AlertDestinationTemplate(StrEnum):
     SLACK = "template-slack"

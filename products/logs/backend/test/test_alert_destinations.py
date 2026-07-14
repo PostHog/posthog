@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts.backend.destination_configs import (
+    DestinationType,
     slack_body as _slack_body,
     teams_text as _teams_text,
 )
@@ -13,7 +14,6 @@ from products.logs.backend.alert_destinations import (
     EVENT_KINDS,
     AlertDestinationData,
     AlertDestinationValidationError,
-    DestinationType,
     EventKind,
     validate_destination_data,
 )

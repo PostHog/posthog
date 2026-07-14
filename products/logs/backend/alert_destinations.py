@@ -7,10 +7,9 @@ from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict
 from urllib.parse import urlsplit
 
-from django.db import models
-
 from products.alerts.backend.destination_configs import (
     AlertDestinationConfig,
+    DestinationType,
     EventKindSpec,
     build_discord_destination_config,
     build_slack_destination_config,
@@ -20,13 +19,6 @@ from products.alerts.backend.destination_configs import (
 from products.logs.backend.models import LogsAlertConfiguration
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
-
-
-class DestinationType(models.TextChoices):
-    SLACK = "slack", "Slack"
-    DISCORD = "discord", "Discord"
-    WEBHOOK = "webhook", "Webhook"
-    TEAMS = "teams", "Microsoft Teams"
 
 
 class AlertDestinationData(TypedDict):

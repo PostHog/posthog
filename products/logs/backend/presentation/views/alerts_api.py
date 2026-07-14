@@ -1,7 +1,7 @@
 import os
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, TypedDict, cast
+from typing import Final, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -29,8 +29,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.analytics import AlertAction, report_alert_action
-from products.alerts.backend.destination_configs import AlertDestinationTemplate
+from products.alerts.backend.destination_configs import AlertDestinationTemplate, DestinationType
 from products.alerts.backend.destinations import (
     AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
@@ -44,7 +43,6 @@ from products.logs.backend.alert_destinations import (
     EVENT_KINDS,
     AlertDestinationData,
     AlertDestinationValidationError,
-    DestinationType,
     build_destination_config,
     validate_destination_data,
 )
@@ -1163,14 +1161,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response_serializer = LogsAlertSimulateResponseSerializer(response_data)
         return Response(response_serializer.data)
 
-    def _track(self, action: AlertAction, instance: LogsAlertConfiguration) -> None:
-        report_alert_action(
-            user=self.request.user,
-            action=action,
-            config_type="LogsAlertConfig",
-            alert_id=str(instance.id),
-            alert_name=instance.name,
-            properties={
+    def _track(self, action: Literal["created", "updated", "deleted"], instance: LogsAlertConfiguration) -> None:
+        report_user_action(
+            self.request.user,
+            f"alert {action}",
+            {
+                "alert_id": str(instance.id),
+                "alert_name": instance.name,
+                "config_type": "LogsAlertConfig",
                 "enabled": instance.enabled,
                 "threshold_count": instance.threshold_count,
                 "threshold_operator": instance.threshold_operator,
