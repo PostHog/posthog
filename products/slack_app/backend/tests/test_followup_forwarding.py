@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from unittest import TestCase as UnitTestCase
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import TestCase
@@ -46,12 +46,6 @@ def _make_slack_file(**overrides: object) -> dict[str, object]:
     }
     file.update(overrides)
     return file
-
-
-def _command_result(**kwargs):
-    defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
-    defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
 
 
 def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, thread_ts: str) -> None:
@@ -922,25 +916,18 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_cross_user_followup_authorized_prefixes_actor_name(
-        self, mock_slack_cls, mock_resolve, mock_send, mock_token
-    ):
+    def test_cross_user_followup_authorized_prefixes_actor_name(self, mock_slack_cls, mock_resolve, mock_signal):
         # A second user in the same PostHog org and team should be allowed to chip in
-        # on the thread; their message is forwarded under their own sandbox identity
+        # on the thread; their message is queued under their own PostHog identity
         # and their name is prepended so the agent knows who actually spoke.
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
-        mock_send.return_value = _command_result(success=True, status_code=200)
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
@@ -948,10 +935,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        assert mock_token.call_args.args[1] == bob.id
-        mock_send.assert_called_once_with(
-            self.task_run, "Bob: please retry the build", auth_token="jwt-token", timeout=90, message_id=ANY
-        )
+        mock_signal.assert_called_once()
+        assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
+        signal_kwargs = mock_signal.call_args.kwargs
+        assert signal_kwargs["content"] == "Bob: please retry the build"
+        assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
         post_calls = [
             call
@@ -960,29 +948,22 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         ]
         assert not post_calls
 
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_cross_user_followup_falls_back_to_email_when_no_full_name(
-        self, mock_slack_cls, mock_resolve, mock_send, mock_token
-    ):
+    def test_cross_user_followup_falls_back_to_email_when_no_full_name(self, mock_slack_cls, mock_resolve, mock_signal):
         self._create_mapping(mentioning_user="U_ALICE")
         bob = User.objects.create(email="bob@test.com")  # no full name
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
-        mock_send.return_value = _command_result(success=True, status_code=200)
 
         inputs = _make_inputs(self.integration.id)
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
-        assert mock_token.call_args.args[1] == bob.id
-        mock_send.assert_called_once_with(
-            self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90, message_id=ANY
-        )
+        mock_signal.assert_called_once()
+        signal_kwargs = mock_signal.call_args.kwargs
+        assert signal_kwargs["content"] == "bob@test.com: ping"
+        assert signal_kwargs["message_id"] is not None
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1049,21 +1030,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "still starting up" in call_kwargs["text"]
 
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("posthog.models.integration.SlackIntegration")
-    def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token):
+    def test_successful_forwarding(self, mock_slack_cls, mock_signal):
         mapping = self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(
-            success=True,
-            status_code=200,
-            data={"result": {"assistant_message": "thanks"}},
-        )
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
@@ -1071,12 +1043,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        mock_token.assert_called_once()
-        mock_send.assert_called_once_with(
-            self.task_run, "do something", auth_token="jwt-token", timeout=90, message_id=ANY
-        )
-        # Agent is now working on the message, so the :eyes: reaction stays up — it is
-        # not swapped to :hedgehog: until the task genuinely completes.
+        mock_signal.assert_called_once()
+        assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
+        signal_kwargs = mock_signal.call_args.kwargs
+        assert signal_kwargs["content"] == "do something"
+        assert signal_kwargs["artifact_ids"] == []
+        assert signal_kwargs["message_id"] is not None
+        # The message is queued on the workflow, so the :eyes: reaction stays up — it
+        # is not swapped to :hedgehog: until the task genuinely completes.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
@@ -1109,11 +1083,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
-            patch("products.tasks.backend.logic.services.agent_command.send_user_message") as mock_send,
-            patch(
-                "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-                return_value="jwt-token",
-            ),
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
             patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
             patch("products.slack_app.backend.services.slack_messages.collect_thread_messages", return_value=[]),
             patch("posthog.storage.object_storage.write") as mock_write,
@@ -1123,7 +1093,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             mock_slack_instance.client.token = "xoxb-test"
             mock_slack_instance.client.auth_test.return_value = {"bot_id": "B123"}
             mock_slack_cls.return_value = mock_slack_instance
-            mock_send.return_value = _command_result(success=True, status_code=200)
 
             result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
             # Temporal retries re-run the whole activity body; the re-upload must
@@ -1131,19 +1100,22 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
 
         assert result is True
-        sent_run, sent_message = mock_send.call_args.args
-        assert sent_run.id == self.task_run.id
-        assert sent_message.startswith("Attached Slack file(s).")
-        assert "Slack attachment(s) available to the agent as task files: only-log.txt." in sent_message
-        sent_artifacts = mock_send.call_args.kwargs["artifacts"]
-        assert len(sent_artifacts) == 1
-        assert sent_artifacts[0]["name"] == "only-log.txt"
-        assert sent_artifacts[0]["source"] == "slack_user_attachment"
-        assert mock_send.call_args.kwargs["auth_token"] == "jwt-token"
+        assert mock_signal.call_count == 2
+        first_call, second_call = mock_signal.call_args_list
+        assert first_call.args == (self.task_run.id, self.task.id, self.team.id)
+        content = first_call.kwargs["content"]
+        assert content.startswith("Attached Slack file(s).")
+        assert "Slack attachment(s) available to the agent as task files: only-log.txt." in content
         assert mock_write.call_count == 2
         assert mock_write.call_args_list[0].args[0] == mock_write.call_args_list[1].args[0]
         self.task_run.refresh_from_db()
         assert len(self.task_run.artifacts) == 1
+        assert first_call.kwargs["artifact_ids"] == [str(self.task_run.artifacts[0]["id"])]
+        assert second_call.kwargs["artifact_ids"] == first_call.kwargs["artifact_ids"]
+        # Redelivery must reuse the deterministic idempotency key or the agent
+        # applies the message twice.
+        assert first_call.kwargs["message_id"] is not None
+        assert first_call.kwargs["message_id"] == second_call.kwargs["message_id"]
 
     @parameterized.expand(
         [
@@ -1192,88 +1164,27 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "no attachment was accepted" in notice
         assert "installer.exe" in notice
 
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False)
     @patch("posthog.models.integration.SlackIntegration")
-    def test_forwarding_failure_posts_error(self, mock_slack_cls, mock_send, mock_token):
+    def test_signal_failure_posts_error_reply(self, mock_slack_cls, mock_signal):
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(success=False, status_code=401, error="Unauthorized", retryable=False)
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
+
         assert result is True
+        mock_signal.assert_called_once()
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "couldn't deliver" in call_kwargs["text"]
-
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_timeout_delegates_to_relay_without_posting(self, mock_slack_cls, mock_send, mock_token):
-        self._create_mapping()
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
-        mock_send.return_value = _command_result(
-            success=False, status_code=504, error="Sandbox request timed out", retryable=True
-        )
-
-        inputs = _make_inputs(self.integration.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
-        )
-
-        assert result is True
-        mock_send.assert_called_once()
-        # Agent is still processing — relayAgentResponse delivers the response.
-        mock_slack_instance.client.chat_postMessage.assert_not_called()
-        # The :eyes: reaction stays up while the agent works — no swap to :hedgehog:.
-        mock_slack_instance.client.reactions_add.assert_called_once_with(
+        assert "couldn't deliver your message" in call_kwargs["text"]
+        # The :eyes: reaction is swapped to :x: so the thread sees the delivery failed.
+        mock_slack_instance.client.reactions_remove.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
-        mock_slack_instance.client.reactions_remove.assert_not_called()
-
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-        return_value="jwt-token",
-    )
-    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    @patch("posthog.models.integration.SlackIntegration")
-    def test_connection_error_retries_and_succeeds(self, mock_slack_cls, mock_send, mock_token):
-        self._create_mapping()
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
-        mock_send.side_effect = [
-            _command_result(success=False, status_code=502, error="Connection to sandbox failed", retryable=True),
-            _command_result(success=True, status_code=200),
-        ]
-
-        inputs = _make_inputs(self.integration.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
-        )
-
-        assert result is True
-        assert mock_send.call_count == 2
-        # Redelivery must reuse the idempotency key or the agent applies the message twice.
-        first_id = mock_send.call_args_list[0].kwargs["message_id"]
-        second_id = mock_send.call_args_list[1].kwargs["message_id"]
-        assert first_id and first_id == second_id
-        # The :eyes: reaction stays up while the agent works — no swap to :hedgehog:.
-        mock_slack_instance.client.reactions_add.assert_called_once_with(
-            channel="C123", timestamp="1234.5679", name="eyes"
-        )
-        mock_slack_instance.client.reactions_remove.assert_not_called()
-        # Response is delivered by relayAgentResponse, not by this activity.
-        mock_slack_instance.client.chat_postMessage.assert_not_called()
+        mock_slack_instance.client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5679", name="x")
 
 
 class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
