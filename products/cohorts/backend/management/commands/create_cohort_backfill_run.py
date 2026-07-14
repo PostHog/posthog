@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import IntegrityError
 
 from posthog.models.team.team import Team
 
@@ -64,6 +65,8 @@ class Command(BaseCommand):
             run = create_team_backfill_run(team_id, options["trigger"], cohort_ids)
         except (Team.DoesNotExist, ValueError) as error:
             raise CommandError(str(error)) from error
+        except IntegrityError as error:
+            raise CommandError(f"Team {team_id} already has an active team backfill run") from error
         self.stdout.write(
             self.style.SUCCESS(
                 f"Created run {run.id}: "

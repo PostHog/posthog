@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.db import IntegrityError
 from django.test import override_settings
 
 from posthog.tasks.calculate_cohort import trigger_cohort_events_backfill_task
@@ -125,12 +124,26 @@ class TestBackfillRuns(BaseTest):
         self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
         self.assertIsNotNone(participation.superseded_at)
 
-    def test_partial_unique_constraint_rejects_two_active_cohort_runs(self) -> None:
+    def test_second_active_cohort_run_is_a_benign_noop(self) -> None:
         cohort = self._cohort()
         self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
 
-        with self.assertRaises(IntegrityError):
-            create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    def test_active_team_run_prevents_overlapping_cohort_run(self) -> None:
+        cohort = self._cohort()
+        create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    def test_active_cohort_run_prevents_overlapping_team_run(self) -> None:
+        cohort = self._cohort()
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
+
+        with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
+            create_team_backfill_run(self.team.id, "team_enablement")
 
     def test_celery_task_uses_explicit_team_scope(self) -> None:
         cohort = self._cohort()

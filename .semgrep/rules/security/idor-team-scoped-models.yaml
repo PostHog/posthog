@@ -86,6 +86,9 @@ rules:
                               |CodeWorkflowConfig
                               |CodeWorkstream
                               |Cohort
+                              |CohortBackfillChunk
+                              |CohortBackfillRun
+                              |CohortBackfillRunCohort
                               |Comment
                               |Conversation
                               |ConversationRestoreToken
@@ -374,6 +377,9 @@ rules:
                         |CodeWorkflowConfig
                         |CodeWorkstream
                         |Cohort
+                        |CohortBackfillChunk
+                        |CohortBackfillRun
+                        |CohortBackfillRunCohort
                         |Comment
                         |Conversation
                         |ConversationRestoreToken

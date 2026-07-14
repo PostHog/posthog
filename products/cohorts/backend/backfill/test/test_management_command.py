@@ -95,6 +95,26 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             [selected.id],
         )
 
+    def test_active_team_run_returns_clean_command_error(self) -> None:
+        first = self._cohort("$pageview")
+        call_command(
+            "create_cohort_backfill_run",
+            team_id=self.team.id,
+            trigger="team_enablement",
+            cohort_ids=[first.id],
+        )
+        second = self._cohort("signup")
+
+        with self.assertRaisesMessage(CommandError, "already has an active team backfill run"):
+            call_command(
+                "create_cohort_backfill_run",
+                team_id=self.team.id,
+                trigger="team_enablement",
+                cohort_ids=[second.id],
+            )
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
     def test_dry_run_writes_nothing(self) -> None:
         self._cohort("$pageview")
         stdout = StringIO()

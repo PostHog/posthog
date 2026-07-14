@@ -89,17 +89,26 @@ class TestBackfillReadiness(BaseTest):
         first_stamp = timezone.now()
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=first_stamp)
 
-        self.assertFalse(stamp_events_readiness(run, cohort.id))
+        self.assertTrue(stamp_events_readiness(run, cohort.id))
 
         cohort.refresh_from_db()
+        run.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
         self.assertEqual(cohort.last_backfill_events_at, first_stamp)
+        self.assertIsNotNone(participation.stamped_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
 
     def test_ensure_shape_hash_only_fills_null_column(self) -> None:
         cohort, _ = self._cohort_and_run()
-        Cohort.objects.filter(id=cohort.id).update(filters_shape_hash=None)
+        Cohort.objects.filter(id=cohort.id).update(
+            filters_shape_hash=None,
+            behavioral_filters_shape_hash=None,
+        )
         cohort.filters_shape_hash = None
+        cohort.behavioral_filters_shape_hash = None
 
         self.assertEqual(ensure_filters_shape_hash(cohort), extract_leaf_shape_hash(cohort.filters))
+        self.assertIsNotNone(cohort.behavioral_filters_shape_hash)
 
         Cohort.objects.filter(id=cohort.id).update(filters_shape_hash="persisted")
         cohort.filters_shape_hash = None

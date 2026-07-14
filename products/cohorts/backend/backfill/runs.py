@@ -56,12 +56,29 @@ def _pinned_payload(cohorts: Iterable[Cohort]) -> dict[str, Any]:
     return {**pinned, "event_names": event_names}
 
 
+def _active_participation_cohort_ids(team_id: int, cohort_ids: Iterable[int]) -> set[int]:
+    return set(
+        CohortBackfillRunCohort.objects.for_team(team_id)
+        .filter(
+            cohort_id__in=cohort_ids,
+            superseded_at__isnull=True,
+            run__status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+        )
+        .values_list("cohort_id", flat=True)
+    )
+
+
 def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> CohortBackfillRun | None:
     if not is_realtime_cohort_team(team_id):
         return None
 
     with transaction.atomic():
-        cohort = Cohort.objects.select_for_update().select_related("team").filter(id=cohort_id, team_id=team_id).first()
+        cohort = (
+            Cohort.objects.select_for_update(of=("self",))
+            .select_related("team")
+            .filter(id=cohort_id, team_id=team_id)
+            .first()
+        )
         if (
             cohort is None
             or cohort.cohort_type != CohortType.REALTIME
@@ -69,6 +86,8 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
             or cohort.deleted
             or not _has_behavioral_filters(cohort)
         ):
+            return None
+        if _active_participation_cohort_ids(team_id, [cohort_id]):
             return None
 
         filters_shape_hash = ensure_filters_shape_hash(cohort)
@@ -108,7 +127,7 @@ def create_team_backfill_run(
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
     with transaction.atomic():
         team = Team.objects.get(id=team_id)
-        queryset = Cohort.objects.select_for_update().filter(
+        queryset = Cohort.objects.select_for_update(of=("self",)).filter(
             team_id=team_id,
             cohort_type=CohortType.REALTIME,
             is_static=False,
@@ -122,6 +141,9 @@ def create_team_backfill_run(
             raise ValueError(f"Cohorts are not eligible realtime behavioral cohorts: {invalid_ids}")
         if not cohorts:
             raise ValueError(f"Team {team_id} has no eligible realtime behavioral cohorts")
+        conflicting_ids = _active_participation_cohort_ids(team_id, [cohort.id for cohort in cohorts])
+        if conflicting_ids:
+            raise ValueError(f"Cohorts already have active backfill runs: {sorted(conflicting_ids)}")
 
         hashes = {cohort.id: ensure_filters_shape_hash(cohort) for cohort in cohorts}
         preconditions, missing = check_run_preconditions()

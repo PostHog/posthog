@@ -12,4 +12,9 @@ class Migration(migrations.Migration):
             name="filters_shape_hash",
             field=models.CharField(blank=True, max_length=64, null=True),
         ),
+        migrations.AddField(
+            model_name="cohort",
+            name="behavioral_filters_shape_hash",
+            field=models.CharField(blank=True, max_length=64, null=True),
+        ),
     ]

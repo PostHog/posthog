@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.test import override_settings
 from django.utils import timezone
+from django.utils.deprecation import RemovedInDjango60Warning
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import COHORT_REALTIME_STATE_ORPHANED_COUNTER
@@ -61,6 +62,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
     def test_window_edit_writes_hash_and_nulls_readiness_in_one_save(self) -> None:
         cohort = self._cohort(7)
         old_hash = cohort.filters_shape_hash
+        old_behavioral_hash = cohort.behavioral_filters_shape_hash
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
         cohort.refresh_from_db()
         before = self._orphan_count()
@@ -70,17 +72,34 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         cohort.refresh_from_db()
         self.assertNotEqual(cohort.filters_shape_hash, old_hash)
+        self.assertNotEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertEqual(self._orphan_count(), before + 1)
 
     def test_filter_only_update_persists_maintained_fields(self) -> None:
         cohort = self._cohort(7)
         old_hash = cohort.filters_shape_hash
+        old_behavioral_hash = cohort.behavioral_filters_shape_hash
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
         cohort.refresh_from_db()
 
         cohort.filters = self._filters(30)
         cohort.save(update_fields=["filters"])
+
+        cohort.refresh_from_db()
+        self.assertNotEqual(cohort.filters_shape_hash, old_hash)
+        self.assertNotEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
+        self.assertIsNone(cohort.last_backfill_events_at)
+
+    def test_positional_filter_update_persists_maintained_fields(self) -> None:
+        cohort = self._cohort(7)
+        old_hash = cohort.filters_shape_hash
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
+        cohort.refresh_from_db()
+
+        cohort.filters = self._filters(30)
+        with self.assertWarns(RemovedInDjango60Warning):
+            cohort.save(False, False, None, ["filters"])
 
         cohort.refresh_from_db()
         self.assertNotEqual(cohort.filters_shape_hash, old_hash)
@@ -113,6 +132,74 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.last_backfill_events_at)
         enqueue.assert_not_called()
 
+    def test_person_only_edit_preserves_events_readiness(self) -> None:
+        cohort = self._cohort(7, person_hash="person-a")
+        ready_at = timezone.now()
+        old_hash = cohort.filters_shape_hash
+        old_behavioral_hash = cohort.behavioral_filters_shape_hash
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=ready_at)
+        cohort.refresh_from_db()
+        before = self._orphan_count()
+        self.feature_enabled.return_value = True
+        redis = mock.Mock()
+        redis.set.return_value = True
+
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task.apply_async") as person_enqueue,
+            mock.patch(
+                "posthog.tasks.calculate_cohort.trigger_cohort_events_backfill_task.apply_async"
+            ) as event_enqueue,
+        ):
+            cohort.filters = self._filters(7, person_hash="person-b")
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertNotEqual(cohort.filters_shape_hash, old_hash)
+        self.assertEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
+        self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        self.assertEqual(self._orphan_count(), before)
+        person_enqueue.assert_called_once()
+        event_enqueue.assert_not_called()
+
+    def test_first_legacy_save_initializes_hashes_without_invalidating_readiness(self) -> None:
+        cohort = self._cohort(7)
+        ready_at = timezone.now()
+        Cohort.objects.filter(id=cohort.id).update(
+            filters_shape_hash=None,
+            behavioral_filters_shape_hash=None,
+            last_backfill_events_at=ready_at,
+        )
+        cohort.refresh_from_db()
+        before = self._orphan_count()
+        self.feature_enabled.return_value = True
+
+        with mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_events_backfill_task.apply_async") as enqueue:
+            cohort.name = "renamed"
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertIsNotNone(cohort.filters_shape_hash)
+        self.assertIsNotNone(cohort.behavioral_filters_shape_hash)
+        self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        self.assertEqual(self._orphan_count(), before)
+        enqueue.assert_not_called()
+
+    def test_first_legacy_behavioral_edit_invalidates_readiness(self) -> None:
+        cohort = self._cohort(7)
+        Cohort.objects.filter(id=cohort.id).update(
+            filters_shape_hash=None,
+            behavioral_filters_shape_hash=None,
+            last_backfill_events_at=timezone.now(),
+        )
+        cohort.refresh_from_db()
+
+        cohort.filters = self._filters(30)
+        cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.last_backfill_events_at)
+
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="999999999")
     def test_non_allowlisted_save_path_is_unchanged(self) -> None:
         ready_at = timezone.now()
@@ -129,6 +216,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         cohort.refresh_from_db()
         self.assertIsNone(cohort.filters_shape_hash)
+        self.assertIsNone(cohort.behavioral_filters_shape_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
 

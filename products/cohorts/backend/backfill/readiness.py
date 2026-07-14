@@ -9,25 +9,35 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash
+from products.cohorts.backend.models.leaf_shape import extract_behavioral_leaf_shape_hash, extract_leaf_shape_hash
 
 logger = structlog.get_logger(__name__)
 
 
 def ensure_filters_shape_hash(cohort: Cohort) -> str:
     current_hash = cohort.__dict__.get("filters_shape_hash")
-    if current_hash is not None:
-        return current_hash
+    if current_hash is None:
+        shape_hash = extract_leaf_shape_hash(cohort.filters)
+        updated = Cohort.objects.filter(id=cohort.id, team_id=cohort.team_id, filters_shape_hash__isnull=True).update(
+            filters_shape_hash=shape_hash
+        )
+        if updated:
+            cohort.filters_shape_hash = shape_hash
+        else:
+            cohort.refresh_from_db(fields=["filters_shape_hash"])
 
-    shape_hash = extract_leaf_shape_hash(cohort.filters)
-    updated = Cohort.objects.filter(id=cohort.id, team_id=cohort.team_id, filters_shape_hash__isnull=True).update(
-        filters_shape_hash=shape_hash
-    )
-    if updated:
-        cohort.filters_shape_hash = shape_hash
-        return shape_hash
+    if cohort.__dict__.get("behavioral_filters_shape_hash") is None:
+        behavioral_shape_hash = extract_behavioral_leaf_shape_hash(cohort.filters)
+        updated = Cohort.objects.filter(
+            id=cohort.id,
+            team_id=cohort.team_id,
+            behavioral_filters_shape_hash__isnull=True,
+        ).update(behavioral_filters_shape_hash=behavioral_shape_hash)
+        if updated:
+            cohort.behavioral_filters_shape_hash = behavioral_shape_hash
+        else:
+            cohort.refresh_from_db(fields=["behavioral_filters_shape_hash"])
 
-    cohort.refresh_from_db(fields=["filters_shape_hash"])
     return cohort.filters_shape_hash or ""
 
 
@@ -50,7 +60,22 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
         )
         return True
 
-    error = "Cohort definition changed or readiness was already stamped"
+    current_readiness = (
+        Cohort.objects.filter(id=cohort_id, team_id=run.team_id)
+        .values_list("filters_shape_hash", "last_backfill_events_at")
+        .first()
+    )
+    if (
+        current_readiness is not None
+        and current_readiness[0] == participation.filters_shape_hash
+        and current_readiness[1] is not None
+    ):
+        CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(
+            stamped_at=Now(), error=""
+        )
+        return True
+
+    error = "Cohort definition changed before readiness was stamped"
     CohortBackfillRunCohort.objects.for_team(run.team_id).filter(id=participation.id).update(
         superseded_at=Now(), error=error
     )
