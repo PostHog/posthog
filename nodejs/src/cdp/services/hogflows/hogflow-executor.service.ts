@@ -556,7 +556,9 @@ export class HogFlowExecutorService {
             return false
         }
         const stepStartedAt = invocation.state.currentAction?.startedAtTimestamp
-        return Boolean(stepStartedAt && invocation.hogFlow.updated_at > stepStartedAt)
+        // updated_at is a Date from pg in production and epoch millis in fixtures - normalize
+        const updatedAt = invocation.hogFlow.updated_at ? new Date(invocation.hogFlow.updated_at).getTime() : null
+        return Boolean(stepStartedAt && updatedAt && updatedAt > stepStartedAt)
     }
 
     private goToNextAction(

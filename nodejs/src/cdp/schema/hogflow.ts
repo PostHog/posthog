@@ -277,6 +277,9 @@ export const HogFlowSchema = z.object({
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     billable_action_types: z.array(z.string()).optional().nullable(),
+    // Selected by the worker (HOG_FLOW_FIELDS); pg returns timestamptz as a Date, fixtures use
+    // epoch millis. Used to distinguish live edits from malformed-from-birth graphs.
+    updated_at: z.union([z.number(), z.string(), z.date()]).optional(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen
