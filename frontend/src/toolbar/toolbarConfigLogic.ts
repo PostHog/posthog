@@ -657,13 +657,23 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Network/CORS rejections and timeouts are expected outcomes of this
+            // best-effort reachability probe (unreachable self-hosted host, corporate
+            // proxy blocking the CORS preflight, ad blocker, slow host). The
+            // `toolbar ui host check` event below already records them with status:
+            // 'error' and the error_type, so capturing an exception too would just
+            // flood error tracking and bury genuine toolbar errors. Only report
+            // unexpected classifications (e.g. http_error) as exceptions.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
