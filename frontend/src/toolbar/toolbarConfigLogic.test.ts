@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -359,6 +360,42 @@ describe('toolbar toolbarConfigLogic', () => {
             )
             expect(headCalls).toHaveLength(1)
         })
+
+        it.each([
+            // Expected self-hosted/reverse-proxy CORS rejection — handled gracefully, not exception-worthy.
+            ['network/CORS TypeError', new TypeError('Failed to fetch'), 'network_or_cors', false],
+            // Genuinely unexpected failure — should still surface as an exception.
+            ['unexpected error', new Error('boom'), 'unknown', true],
+        ])(
+            'reachability failure (%s) sets error status but only reports %s as an exception when unexpected',
+            async (_label, error, expectedErrorType, shouldCapture) => {
+                silenceKeaLoadersErrors()
+                ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(error))
+                const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+                const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+
+                const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+                logic.mount()
+                await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+                // The telemetry event fires regardless, tagged with the classified error type.
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'toolbar ui host check',
+                    expect.objectContaining({ status: 'error', error_type: expectedErrorType })
+                )
+                if (shouldCapture) {
+                    expect(captureExceptionSpy).toHaveBeenCalledWith(
+                        error,
+                        expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: expectedErrorType })
+                    )
+                } else {
+                    expect(captureExceptionSpy).not.toHaveBeenCalled()
+                }
+
+                captureExceptionSpy.mockRestore()
+                captureSpy.mockRestore()
+            }
+        )
 
         it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
