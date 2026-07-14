@@ -59,8 +59,13 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     cdpHogWatcherSampleRate: number
 }
 
-export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: ChunkPipelineBuilder<TInput, TInput, TContext, TContext>,
+export function createPostTeamPreprocessingSubpipeline<
+    TStart,
+    TInput extends PostTeamPreprocessingSubpipelineInput,
+    TContext,
+    R extends string = never,
+>(
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
