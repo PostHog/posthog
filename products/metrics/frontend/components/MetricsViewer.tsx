@@ -31,6 +31,7 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
+import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
     LIVE_REFRESH_MS,
@@ -312,7 +313,17 @@ export const MetricsViewer = (): JSX.Element => {
                 >
                     Add to dashboard
                 </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={openStarterDashboardModal}
+                    tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
+                    data-attr="metrics-viewer-starter-dashboard"
+                >
+                    New service dashboard
+                </LemonButton>
             </div>
+            <MetricsStarterDashboardModal />
             {savedInsight && (
                 <AddToDashboardModal
                     isOpen={isAddToDashboardModalOpen}
