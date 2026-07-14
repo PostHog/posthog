@@ -105,18 +105,6 @@ export function SourceAccessMethodSelector({
                         ),
                     },
                     {
-                        value: 'warehouse_and_direct',
-                        label: (
-                            <div>
-                                <div>Sync and query live</div>
-                                <div className="text-xs text-secondary">
-                                    Sync selected tables into PostHog-managed storage, and also run live queries against
-                                    this database from the SQL editor.
-                                </div>
-                            </div>
-                        ),
-                    },
-                    {
                         value: 'direct',
                         label: (
                             <div>
@@ -129,6 +117,18 @@ export function SourceAccessMethodSelector({
                                 <div className="text-xs text-secondary">
                                     Only run queries live against this database connection, without syncing anything.
                                     Data from this source can&apos;t be joined with PostHog data.
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'warehouse_and_direct',
+                        label: (
+                            <div>
+                                <div>Sync and query live</div>
+                                <div className="text-xs text-secondary">
+                                    Sync selected tables into PostHog-managed storage, and also run live queries against
+                                    this database from the SQL editor.
                                 </div>
                             </div>
                         ),
