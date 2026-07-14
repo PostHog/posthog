@@ -2,6 +2,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { PostHogMCP } from '@posthog/mcp-analytics'
+
 import type { GroupType } from '@/api/client'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -24,7 +26,7 @@ const STATIC_GROUP_TYPES: GroupType[] = [
 const STATIC_TOOLS = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
-    { name: 'feature-flag-create', category: 'Feature flags' },
+    { name: 'create-feature-flag', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
     { name: 'query-funnel', category: 'Query wrappers' },
@@ -92,29 +94,46 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
     })
 
+    it('matches the exec command reference for Claude web/desktop', async () => {
+        const state = {
+            allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+            toolFeatureFlags: {},
+            renderUiEnabled: STATIC_CTX.renderUiEnabled,
+            metadata: STATIC_CTX.metadata,
+            groupTypes: STATIC_CTX.groupTypes,
+        } as unknown as ResolvedState
+        const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat.txt'))
+    })
+
     // ------------------------------------------------------------------------------------------------
-    // DO NOT modify, weaken, raise, skip, or delete this test or its 32,600 budget —
+    // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.
     //
-    // MCP clients (e.g. Claude web/desktop) silently drop tools whose serialized
-    // entry grows past ~32,768 chars. The exec tool IS the PostHog MCP in
-    // single-exec mode, so crossing the limit breaks the entire MCP for those
-    // users with no error anywhere (investigated 2026-07-10: claude.ai surfaced
-    // only `render-ui` while `exec` vanished).
+    // claude.ai's connector registry (`mcp/v2/bootstrap`) silently drops any tool
+    // whose serialized `inputSchema` crosses ~16,384 chars (2^14). The total entry
+    // size and the top-level `description` are NOT capped (bisected 2026-07-10:
+    // schema 13,996 passed, 17,799 dropped; a 31k-total entry with a 787-char
+    // schema survived intact). The exec tool IS the PostHog MCP in single-exec mode,
+    // so a dropped `inputSchema` breaks the entire MCP for those users with no error
+    // anywhere (claude.ai surfaced only `render-ui` while `exec` vanished).
     //
-    // If this test fails, SHRINK the prompt: dedupe `src/templates/sections/*.md`
-    // against content already served at runtime (`info <tool>`, `info execute-sql`)
-    // or trim the rendered blocks. Never touch the limit.
+    // The exec command reference lives in `inputSchema.properties.command.description`,
+    // so it counts against this cap; `EXEC_TOOL_BLURB` lives in the top-level
+    // `description` and does NOT. If this test fails, move optional guidance behind
+    // `learn <topic>` or shrink duplicated prompt content in the command reference —
+    // trimming the top-level description does nothing for this budget.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the serialized exec tool entry under the 32,600-char client budget', () => {
-        // Worst case served in production: the full live tool catalog with the
-        // Claude web/desktop wiring — `ClaudeAI` vendor resolves to a chat host,
-        // so `keepEnvContext` inlines tool domains, project metadata, and group
-        // types into the command description. The metadata goes through the real
+    it('keeps the serialized exec inputSchema under the claude.ai registry cap', () => {
+        // Worst case served in production: Claude web/desktop with every optional
+        // learning topic advertised, the full live tool catalog, and long environment
+        // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
-        // push a real entry past the cap while this test passes.
+        // push the real schema past the cap while this test passes.
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
             {
                 first_name: 'F'.repeat(150),
@@ -147,10 +166,14 @@ describe('InstructionsFormatter prompt snapshots', () => {
             groupTypes: worstCaseGroupTypes,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
-        const size = JSON.stringify(entry).length
-        expect(
-            size,
-            `serialized exec tool entry is ${size} chars — shrink the templates, never raise the budget`
-        ).toBeLessThan(32_600)
+        const posthog = new PostHogMCP('phc_test', { disabled: true })
+        const finalEntry = posthog.prepareToolList([entry])[0]!
+        // `prepareToolList` injects the `context` property into `inputSchema`, so the
+        // measured schema must include it — measure the final, post-injection schema.
+        const properties = finalEntry.inputSchema.properties as Record<string, unknown>
+        const inputSchemaSize = JSON.stringify(finalEntry.inputSchema).length
+
+        expect(properties).toHaveProperty('context')
+        expect(inputSchemaSize).toBeLessThan(16_384)
     })
 })

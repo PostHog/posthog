@@ -57,6 +57,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -94,6 +95,7 @@ ActivityScope = Literal[
     "SignalScoutConfig",
     "StreamlitApp",
     "Metric",
+    "TableCertification",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -260,6 +262,10 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "verification_challenge",
         "_saml_x509_cert",
     ],
+    "IdentityProviderConfig": [
+        "scim_bearer_token",
+        "saml_x509_cert",
+    ],
     "User": [
         "email",
         "password",
@@ -306,6 +312,11 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "_saml_x509_cert": "SAML X.509 certificate",
         "_scim_enabled": "SCIM provisioning",
         "verified_at": "domain verification",
+    },
+    "IdentityProviderConfig": {
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
     },
 }
 
@@ -409,6 +420,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
     ],
+    "IdentityProviderConfig": [
+        "organization",
+        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        "domains",
+    ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
@@ -493,7 +509,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
-        "caching_states",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
