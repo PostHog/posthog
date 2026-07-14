@@ -39,23 +39,23 @@ Prior art: Claude Code cloud "routines" (schedule / GitHub event / API triggers)
 
 ## What we build on (already exists)
 
-| Capability | Where | State |
-|---|---|---|
-| Cloud agent execution (sandbox, Claude Code / Codex) | `products/tasks/backend/temporal/process_task/`, Modal sandbox, `@posthog/agent` agent-server | Production |
-| Model / adapter / reasoning effort per run | `TaskRun.state` via `RunState`, env passthrough to agent-server | Production, just not exposed on automations |
-| Cron scheduling via Temporal Schedules | `automation_service.py`, `run-task-automation` workflow | Production (TaskAutomation). No one-time runs; schedule policy left at SDK defaults |
-| CI + review-comment follow-up loop | `process_task` workflow: `pr_loop_enabled`, `get_pr_context`, `send_followup_to_sandbox`, `MAX_CI_REPETITIONS` | Production. Iteration count is in-workflow state only, it does not survive the workflow |
-| GitHub App integration, repo enumeration, token minting | `posthog/models/integration.py`, `github_integration_base.py` | Production |
-| Inbound GitHub webhook (HMAC verified, single endpoint) | `posthog/urls.py::github_webhook` | Production, hardcoded 3-way dispatch, no shared delivery dedup (only the conversations consumer dedups, with its own Redis pattern) |
-| MCP connectors injected into sandbox runs | `mcp_store` installations + `get_user_mcp_server_configs` / `get_sandbox_ph_mcp_configs` | Production |
-| Sandbox secrets + network policy | `SandboxEnvironment` (encrypted env vars, domain allowlist), resolved per run via `TaskRun.state` | Production |
-| Sandbox snapshots + warming | `SandboxSnapshot`, `create_snapshot` workflow | Production. Snapshot storage supports N repos, the warming workflow itself is single-repo |
-| Push notifications (Expo, device tokens) | `posthog/push_notifications.py`, `products/tasks/backend/push_dispatcher.py` | Production |
-| Email (Customer.io / SMTP) | `posthog/email.py` | Production |
-| Slack send | `SlackIntegration(...).client.chat_postMessage` | Production |
-| In-app notifications | `products/notifications/backend/facade/api.py::create_notification` | Production |
-| MCP tool codegen from OpenAPI | `products/tasks/mcp/tools.yaml` + `hogli build:openapi` | `task-automations-*` scaffolded, all disabled |
-| Project secret API keys (phs_) for service auth | PSAK infra (`adding-project-secret-api-key-auth`) | Production, read-only scopes only so far |
+| Capability                                              | Where                                                                                                          | State                                                                                                                               |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Cloud agent execution (sandbox, Claude Code / Codex)    | `products/tasks/backend/temporal/process_task/`, Modal sandbox, `@posthog/agent` agent-server                  | Production                                                                                                                          |
+| Model / adapter / reasoning effort per run              | `TaskRun.state` via `RunState`, env passthrough to agent-server                                                | Production, just not exposed on automations                                                                                         |
+| Cron scheduling via Temporal Schedules                  | `automation_service.py`, `run-task-automation` workflow                                                        | Production (TaskAutomation). No one-time runs; schedule policy left at SDK defaults                                                 |
+| CI + review-comment follow-up loop                      | `process_task` workflow: `pr_loop_enabled`, `get_pr_context`, `send_followup_to_sandbox`, `MAX_CI_REPETITIONS` | Production. Iteration count is in-workflow state only, it does not survive the workflow                                             |
+| GitHub App integration, repo enumeration, token minting | `posthog/models/integration.py`, `github_integration_base.py`                                                  | Production                                                                                                                          |
+| Inbound GitHub webhook (HMAC verified, single endpoint) | `posthog/urls.py::github_webhook`                                                                              | Production, hardcoded 3-way dispatch, no shared delivery dedup (only the conversations consumer dedups, with its own Redis pattern) |
+| MCP connectors injected into sandbox runs               | `mcp_store` installations + `get_user_mcp_server_configs` / `get_sandbox_ph_mcp_configs`                       | Production                                                                                                                          |
+| Sandbox secrets + network policy                        | `SandboxEnvironment` (encrypted env vars, domain allowlist), resolved per run via `TaskRun.state`              | Production                                                                                                                          |
+| Sandbox snapshots + warming                             | `SandboxSnapshot`, `create_snapshot` workflow                                                                  | Production. Snapshot storage supports N repos, the warming workflow itself is single-repo                                           |
+| Push notifications (Expo, device tokens)                | `posthog/push_notifications.py`, `products/tasks/backend/push_dispatcher.py`                                   | Production                                                                                                                          |
+| Email (Customer.io / SMTP)                              | `posthog/email.py`                                                                                             | Production                                                                                                                          |
+| Slack send                                              | `SlackIntegration(...).client.chat_postMessage`                                                                | Production                                                                                                                          |
+| In-app notifications                                    | `products/notifications/backend/facade/api.py::create_notification`                                            | Production                                                                                                                          |
+| MCP tool codegen from OpenAPI                           | `products/tasks/mcp/tools.yaml` + `hogli build:openapi`                                                        | `task-automations-*` scaffolded, all disabled                                                                                       |
+| Project secret API keys (phs\_) for service auth        | PSAK infra (`adding-project-secret-api-key-auth`)                                                              | Production, read-only scopes only so far                                                                                            |
 
 What TaskAutomation (PR #52752) lacks that Loops adds: trigger types beyond cron, model pinning, multi-repo, connectors config, behavior config, notification config, visibility model, secrets, activity logging, concurrency control and write-scoped PostHog MCP.
 
@@ -205,7 +205,7 @@ Postgres rows and Temporal Schedules must not drift; the plan states the mechani
 
 ## Data model (Django, `products/tasks/backend/models.py`)
 
-```
+```text
 Loop            team FK, owner FK, name, description, visibility,
                 instructions, runtime_adapter, model, reasoning_effort,
                 repositories JSON, sandbox_environment FK (nullable),
