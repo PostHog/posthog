@@ -47,7 +47,10 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
     def _email_message_side_effect(**kwargs: Any) -> EmailMessage:
         email_message = EmailMessage(**kwargs)
 
-        def _send_side_effect(*_args: Any, **_kwargs: Any) -> None:
+        def _send_side_effect(send_async: bool = True) -> None:
+            if not email_message.to:
+                raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
+
             # Already appended before send() runs, so subtract 1 to get this message's index.
             index_in_test = len(mocked_email_messages) - 1
             base = test_name or email_message.campaign_key
