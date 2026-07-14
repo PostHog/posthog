@@ -18,8 +18,10 @@ Two other docs sit next to this one:
 ## Running
 
 ```bash
-hogli evals:sandboxed [SELECTOR ...] [flags]
+hogli evals [SELECTOR ...] [flags]
 ```
+
+`hogli evals:sandboxed` is a back-compat alias of `hogli evals`; both run the same harness.
 
 Run it from a flox shell — the personhog build needs flox's Rust toolchain (`cargo`, `pkg-config`, OpenSSL), and outside it the preflight build fails.
 
@@ -30,7 +32,7 @@ python -m ee.hogai.eval.sandboxed.harness [SELECTOR ...] [flags]
 ```
 
 No manual env sourcing is needed on either path.
-The harness loads the repo-root `.env` itself (shell values win), and `hogli evals:sandboxed` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
+The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
 Which variables are required depends on the selected suites' kinds: every run needs `BRAINTRUST_API_KEY`; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 

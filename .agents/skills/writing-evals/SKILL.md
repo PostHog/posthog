@@ -2,7 +2,7 @@
 name: writing-evals
 description: >
   Teaches how to write and run evals on the `ee/hogai/eval/sandboxed/` harness — sandboxed agent suites that execute the real coding agent in a Docker or Modal sandbox against a seeded Hedgebox project, and one-shot suites that score a single in-process model invocation per case.
-  Use when adding or changing eval suites, cases, scorers, seeders, or synthesizers under `ee/hogai/eval/sandboxed/`, or when running or debugging those evals (`hogli evals:sandboxed`).
+  Use when adding or changing eval suites, cases, scorers, seeders, or synthesizers under `ee/hogai/eval/sandboxed/`, or when running or debugging those evals (`hogli evals`).
   Covers suite kinds and discovery, case anatomy, the seeder/synthesizer split, the one-branch scorer patterns, and how to read results.
   Not for `ee/hogai/eval/ci/` pytest evals, and not for the LLM Analytics product's evaluation features.
 ---
@@ -146,10 +146,12 @@ Rules that apply to both:
 ## Running
 
 ```bash
-hogli evals:sandboxed --list                      # suite ids, no infra
-hogli evals:sandboxed eval_my_thing --eval my_case  # one case, docker
-hogli evals:sandboxed cli_mcp --provider modal    # a domain, remote, fully parallel
+hogli evals --list                      # suite ids, no infra
+hogli evals eval_my_thing --eval my_case  # one case, docker
+hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
 ```
+
+`hogli evals:sandboxed` is a back-compat alias of `hogli evals`.
 
 - Run from a flox shell (or wrap in `flox activate -- bash -c "..."`): the personhog build needs flox's Rust toolchain, and outside it the preflight `cargo build` dies on a missing `pkg-config`/OpenSSL.
 - Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
@@ -165,7 +167,7 @@ hogli evals:sandboxed cli_mcp --provider modal    # a domain, remote, fully para
 
 Before opening a PR:
 
-1. `hogli evals:sandboxed --list` shows your suite (this also import-checks every eval module).
-2. Run your new case alone: `hogli evals:sandboxed <suite> --eval <case>`. Read the transcript named on the final line, then the case summary and scorer metadata, not just the score.
+1. `hogli evals --list` shows your suite (this also import-checks every eval module).
+2. Run your new case alone: `hogli evals <suite> --eval <case>`. Read the transcript named on the final line, then the case summary and scorer metadata, not just the score.
 3. Unit-test scorer and synthesizer logic where it's cheap — but **outside** `sandboxed/`: the tree is excluded from pytest collection, so never add a `conftest.py` or `pytest` import there, and a test file placed inside it will silently never run. Existing homes: `ee/hogai/test/eval/`, `ee/hogai/eval/test_*.py`, and product test dirs.
 4. Prompts and `expected` values use exact Hedgebox taxonomy names, relative date ranges (`-30d`, `-8w`), and shape-based assertions — never absolute counts.

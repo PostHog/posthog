@@ -776,9 +776,13 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    evals:
+        cmd: python -m ee.hogai.eval.sandboxed.harness
+        description: Run evals — sandboxed agent and one-shot suites (extra args pass through, e.g. `mcp_benchmark` or `cli_mcp --provider modal`)
+        needs_secrets: true
     evals:sandboxed:
         cmd: python -m ee.hogai.eval.sandboxed.harness
-        description: Run sandboxed agent evals (extra args pass through, e.g. `cli_mcp --provider modal`)
+        description: Alias of `evals` (kept for back-compat)
         needs_secrets: true
 quality:
     lint:
