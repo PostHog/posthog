@@ -86,8 +86,8 @@ function summarizeBulkCopy(
     if (copied.length > 0 || pendingApprovalCount > 0) {
         const parts = [
             summary,
-            pendingApprovalCount > 0 ? `${pendingApprovalCount} pending approval` : null,
-            hardFailureCount > 0 ? `${hardFailureCount} failed` : null,
+            pendingApprovalCount > 0 ? `${pluralize(pendingApprovalCount, 'copy', 'copies')} pending approval` : null,
+            hardFailureCount > 0 ? `${pluralize(hardFailureCount, 'copy', 'copies')} failed` : null,
         ].filter((part): part is string => part !== null)
         return {
             level: 'warning',
@@ -123,7 +123,7 @@ function aggregateCopyResponse(
     const failed: BulkCopyFailure[] = response.failed.map((entry) => ({
         key,
         projectId: entry.project_id ?? null,
-        errorMessage: errorMessageFrom(entry.error_message ?? 'Copy failed'),
+        errorMessage: errorMessageFrom(entry.error_message || 'Copy failed'),
         approvalPending: entry.approval_pending,
     }))
     const warnings: string[] = []
