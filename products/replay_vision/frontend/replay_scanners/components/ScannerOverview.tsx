@@ -78,7 +78,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     return (
         <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`}>
             <div className="text-sm">
-                Flagged <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
+                Matched <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
                 session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
                 <strong className="tabular-nums">{scannerImpact.affected_users.toLocaleString()}</strong> user
                 {scannerImpact.affected_users === 1 ? '' : 's'}
@@ -195,7 +195,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         <LemonButton
                             size="xsmall"
                             icon={<IconPeople />}
-                            tooltip={`Save users tagged "${tag}" as a cohort`}
+                            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
                             onClick={() => saveAffectedCohort(tag)}
                             loading={affectedCohortLoading && savingCohortTag === tag}
                             disabledReason={
@@ -304,9 +304,15 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
                 </div>
                 {/* The histogram fills to match the taller line chart, so the row has no dead space (stretch is the grid default). */}
                 <div className="min-w-0">{typeOverview}</div>
-                <div className="min-w-0">
-                    <ImpactOverview scannerId={scannerId} />
-                </div>
+            </div>
+        )
+    }
+    // Impact only exists for monitors; other types keep their overview at full width.
+    if (scannerType !== 'monitor') {
+        return (
+            <div className="space-y-4">
+                {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
+                {typeOverview}
             </div>
         )
     }

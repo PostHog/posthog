@@ -497,7 +497,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Save the users this scanner flagged as a static cohort, for surveys, funnels, and retention analysis.
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
  */
 export const visionScannersAffectedCohortCreateBodyWindowDaysDefault = 30
 export const visionScannersAffectedCohortCreateBodyWindowDaysMax = 90

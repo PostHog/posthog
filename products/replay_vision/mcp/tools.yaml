@@ -136,11 +136,11 @@ tools:
             idempotent: false
         title: Save a scanner's affected users as a cohort
         description: >
-            Create a static cohort of the identified users a scanner flagged within the trailing window (default 30
-            days). For monitor scanners only verdict-yes observations count; for other types every succeeded
-            observation counts. The cohort is a dated snapshot and does not live-update; calling again creates a new
-            cohort. Use the cohort anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment
-            exclusion. Fails when the window contains no identified users.
+            Create a static cohort of the users a scanner matched within the trailing window (default 30 days).
+            Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers
+            require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling
+            again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
+            experiment exclusion. Fails when the window has no users or none resolve to a person profile.
         feature_flag: replay-vision
     vision-scanners-create:
         operation: vision_scanners_create
@@ -240,10 +240,10 @@ tools:
             idempotent: true
         title: Get a scanner's impact counts
         description: >
-            Affected sessions and identified users for a scanner over the trailing 30-day window, counted from its
-            observations. For monitor scanners only verdict-yes observations count; for other types every succeeded
-            observation counts. `unidentified_sessions` reports affected sessions with no identified person, so the
-            user count reads honestly against the session count.
+            Affected sessions and users for a scanner over a trailing window, counted from its observations.
+            Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers
+            require `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried
+            no distinct ID, so the user count reads honestly against the session count.
         feature_flag: replay-vision
     vision-scanners-list:
         operation: vision_scanners_list

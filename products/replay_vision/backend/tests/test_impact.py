@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -51,7 +51,8 @@ class _ImpactTestCase(APIBaseTest):
         verdict: str | None = "yes",
         result: dict | None = None,
         status: ObservationStatus = ObservationStatus.SUCCEEDED,
-        created_at: timezone.datetime | None = None,
+        created_at: datetime | None = None,
+        session_started_at: datetime | None = None,
     ) -> ReplayObservation:
         if result is None:
             result = {"model_output": {"verdict": verdict}} if verdict is not None else {}
@@ -64,6 +65,7 @@ class _ImpactTestCase(APIBaseTest):
             scanner_snapshot=_snapshot_for(scanner),
             scanner_result=result,
             triggered_by=ObservationTrigger.SCHEDULE,
+            session_started_at=session_started_at,
             # DB constraint: terminal statuses carry completed_at.
             completed_at=timezone.now() if status != ObservationStatus.PENDING else None,
         )
@@ -109,9 +111,7 @@ class TestComputeScannerImpact(_ImpactTestCase):
         [
             ("monitor_rejects_tag", ScannerType.MONITOR, {"tag": "bug"}),
             ("classifier_requires_tag", ScannerType.CLASSIFIER, {}),
-            ("classifier_rejects_score", ScannerType.CLASSIFIER, {"tag": "bug", "min_score": 1.0}),
             ("scorer_requires_bound", ScannerType.SCORER, {}),
-            ("scorer_rejects_tag", ScannerType.SCORER, {"tag": "bug", "min_score": 1.0}),
             ("summarizer_unsupported", ScannerType.SUMMARIZER, {}),
         ]
     )
@@ -142,13 +142,17 @@ class TestComputeScannerImpact(_ImpactTestCase):
         assert impact.affected_users == 1
         assert impact.sessions_without_user == 1
 
-    def test_excludes_out_of_window_and_non_succeeded(self) -> None:
+    def test_excludes_out_of_window_backfills_and_non_succeeded(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
         self._make_observation(
             scanner, session_id="s-old", distinct_id="u1", created_at=timezone.now() - timedelta(days=31)
         )
-        self._make_observation(scanner, session_id="s-failed", distinct_id="u2", status=ObservationStatus.FAILED)
-        self._make_observation(scanner, session_id="s-inel", distinct_id="u3", status=ObservationStatus.INELIGIBLE)
+        # Backfill: old session scanned today must not count as current impact.
+        self._make_observation(
+            scanner, session_id="s-backfill", distinct_id="u2", session_started_at=timezone.now() - timedelta(days=45)
+        )
+        self._make_observation(scanner, session_id="s-failed", distinct_id="u3", status=ObservationStatus.FAILED)
+        self._make_observation(scanner, session_id="s-inel", distinct_id="u4", status=ObservationStatus.INELIGIBLE)
 
         assert compute_scanner_impact(scanner, window_days=30).affected_sessions == 0
 
@@ -179,7 +183,7 @@ class TestCreateAffectedCohort(_ImpactTestCase):
         cohort.refresh_from_db()
         assert cohort.is_static is True
         assert cohort.created_by == self.user
-        assert scanner.name in cohort.name
+        assert scanner.name in (cohort.name or "")
 
     def test_raises_when_no_users_in_window(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
@@ -265,3 +269,16 @@ class TestImpactEndpoints(_ImpactTestCase):
         resp = self.client.get(f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/impact/")
 
         assert resp.status_code == 400
+
+    def test_impact_passes_qualifiers_through(self) -> None:
+        scanner = self._make_scanner(ScannerType.CLASSIFIER)
+        self._make_observation(scanner, session_id="s1", distinct_id="u1", result={"model_output": {"tags": ["bug"]}})
+        self._make_observation(scanner, session_id="s2", distinct_id="u2", result={"model_output": {"tags": ["ux"]}})
+
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/impact/", {"tag": "bug", "window_days": 7}
+        )
+
+        assert resp.status_code == 200, resp.json()
+        assert resp.json()["affected_sessions"] == 1
+        assert resp.json()["window_days"] == 7

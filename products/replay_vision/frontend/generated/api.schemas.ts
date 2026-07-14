@@ -903,7 +903,7 @@ export interface AffectedCohortResponseApi {
     readonly cohort_id: number
     /** Generated cohort name, stamped with the creation date since the snapshot doesn't live-update. */
     readonly name: string
-    /** Persons actually in the created cohort. Can be lower than `affected_users`: flagged distinct IDs without a person profile are dropped, and merged persons deduplicate. */
+    /** Persons actually in the created cohort. Can be lower than `affected_users`: matched distinct IDs without a person profile are dropped, and merged persons deduplicate. */
     readonly users_in_cohort: number
     /** Trailing window the cohort was drawn from, in days. */
     readonly window_days: number

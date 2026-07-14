@@ -1,15 +1,11 @@
-"""Who a scanner's findings affected: counted from observations, exportable as a static cohort.
-
-"Affected" needs a per-type predicate: monitors flag via verdict, classifiers via a tag,
-scorers via a score bound. Callers must pass the qualifier the scanner type requires.
-"""
+"""Who a scanner's findings affected: counted from observations, exportable as a static cohort."""
 
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db.models import Case, CharField, Count, FloatField, Func, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from posthog.models.user import User
@@ -19,12 +15,12 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 
 DEFAULT_IMPACT_WINDOW_DAYS = 30
-# Bounds the synchronous in-request insert (~1 personhog batch round-trip per 1000 ids).
+# Bounds the synchronous in-request insert.
 MAX_COHORT_DISTINCT_IDS = 10_000
-# Stable prefix so Vision can re-identify its own cohorts later (dedup, cleanup).
-AFFECTED_COHORT_NAME_PREFIX = "Affected by "
+# Stable prefix so Vision can re-identify its own cohorts.
+COHORT_NAME_PREFIX = "Matched by "
 
-# Presence of a distinct_id, which may still be an anonymous device id — not proof of an identified person.
+# A distinct_id may still be an anonymous device id, not an identified person.
 _HAS_USER = ~Q(distinct_id__isnull=True) & ~Q(distinct_id="")
 
 
@@ -44,17 +40,16 @@ def affected_observations(
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> QuerySet[ReplayObservation]:
-    """Succeeded observations matching the scanner type's impact predicate.
-
-    Raises ValueError when the type's required qualifier is missing, an inapplicable one is
-    passed, or the type has no impact semantics (summarizers).
-    """
+    """Succeeded observations matching the type's impact predicate; raises ValueError on invalid qualifiers."""
     since = timezone.now() - timedelta(days=window_days)
-    base = ReplayObservation.objects.filter(
+    base = ReplayObservation.objects.annotate(
+        # Session time, not scan time: backfills must not count as current impact.
+        _affected_at=Coalesce("session_started_at", "created_at"),
+    ).filter(
         scanner=scanner,
         team_id=scanner.team_id,
         status=ObservationStatus.SUCCEEDED,
-        created_at__gte=since,
+        _affected_at__gte=since,
     )
     scanner_type = scanner.scanner_type
     has_scores = min_score is not None or max_score is not None
@@ -69,7 +64,7 @@ def affected_observations(
             raise ValueError("Classifiers don't produce scores; use `tag` instead.")
         if not tag:
             raise ValueError("Classifier impact requires `tag`: the tag whose affected users you want.")
-        # Same `@>` predicate the observations list filter uses, over fixed and freeform tags.
+        # Same predicate as the observations list filter.
         return base.filter(
             Q(scanner_result__model_output__tags__contains=[tag])
             | Q(scanner_result__model_output__tags_freeform__contains=[tag])
@@ -139,31 +134,24 @@ def create_affected_cohort(
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> tuple[Cohort, int]:
-    """Static cohort of the users the scanner flagged; returns the cohort and its real member count.
-
-    Raises ValueError on a missing/invalid qualifier for the scanner type, an empty window,
-    a window over the size cap, or when no flagged distinct id resolves to a person.
-    """
+    """Static cohort of matched users; returns (cohort, real member count). Raises ValueError when not creatable."""
     distinct_ids = list(
         affected_observations(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
         .filter(_HAS_USER)
         .values_list("distinct_id", flat=True)
-        .distinct()
+        .distinct()[: MAX_COHORT_DISTINCT_IDS + 1]
     )
     if not distinct_ids:
         raise ValueError("No users in the window to save as a cohort.")
     if len(distinct_ids) > MAX_COHORT_DISTINCT_IDS:
-        raise ValueError(
-            f"Too many users to save as one cohort ({len(distinct_ids):,}; the limit is "
-            f"{MAX_COHORT_DISTINCT_IDS:,}). Narrow the window."
-        )
+        raise ValueError(f"Too many users to save as one cohort (over {MAX_COHORT_DISTINCT_IDS:,}). Narrow the window.")
 
     qualifier = _qualifier_label(tag, min_score, max_score)
     cohort = Cohort.objects.create(
         team_id=scanner.team_id,
-        name=f"{AFFECTED_COHORT_NAME_PREFIX}{scanner.name}{qualifier} ({timezone.now().date().isoformat()})"[:400],
+        name=f"{COHORT_NAME_PREFIX}{scanner.name}{qualifier} ({timezone.now().date().isoformat()})"[:400],
         description=(
-            f"Users flagged by the '{scanner.name}' scanner{qualifier} in the last {window_days} days. Static snapshot."
+            f"Users matched by the '{scanner.name}' scanner{qualifier} in the last {window_days} days. Static snapshot."
         ),
         is_static=True,
         created_by=user,
@@ -171,13 +159,13 @@ def create_affected_cohort(
     try:
         cohort.insert_users_by_list(distinct_ids, team_id=scanner.team_id, raise_on_error=True)
     except Exception:
-        # Nothing references the cohort yet; don't leave a partial one behind.
+        # Don't leave a partial cohort behind.
         cohort.delete()
         raise
     cohort.refresh_from_db()
-    # The real member count: person-less distinct ids are dropped and merged persons dedupe during insert.
+    # Person-less ids are dropped and merged persons dedupe during insert.
     inserted = cohort.count or 0
     if inserted == 0:
         cohort.delete()
-        raise ValueError("None of the flagged users have a person profile to add to a cohort.")
+        raise ValueError("None of the matched users have a person profile to add to a cohort.")
     return cohort, inserted

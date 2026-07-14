@@ -369,7 +369,7 @@ export const VisionScannersDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Save the users this scanner flagged as a static cohort, for surveys, funnels, and retention analysis.
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
  */
 export const VisionScannersAffectedCohortCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner.'),

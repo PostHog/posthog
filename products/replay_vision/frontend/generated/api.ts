@@ -471,7 +471,7 @@ export const getVisionScannersAffectedCohortCreateUrl = (projectId: string, id: 
 }
 
 /**
- * Save the users this scanner flagged as a static cohort, for surveys, funnels, and retention analysis.
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
  */
 export const visionScannersAffectedCohortCreate = async (
     projectId: string,

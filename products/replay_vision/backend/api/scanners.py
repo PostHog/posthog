@@ -805,7 +805,7 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     users_in_cohort = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Persons actually in the created cohort. Can be lower than `affected_users`: flagged "
+            "Persons actually in the created cohort. Can be lower than `affected_users`: matched "
             "distinct IDs without a person profile are dropped, and merged persons deduplicate."
         ),
     )
@@ -975,7 +975,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["replay_scanner:read", "cohort:write"],
     )
     def affected_cohort(self, request: Request, **kwargs: Any) -> Response:
-        """Save the users this scanner flagged as a static cohort, for surveys, funnels, and retention analysis."""
+        """Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis."""
         scanner = self.get_object()
         body = AffectedCohortRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
