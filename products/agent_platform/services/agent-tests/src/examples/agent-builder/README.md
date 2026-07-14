@@ -123,7 +123,19 @@ These are platform-side, not bundle-side — and they're in place:
 
 ## Deploying
 
-Through the authoring MCP (preferred — same as other example bundles):
+The canonical US-prod deployment is kept in sync by CI:
+[`.github/workflows/cd-agent-builder-seed.yml`](../../../../../../../.github/workflows/cd-agent-builder-seed.yml)
+runs `seed.py agent-builder` against `us.posthog.com` on every master
+push touching this bundle, `seed.py`, or `backend/kernel_skills/`, plus
+a daily schedule (kernel-skill changes only take effect once the
+backend deploy carrying them is live, so the scheduled run converges
+them; it also heals manual drift). It authenticates with the
+`AGENT_BUILDER_SEED_PAT` repo secret and is gated to the canonical
+deploy repo via `CD_DEPLOY_ENABLED`. Manual seeding is only needed for
+other environments or when bootstrapping from scratch.
+
+Through the authoring MCP (preferred for manual deploys — same as
+other example bundles):
 
 ```text
 agent-applications-create slug=agent-builder name="Agent Builder"
@@ -154,14 +166,17 @@ loads the bundle from disk and asserts:
 - The bundle carries NO inline skills (kernel skills are injected at
   freeze from backend code; builder playbooks are served by the MCP)
 - `agent.md` is present and non-trivial
-- `spec.mcps` is empty (the Agent Builder authors via native tools only —
-  no external MCP server in the write path) **and** every declared
-  native tool id resolves in the native catalog (`listNativeTools()`)
-- Both `chat` and `mcp` triggers are declared
+- Authoring goes through ONE PostHog MCP (`spec.mcps[0].auth.provider`
+  is `posthog`), the only natives left are the agent's own runtime
+  tools (memory + web-search), **and** every declared native tool id
+  resolves in the native catalog (`listNativeTools()`)
+- Both `chat` and `mcp` triggers are declared — and NO `slack` trigger
+  (no dedicated Slack app exists, and a slack trigger blocks promote
+  until its required secrets are set)
 - The `kind: "client"` tools (`focus_*`, `toast`, `get_context`,
-  `set_secret`) are present, and the destructive native writes
-  (`promote`, `archive`) carry inline `requires_approval` +
-  `approval_policy`
+  `set_secret`, `connect_mcp`) are present, and the destructive MCP
+  authoring tools (`promote`, `archive`, `destroy`) are gated with
+  `level: "approve"` + a principal `approval_policy`
 
 NOT a real-inference test — the model is faux. This is the wiring
 regression net, not a quality bar. (A future real-inference case
