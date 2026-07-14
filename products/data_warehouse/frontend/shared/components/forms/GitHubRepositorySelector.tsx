@@ -5,7 +5,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { githubIntegrationLogic } from 'lib/integrations/githubIntegrationLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 
@@ -48,8 +48,7 @@ function GitHubRepositoryDropdown({ integrationId }: { integrationId: number }):
     return (
         <LemonField name="repository" label="Repository">
             {({ value, onChange }) => (
-                <LemonSelect
-                    searchable
+                <LemonSearchableSelect
                     data-attr="repository"
                     placeholder="Select a repository"
                     searchPlaceholder="Search repositories..."

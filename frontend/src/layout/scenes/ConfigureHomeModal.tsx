@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -175,8 +175,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     This dashboard opens by default for everyone who has not set a custom homepage.
                                 </p>
                             </div>
-                            <LemonSelect<number | null>
-                                searchable
+                            <LemonSearchableSelect<number | null>
                                 className="w-full"
                                 fullWidth
                                 options={projectDefaultDashboardOptions}

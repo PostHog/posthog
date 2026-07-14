@@ -2,7 +2,14 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSearchableSelect,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { midEllipsis } from 'lib/utils/strings'
 
@@ -358,8 +365,7 @@ export const DetailFilters = (): JSX.Element => {
                 ))}
             </div>
 
-            <LemonSelect
-                searchable
+            <LemonSearchableSelect
                 value={undefined}
                 onChange={(value) => {
                     if (value === '__add_custom__') {

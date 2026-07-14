@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
@@ -49,8 +49,7 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
         [preflight?.available_timezones]
     )
     return (
-        <LemonSelect
-            searchable
+        <LemonSearchableSelect
             value={value}
             options={options}
             onChange={(val) => val && onChange(val)}

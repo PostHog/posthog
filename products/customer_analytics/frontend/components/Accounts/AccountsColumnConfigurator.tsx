@@ -8,7 +8,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -281,8 +281,7 @@ function CategoryPicker({
     onChange: (key: AccountColumnGroupKey) => void
 }): JSX.Element {
     return (
-        <LemonSelect
-            searchable
+        <LemonSearchableSelect
             size="xsmall"
             value={activeKey}
             options={groups.map((group) => ({

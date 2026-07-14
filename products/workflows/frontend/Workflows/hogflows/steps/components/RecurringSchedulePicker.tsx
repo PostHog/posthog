@@ -2,7 +2,14 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonCalendarSelectInput, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonInput,
+    LemonSearchableSelect,
+    LemonSelect,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { timeZoneLabel } from 'lib/utils/timezones'
@@ -245,8 +252,7 @@ function TimezoneMenuPicker({ value, onChange }: { value: string; onChange: (tim
     )
 
     return (
-        <LemonSelect
-            searchable
+        <LemonSearchableSelect
             value={value}
             options={options}
             onChange={(val) => val && onChange(val)}
