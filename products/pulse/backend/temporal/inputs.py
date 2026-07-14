@@ -32,6 +32,26 @@ class SynthesizeActivityInputs:
 
 
 @dataclasses.dataclass
+class LaunchAgentInputs:
+    team_id: int
+    brief_id: str
+    bundle: dict
+
+
+@dataclasses.dataclass
+class FinalizeAgentInputs:
+    team_id: int
+    brief_id: str
+    bundle: dict
+    sandbox_id: str
+
+
+@dataclasses.dataclass
+class CleanupSandboxInputs:
+    sandbox_id: str
+
+
+@dataclasses.dataclass
 class MarkBriefFailedInputs:
     team_id: int
     brief_id: str
