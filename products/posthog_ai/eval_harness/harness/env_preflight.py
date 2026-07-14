@@ -13,6 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ..engines.types import EnvVarSpec
 from .providers import PreflightError
 from .requirements import SuiteKind
 
@@ -20,24 +21,6 @@ REPO_ROOT = Path(__file__).parents[4]
 
 _ASSIGNMENT_RE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$")
 _ESCAPES = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}
-
-
-class CoreEvalEnv(BaseModel):
-    """Environment variables every eval run needs, regardless of suite kind.
-
-    Field names are the literal environment variable names; each description is
-    surfaced in the preflight error so a missing variable says what it is for.
-    Provider-specific prerequisites with non-env fallbacks (Modal tokens vs
-    ``~/.modal.toml``, ``NGROK_AUTHTOKEN`` vs the ngrok config file) stay in the
-    provider strategies' ``preflight()``.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    BRAINTRUST_API_KEY: str = Field(
-        min_length=1,
-        description="records experiments and scores to Braintrust",
-    )
 
 
 class SandboxEvalEnv(BaseModel):
@@ -152,15 +135,22 @@ def load_env_file() -> None:
         os.environ.setdefault(key, value)
 
 
-def validate_eval_env(agent_runtime: str = "claude", *, kinds: Collection[SuiteKind] = (SuiteKind.SANDBOXED,)) -> None:
+def validate_eval_env(
+    agent_runtime: str = "claude",
+    *,
+    kinds: Collection[SuiteKind] = (SuiteKind.SANDBOXED,),
+    engine_env: Collection[EnvVarSpec] = (),
+) -> None:
     """Fail fast, before any infrastructure boots, if a required variable is unset.
 
-    Only the env models for the selected suites' kinds are checked, so a run
-    without sandboxed suites doesn't demand sandbox credentials. Without this a
-    missing key surfaces minutes into a run as an opaque mid-case failure
-    (gateway 401s, Braintrust login errors) instead of a one-line fix.
+    ``engine_env`` is the selected engine's ``required_env()`` (e.g. the Braintrust
+    engine's ``BRAINTRUST_API_KEY``). Only the env models for the selected suites'
+    kinds are checked, so a run without sandboxed suites doesn't demand sandbox
+    credentials. Without this a missing key surfaces minutes into a run as an
+    opaque mid-case failure (gateway 401s, engine login errors) instead of a
+    one-line fix.
     """
-    models: list[type[BaseModel]] = [CoreEvalEnv]
+    models: list[type[BaseModel]] = []
     for kind, kind_models in ENV_MODELS_BY_KIND.items():
         if kind in kinds:
             models.extend(kind_models)
@@ -169,6 +159,13 @@ def validate_eval_env(agent_runtime: str = "claude", *, kinds: Collection[SuiteK
 
     lines = []
     seen: set[str] = set()
+    # Engine env first, so its line (e.g. BRAINTRUST_API_KEY) leads the report as
+    # the core CoreEvalEnv field used to.
+    for spec in engine_env:
+        if spec.name in seen or os.environ.get(spec.name):
+            continue
+        seen.add(spec.name)
+        lines.append(f"  - {spec.name}: {spec.description}")
     for model in models:
         try:
             model.model_validate(dict(os.environ))

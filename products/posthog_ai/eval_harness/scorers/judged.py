@@ -11,7 +11,17 @@ from __future__ import annotations
 from typing import Any
 
 from autoevals.llm import LLMClassifier
-from braintrust import Score
+
+from .contract import AsyncOnlyScorerMixin, Score
+
+# Re-exported for back-compat: AsyncOnlyScorerMixin now lives in the scorer contract.
+__all__ = [
+    "BINARY_CHOICE_SCORES",
+    "GRADED_ALIGNMENT_CHOICE_SCORES",
+    "JUDGE_MODEL",
+    "AsyncOnlyScorerMixin",
+    "JudgedScorer",
+]
 
 BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
@@ -25,13 +35,6 @@ GRADED_ALIGNMENT_CHOICE_SCORES = {
 }
 
 JUDGE_MODEL = "gpt-5.4"
-
-
-class AsyncOnlyScorerMixin:
-    """Marks a scorer as async-only; the sync branch is unreachable in the harness."""
-
-    def _run_eval_sync(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
-        raise NotImplementedError(f"{type(self).__name__} is async-only; call eval_async()")
 
 
 class JudgedScorer(AsyncOnlyScorerMixin, LLMClassifier):

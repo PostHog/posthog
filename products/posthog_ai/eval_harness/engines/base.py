@@ -9,15 +9,13 @@ the run base or any suite.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Protocol
+from typing import ClassVar, Protocol
 
-from braintrust import EvalCase, EvalHooks
-from braintrust.framework import EvalResultWithSummary
+from .types import EnvVarSpec, EvalTaskFn, ExperimentResult, ExperimentSpec
 
-EvalTaskFn = Callable[[dict[str, Any], EvalHooks], Awaitable[dict[str, Any] | None]]
-"""The per-case task the engine drives: it takes the JSON-safe case input and the
-Braintrust hooks and returns the scorer ``output`` dict (or ``None``)."""
+# Re-exported for callers that import ``EvalTaskFn`` from the engine seam; it now
+# lives in ``types`` (retargeted at the neutral ``CaseHooks``).
+__all__ = ["EvalEngine", "EvalTaskFn"]
 
 
 class EvalEngine(Protocol):
@@ -28,20 +26,27 @@ class EvalEngine(Protocol):
     future ``PostHogEvalsEngine`` — recording datasets, experiments, and scores
     into PostHog's own LLM analytics as the system of record — can slot in behind
     the same interface, without changing the run base or any suite.
+
+    Obligations (documented on the implementation and pinned by the conformance
+    suite): never throttle or budget the task; persist ``hooks.metadata`` onto
+    ``CaseResult.metadata``; a task exception becomes ``CaseResult.error`` and is
+    excluded from aggregates; ``None`` scores are preserved per-case and excluded
+    from the means.
     """
 
-    async def run_experiment(
-        self,
-        *,
-        project_name: str,
-        cases: Sequence[EvalCase],
-        task: EvalTaskFn,
-        scorers: Sequence[Any],
-        trial_count: int,
-        is_public: bool,
-        no_send_logs: bool,
-        metadata: dict[str, Any],
-    ) -> EvalResultWithSummary:
-        """Run every case (``trial_count`` times each) through ``task`` and
-        ``scorers``, and return the result plus its per-scorer summary."""
+    name: ClassVar[str]
+    """Stable engine identifier; ``reporting`` renders ``name.title()`` as the label."""
+
+    supports_public_experiments: ClassVar[bool]
+    """Whether the engine has a notion of a public experiment (``is_public``)."""
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        """The environment variables this engine needs, validated in preflight."""
+        ...
+
+    async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        """Run every case in ``spec`` (``trial_count`` times each) through the task
+        and scorers, and return the engine-neutral result plus its per-scorer
+        summary."""
         ...

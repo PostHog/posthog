@@ -112,13 +112,11 @@ Follow this split (and the constants-shared-by-all-three pattern) when seeding a
 
 Two patterns, each with exactly **one** implemented branch — never both `_run_eval_sync` and `_run_eval_async` (see the Scorers section of `harness/AGENTS.md`):
 
-**Deterministic** — subclass `Scorer`, implement `_run_eval_sync` only. The base class supplies the async path Braintrust uses.
+**Deterministic** — subclass `Scorer`, implement `_run_eval_sync` only. The base class supplies the async path the engine uses.
 
 ```python
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import LogParser
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 
 class MyCheck(Scorer):

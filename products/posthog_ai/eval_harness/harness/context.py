@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from posthoganalytics import Posthog
 
+from ..engines.base import EvalEngine
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
@@ -63,6 +64,9 @@ class EvalContext:
 
     reporter: ProgressReporter
     """Owns all terminal output and the ``eval_results.jsonl`` export."""
+
+    engine: EvalEngine
+    """The execution/reporting backend every suite runs on, resolved once per run."""
 
     per_case_timeout_seconds: int
     """Budget for the agent run, started after team setup so queueing cannot consume it."""

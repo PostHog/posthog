@@ -58,10 +58,9 @@ from __future__ import annotations
 from typing import Any
 
 from autoevals.llm import LLMClassifier
-from braintrust import Score
-from braintrust_core.score import Scorer
 
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, AsyncOnlyScorerMixin, JudgedScorer, LogParser
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 # Not the shared JUDGE_MODEL: these judges were baselined on gpt-4.1, and
 # swapping the model resets their Braintrust history.

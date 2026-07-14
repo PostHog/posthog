@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import LogParser
+
+from .contract import Score, Scorer
 
 
 class ExitCodeZero(Scorer):

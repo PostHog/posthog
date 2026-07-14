@@ -9,8 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
-from braintrust.logger import ExperimentSummary
+from ..engines.types import EvalSummary
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
@@ -43,7 +42,7 @@ class ProgressReporter:
         self._total_suites = total_suites
         self._lock = asyncio.Lock()
         self._finished_suites = 0
-        self._summaries: dict[str, ExperimentSummary] = {}
+        self._summaries: dict[str, EvalSummary] = {}
         self._case_counts: dict[str, int] = defaultdict(int)
         self._case_durations: dict[str, float] = defaultdict(float)
         self._case_statuses: dict[str, Counter[str]] = defaultdict(Counter)
@@ -111,7 +110,7 @@ class ProgressReporter:
                 f"{_format_duration(result.duration_seconds)}"
             )
 
-    async def record_summary(self, experiment_name: str, summary: ExperimentSummary, *, error_count: int = 0) -> None:
+    async def record_summary(self, experiment_name: str, summary: EvalSummary, *, error_count: int = 0) -> None:
         async with self._lock:
             self._summaries[experiment_name] = summary
             self._summary_error_counts[experiment_name] = error_count
@@ -196,7 +195,7 @@ class ProgressReporter:
             combined["error"] += max(statuses["error"], self._summary_error_counts[experiment_name])
         return combined
 
-    def _experiment_block(self, experiment_name: str, summary: ExperimentSummary) -> list[str]:
+    def _experiment_block(self, experiment_name: str, summary: EvalSummary) -> list[str]:
         statuses = self._case_statuses[experiment_name]
         error_count = max(statuses["error"], self._summary_error_counts[experiment_name])
         lines = [
@@ -215,7 +214,7 @@ class ProgressReporter:
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
             lines.append(f"  PostHog: {posthog_url}")
-        lines.append(f"  Braintrust: {summary.experiment_url or '(local run, not uploaded)'}")
+        lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:
             lines.append(f"  Agent logs: {log_dir}")
@@ -258,19 +257,3 @@ def _format_duration(seconds: float) -> str:
         return f"{int(minutes)}m {remaining:.1f}s"
     hours, minutes = divmod(int(minutes), 60)
     return f"{hours}h {minutes}m {remaining:.1f}s"
-
-
-def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
-    return True
-
-
-def _quiet_report_run(results: list[bool], verbose: bool, jsonl: bool) -> bool:
-    return True
-
-
-QUIET_REPORTER: ReporterDef = ReporterDef(
-    name="quiet",
-    report_eval=_quiet_report_eval,
-    report_run=_quiet_report_run,
-)
-"""Reporter that keeps Braintrust's per-experiment tables out of the shared stream."""

@@ -20,11 +20,9 @@ import re
 import json
 from typing import Any
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "BINARY_CHOICE_SCORES",

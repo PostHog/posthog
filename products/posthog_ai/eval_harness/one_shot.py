@@ -16,11 +16,9 @@ from collections.abc import Awaitable, Callable, Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from braintrust import EvalHooks
-from braintrust.framework import EvalResultWithSummary
-
 from .base import _BaseEvalRun
 from .config import BaseEvalCase
+from .engines.types import CaseHooks, ExperimentResult
 from .log_sink import write_case_logs
 
 if TYPE_CHECKING:
@@ -63,7 +61,7 @@ class _OneShotEvalRun(_BaseEvalRun):
         )
         self._task_fn = task_fn
 
-    async def _execute_case(self, input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any]:
+    async def _execute_case(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         # Re-bind the original case object: it carries what Braintrust's JSON
         # round-trip drops, and the task fn may want `expected`/`metadata`.
         case = self.cases_by_name.get(input["name"]) or BaseEvalCase(name=input["name"], prompt=input.get("prompt", ""))
@@ -105,7 +103,7 @@ async def OneShotEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
-) -> EvalResultWithSummary:
+) -> ExperimentResult:
     """Run a one-shot evaluation suite via Braintrust.
 
     For each ``BaseEvalCase``, invokes ``task(case, ctx)`` once under the global

@@ -6,9 +6,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
 
-from braintrust.logger import ExperimentSummary, ScoreSummary
-
 from products.posthog_ai.eval_harness import base
+from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
@@ -63,19 +62,14 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     )
     await reporter.record_summary(
         "sandboxed-cli-mcp-verify-event-cli",
-        ExperimentSummary(
-            project_name="project",
-            project_id="project-id",
-            experiment_id="experiment-id",
+        EvalSummary(
+            engine_name="Braintrust",
             experiment_name="sandboxed-cli-mcp-verify-event-cli",
-            project_url="https://braintrust.example/project",
-            experiment_url="https://braintrust.example/experiment",
-            comparison_experiment_name=None,
             scores={
-                "exit_code_zero": ScoreSummary("exit_code_zero", 20, 1.0, None, None),
-                "called_target_tool": ScoreSummary("called_target_tool", 20, 0.0, None, None),
+                "exit_code_zero": AggregateScore("exit_code_zero", 1.0),
+                "called_target_tool": AggregateScore("called_target_tool", 0.0),
             },
-            metrics={},
+            experiment_url="https://experiments.example/e",
         ),
     )
     await reporter.record_posthog_evaluations_url(
@@ -114,7 +108,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "exit_code_zero: 100.0%" in output
     assert "called_target_tool: 0.0%" in output
     assert "PostHog: https://us.posthog.com/" in output
-    assert "Braintrust: https://braintrust.example/experiment" in output
+    assert "Braintrust: https://experiments.example/e" in output
     assert f"Agent logs: {tmp_path}" in output
     assert output.count("PASS") == 1
 

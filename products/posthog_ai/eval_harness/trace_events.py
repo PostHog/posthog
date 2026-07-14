@@ -16,6 +16,7 @@ from typing import Any
 from posthoganalytics import Posthog
 
 from .acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
+from .engines.types import CaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +277,7 @@ def emit_evaluation_events(
     client: Posthog,
     experiment_id: str,
     experiment_name: str,
-    eval_results: list,
+    eval_results: list[CaseResult],
     scorer_traces: dict[tuple[str, str], str] | None = None,
 ) -> None:
     """Emit ``$ai_evaluation`` events for each scorer result in each eval case.

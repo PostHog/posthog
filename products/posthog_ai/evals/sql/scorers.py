@@ -24,10 +24,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.evals.product_analytics.scorers import GRADED_ALIGNMENT_RUBRIC, parser_for, user_prompt
 
 QUERY_SQL_TOOL_NAME = "execute-sql"

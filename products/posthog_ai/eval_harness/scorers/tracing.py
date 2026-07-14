@@ -16,11 +16,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-from braintrust_core.score import Scorer
 from posthoganalytics import Posthog
 
 from ..trace_events import DISTINCT_ID
-from .judged import AsyncOnlyScorerMixin
+from .contract import AsyncOnlyScorerMixin, Scorer
 
 # Context var for injecting per-scorer-invocation trace properties
 # into the traced OpenAI client's ``create()`` calls.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from products.posthog_ai.eval_harness.engines.registry import resolve_engine
 from products.posthog_ai.eval_harness.harness.env_preflight import validate_eval_env
 from products.posthog_ai.eval_harness.harness.providers import PreflightError
 from products.posthog_ai.eval_harness.harness.requirements import INFRA_BY_KIND, Infra, SuiteKind, expand, infra_union
@@ -127,3 +128,16 @@ def test_validate_eval_env_by_kind(
         assert message.count(name) == 1
     for name in set(ALL_ENV_VARS) - set(expect_missing) - set(env):
         assert name not in message
+
+
+def test_validate_eval_env_reports_missing_engine_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ALL_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "x")
+
+    with pytest.raises(PreflightError) as exc_info:
+        validate_eval_env("claude", kinds={SuiteKind.ONE_SHOT}, engine_env=resolve_engine().required_env())
+
+    # The Braintrust engine's requirement is reported with the same line the core
+    # env model used to emit, so a missing key reads identically to before.
+    assert "  - BRAINTRUST_API_KEY: records experiments and scores to Braintrust" in str(exc_info.value)

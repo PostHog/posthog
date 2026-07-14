@@ -32,10 +32,8 @@ from __future__ import annotations
 
 import re
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
     "CalledTargetTool",

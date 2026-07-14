@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import json
 
-from braintrust import Score
-
+from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.posthog_ai.evals.data_warehouse.scorers import (
     AgenticSearchUsed,
     AnswerQueryRanWhenExpected,

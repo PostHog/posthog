@@ -16,8 +16,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from braintrust import Score
-from braintrust_core.score import Scorer
 from pydantic import BaseModel
 
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
@@ -29,6 +27,7 @@ from products.posthog_ai.eval_harness.scorers import (
     JUDGE_MODEL,
     JudgedScorer,
 )
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
