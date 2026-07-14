@@ -64,11 +64,14 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
             print(f"Email rendered to {output_file}")  # noqa: T201
 
             for recipient in email_message.to:
-                record, _ = MessagingRecord.objects.get_or_create(
-                    raw_email=recipient["raw_email"], campaign_key=email_message.campaign_key
+                sent_at = timezone.now()
+                record, created = MessagingRecord.objects.get_or_create(
+                    raw_email=recipient["raw_email"],
+                    campaign_key=email_message.campaign_key,
+                    defaults={"sent_at": sent_at},
                 )
-                if record.sent_at is None:
-                    record.sent_at = timezone.now()
+                if not created and record.sent_at is None:
+                    record.sent_at = sent_at
                     record.save(update_fields=["sent_at"])
 
         email_message.send = MagicMock()  # type: ignore
