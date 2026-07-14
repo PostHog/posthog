@@ -23,7 +23,12 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
-from products.signals.backend.contracts import SignalRemediation
+from products.signals.backend.contracts import (
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra,
+    EngineeringAnalyticsCIDurationRegressionSignalExtra,
+    EngineeringAnalyticsCIFlakyCheckSignalExtra,
+    SignalRemediation,
+)
 from products.signals.backend.enums import ReportPriority
 
 logger = structlog.get_logger(__name__)
@@ -74,18 +79,18 @@ def detect_flaky_checks(
                     f"{window_days}d."
                 ),
                 weight=0.7,
-                extra={
-                    "repo_owner": row.repo_owner,
-                    "repo_name": row.repo_name,
-                    "workflow_name": row.workflow_name,
-                    "job_name": row.job_name,
-                    "run_id": row.run_id,
-                    "head_sha": row.head_sha,
-                    "failed_attempt": row.failed_attempt,
-                    "passed_attempt": row.passed_attempt,
-                    "flaky_count": flaky_count,
-                    "window_days": window_days,
-                },
+                extra=EngineeringAnalyticsCIFlakyCheckSignalExtra(
+                    repo_owner=row.repo_owner,
+                    repo_name=row.repo_name,
+                    workflow_name=row.workflow_name,
+                    job_name=row.job_name,
+                    run_id=row.run_id,
+                    head_sha=row.head_sha,
+                    failed_attempt=row.failed_attempt,
+                    passed_attempt=row.passed_attempt,
+                    flaky_count=flaky_count,
+                    window_days=window_days,
+                ).model_dump(mode="json"),
                 remediation=SignalRemediation(
                     human="Compare the failed and successful job attempts and fix the non-deterministic behavior.",
                     agent=(
@@ -138,16 +143,16 @@ def detect_broken_default_branch(
                         f"branched from it inherits the failure."
                     ),
                     weight=0.85,
-                    extra={
-                        "repo_owner": item.repo.owner,
-                        "repo_name": item.repo.name,
-                        "workflow_name": item.workflow_name,
-                        "branch": branch,
-                        "success_rate": float(item.success_rate),
-                        "run_count": int(item.run_count),
-                        "latest_conclusion": latest_conclusion,
-                        "window_hours": window_hours,
-                    },
+                    extra=EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(
+                        repo_owner=item.repo.owner,
+                        repo_name=item.repo.name,
+                        workflow_name=item.workflow_name,
+                        branch=branch,
+                        success_rate=float(item.success_rate),
+                        run_count=int(item.run_count),
+                        latest_conclusion=latest_conclusion,
+                        window_hours=window_hours,
+                    ).model_dump(mode="json"),
                     remediation=SignalRemediation(
                         human="Find the change that broke the default-branch workflow and revert it or land a fix.",
                         agent=(
@@ -201,7 +206,8 @@ def detect_ci_duration_regressions(
             continue
         owner, repo_name, workflow_name = key
         repo = f"{owner}/{repo_name}"
-        # Week-keyed so hourly sweeps of a persisting regression dedupe to one signal per week.
+        # Week-keyed so hourly sweeps of a persisting regression dedupe to one signal per week;
+        # the emit dedupe is retention-bounded, so this assumes Temporal retention >= 7 days.
         observation_week = (now.date() - timedelta(days=now.weekday())).isoformat()
         findings.append(
             CISignalFinding(
@@ -213,17 +219,17 @@ def detect_ci_duration_regressions(
                     f"check stretches every PR's time-to-green."
                 ),
                 weight=0.6,
-                extra={
-                    "repo_owner": owner,
-                    "repo_name": repo_name,
-                    "workflow_name": workflow_name,
-                    "current_p95_seconds": float(cur.p95_seconds),
-                    "baseline_p95_seconds": float(base.p95_seconds),
-                    "pct_increase": float(pct_increase),
-                    "current_p50_seconds": float(cur.p50_seconds) if cur.p50_seconds is not None else 0.0,
-                    "baseline_p50_seconds": float(base.p50_seconds) if base.p50_seconds is not None else 0.0,
-                    "window_days": window_days,
-                },
+                extra=EngineeringAnalyticsCIDurationRegressionSignalExtra(
+                    repo_owner=owner,
+                    repo_name=repo_name,
+                    workflow_name=workflow_name,
+                    current_p95_seconds=float(cur.p95_seconds),
+                    baseline_p95_seconds=float(base.p95_seconds),
+                    pct_increase=float(pct_increase),
+                    current_p50_seconds=float(cur.p50_seconds) if cur.p50_seconds is not None else 0.0,
+                    baseline_p50_seconds=float(base.p50_seconds) if base.p50_seconds is not None else 0.0,
+                    window_days=window_days,
+                ).model_dump(mode="json"),
                 remediation=SignalRemediation(
                     human="Profile the workflow and bring its p95 duration back toward the prior baseline.",
                     agent=(

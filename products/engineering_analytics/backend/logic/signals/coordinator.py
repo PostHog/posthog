@@ -23,6 +23,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
 from products.engineering_analytics.backend.logic.ci_signals_config import list_authorized_ci_signal_sources
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
@@ -30,8 +31,6 @@ from products.signals.backend.facade.api import emit_signal, team_ids_with_sourc
 
 logger = structlog.get_logger(__name__)
 
-# Enrollment and the rollout flag are orthogonal gates; the sweep re-checks the flag per team.
-ROLLOUT_FEATURE_FLAG = "engineering-analytics"
 TEAM_ACTIVITY_BATCH_SIZE = 10
 
 
@@ -43,11 +42,12 @@ class CISignalTarget:
 
 
 def _rollout_flag_enabled(team: Team) -> bool:
+    # Enrollment and the rollout flag are orthogonal gates; the sweep re-checks the flag per team.
     org_id = str(team.organization_id)
     project_id = str(team.id)
     return bool(
         posthoganalytics.feature_enabled(
-            ROLLOUT_FEATURE_FLAG,
+            ENGINEERING_ANALYTICS_FEATURE_FLAG,
             str(team.uuid),
             groups={"organization": org_id, "project": project_id},
             group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},

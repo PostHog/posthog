@@ -44,6 +44,10 @@ class GitHubSourceNotConnectedError(Exception):
         super().__init__(message)
 
 
+# The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
+ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+
+
 class CISignalsSyncStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"

@@ -28,6 +28,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    ENGINEERING_ANALYTICS_FEATURE_FLAG,
     FLAKY_TEST_SIGNAL_CAVEAT,
     GitHubSourceNotConnectedError,
     QuarantineRequest,
@@ -156,7 +157,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "engineering_analytics"
     # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
     permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = "engineering-analytics"
+    posthog_feature_flag = ENGINEERING_ANALYTICS_FEATURE_FLAG
     scope_object_read_actions = [
         "sources",
         "ci_cards",
