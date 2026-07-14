@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.generation.prompts import sanitize_for_prompt
 from products.pulse.backend.models import ProductBrief
 
 from ee.hogai.llm import MaxChatOpenAI
@@ -45,8 +46,8 @@ class MissedSignals(BaseModel):
 def _render_sections(sections: list[dict[str, Any]]) -> str:
     blocks = []
     for section in sections:
-        title = section.get("title", "")
-        markdown = section.get("markdown", "")
+        title = sanitize_for_prompt(section.get("title", ""))
+        markdown = sanitize_for_prompt(section.get("markdown", ""))
         blocks.append(f"- {title}\n  {markdown}")
     return "\n".join(blocks)
 

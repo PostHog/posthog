@@ -8,7 +8,6 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -31,12 +30,8 @@ from products.pulse.backend.api.feedback import (
     FeedbackVoteRequestSerializer,
     record_vote,
 )
-from products.pulse.backend.config import (
-    AGENT_DAILY_RUN_CAP,
-    AGENT_WORKFLOW_EXECUTION_TIMEOUT,
-    PULSE_EXPANSION_FLAG,
-    PULSE_FEATURE_FLAG,
-)
+from products.pulse.backend.config import AGENT_DAILY_RUN_CAP, AGENT_WORKFLOW_EXECUTION_TIMEOUT, PULSE_FEATURE_FLAG
+from products.pulse.backend.feature_flags import pulse_expansion_enabled
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.anchored_insights import resolve_metric_insight
 from products.pulse.backend.temporal.inputs import (
@@ -318,17 +313,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         # The workflow runs in the Temporal sandbox and can't evaluate flags itself, so the
         # boolean is resolved here and threaded through, same as engine.
         user = cast(User, request.user)
-        expand = posthoganalytics.feature_enabled(
-            PULSE_EXPANSION_FLAG,
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        expand = pulse_expansion_enabled(team=self.team, user=user)
         window_start = timezone.now() - dt.timedelta(hours=24)
         # Count only briefs that consumed (or are consuming) a sandbox run — quiet weeks cost
         # nothing, so they must not burn the cap.

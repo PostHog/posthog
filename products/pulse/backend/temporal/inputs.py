@@ -13,6 +13,7 @@ GENERATE_BRIEF_WORKFLOW_NAME = "pulse-generate-brief"
 # Final so they carry Literal types — MissionBundleDict access in the workflow needs literal keys.
 MISSION_SEED_ITEMS_KEY: Final = "seed_items"
 MISSION_GOAL_STATUS_KEY: Final = "goal_status"
+MISSION_FOCUS_PROMPT_KEY: Final = "focus_prompt"
 QUIET_BRIEF_STATUS: Final = "quiet"
 
 # Per-activity execution budgets (start_to_close timeout, max attempts). The workflow uses these

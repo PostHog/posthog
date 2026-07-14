@@ -27,6 +27,7 @@ from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     MAX_EXPANSION_QUERIES,
     MAX_EXPANSION_ROWS,
+    MISSION_FOCUS_PROMPT_KEY,
     MISSION_SEED_ITEMS_KEY,
     ExpandMissionInputs,
     GenerateBriefWorkflowInputs,
@@ -152,12 +153,15 @@ async def expand_mission_activity(inputs: ExpandMissionInputs) -> MissionBundleD
     if brief.created_by is None:
         return bundle
     seeds = bundle.get(MISSION_SEED_ITEMS_KEY, [])
-    focus_prompt = bundle.get("focus_prompt", "")
+    focus_prompt = bundle.get(MISSION_FOCUS_PROMPT_KEY, "")
     proposals = await propose_expansions(
         seeds, team=team, user=brief.created_by, focus_prompt=focus_prompt, max_proposals=MAX_EXPANSION_QUERIES
     )
-    valid_proposals = [proposal for proposal in proposals if valid_hogql(proposal.hogql)]
-    for proposal in valid_proposals:
+    for proposal in proposals:
+        # valid_hogql pre-filters obviously-broken SQL so we don't pay an execution roundtrip on it;
+        # execute_expansion still drops anything that fails at run time.
+        if not valid_hogql(proposal.hogql):
+            continue
         item = await database_sync_to_async(execute_expansion, thread_sensitive=False)(
             proposal, team=team, max_rows=MAX_EXPANSION_ROWS
         )

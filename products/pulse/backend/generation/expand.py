@@ -94,7 +94,9 @@ def execute_expansion(proposal: ExpansionProposal, *, team: Team, max_rows: int)
         # A bad or slow expansion query must never fail brief generation — drop it.
         logger.warning("pulse_expand_execution_failed", team_id=team.id, hogql=proposal.hogql, exc_info=True)
         return None
-    description = f"{len(rows)} row(s) (capped at {max_rows}): {rows}"
+    # Row values are untrusted query output; sanitize before it flows into the agent prompt,
+    # same boundary posture as _render_seeds.
+    description = f"{len(rows)} row(s) (capped at {max_rows}): {sanitize_for_prompt(str(rows))}"
     return SourceItem(
         source="expansion",
         kind="signal",
