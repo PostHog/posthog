@@ -17,13 +17,13 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
-    SOURCE_TYPE_BROKEN_MASTER,
+    SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
     SOURCE_TYPE_DURATION_REGRESSION,
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
 from products.engineering_analytics.backend.logic.signals.detectors import (
-    detect_broken_master,
+    detect_broken_default_branch,
     detect_ci_duration_regressions,
     detect_flaky_checks,
 )
@@ -125,7 +125,7 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
     # Guards the constants ↔ signals taxonomy mirror: a drift here makes emit_signal reject
     # every CI signal as an unknown source_product/source_type, silently emitting nothing.
     assert SOURCE_PRODUCT in {product.value for product in SignalSourceConfig.SourceProduct}
-    for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_MASTER, SOURCE_TYPE_DURATION_REGRESSION):
+    for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_DEFAULT_BRANCH, SOURCE_TYPE_DURATION_REGRESSION):
         assert source_type in {choice.value for choice in SignalSourceConfig.SourceType}
         assert (SOURCE_PRODUCT, source_type) in SIGNAL_VARIANT_LOOKUP
 
@@ -248,7 +248,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_id.endswith(":2:flaky")
         _assert_emittable(findings[0])
 
-    def test_broken_master_fires_only_on_failing_default_branch(self) -> None:
+    def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(
@@ -281,9 +281,9 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 default_branch="trunk",
             ),
         ]
-        findings = detect_broken_master(self._curated_over_runs(rows), min_runs=2)
+        findings = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
         assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
-        assert findings[0].source_type == SOURCE_TYPE_BROKEN_MASTER
+        assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH
         assert findings[0].extra["branch"] == "trunk"
         assert findings[0].source_id.endswith(":3:1:broken")
         _assert_emittable(findings[0])

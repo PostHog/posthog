@@ -60,7 +60,7 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
         CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
-        CI_BROKEN_MASTER = "ci_broken_master", "CI broken master"
+        CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")

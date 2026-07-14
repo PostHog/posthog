@@ -6,7 +6,7 @@ import { percentage } from 'lib/utils/numbers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import type {
-    EngineeringAnalyticsCIBrokenMasterSignalExtraApi,
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi,
     EngineeringAnalyticsCIDurationRegressionSignalExtraApi,
     EngineeringAnalyticsCIFlakyCheckSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -41,8 +41,8 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
                 </LemonTag>
             )
         }
-        case 'ci_broken_master': {
-            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenMasterSignalExtraApi
+        case 'ci_broken_default_branch': {
+            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
             return (
                 <LemonTag type="danger" size="small" icon={<IconWarning />}>
                     {e.branch} · {percentage(e.success_rate, 0)} pass
@@ -62,7 +62,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
     }
 }
 
-/** Inbox card for engineering_analytics CI signals (flaky check, broken master, duration regression). */
+/** Inbox card for engineering_analytics CI signals (flaky check, broken default branch, duration regression). */
 export function EngineeringAnalyticsSignalCard({ signal }: SignalCardProps): JSX.Element {
     if (!hasRepoWorkflow(signal.extra)) {
         return <SignalCardShell signal={signal}>{null}</SignalCardShell>

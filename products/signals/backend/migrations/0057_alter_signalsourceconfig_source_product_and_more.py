@@ -54,7 +54,7 @@ class Migration(migrations.Migration):
                     ),
                     ("scanner_finding", "Scanner finding"),
                     ("ci_flaky_check", "CI flaky check"),
-                    ("ci_broken_master", "CI broken master"),
+                    ("ci_broken_default_branch", "CI broken default branch"),
                     ("ci_duration_regression", "CI duration regression"),
                 ],
                 max_length=100,

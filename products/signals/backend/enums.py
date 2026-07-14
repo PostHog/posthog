@@ -51,7 +51,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     CI_FLAKY_CHECK = "ci_flaky_check"
-    CI_BROKEN_MASTER = "ci_broken_master"
+    CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
 
 

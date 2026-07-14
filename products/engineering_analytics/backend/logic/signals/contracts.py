@@ -15,7 +15,7 @@ from products.signals.backend.contracts import SignalRemediation
 # validation.
 SOURCE_PRODUCT = "engineering_analytics"
 SOURCE_TYPE_FLAKY_CHECK = "ci_flaky_check"
-SOURCE_TYPE_BROKEN_MASTER = "ci_broken_master"
+SOURCE_TYPE_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
 SOURCE_TYPE_DURATION_REGRESSION = "ci_duration_regression"
 
 

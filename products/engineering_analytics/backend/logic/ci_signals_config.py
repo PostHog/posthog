@@ -8,7 +8,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsConfig, CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
-    SOURCE_TYPE_BROKEN_MASTER,
+    SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
     SOURCE_TYPE_DURATION_REGRESSION,
     SOURCE_TYPE_FLAKY_CHECK,
 )
@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_FLAKY_CHECK,
-    SOURCE_TYPE_BROKEN_MASTER,
+    SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
     SOURCE_TYPE_DURATION_REGRESSION,
 )
 CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)

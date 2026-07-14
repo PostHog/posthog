@@ -3,7 +3,7 @@
 Each detector is a pure function of a ``CuratedGitHubSource`` plus thresholds and returns
 ``CISignalFinding`` objects — no emission, no Temporal, no Django here, so they're unit-testable
 against a seeded warehouse. All three compose ``logic/queries/`` read modules rather than authoring
-SQL inline: ``ci_broken_master`` / ``ci_duration_regression`` reuse ``query_workflow_health`` (the
+SQL inline: ``ci_broken_default_branch`` / ``ci_duration_regression`` reuse ``query_workflow_health`` (the
 same aggregate the MCP ``workflow_health`` tool returns) and ``ci_flaky_check`` reuses
 ``query_workflow_flakiness`` — so detection and the read surface can never disagree (SPEC §7).
 
@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.logic.queries.workflow_flakiness imp
 )
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.signals.contracts import (
-    SOURCE_TYPE_BROKEN_MASTER,
+    SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
     SOURCE_TYPE_DURATION_REGRESSION,
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
@@ -40,11 +40,11 @@ logger = structlog.get_logger(__name__)
 FLAKY_WINDOW_DAYS = 7
 FLAKY_MIN_RUNS = 3
 
-# Broken master: the default branch is red. Short window (the branch's *current* state), enough runs to
+# Broken default branch: the default branch is red. Short window (the branch's *current* state), enough runs to
 # be real, success rate at or below the floor with the latest completed run failing.
-BROKEN_MASTER_WINDOW_HOURS = 24
-BROKEN_MASTER_MIN_RUNS = 3
-BROKEN_MASTER_MAX_SUCCESS_RATE = 0.5
+BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
+BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
+BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
 # Duration regression: p95 up meaningfully vs the immediately-preceding window of equal length. Both
 # windows need enough runs for a stable percentile; require a relative *and* absolute jump so a 2s→4s
 # blip on a fast check doesn't fire.
@@ -112,12 +112,12 @@ def detect_flaky_checks(
     return findings
 
 
-def detect_broken_master(
+def detect_broken_default_branch(
     curated: CuratedGitHubSource,
     *,
-    window_hours: int = BROKEN_MASTER_WINDOW_HOURS,
-    min_runs: int = BROKEN_MASTER_MIN_RUNS,
-    max_success_rate: float = BROKEN_MASTER_MAX_SUCCESS_RATE,
+    window_hours: int = BROKEN_DEFAULT_BRANCH_WINDOW_HOURS,
+    min_runs: int = BROKEN_DEFAULT_BRANCH_MIN_RUNS,
+    max_success_rate: float = BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE,
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
@@ -139,7 +139,7 @@ def detect_broken_master(
             latest_conclusion = item.latest_run_conclusion or "failure"
             findings.append(
                 CISignalFinding(
-                    source_type=SOURCE_TYPE_BROKEN_MASTER,
+                    source_type=SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
                     source_id=(
                         f"{repo}:{branch}:{item.workflow_name}:{item.latest_run_id}:{item.latest_run_attempt}:broken"
                     ),
@@ -255,7 +255,7 @@ def detect_all(curated: CuratedGitHubSource) -> list[CISignalFinding]:
     """Run every detector with default thresholds, isolating failures so one bad detector (or a
     transient query error) doesn't suppress the others' findings."""
     findings: list[CISignalFinding] = []
-    for detector in (detect_flaky_checks, detect_broken_master, detect_ci_duration_regressions):
+    for detector in (detect_flaky_checks, detect_broken_default_branch, detect_ci_duration_regressions):
         try:
             findings.extend(detector(curated))
         except Exception:

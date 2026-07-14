@@ -96,7 +96,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'engineering_analytics',
                 sourceProduct: SignalSourceProduct.EngineeringAnalytics,
                 label: 'GitHub CI',
-                description: 'Flaky checks, broken master, and slowing workflows in GitHub Actions.',
+                description: 'Flaky checks, broken default branch, and slowing workflows in GitHub Actions.',
                 dataWarehouseSource: 'Github',
                 alpha: true,
                 flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,

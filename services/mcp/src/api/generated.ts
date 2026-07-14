@@ -20684,7 +20684,7 @@ export namespace Schemas {
       Redshift: 'redshift',
     } as const;
 
-    export interface EngineeringAnalyticsCIBrokenMasterSignalExtra {
+    export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
       repo_owner: string;
       repo_name: string;
       workflow_name: string;
@@ -37402,7 +37402,7 @@ export namespace Schemas {
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
      * * `ci_flaky_check` - CI flaky check
-     * * `ci_broken_master` - CI broken master
+     * * `ci_broken_default_branch` - CI broken default branch
      * * `ci_duration_regression` - CI duration regression
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
@@ -37424,7 +37424,7 @@ export namespace Schemas {
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
       CiFlakyCheck: 'ci_flaky_check',
-      CiBrokenMaster: 'ci_broken_master',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
     } as const;
 
@@ -51861,7 +51861,7 @@ export namespace Schemas {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `ci_flaky_check` - ci_flaky_check
-     * * `ci_broken_master` - ci_broken_master
+     * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
@@ -51884,7 +51884,7 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
       CiFlakyCheck: 'ci_flaky_check',
-      CiBrokenMaster: 'ci_broken_master',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
     } as const;
 
@@ -51948,7 +51948,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenMasterSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -51993,7 +51993,7 @@ export namespace Schemas {
        * * `health_issue` - health_issue
        * * `scanner_finding` - scanner_finding
        * * `ci_flaky_check` - ci_flaky_check
-       * * `ci_broken_master` - ci_broken_master
+       * * `ci_broken_default_branch` - ci_broken_default_branch
        * * `ci_duration_regression` - ci_duration_regression */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */

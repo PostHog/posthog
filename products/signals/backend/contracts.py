@@ -411,7 +411,7 @@ class EngineeringAnalyticsCIFlakyCheckSignalInput(SignalInputBase):
     extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
 
 
-class EngineeringAnalyticsCIBrokenMasterSignalExtra(SignalExtraBase):
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(SignalExtraBase):
     repo_owner: str
     repo_name: str
     workflow_name: str
@@ -423,10 +423,10 @@ class EngineeringAnalyticsCIBrokenMasterSignalExtra(SignalExtraBase):
     window_hours: int
 
 
-class EngineeringAnalyticsCIBrokenMasterSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.CI_BROKEN_MASTER]
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_BROKEN_DEFAULT_BRANCH]
     source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
-    extra: EngineeringAnalyticsCIBrokenMasterSignalExtra
+    extra: EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra
 
 
 class EngineeringAnalyticsCIDurationRegressionSignalExtra(SignalExtraBase):
@@ -496,7 +496,7 @@ SignalInput = Annotated[
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
-    | EngineeringAnalyticsCIBrokenMasterSignalInput
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput,
     Field(union_mode="left_to_right"),
 ]
@@ -519,7 +519,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
     EngineeringAnalyticsCIFlakyCheckSignalInput,
-    EngineeringAnalyticsCIBrokenMasterSignalInput,
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
 )
 

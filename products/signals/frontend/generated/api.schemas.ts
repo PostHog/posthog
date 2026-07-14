@@ -199,7 +199,7 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `ci_flaky_check` - ci_flaky_check
- * * `ci_broken_master` - ci_broken_master
+ * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
@@ -221,7 +221,7 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     CiFlakyCheck: 'ci_flaky_check',
-    CiBrokenMaster: 'ci_broken_master',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
 } as const
 
@@ -493,7 +493,7 @@ export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
     window_days: number
 }
 
-export interface EngineeringAnalyticsCIBrokenMasterSignalExtraApi {
+export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi {
     repo_owner: string
     repo_name: string
     workflow_name: string
@@ -534,7 +534,7 @@ export type SignalExtraApi =
     | ReplayVisionScannerFindingSignalExtraApi
     | HealthCheckSignalExtraApi
     | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
-    | EngineeringAnalyticsCIBrokenMasterSignalExtraApi
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
     | EngineeringAnalyticsCIDurationRegressionSignalExtraApi
 
 export interface SpecificityMetadataApi {
@@ -609,7 +609,7 @@ export interface SignalNodeApi {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `ci_flaky_check` - ci_flaky_check
-     * * `ci_broken_master` - ci_broken_master
+     * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
@@ -2302,7 +2302,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `ci_flaky_check` - CI flaky check
- * * `ci_broken_master` - CI broken master
+ * * `ci_broken_default_branch` - CI broken default branch
  * * `ci_duration_regression` - CI duration regression
  */
 export type SignalSourceConfigSourceTypeEnumApi =
@@ -2324,7 +2324,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     CiFlakyCheck: 'ci_flaky_check',
-    CiBrokenMaster: 'ci_broken_master',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
 } as const
 
