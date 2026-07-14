@@ -317,6 +317,20 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             == f"https://us.posthog.com/project/{self.team.id}/support/tickets/{most_recent_customer_ticket.ticket_number}"
         )
 
+    def test_unverified_ticket_does_not_bump_trusted_channel_activity(self):
+        verified_activity = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
+        self._create_slack_ticket(channel_id="C_CUSTOMER", activity_at=verified_activity)
+        self._create_slack_ticket(
+            channel_id="C_CUSTOMER",
+            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
+            distinct_id=f"stranger-{uuid.uuid4()}",
+            identity_verified=False,
+        )
+
+        result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
+
+        assert result[self.org_id].last_slack_activity == verified_activity
+
     def test_trusted_activity_covers_all_teams_in_a_channel_group(self):
         second_team = Team.objects.create(organization=self.organization, name="second")
         newest_customer_activity = dt.datetime(2026, 6, 29, 10, 0, tzinfo=dt.UTC)
@@ -366,11 +380,10 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             activity_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
             slack_team_id="T_ONE",
         )
-        self._create_slack_ticket(
-            channel_id="C_SHARED",
-            activity_at=dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC),
-            slack_team_id="T_TWO",
-        )
+        latest_activity = dt.datetime(2026, 6, 30, 12, 0, tzinfo=dt.UTC)
+        self._create_slack_ticket(channel_id="C_SHARED", activity_at=latest_activity, slack_team_id="T_TWO")
+        # A workspace-less row tied on recency must lose to the known-workspace row.
+        self._create_slack_ticket(channel_id="C_SHARED", activity_at=latest_activity, slack_team_id=None)
 
         result = aggregate_conversations_slack_signals_for_orgs([self.org_id], include_slack_user_count=False)
 
