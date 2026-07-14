@@ -12,7 +12,9 @@ from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
     QueueTailStatus,
     ReadinessState,
+    SourceTableStatus,
     dataset_status,
+    sort_source_tables,
     source_table_readiness,
 )
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
@@ -158,3 +160,54 @@ class TestDatasetStatus(SimpleTestCase):
 
         assert status["readiness_state"] == "waiting"
         assert status["total_partitions"] is None
+
+
+class TestSortSourceTables(SimpleTestCase):
+    def _table(self, *, source_name: str, table_name: str, readiness_state: ReadinessState) -> SourceTableStatus:
+        return {
+            "schema_id": str(uuid4()),
+            "source_id": str(uuid4()),
+            "source_name": source_name,
+            "source_type": source_name,
+            "table_name": table_name,
+            "readiness_state": readiness_state,
+            "detail": "",
+            "completed_chunks": 0,
+            "total_chunks": None,
+            "pending_batches": None,
+            "oldest_pending_at": None,
+            "last_applied_at": None,
+            "last_synced_at": None,
+        }
+
+    def test_a_stalled_table_among_dozens_lands_on_the_first_page(self) -> None:
+        # The table paginates at 20 rows. A team importing dozens of tables would otherwise have the
+        # one that needs attention scattered anywhere by schema_id (a UUID), with no way to find it.
+        tables = [
+            self._table(source_name="Stripe", table_name=f"table_{i}", readiness_state="up_to_date") for i in range(30)
+        ]
+        tables.insert(25, self._table(source_name="Hubspot", table_name="contacts", readiness_state="needs_attention"))
+
+        ordered = sort_source_tables(tables)
+
+        assert ordered[0]["readiness_state"] == "needs_attention"
+        assert ordered[0]["table_name"] == "contacts"
+
+    def test_orders_by_severity_then_name(self) -> None:
+        tables = [
+            self._table(source_name="Zendesk", table_name="tickets", readiness_state="up_to_date"),
+            self._table(source_name="Stripe", table_name="charges", readiness_state="catching_up"),
+            self._table(source_name="Hubspot", table_name="deals", readiness_state="needs_attention"),
+            self._table(source_name="Amplitude", table_name="events", readiness_state="catching_up"),
+            self._table(source_name="Salesforce", table_name="accounts", readiness_state="up_to_date"),
+        ]
+
+        ordered = [(table["source_name"], table["readiness_state"]) for table in sort_source_tables(tables)]
+
+        assert ordered == [
+            ("Hubspot", "needs_attention"),
+            ("Amplitude", "catching_up"),
+            ("Stripe", "catching_up"),
+            ("Salesforce", "up_to_date"),
+            ("Zendesk", "up_to_date"),
+        ]

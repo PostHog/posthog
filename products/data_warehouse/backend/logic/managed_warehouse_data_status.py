@@ -329,6 +329,7 @@ def _sources_status(team_id: int) -> SourcesStatus:
             "tables": [],
         }
 
+    tables = sort_source_tables(tables)
     readiness_state = _roll_up_state([table["readiness_state"] for table in tables])
     details: dict[ReadinessState, str] = {
         "needs_attention": "One or more imported tables need attention.",
@@ -340,6 +341,23 @@ def _sources_status(team_id: int) -> SourcesStatus:
         "not_configured": "No imported source tables are configured for this warehouse.",
     }
     return {"readiness_state": readiness_state, "detail": details[readiness_state], "tables": tables}
+
+
+def sort_source_tables(tables: list[SourceTableStatus]) -> list[SourceTableStatus]:
+    """Most severe first, then alphabetically by source and table.
+
+    A team can import dozens of tables and the UI paginates at 20, so the one table that has
+    stalled has to land on the first page. Ordering by schema_id (a UUID) scattered it.
+    """
+    severity = {state: rank for rank, state in enumerate(READINESS_PRIORITY)}
+    return sorted(
+        tables,
+        key=lambda table: (
+            severity.get(table["readiness_state"], len(severity)),
+            table["source_name"].lower(),
+            table["table_name"].lower(),
+        ),
+    )
 
 
 def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
