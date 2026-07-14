@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "case_id": "reposel_python_sdk",
+    "step": "repo_selection",
+    "meta": { "recorded": "hand-authored golden run; same-product disambiguation" },
+    "turns": [
+        {
+            "index": 0,
+            "label": "initial turn",
+            "model": "RepoSelectionResult",
+            "raw_text": "{\"repository\": \"posthog/posthog-python\", \"reason\": \"The traceback is a Python ImportError from posthog/feature_flags.py and the stack frames are .py files. Grepping tree_paths for 'feature_flags.py' matched posthog/posthog-python only; posthog/posthog-js is the TypeScript browser SDK and does not own this code path.\"}"
+        }
+    ]
+}

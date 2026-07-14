@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "case_id": "reposel_cal_booking",
+    "step": "repo_selection",
+    "meta": { "recorded": "hand-authored golden run" },
+    "turns": [
+        {
+            "index": 0,
+            "label": "initial turn",
+            "model": "RepoSelectionResult",
+            "raw_text": "{\"repository\": \"calcom/cal.com\", \"reason\": \"The report is about booking-link availability and round-robin scheduling. Grepping tree_paths for 'booking' and 'schedule' matched only calcom/cal.com (apps/web/.../bookings, packages/lib/.../getSchedule.ts); supabase, n8n, excalidraw, and posthog-js own unrelated domains.\"}"
+        }
+    ]
+}

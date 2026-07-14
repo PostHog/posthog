@@ -82,13 +82,15 @@ async def call_llm(
     system_prompt: str,
     user_prompt: str,
     validate: Callable[[str], T],
+    model: str | None = None,
     thinking: bool = False,
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
-    thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
+    selected_model = model or MATCHING_MODEL
+    thinking = thinking and selected_model in ANTHROPIC_THINKING_MODELS
     client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
 
     messages: list[MessageParam] = [
@@ -101,7 +103,7 @@ async def call_llm(
         messages.append({"role": "assistant", "content": "{"})
 
     create_kwargs: dict = {
-        "model": MATCHING_MODEL,
+        "model": selected_model,
         "system": system_prompt,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,

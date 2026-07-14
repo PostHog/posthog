@@ -1,0 +1,41 @@
+{
+    "version": 1,
+    "case_id": "research_flag_cleanup_multi",
+    "step": "research",
+    "meta": {
+        "recorded": "hand-authored golden run",
+        "note": "Two related stale-feature-flag signals; exercises the multi-signal follow-up path."
+    },
+    "turns": [
+        {
+            "index": 0,
+            "label": "initial turn",
+            "model": "SignalFinding",
+            "raw_text": "{\"signal_id\": \"sig_flag_1\", \"relevant_code_paths\": [\"frontend/src/scenes/onboarding/onboardingLogic.ts\", \"posthog/api/feature_flag.py\"], \"relevant_commit_hashes\": {\"1111aaa\": \"Added the new-onboarding-flow flag branch\"}, \"data_queried\": \"feature-flag-get-all shows new-onboarding-flow at 100% rollout; execute-sql over $feature_flag_called shows only the enabled variant for 90 days.\", \"verified\": true}"
+        },
+        {
+            "index": 1,
+            "label": "signal_2_of_2",
+            "model": "SignalFinding",
+            "raw_text": "{\"signal_id\": \"sig_flag_2\", \"relevant_code_paths\": [\"frontend/src/scenes/onboarding/OnboardingLegacy.tsx\"], \"relevant_commit_hashes\": {\"1111aaa\": \"Same flag branch introduced the now-dead legacy path\"}, \"data_queried\": \"No events from the off-branch in 3 months; the legacy onboarding component is unreachable while the flag is fully rolled out.\", \"verified\": true}"
+        },
+        {
+            "index": 2,
+            "label": "actionability",
+            "model": "ActionabilityAssessment",
+            "raw_text": "{\"explanation\": \"The flag is fully rolled out and the off-branch is dead; removing the flag branch and legacy component is a concrete, low-risk cleanup.\", \"actionability\": \"immediately_actionable\", \"already_addressed\": false}"
+        },
+        {
+            "index": 3,
+            "label": "priority",
+            "model": "PriorityAssessment",
+            "raw_text": "{\"explanation\": \"Pure maintainability win: ~300 lines of dead onboarding code behind a fully rolled-out flag, no user-facing impact, so low urgency.\", \"priority\": \"P3\", \"dollar_value\": 1500}"
+        },
+        {
+            "index": 4,
+            "label": "presentation",
+            "model": "ReportPresentationOutput",
+            "raw_text": "{\"title\": \"chore(onboarding): Remove fully rolled-out new-onboarding-flow flag\", \"summary\": \"The team can delete a stale feature flag and its dead onboarding branch.\\n\\n## Problem\\nThe new-onboarding-flow flag has been at 100% for 90 days but the code still branches on it, leaving the legacy onboarding path unreachable.\\n\\n## Impact\\nNo user impact, but ~300 lines of dead code add maintenance drag and confuse readers.\\n\\n## Solution\\nRemove the flag check and the legacy onboarding component, keeping only the new flow.\"}"
+        }
+    ]
+}
