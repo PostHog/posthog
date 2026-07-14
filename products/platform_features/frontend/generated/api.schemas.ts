@@ -997,6 +997,7 @@ export type ActivityLogListParams = {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1082,6 +1083,7 @@ export const ActivityLogListScope = {
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
+    TableCertification: 'TableCertification',
 } as const
 
 /**
@@ -1154,6 +1156,7 @@ export const ActivityLogListScope = {
  * * `SignalScoutConfig` - SignalScoutConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
+ * * `TableCertification` - TableCertification
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1227,6 +1230,7 @@ export const ActivityLogListScopesItem = {
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
+    TableCertification: 'TableCertification',
 } as const
 
 export type AdvancedActivityLogsListParams = {
