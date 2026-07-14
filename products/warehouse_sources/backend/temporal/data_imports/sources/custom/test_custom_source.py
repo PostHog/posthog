@@ -2461,6 +2461,19 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         assert ok is False
         assert err is not None and "start_param" in err and "'users'" in err
 
+    def test_unrecognized_incremental_key_rejected_at_validation(self):
+        # A stray/typo'd incremental key (here `upstream_row_order` for `row_order`) must
+        # be rejected at save time — otherwise it flows into the REST engine's
+        # Incremental(**config) constructor and crashes the whole sync with a bare
+        # TypeError on the unexpected keyword argument.
+        manifest = self._manifest("since")
+        manifest["resources"][0]["endpoint"]["incremental"]["upstream_row_order"] = "asc"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "upstream_row_order" in err and "'users'" in err
+
 
 def _apikey_manifest() -> dict:
     """A minimal manifest whose auth is an api_key in a query param, so the
