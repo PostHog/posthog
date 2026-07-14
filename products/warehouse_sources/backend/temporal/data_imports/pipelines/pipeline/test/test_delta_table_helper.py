@@ -838,6 +838,10 @@ class TestVacuumIfStale:
             ("below_threshold_skips", 100, False, None),
             ("at_threshold_vacuums", 50, True, 150),
             ("above_threshold_vacuums", 40, True, 150),
+            # A watermark above the current version means the table was reset/recreated (delta
+            # versions are monotonic within one incarnation) and no reset path clears the persisted
+            # watermark — it must reseed, not block the cadence until the version catches up.
+            ("stale_watermark_from_recreated_table_reseeds", 999, False, 150),
         ]
     )
     @pytest.mark.asyncio
