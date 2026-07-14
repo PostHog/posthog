@@ -270,7 +270,13 @@ class TestImageExporter(APIBaseTest):
             )
 
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_dashboard_export_survives_tile_access_denied(self, mock_calculate: Any, *args: Any) -> None:
+    def test_dashboard_export_survives_tile_access_denied(
+        self,
+        mock_calculate: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
         # A tile the export owner can't read (e.g. a denied warehouse table) must degrade to its
         # access-denied render state, not crash the whole export into error tracking.
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -301,7 +307,6 @@ class TestImageExporter(APIBaseTest):
 
         mock_calculate.side_effect = mock_calc
 
-        mock_screenshot_asset = args[-1]
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
 
