@@ -35,14 +35,16 @@ def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
 
 
 def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpResponse) -> None:
-    if span and span.is_recording():
-        span.set_attribute("http.status_code", response.status_code)
-        resolver_match = getattr(request, "resolver_match", None)
-        route = getattr(resolver_match, "route", None) if resolver_match else None
-        if route:
-            span.set_attribute("http.route", route)
-            http_method = sanitize_method((request.method or "").strip())
-            span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
+    if not span or not span.is_recording():
+        return
+
+    span.set_attribute("http.status_code", response.status_code)
+    route = getattr(getattr(request, "resolver_match", None), "route", None)
+    if not route:
+        return
+
+    http_method = sanitize_method((request.method or "").strip())
+    span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
 def initialize_otel():
