@@ -5,9 +5,8 @@ from parameterized import parameterized
 from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.api.query import QueryViewSet
-from posthog.errors import CHQueryErrorS3Error, ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.errors import CHQueryErrorS3Error, ExposedCHQueryError, InternalCHQueryError, wrap_clickhouse_query_error
 
-# self is unused by the handler, so we can call it unbound rather than standing up the viewset.
 _build_response = QueryViewSet._clickhouse_error_response
 
 
@@ -36,7 +35,7 @@ class TestClickHouseErrorSurfacing(TestCase):
         error = wrap_clickhouse_query_error(ServerException(f"DB::Exception: {raw_message}", code=499))
         assert isinstance(error, CHQueryErrorS3Error)
 
-        response = _build_response(None, error)
+        response = _build_response(error)
         assert isinstance(response, ValidationError)
         assert response.get_codes() == [expected_code]
 
@@ -47,7 +46,8 @@ class TestClickHouseErrorSurfacing(TestCase):
                 code=62,
             )
         )
-        response = _build_response(None, error)
+        assert isinstance(error, InternalCHQueryError)
+        response = _build_response(error)
         assert isinstance(response, APIException)
         detail = str(response.detail)
         assert "CHQueryErrorSyntaxError" in detail

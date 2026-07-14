@@ -458,7 +458,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 )
         return
 
-    def _clickhouse_error_response(self, error: InternalCHQueryError) -> APIException:
+    @staticmethod
+    def _clickhouse_error_response(error: InternalCHQueryError) -> APIException:
         """Turn a non-user-safe ClickHouse error into an actionable response without leaking infra internals.
 
         Data warehouse S3 read failures (the common re-syncing case) become friendly user errors; everything
