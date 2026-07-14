@@ -20829,6 +20829,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin: unknown;
     }
 
     export interface ErrorResponse {
@@ -41378,6 +41380,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin?: unknown;
     }
 
     /**
