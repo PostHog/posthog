@@ -10,7 +10,7 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requir
 from django.views.generic.base import RedirectView
 
 import structlog
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularRedocView, SpectacularSwaggerView
 from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -34,6 +34,7 @@ from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
+from posthog.api.schema_view import PostHogSpectacularAPIView
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
@@ -335,7 +336,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
 
 
 urlpatterns = [
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema/", PostHogSpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
     path(
         "api/schema/swagger-ui/",
