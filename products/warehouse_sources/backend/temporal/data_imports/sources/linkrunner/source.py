@@ -70,7 +70,6 @@ Note: the `reporting_campaigns` table is served by Linkrunner's Reporting API, w
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
