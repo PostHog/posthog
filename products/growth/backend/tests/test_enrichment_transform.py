@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.growth.backend.enrichment.transform import transform_harmonic_company
+from products.growth.backend.enrichment.transform import MAX_INVESTORS, transform_harmonic_company
 
 
 def _company(**overrides):
@@ -41,9 +41,37 @@ def test_transform_maps_all_registry_fields():
         "total_raised": 12000000,
         "last_round_size": 8000000,
         "last_round_date": "2024-02-25",  # ISO datetime truncated to the date
+        "investors": ["Y Combinator"],
         "is_yc_company": True,
         # is_ai_native stays unset: tagsV2 is empty, which is absence of tag data
     }
+
+
+def test_investors_capture_company_and_person_names_skipping_malformed_entries():
+    investors = [
+        {"name": "Formus Capital"},
+        {"fullName": "Julia Dewahl"},  # angels come back as Person entries
+        {"foo": "bar"},  # neither name nor fullName
+        "not-a-dict",
+    ]
+    fields = transform_harmonic_company(_company(funding={"investors": investors}))
+    assert fields is not None
+    assert fields.investors == ["Formus Capital", "Julia Dewahl"]
+
+
+def test_investors_unset_when_funding_has_no_investors():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "SEED"}))
+    assert fields is not None
+    assert fields.investors is None
+    assert "investors" not in fields.to_dict()
+
+
+def test_investors_capped_to_bound():
+    fields = transform_harmonic_company(_company(funding={"investors": [{"name": f"VC {i}"} for i in range(40)]}))
+    assert fields is not None
+    assert fields.investors is not None
+    assert len(fields.investors) == MAX_INVESTORS
+    assert fields.investors[0] == "VC 0"
 
 
 @parameterized.expand(

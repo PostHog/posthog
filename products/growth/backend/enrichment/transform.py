@@ -38,6 +38,22 @@ def _funding_date(value: Any) -> Optional[str]:
     return None
 
 
+# Bound the passthrough so the group property can't grow unboundedly for a heavily-funded company.
+MAX_INVESTORS = 25
+
+
+def _investor_names(investors: Any) -> Optional[list[str]]:
+    # Company entries carry `name`, Person (angel) entries carry `fullName`; keep both.
+    if not isinstance(investors, list):
+        return None
+    names = [
+        name
+        for investor in investors
+        if isinstance(investor, dict) and isinstance(name := investor.get("name") or investor.get("fullName"), str)
+    ]
+    return names[:MAX_INVESTORS] or None
+
+
 # Harmonic's own tagsV2 taxonomy spells these out; match conservatively on the phrases
 # rather than bare "AI"/"ML" tokens that collide with unrelated words.
 AI_NATIVE_TAG_MARKERS = ("artificial intelligence", "machine learning")
@@ -85,6 +101,7 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
         total_raised=_funding_amount(funding.get("fundingTotal")),
         last_round_size=_funding_amount(funding.get("lastFundingTotal")),
         last_round_date=_funding_date(funding.get("lastFundingAt")),
+        investors=_investor_names(funding.get("investors")),
         is_yc_company=_is_yc_funded(funding.get("investors")),
         is_ai_native=_is_ai_native(tags_v2),
     )

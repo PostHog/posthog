@@ -38,6 +38,7 @@ class EnrichmentFields:
     total_raised: Optional[int] = None
     last_round_size: Optional[int] = None
     last_round_date: Optional[str] = None
+    investors: Optional[list[str]] = None
     is_yc_company: Optional[bool] = None
     is_ai_native: Optional[bool] = None
     work_email: Optional[bool] = None

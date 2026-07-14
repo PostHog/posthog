@@ -18,12 +18,14 @@ def test_to_group_properties_writes_takeover_fields_on_icp_keys_and_the_rest_pre
         headcount=42,
         country="US",
         total_raised=12000000,
+        investors=["Y Combinator", "Sequoia"],
         is_ai_native=True,
     )
     assert fields.to_group_properties() == {
         "enrichment_company_type": "startup",
         "enrichment_industry": "Fintech",
         "enrichment_total_raised": 12000000,
+        "enrichment_investors": ["Y Combinator", "Sequoia"],
         "enrichment_is_ai_native": True,
         "icp_employees": 42,
         "icp_country": "US",
