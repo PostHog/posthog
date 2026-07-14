@@ -62,6 +62,13 @@ class PropertyDefinition(UUIDTModel):
     # Only populated for `Type.GROUP`
     group_type_index = models.PositiveSmallIntegerField(null=True)
 
+    # Provenance for properties populated from a data warehouse source (Customer analytics
+    # warehouse -> person properties). Null for the vast majority of definitions. Written by
+    # Django only; the Rust property-defs upsert lists its columns explicitly and never touches
+    # this one. Shape: {source_id, schema_id, table_name, column, custom_property_source_id,
+    # last_synced_at}.
+    warehouse_origin = models.JSONField(null=True, blank=True, default=None)
+
     # DEPRECATED
     property_type_format = models.CharField(
         max_length=50, choices=PropertyFormat, blank=True, null=True
