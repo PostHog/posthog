@@ -5,10 +5,14 @@ from posthog.schema_migrations.base import SchemaMigration
 SERIES_DATA_WAREHOUSE_KIND = {
     "TrendsQuery": "DataWarehouseNode",
     "StickinessQuery": "DataWarehouseNode",
-    "LifecycleQuery": "DataWarehouseNode",
+    "LifecycleQuery": "LifecycleDataWarehouseNode",
     "CalendarHeatmapQuery": "DataWarehouseNode",
     "FunnelsQuery": "FunnelsDataWarehouseNode",
 }
+
+# Only these series unions include GroupNode; elsewhere (and in exclusions) a group-shaped
+# item was invalid before discrimination too, so it falls through to EventsNode unchanged.
+SERIES_WITH_GROUP_NODE = {"TrendsQuery", "FunnelsQuery"}
 
 
 class Migration(SchemaMigration):
@@ -19,7 +23,8 @@ class Migration(SchemaMigration):
     `{"event": "$pageview"}` or `{}`. With the unions now discriminated on `kind`, such items
     fail validation with `union_tag_not_found` unless the tag is backfilled. The stamping
     mirrors the old coercion: event-shaped (and empty) dicts were EventsNode, id-only dicts
-    were ActionsNode, table_name-shaped dicts were the data warehouse node.
+    were ActionsNode, table_name-shaped dicts were the data warehouse node, and nodes-shaped
+    dicts were GroupNode where the union has it.
     """
 
     targets = {
@@ -31,29 +36,33 @@ class Migration(SchemaMigration):
     }
 
     def transform(self, query: dict) -> dict:
-        data_warehouse_kind = SERIES_DATA_WAREHOUSE_KIND[str(query.get("kind"))]
+        query_kind = str(query.get("kind"))
+        data_warehouse_kind = SERIES_DATA_WAREHOUSE_KIND[query_kind]
+        allow_group = query_kind in SERIES_WITH_GROUP_NODE
 
         series = query.get("series")
         if isinstance(series, list):
-            query["series"] = [self._stamp_kind(item, data_warehouse_kind) for item in series]
+            query["series"] = [self._stamp_kind(item, data_warehouse_kind, allow_group) for item in series]
 
         funnels_filter = query.get("funnelsFilter")
-        if query.get("kind") == "FunnelsQuery" and isinstance(funnels_filter, dict):
+        if query_kind == "FunnelsQuery" and isinstance(funnels_filter, dict):
             exclusions = funnels_filter.get("exclusions")
             if isinstance(exclusions, list):
                 query["funnelsFilter"] = {
                     **funnels_filter,
-                    "exclusions": [self._stamp_kind(item, None) for item in exclusions],
+                    "exclusions": [self._stamp_kind(item, None, False) for item in exclusions],
                 }
 
         return query
 
     @staticmethod
-    def _stamp_kind(item: object, data_warehouse_kind: str | None) -> object:
+    def _stamp_kind(item: object, data_warehouse_kind: str | None, allow_group: bool) -> object:
         if not isinstance(item, dict) or "kind" in item:
             return item
         if data_warehouse_kind is not None and "table_name" in item:
             kind = data_warehouse_kind
+        elif allow_group and "nodes" in item:
+            kind = "GroupNode"
         elif "id" in item and "event" not in item:
             kind = "ActionsNode"
         else:

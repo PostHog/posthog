@@ -2,7 +2,7 @@ import importlib
 
 from parameterized import parameterized
 
-from posthog.schema import FunnelsQuery, TrendsQuery
+from posthog.schema import FunnelsQuery, LifecycleQuery, TrendsQuery
 
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -21,6 +21,7 @@ def _get_migration():
         ("id_only", "TrendsQuery", {"id": 5}, "ActionsNode"),
         ("id_and_event", "TrendsQuery", {"id": "$pageview", "event": "$pageview"}, "EventsNode"),
         ("data_warehouse_shaped", "TrendsQuery", {"table_name": "orders", "id": "orders"}, "DataWarehouseNode"),
+        ("group_shaped", "TrendsQuery", {"nodes": [{"kind": "EventsNode"}], "operator": "OR"}, "GroupNode"),
         ("funnels_event_shaped", "FunnelsQuery", {"event": "$pageview"}, "EventsNode"),
         (
             "funnels_data_warehouse_shaped",
@@ -28,9 +29,36 @@ def _get_migration():
             {"table_name": "orders", "id": "orders"},
             "FunnelsDataWarehouseNode",
         ),
+        ("funnels_group_shaped", "FunnelsQuery", {"nodes": [{"kind": "EventsNode"}], "operator": "OR"}, "GroupNode"),
         ("lifecycle_event_shaped", "LifecycleQuery", {"event": "$pageview"}, "EventsNode"),
+        (
+            "lifecycle_data_warehouse_shaped",
+            "LifecycleQuery",
+            {"table_name": "orders", "id": "orders"},
+            "LifecycleDataWarehouseNode",
+        ),
         ("stickiness_event_shaped", "StickinessQuery", {"event": "$pageview"}, "EventsNode"),
+        (
+            "stickiness_data_warehouse_shaped",
+            "StickinessQuery",
+            {"table_name": "orders", "id": "orders"},
+            "DataWarehouseNode",
+        ),
+        # StickinessQuery.series has no GroupNode member — group-shaped items were invalid
+        # before discrimination and stay invalid (stamped EventsNode) rather than resurrected.
+        (
+            "stickiness_group_shaped",
+            "StickinessQuery",
+            {"nodes": [{"kind": "EventsNode"}], "operator": "OR"},
+            "EventsNode",
+        ),
         ("calendar_heatmap_event_shaped", "CalendarHeatmapQuery", {"event": "$pageview"}, "EventsNode"),
+        (
+            "calendar_heatmap_data_warehouse_shaped",
+            "CalendarHeatmapQuery",
+            {"table_name": "orders", "id": "orders"},
+            "DataWarehouseNode",
+        ),
     ]
 )
 def test_kindless_series_item_gets_stamped(_name, query_kind, series_item, expected_kind):
@@ -68,12 +96,14 @@ def test_funnel_exclusions_get_stamped():
             "exclusions": [
                 {"event": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1},
                 {"id": 5, "funnelFromStep": 0, "funnelToStep": 1},
+                # exclusions have no GroupNode member, so group-shaped items fall through
+                {"nodes": [{"kind": "EventsNode"}], "operator": "OR"},
             ],
             "funnelVizType": "steps",
         },
     }
     result = migration.transform(query)
-    assert [e["kind"] for e in result["funnelsFilter"]["exclusions"]] == ["EventsNode", "ActionsNode"]
+    assert [e["kind"] for e in result["funnelsFilter"]["exclusions"]] == ["EventsNode", "ActionsNode", "EventsNode"]
     assert result["funnelsFilter"]["funnelVizType"] == "steps"
 
 
@@ -96,8 +126,32 @@ def test_upgraded_stored_funnels_query_validates():
 def test_upgraded_stored_trends_query_validates():
     stored = {
         "kind": "InsightVizNode",
-        "source": {"kind": "TrendsQuery", "series": [{"math": "dau", "event": "$pageview"}]},
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [
+                {"math": "dau", "event": "$pageview"},
+                {"nodes": [{"kind": "EventsNode", "event": "$pageview"}], "operator": "OR"},
+            ],
+        },
     }
     upgraded = upgrade(stored)
     query = TrendsQuery.model_validate(upgraded["source"])
-    assert query.series[0].kind == "EventsNode"
+    assert [s.kind for s in query.series] == ["EventsNode", "GroupNode"]
+
+
+def test_upgraded_stored_lifecycle_warehouse_query_validates():
+    stored = {
+        "kind": "LifecycleQuery",
+        "series": [
+            {
+                "table_name": "orders",
+                "id": "orders",
+                "timestamp_field": "created_at",
+                "created_at_field": "created_at",
+                "aggregation_target_field": "customer_id",
+            }
+        ],
+    }
+    upgraded = upgrade(stored)
+    query = LifecycleQuery.model_validate(upgraded)
+    assert query.series[0].kind == "LifecycleDataWarehouseNode"
