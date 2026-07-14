@@ -93,8 +93,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = GROQ_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across pages so urllib3 keeps the connection alive. The API key rides in the
+    # Authorization header, so it's redacted from logged URLs and captured samples, and redirects are
+    # disabled so the bearer token is never replayed to another host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     url = f"{GROQ_BASE_URL}{config.path}"
 
     cursor: str | None = None
@@ -104,6 +106,8 @@ def get_rows(
 
         # All three list endpoints wrap results as {"object": "list", "data": [...]}.
         items = body.get("data", [])
+        if not isinstance(items, list):
+            raise GroqRetryableError(f"Groq API returned an unexpected non-list data field for url={url}")
         if items:
             yield items
 
@@ -148,7 +152,8 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
         return False, None
 
     try:
-        response = make_tracked_session().get(f"{GROQ_BASE_URL}/models", headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(f"{GROQ_BASE_URL}/models", headers=_get_headers(api_key), timeout=10)
     except Exception:
         return False, None
 

@@ -120,6 +120,14 @@ class TestGroq:
             rows = _collect_rows(get_rows("k", "models", MagicMock()))
         assert rows == []
 
+    def test_get_rows_non_list_data_is_retryable(self) -> None:
+        # A `data` field that isn't a list (error payload or changed API shape) must not be yielded as
+        # a page of rows; it breaks the Iterator[list[dict]] contract.
+        responses = [_response(body={"data": {"unexpected": "object"}})]
+        session = _session_returning(responses)
+        with patch(f"{MODULE}.make_tracked_session", return_value=session), pytest.raises(GroqRetryableError):
+            _collect_rows(get_rows("k", "models", MagicMock()))
+
     @parameterized.expand(
         [
             ("batches", "created_at"),

@@ -118,6 +118,8 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
             return True, None
         if status_code == 401:
             return False, "Invalid Groq API key"
+        if status_code == 403:
+            return False, "Your Groq API key is missing the permissions needed to sync this data"
         return False, "Could not connect to Groq with the provided API key"
 
     def source_for_pipeline(self, config: GroqSourceConfig, inputs: SourceInputs) -> SourceResponse:
