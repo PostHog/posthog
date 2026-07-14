@@ -1,4 +1,6 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 
@@ -15,6 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     person_property_projection_for,
 )
 
+# A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
+# never ran, or gave up retrying) and is swept. Anything younger may belong to a consumer that is
+# merely lagging behind the sync schedule and must survive — deleting it would silently drop that
+# sync's staged delta, which an incremental sync never re-stages until the rows change again.
+ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
+
 
 class PersonPropertyRowSink:
     """Stages a projection of each synced chunk to S3 for the person-property upsert job.
@@ -24,6 +32,10 @@ class PersonPropertyRowSink:
     pipeline. A source is staged only when its key (person identifier) column is present in the
     synced chunk, so a staged file always carries an identifier to attach its properties to. A
     post-sync job (later PR) reads these files and upserts person properties, then clears them.
+
+    Multiple job prefixes can coexist under a schema while the consumer lags, so the consumer
+    must apply prefixes in job order (or last-write-wins per person key) — a lagged older job
+    applied after a newer one would regress properties to stale values.
     """
 
     def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
@@ -98,15 +110,56 @@ class PersonPropertyRowSink:
         )
 
     async def clear_chunks(self) -> None:
-        """Drop staged files left under this schema's prefix before a run stages fresh ones.
+        """Drop this job's own staged files, plus any sibling job prefixes abandoned long enough.
 
-        Cleared at the schema level (not just this job) so files from a prior job that was never
-        consumed by the downstream upsert job cannot accumulate across repeated syncs; it also
-        stops a retry of the same job from double-staging. The downstream job clears the files it
-        consumes on success; this is the backstop for abandoned prefixes.
+        Clearing our own prefix stops a retry of the same job from double-staging. Sibling
+        prefixes are NOT cleared wholesale: the downstream upsert job deletes them as it consumes
+        them, and a recent sibling may simply belong to a consumer that is lagging — wiping it
+        would lose that sync's delta. Only prefixes older than ``ABANDONED_STAGED_PREFIX_TTL``
+        are swept, as the backstop against a consumer that never ran.
         """
         async with aget_s3_client() as s3_client:
             try:
-                await s3_client._rm(f"s3://{self._get_schema_prefix()}/", recursive=True)
+                await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
             except FileNotFoundError:
                 pass
+            await self._sweep_abandoned_sibling_prefixes(s3_client)
+
+    async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
+        try:
+            entries = await s3_client._find(f"s3://{self._get_schema_prefix()}/", detail=True)
+        except FileNotFoundError:
+            return
+        if not isinstance(entries, dict) or not entries:
+            return
+
+        schema_prefix = self._get_schema_prefix().lstrip("/")
+        files_by_job: dict[str, list[str]] = {}
+        newest_by_job: dict[str, datetime] = {}
+        for path, info in entries.items():
+            key = path.lstrip("/")
+            relative = key[len(schema_prefix) :].lstrip("/")
+            job_segment = relative.split("/", 1)[0]
+            if not job_segment or job_segment == str(self.job_id):
+                continue
+            files_by_job.setdefault(job_segment, []).append(key)
+            last_modified = info.get("LastModified") if isinstance(info, dict) else None
+            if last_modified is not None:
+                current = newest_by_job.get(job_segment)
+                if current is None or last_modified > current:
+                    newest_by_job[job_segment] = last_modified
+
+        cutoff = datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL
+        stale_files = [
+            key
+            for job_segment, keys in files_by_job.items()
+            # A prefix with no LastModified at all holds only directory markers — safe to sweep.
+            if (newest := newest_by_job.get(job_segment)) is None or newest < cutoff
+            for key in keys
+        ]
+        if not stale_files:
+            return
+        await self.logger.adebug(
+            f"Sweeping {len(stale_files)} abandoned person-property staged files under {schema_prefix}"
+        )
+        await s3_client._rm([f"s3://{key}" for key in stale_files])
