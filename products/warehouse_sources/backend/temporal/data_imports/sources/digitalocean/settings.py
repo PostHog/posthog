@@ -24,9 +24,10 @@ class DigitalOceanEndpointConfig:
     partition_key: Optional[str] = None
     # Extra query params merged into every request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Top-level response keys carrying secrets (connection URIs, passwords). These are
-    # dropped from every record before it's stored, and their presence also disables HTTP
-    # sample capture for the endpoint so the raw response can't leak into HTTP samples.
+    # Response keys carrying secrets (connection URIs, passwords, env-var values, log-shipping
+    # credentials). Dropped from every record before it's stored — recursively, at any depth,
+    # since some live nested inside spec/deployment objects — and their presence also disables
+    # HTTP sample capture for the endpoint so the raw response can't leak into HTTP samples.
     sensitive_fields: frozenset[str] = frozenset()
 
 
@@ -40,11 +41,16 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         data_selector="droplets",
         partition_key="created_at",
     ),
+    # `GET /v2/apps` returns full app specs whose components carry environment-variable values
+    # and log-destination credentials (Datadog/Papertrail/OpenSearch). Those `envs` and
+    # `log_destinations` blocks live nested inside `spec` (and the deployment spec copies), so
+    # they're stripped recursively; the surrounding app/service metadata is kept.
     "apps": DigitalOceanEndpointConfig(
         name="apps",
         path="/v2/apps",
         data_selector="apps",
         partition_key="created_at",
+        sensitive_fields=frozenset({"envs", "log_destinations"}),
     ),
     "kubernetes_clusters": DigitalOceanEndpointConfig(
         name="kubernetes_clusters",

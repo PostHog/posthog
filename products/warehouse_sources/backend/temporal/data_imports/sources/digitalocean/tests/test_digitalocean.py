@@ -109,6 +109,32 @@ class TestDigitalOceanSensitiveFields:
 
         assert transformed == {"id": "db-1", "name": "prod-pg", "engine": "pg", "region": "nyc1"}
 
+    def test_apps_strips_nested_env_and_log_credentials(self) -> None:
+        # App specs bury env-var values and log-destination credentials inside spec.services and
+        # the deployment spec copy; the strip must recurse to reach them while keeping metadata.
+        record = {
+            "id": "app-1",
+            "spec": {
+                "name": "web",
+                "services": [
+                    {
+                        "name": "api",
+                        "envs": [{"key": "SECRET_KEY", "value": "leak-me"}],
+                        "log_destinations": [{"name": "dd", "datadog": {"api_key": "leak-me"}}],
+                    }
+                ],
+            },
+            "active_deployment": {"spec": {"services": [{"name": "api", "envs": [{"value": "leak-me"}]}]}},
+        }
+        resource = digitalocean_source("dop_v1_token", "apps", team_id=1, job_id="job-1")
+        [transformed] = resource._apply_transforms([record])
+
+        assert transformed == {
+            "id": "app-1",
+            "spec": {"name": "web", "services": [{"name": "api"}]},
+            "active_deployment": {"spec": {"services": [{"name": "api"}]}},
+        }
+
     def test_non_sensitive_endpoint_keeps_every_field(self) -> None:
         # Only endpoints that declare sensitive_fields get filtered; everything else must round-trip
         # untouched or the strip would silently drop real data.

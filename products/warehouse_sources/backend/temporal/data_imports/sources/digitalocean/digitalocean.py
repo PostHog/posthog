@@ -48,10 +48,18 @@ def get_resource(endpoint_config: DigitalOceanEndpointConfig) -> EndpointResourc
 
 
 def _strip_sensitive_fields(sensitive_fields: frozenset[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    # Drop credential-bearing keys from each record before it's stored. Runs as a resource
-    # map, so it's the last thing to touch a record before persistence.
+    # Drop credential-bearing keys from each record before it's stored. Recurses through nested
+    # dicts and lists because some secrets live inside spec/deployment objects, not at the top
+    # level. Runs as a resource map, so it's the last thing to touch a record before persistence.
+    def _scrub(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: _scrub(item) for key, item in value.items() if key not in sensitive_fields}
+        if isinstance(value, list):
+            return [_scrub(item) for item in value]
+        return value
+
     def _strip(record: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in record.items() if key not in sensitive_fields}
+        return _scrub(record)
 
     return _strip
 
