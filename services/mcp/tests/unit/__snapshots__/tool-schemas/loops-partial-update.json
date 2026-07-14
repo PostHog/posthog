@@ -64,7 +64,7 @@
             "type": "string"
         },
         "model": {
-            "description": "LLM model identifier, validated against `runtime_adapter`'s catalog.",
+            "description": "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time.",
             "type": "string"
         },
         "name": {
