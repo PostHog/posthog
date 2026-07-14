@@ -37,10 +37,10 @@ pub async fn run(args: BlastArgs) -> Result<()> {
     )
     .await?;
 
-    let mut violations = Vec::new();
+    let mut violations = state.take_regressions().await;
     if args.verify {
         println!("Verifying reads with STRONG consistency...");
-        violations = verify_strong(&client, &collector, &state, args.team_id).await?;
+        violations.extend(verify_strong(&client, &collector, &state, args.team_id).await?);
     }
 
     print_report(
@@ -144,7 +144,7 @@ pub async fn verify_strong(
                 } else {
                     serde_json::from_slice(&person.properties)?
                 };
-                let mut violations = state.verify(person_id, &props).await;
+                let mut violations = state.verify(person_id, &props, person.version).await;
                 all_violations.append(&mut violations);
             }
             Ok(None) => {

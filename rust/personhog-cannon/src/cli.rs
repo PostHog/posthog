@@ -29,7 +29,7 @@ pub enum Command {
     /// Write-then-strong-read consistency validation.
     Consistency(ConsistencyArgs),
     /// Full e2e gate: stack up, seed, traffic, quiesce, verify, cleanup.
-    Gate(GateArgs),
+    Gate(Box<GateArgs>),
 }
 
 #[derive(Args, Clone)]
@@ -126,6 +126,12 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 2)]
     pub leaders: u32,
 
+    /// Number of leader-mode routers to spawn (each is a coordinator
+    /// candidate). Traffic targets the last one, so a coordinator kill —
+    /// which targets the first — leaves the traffic path intact.
+    #[arg(long, default_value_t = 1)]
+    pub routers: u32,
+
     /// Number of partitions (ignored with --external-router-url).
     #[arg(long, default_value_t = 4)]
     pub partitions: u32,
@@ -162,6 +168,47 @@ pub struct GateArgs {
     /// Spawn an additional leader this long into the traffic phase.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub scale_up_after: Option<Duration>,
+
+    /// Crash-restart (SIGKILL + respawn, same pod name) the busiest leader
+    /// this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub restart_after: Option<Duration>,
+
+    /// Zombie the busiest leader this long into the traffic phase (SIGSTOP
+    /// plus lease revoke), so ownership moves while the process still holds
+    /// its old cache and producer.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub zombie_after: Option<Duration>,
+
+    /// How long the zombie stays SIGSTOPped before SIGCONT wakes it.
+    #[arg(long, default_value = "8s", value_parser = humantime::parse_duration)]
+    pub zombie_duration: Duration,
+
+    /// Crash-restart the writer this long into the traffic phase
+    /// (validates at-least-once redelivery under the version guard).
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub writer_crash_after: Option<Duration>,
+
+    /// SIGSTOP the writer this long into the traffic phase — controlled
+    /// writer-lag injection.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub writer_pause_after: Option<Duration>,
+
+    /// How long the writer stays paused before SIGCONT.
+    #[arg(long, default_value = "10s", value_parser = humantime::parse_duration)]
+    pub writer_pause_duration: Duration,
+
+    /// SIGKILL the first router (the presumed coordinator) this long into
+    /// the traffic phase. Requires --routers >= 2.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub router_kill_after: Option<Duration>,
+
+    /// After the first handoff-creating event (--shutdown-after or
+    /// --scale-up-after) fires, watch for the resulting handoff and SIGKILL
+    /// its target pod mid-handoff. Best effort: a handoff that completes
+    /// between polls is not killed.
+    #[arg(long, default_value_t = false)]
+    pub kill_handoff_target: bool,
 
     /// Leader cache capacity in entries. Set below --persons to put the
     /// cache under eviction pressure.

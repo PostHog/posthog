@@ -24,6 +24,13 @@ enum ChaosEvent {
     Kill { fast: bool },
     Shutdown,
     ScaleUp,
+    Restart,
+    ZombieStop,
+    ZombieResume,
+    WriterCrash,
+    WriterPause,
+    WriterResume,
+    RouterKill,
 }
 
 impl std::fmt::Display for ChaosEvent {
@@ -33,6 +40,13 @@ impl std::fmt::Display for ChaosEvent {
             ChaosEvent::Kill { fast: false } => write!(f, "kill (lease TTL expiry)"),
             ChaosEvent::Shutdown => write!(f, "graceful shutdown"),
             ChaosEvent::ScaleUp => write!(f, "scale up"),
+            ChaosEvent::Restart => write!(f, "leader crash-restart"),
+            ChaosEvent::ZombieStop => write!(f, "zombie stop (SIGSTOP + lease revoke)"),
+            ChaosEvent::ZombieResume => write!(f, "zombie resume (SIGCONT)"),
+            ChaosEvent::WriterCrash => write!(f, "writer crash-restart"),
+            ChaosEvent::WriterPause => write!(f, "writer pause (lag injection)"),
+            ChaosEvent::WriterResume => write!(f, "writer resume"),
+            ChaosEvent::RouterKill => write!(f, "coordinator router kill"),
         }
     }
 }
@@ -53,6 +67,23 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     if let Some(after) = args.scale_up_after {
         events.push((after, ChaosEvent::ScaleUp));
     }
+    if let Some(after) = args.restart_after {
+        events.push((after, ChaosEvent::Restart));
+    }
+    if let Some(after) = args.zombie_after {
+        events.push((after, ChaosEvent::ZombieStop));
+        events.push((after + args.zombie_duration, ChaosEvent::ZombieResume));
+    }
+    if let Some(after) = args.writer_crash_after {
+        events.push((after, ChaosEvent::WriterCrash));
+    }
+    if let Some(after) = args.writer_pause_after {
+        events.push((after, ChaosEvent::WriterPause));
+        events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
+    }
+    if let Some(after) = args.router_kill_after {
+        events.push((after, ChaosEvent::RouterKill));
+    }
     events.sort_by_key(|(after, _)| *after);
     events
 }
@@ -64,8 +95,14 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
 /// version. Exits non-zero on any violation, so it can gate CI.
 pub async fn run(args: GateArgs) -> Result<()> {
     let chaos = chaos_timeline(&args);
-    if args.external_router_url.is_some() && !chaos.is_empty() {
+    if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
+    }
+    if args.router_kill_after.is_some() && args.routers < 2 {
+        bail!("--router-kill-after requires --routers >= 2 (traffic targets the last router)");
+    }
+    if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
+        bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
     }
 
     let mut stack = match &args.external_router_url {
@@ -83,6 +120,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 Stack::up(StackConfig {
                     bin_dir,
                     leaders: args.leaders,
+                    routers: args.routers,
                     partitions: args.partitions,
                     kafka_hosts: args.kafka_hosts.clone(),
                     etcd_endpoints: args.etcd_endpoints.clone(),
@@ -148,13 +186,31 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // journaled, so the invariant is untouched: whatever the leader acked
     // through the disruption must still be visible afterwards.
     let traffic_start = Instant::now();
+    let mut handoff_kill_armed = args.kill_handoff_target;
     for (after, event) in chaos {
         let stack = stack.as_mut().expect("chaos requires a spawned stack");
         tokio::time::sleep_until((traffic_start + after).into()).await;
+        let creates_handoff = matches!(event, ChaosEvent::Shutdown | ChaosEvent::ScaleUp);
         let pod = match event {
             ChaosEvent::Kill { fast } => Some(stack.kill_leader(fast).await?),
             ChaosEvent::Shutdown => Some(stack.shutdown_leader().await?),
             ChaosEvent::ScaleUp => Some(stack.spawn_leader()?),
+            ChaosEvent::Restart => Some(stack.restart_leader().await?),
+            ChaosEvent::ZombieStop => Some(stack.stop_zombie().await?),
+            ChaosEvent::ZombieResume => Some(stack.resume_zombie()?),
+            ChaosEvent::WriterCrash => {
+                stack.crash_restart_writer().await?;
+                None
+            }
+            ChaosEvent::WriterPause => {
+                stack.pause_writer()?;
+                None
+            }
+            ChaosEvent::WriterResume => {
+                stack.resume_writer()?;
+                None
+            }
+            ChaosEvent::RouterKill => Some(stack.kill_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",
@@ -162,6 +218,20 @@ pub async fn run(args: GateArgs) -> Result<()> {
             pod.as_deref().unwrap_or("-"),
             stack.coordination_report().await,
         );
+
+        // Immediately after the first handoff-creating event, optionally
+        // hunt the resulting handoff and kill its target mid-flight.
+        if handoff_kill_armed && creates_handoff {
+            handoff_kill_armed = false;
+            match stack.kill_handoff_target(Duration::from_secs(15)).await? {
+                Some(victim) => println!(
+                    "Chaos at {:.1}s: killed handoff target → pod {victim} | {}",
+                    traffic_start.elapsed().as_secs_f64(),
+                    stack.coordination_report().await,
+                ),
+                None => println!("No in-flight handoff observed; handoff-target kill skipped"),
+            }
+        }
     }
 
     traffic.await.context("traffic task panicked")??;
@@ -175,7 +245,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     println!("Verifying strong reads...");
-    let mut violations = blast::verify_strong(&client, &collector, &state, args.team_id).await?;
+    let mut violations = state.take_regressions().await;
+    violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
 
     println!("Waiting for the writer to drain, then verifying Postgres...");
     let journal = state.snapshot().await;

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::HandoffPhase;
 
 mod etcd;
 mod kafka;
@@ -13,13 +14,16 @@ use process::ServiceProcess;
 
 /// Ports sit in their own range so a harness stack can run alongside the
 /// dev stack (gRPC 50051-50054, metrics 9100-9105) without collisions.
+/// Routers occupy base..base+3 and leaders start at base+6, which caps the
+/// router count at 4.
 const REPLICA_GRPC_PORT: u16 = 51051;
-const ROUTER_GRPC_PORT: u16 = 51054;
+const ROUTER_GRPC_BASE_PORT: u16 = 51054;
 const LEADER_GRPC_BASE_PORT: u16 = 51060;
 const REPLICA_METRICS_PORT: u16 = 51151;
 const WRITER_METRICS_PORT: u16 = 51153;
-const ROUTER_METRICS_PORT: u16 = 51154;
+const ROUTER_METRICS_BASE_PORT: u16 = 51154;
 const LEADER_METRICS_BASE_PORT: u16 = 51160;
+const MAX_ROUTERS: u32 = 4;
 
 const ETCD_PREFIX: &str = "/personhog-cannon/";
 const READY_DEADLINE: Duration = Duration::from_secs(90);
@@ -29,6 +33,7 @@ pub struct StackConfig {
     /// Directory containing the service binaries (the cargo target dir).
     pub bin_dir: PathBuf,
     pub leaders: u32,
+    pub routers: u32,
     pub partitions: u32,
     pub kafka_hosts: String,
     pub etcd_endpoints: String,
@@ -40,17 +45,23 @@ pub struct StackConfig {
     pub cache_memory_capacity: usize,
 }
 
-/// A locally-spawned personhog stack: replica, writer, N leaders, and a
-/// leader-mode router (which hosts the coordinator), all pointed at the
-/// docker-compose Kafka/etcd/Postgres but isolated from the dev stack via
-/// their own ports, etcd prefix, and per-run changelog topic.
+/// A locally-spawned personhog stack: replica, writer, N leaders, and M
+/// leader-mode routers (each hosting a coordinator candidate), all pointed
+/// at the docker-compose Kafka/etcd/Postgres but isolated from the dev
+/// stack via their own ports, etcd prefix, and per-run changelog topic.
 pub struct Stack {
     config: StackConfig,
     infra: Vec<ServiceProcess>,
+    /// Live routers, keyed by registration name. The first spawned almost
+    /// always wins the coordinator election, so traffic targets the LAST
+    /// router and chaos kills the first.
+    routers: Vec<(String, ServiceProcess)>,
     /// Live leaders, keyed by the pod name they registered with.
     leaders: Vec<(String, ServiceProcess)>,
-    /// Leaders removed by chaos (killed or shutting down); their exit is
-    /// expected, so they are excluded from liveness checks.
+    /// A SIGSTOPped zombie leader, waiting for its SIGCONT.
+    paused: Vec<(String, ServiceProcess)>,
+    /// Processes removed by chaos (killed, draining, or resumed zombies);
+    /// their exit is expected, so they are excluded from liveness checks.
     retired: Vec<ServiceProcess>,
     next_leader_index: u32,
     store: PersonhogStore,
@@ -61,6 +72,10 @@ pub struct Stack {
 
 impl Stack {
     pub async fn up(config: StackConfig) -> Result<Self> {
+        if config.routers == 0 || config.routers > MAX_ROUTERS {
+            bail!("--routers must be between 1 and {MAX_ROUTERS}");
+        }
+
         let run_id = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let topic = format!("personhog_cannon_{run_id}");
         let log_dir = config.bin_dir.join("cannon-logs").join(&run_id);
@@ -86,6 +101,7 @@ impl Stack {
 
         tracing::info!(
             leaders = config.leaders,
+            routers = config.routers,
             partitions = config.partitions,
             topic,
             log_dir = %log_dir.display(),
@@ -130,30 +146,48 @@ impl Stack {
             &log_dir,
         )?);
 
-        infra.push(ServiceProcess::spawn(
-            "router-leader",
-            &config.bin_dir.join("personhog-router"),
-            &[
-                ("ROUTER_MODE", "leader".to_string()),
-                ("GRPC_ADDRESS", format!("127.0.0.1:{ROUTER_GRPC_PORT}")),
-                (
-                    "REPLICA_URL",
-                    format!("http://127.0.0.1:{REPLICA_GRPC_PORT}"),
-                ),
-                ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
-                ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
-                ("BACKEND_TIMEOUT_MS", "5000".to_string()),
-                ("POD_NAME", "cannon-router".to_string()),
-                ("METRICS_PORT", ROUTER_METRICS_PORT.to_string()),
-            ],
-            &log_dir,
-        )?);
+        let mut routers = Vec::new();
+        for i in 0..config.routers {
+            let name = format!("cannon-router-{i}");
+            let proc = ServiceProcess::spawn(
+                &name,
+                &config.bin_dir.join("personhog-router"),
+                &[
+                    ("ROUTER_MODE", "leader".to_string()),
+                    (
+                        "GRPC_ADDRESS",
+                        format!("127.0.0.1:{}", ROUTER_GRPC_BASE_PORT + i as u16),
+                    ),
+                    (
+                        "REPLICA_URL",
+                        format!("http://127.0.0.1:{REPLICA_GRPC_PORT}"),
+                    ),
+                    ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                    ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+                    ("BACKEND_TIMEOUT_MS", "5000".to_string()),
+                    ("POD_NAME", name.clone()),
+                    (
+                        "METRICS_PORT",
+                        (ROUTER_METRICS_BASE_PORT + i as u16).to_string(),
+                    ),
+                ],
+                &log_dir,
+            )?;
+            routers.push((name, proc));
+        }
 
-        let router_url = format!("http://127.0.0.1:{ROUTER_GRPC_PORT}");
+        // Traffic targets the last router: the first spawned usually wins
+        // the coordinator election, so a coordinator kill (which targets
+        // the first) leaves the traffic path intact.
+        let traffic_router_port = ROUTER_GRPC_BASE_PORT + (config.routers - 1) as u16;
+        let router_url = format!("http://127.0.0.1:{traffic_router_port}");
+
         let mut stack = Self {
             config,
             infra,
+            routers,
             leaders: Vec::new(),
+            paused: Vec::new(),
             retired: Vec::new(),
             next_leader_index: 0,
             store,
@@ -215,12 +249,7 @@ impl Stack {
     /// coordinator reacts immediately instead of waiting out the lease TTL.
     pub async fn kill_leader(&mut self, fast: bool) -> Result<String> {
         let victim = self.busiest_leader().await?;
-        let position = self
-            .leaders
-            .iter()
-            .position(|(name, _)| *name == victim)
-            .context("victim leader not tracked")?;
-        let (pod_name, mut proc) = self.leaders.remove(position);
+        let (pod_name, mut proc) = self.remove_leader(&victim)?;
 
         proc.kill_now().await;
         tracing::info!(pod = %pod_name, fast, "killed leader");
@@ -236,17 +265,142 @@ impl Stack {
     /// exits on its own while traffic continues.
     pub async fn shutdown_leader(&mut self) -> Result<String> {
         let victim = self.busiest_leader().await?;
-        let position = self
-            .leaders
-            .iter()
-            .position(|(name, _)| *name == victim)
-            .context("victim leader not tracked")?;
-        let (pod_name, proc) = self.leaders.remove(position);
+        let (pod_name, proc) = self.remove_leader(&victim)?;
 
         proc.sigterm();
         tracing::info!(pod = %pod_name, "requested graceful shutdown");
         self.retired.push(proc);
         Ok(pod_name)
+    }
+
+    /// Crash-restart the busiest leader under the same identity: SIGKILL,
+    /// then immediately respawn with the same pod name and ports, the way a
+    /// StatefulSet brings a crashed pod back. The restarted process
+    /// re-registers and must converge on the partitions etcd still says it
+    /// owns.
+    pub async fn restart_leader(&mut self) -> Result<String> {
+        let victim = self.busiest_leader().await?;
+        let position = self
+            .leaders
+            .iter()
+            .position(|(name, _)| *name == victim)
+            .context("victim leader not tracked")?;
+
+        self.leaders[position].1.respawn().await?;
+        tracing::info!(pod = %victim, "crash-restarted leader");
+        Ok(victim)
+    }
+
+    /// Turn the busiest leader into a zombie: SIGSTOP it (unreachable but
+    /// not dead) and revoke its lease so ownership moves while the process
+    /// still holds its old cache and producer. `resume_zombie` wakes it.
+    pub async fn stop_zombie(&mut self) -> Result<String> {
+        let victim = self.busiest_leader().await?;
+        let (pod_name, proc) = self.remove_leader(&victim)?;
+
+        proc.sigstop();
+        tracing::info!(pod = %pod_name, "SIGSTOPped leader (zombie)");
+        etcd::revoke_pod_lease(&self.store, &pod_name).await?;
+        self.paused.push((pod_name.clone(), proc));
+        Ok(pod_name)
+    }
+
+    /// SIGCONT the paused zombie. It wakes believing it still owns its
+    /// partitions; whatever it does next (self-fence, exit, re-register)
+    /// must not corrupt state that has moved to the new owner.
+    pub fn resume_zombie(&mut self) -> Result<String> {
+        let (pod_name, proc) = self
+            .paused
+            .pop()
+            .context("no paused zombie leader to resume")?;
+        proc.sigcont();
+        tracing::info!(pod = %pod_name, "SIGCONTed zombie leader");
+        self.retired.push(proc);
+        Ok(pod_name)
+    }
+
+    /// SIGKILL the first-spawned router — almost always the coordinator —
+    /// and revoke its registration lease. The election must move to a
+    /// surviving router, and in-flight freeze quorums must not count the
+    /// dead router forever.
+    pub async fn kill_coordinator_router(&mut self) -> Result<String> {
+        if self.routers.len() < 2 {
+            bail!("coordinator kill requires at least 2 routers");
+        }
+        let (name, mut proc) = self.routers.remove(0);
+        proc.kill_now().await;
+        tracing::info!(router = %name, "killed coordinator router");
+        etcd::revoke_router_lease(&self.store, &name).await?;
+        self.retired.push(proc);
+        Ok(name)
+    }
+
+    /// Crash-restart the writer: SIGKILL + respawn in the same consumer
+    /// group. Uncommitted records are redelivered; the version-guarded
+    /// upsert must keep the replay idempotent.
+    pub async fn crash_restart_writer(&mut self) -> Result<()> {
+        self.infra_mut("writer")?.respawn().await?;
+        tracing::info!("crash-restarted writer");
+        Ok(())
+    }
+
+    /// SIGSTOP the writer — controlled writer-lag injection.
+    pub fn pause_writer(&mut self) -> Result<()> {
+        self.infra_mut("writer")?.sigstop();
+        tracing::info!("paused writer (lag injection)");
+        Ok(())
+    }
+
+    /// SIGCONT the writer.
+    pub fn resume_writer(&mut self) -> Result<()> {
+        self.infra_mut("writer")?.sigcont();
+        tracing::info!("resumed writer");
+        Ok(())
+    }
+
+    /// Wait (up to `deadline`) for a handoff to appear in flight, then
+    /// SIGKILL its target pod mid-handoff. Best effort: fast handoffs can
+    /// complete between polls, in which case nothing is killed.
+    pub async fn kill_handoff_target(&mut self, deadline: Duration) -> Result<Option<String>> {
+        let start = Instant::now();
+        while start.elapsed() < deadline {
+            let handoffs = self.store.list_handoffs().await.unwrap_or_default();
+            let target = handoffs
+                .iter()
+                .find(|h| h.phase != HandoffPhase::Complete)
+                .map(|h| h.new_owner.clone());
+
+            if let Some(victim) = target {
+                // The target may not be a tracked live leader (e.g. it was
+                // already killed); skip and keep watching if so.
+                if let Ok((pod_name, mut proc)) = self.remove_leader(&victim) {
+                    proc.kill_now().await;
+                    tracing::info!(pod = %pod_name, "killed handoff target mid-handoff");
+                    etcd::revoke_pod_lease(&self.store, &pod_name).await?;
+                    self.retired.push(proc);
+                    return Ok(Some(pod_name));
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tracing::warn!("no in-flight handoff observed within {deadline:?}; nothing killed");
+        Ok(None)
+    }
+
+    fn remove_leader(&mut self, pod_name: &str) -> Result<(String, ServiceProcess)> {
+        let position = self
+            .leaders
+            .iter()
+            .position(|(name, _)| name == pod_name)
+            .with_context(|| format!("leader {pod_name} not tracked as live"))?;
+        Ok(self.leaders.remove(position))
+    }
+
+    fn infra_mut(&mut self, name: &str) -> Result<&mut ServiceProcess> {
+        self.infra
+            .iter_mut()
+            .find(|proc| proc.name() == name)
+            .with_context(|| format!("{name} not tracked in stack"))
     }
 
     /// The live leader owning the most partitions; falls back to the first
@@ -308,11 +462,10 @@ impl Stack {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
-        wait_tcp(
-            &format!("127.0.0.1:{ROUTER_GRPC_PORT}"),
-            Duration::from_secs(10),
-        )
-        .await?;
+        for i in 0..self.routers.len() {
+            let addr = format!("127.0.0.1:{}", ROUTER_GRPC_BASE_PORT + i as u16);
+            wait_tcp(&addr, Duration::from_secs(10)).await?;
+        }
         tracing::info!(
             router = %self.router_url,
             elapsed_ms = start.elapsed().as_millis() as u64,
@@ -321,19 +474,20 @@ impl Stack {
         Ok(())
     }
 
-    /// Fail if any spawned service has exited (retired leaders excluded —
-    /// their exit is the point).
+    /// Fail if any spawned service has exited (retired and paused
+    /// processes excluded — their state is chaos-induced).
     pub fn check_alive(&mut self) -> Result<()> {
         let procs = self
             .infra
             .iter_mut()
+            .chain(self.routers.iter_mut().map(|(_, proc)| proc))
             .chain(self.leaders.iter_mut().map(|(_, proc)| proc));
         for proc in procs {
             if let Some(status) = proc.exited() {
                 let tail = proc.log_tail(30);
                 bail!(
                     "service {} exited ({status}); last log lines:\n{tail}",
-                    proc.name
+                    proc.name()
                 );
             }
         }
@@ -344,11 +498,12 @@ impl Stack {
         let procs = self
             .infra
             .iter()
+            .chain(self.routers.iter().map(|(_, proc)| proc))
             .chain(self.leaders.iter().map(|(_, proc)| proc));
         for proc in procs {
             tracing::error!(
-                service = %proc.name,
-                log = %proc.log_path.display(),
+                service = %proc.name(),
+                log = %proc.log_path().display(),
                 "--- last log lines ---\n{}",
                 proc.log_tail(15)
             );
@@ -363,7 +518,9 @@ impl Stack {
         let terminations = self
             .infra
             .into_iter()
+            .chain(self.routers.into_iter().map(|(_, proc)| proc))
             .chain(self.leaders.into_iter().map(|(_, proc)| proc))
+            .chain(self.paused.into_iter().map(|(_, proc)| proc))
             .chain(self.retired)
             .map(|proc| proc.terminate(SHUTDOWN_GRACE));
         futures::future::join_all(terminations).await;

@@ -29,25 +29,35 @@ pub async fn reset(store: &PersonhogStore, partitions: u32) -> Result<()> {
 /// immediately instead of waiting out the lease TTL — the "fast" half of a
 /// kill.
 pub async fn revoke_pod_lease(store: &PersonhogStore, pod_name: &str) -> Result<()> {
+    revoke_registration_lease(store, &format!("pods/{pod_name}")).await
+}
+
+/// Revoke the lease attached to a router's registration, so the coordinator
+/// stops counting the dead router toward freeze-ack quorums immediately.
+pub async fn revoke_router_lease(store: &PersonhogStore, router_name: &str) -> Result<()> {
+    revoke_registration_lease(store, &format!("routers/{router_name}")).await
+}
+
+async fn revoke_registration_lease(store: &PersonhogStore, key_suffix: &str) -> Result<()> {
     let prefix = store.inner().prefix();
-    let key = format!("{prefix}pods/{pod_name}");
+    let key = format!("{prefix}{key_suffix}");
 
     let resp = store
         .inner()
         .client()
         .clone()
-        .get(key, None)
+        .get(key.clone(), None)
         .await
-        .context("reading pod key from etcd")?;
+        .context("reading registration key from etcd")?;
 
     let kv = resp
         .kvs()
         .first()
-        .with_context(|| format!("pod {pod_name} not registered in etcd"))?;
+        .with_context(|| format!("{key} not registered in etcd"))?;
 
     let lease_id = kv.lease();
     if lease_id == 0 {
-        anyhow::bail!("pod {pod_name} has no lease attached");
+        anyhow::bail!("{key} has no lease attached");
     }
 
     store
@@ -56,9 +66,9 @@ pub async fn revoke_pod_lease(store: &PersonhogStore, pod_name: &str) -> Result<
         .clone()
         .lease_revoke(lease_id)
         .await
-        .context("revoking pod lease")?;
+        .context("revoking registration lease")?;
 
-    tracing::info!(pod = pod_name, lease_id, "revoked etcd lease");
+    tracing::info!(key, lease_id, "revoked etcd lease");
     Ok(())
 }
 

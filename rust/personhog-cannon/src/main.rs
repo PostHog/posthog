@@ -28,6 +28,6 @@ async fn main() -> Result<()> {
         Command::Cleanup(args) => scenarios::seed_cmd::run_cleanup(args).await,
         Command::Blast(args) => scenarios::blast::run(args).await,
         Command::Consistency(args) => scenarios::consistency::run(args).await,
-        Command::Gate(args) => scenarios::gate::run(args).await,
+        Command::Gate(args) => scenarios::gate::run(*args).await,
     }
 }

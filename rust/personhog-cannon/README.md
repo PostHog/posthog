@@ -5,6 +5,7 @@ Revived from the original personhog-cannon draft (#55581) and extended with stac
 
 The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads immediately, and in Postgres (with exactly the acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
+Version monotonicity is asserted throughout: an ack observing a lower version than an earlier ack for the same person, or a strong read observing a version below the highest ack, is a violation.
 
 ## Requirements
 
@@ -53,6 +54,29 @@ target/debug/personhog-cannon gate --leaders 3 --duration 15s --shutdown-after 5
 
 # Scale out mid-traffic, then crash the busiest leader
 target/debug/personhog-cannon gate --leaders 2 --duration 20s --scale-up-after 5s --kill-after 12s
+
+# Zombie: SIGSTOP + lease revoke so ownership moves, then SIGCONT the old
+# owner — it wakes believing it still owns its partitions
+target/debug/personhog-cannon gate --leaders 3 --duration 20s --zombie-after 4s --zombie-duration 8s
+
+# Crash-restart the busiest leader under the same pod name (StatefulSet
+# restart): it must re-register and converge on the partitions etcd says it owns
+target/debug/personhog-cannon gate --leaders 3 --duration 15s --restart-after 5s
+
+# Writer crash-restart (at-least-once redelivery under the version guard)
+# and writer pause/resume (controlled lag injection)
+target/debug/personhog-cannon gate --duration 15s --writer-crash-after 5s
+target/debug/personhog-cannon gate --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
+
+# Kill the coordinator: traffic targets the last router, chaos kills the
+# first (the election winner); a later handoff runs under the new coordinator
+target/debug/personhog-cannon gate --leaders 3 --routers 2 --duration 20s \
+  --router-kill-after 5s --shutdown-after 9s
+
+# Compound: kill the target pod of an in-flight handoff (best-effort timing —
+# fires on the first handoff observed after the shutdown/scale-up)
+target/debug/personhog-cannon gate --leaders 3 --duration 20s \
+  --shutdown-after 5s --kill-handoff-target
 ```
 
 ### Eviction pressure
