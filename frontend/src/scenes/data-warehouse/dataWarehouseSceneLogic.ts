@@ -14,6 +14,7 @@ export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     SETTINGS = 'settings',
     MODELING = 'modeling',
+    DB_USERS = 'db_users',
 }
 
 function isDataWarehouseTab(tab: unknown): tab is DataWarehouseTab {
@@ -62,6 +63,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
                     tabs.push(DataWarehouseTab.MODELING)
+                }
+                // DB users manages live warehouse credentials, so it stays hidden until a warehouse
+                // actually exists to manage users on (same reasoning as Overview above).
+                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_DB_USERS_TAB] && warehouseReady) {
+                    tabs.push(DataWarehouseTab.DB_USERS)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
                     tabs.push(DataWarehouseTab.SETTINGS)

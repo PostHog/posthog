@@ -14,6 +14,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataModelingTab } from './scene/DataModelingTab'
+import { DbUsersTab } from './scene/DbUsersTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SettingsTab } from './scene/SettingsTab'
 
@@ -27,6 +28,7 @@ const TAB_LABELS: Record<DataWarehouseTab, string> = {
     [DataWarehouseTab.OVERVIEW]: 'Overview',
     [DataWarehouseTab.SETTINGS]: 'Settings',
     [DataWarehouseTab.MODELING]: 'Modeling',
+    [DataWarehouseTab.DB_USERS]: 'DB users',
 }
 
 function tabContent(tab: DataWarehouseTab): JSX.Element {
@@ -37,6 +39,8 @@ function tabContent(tab: DataWarehouseTab): JSX.Element {
             return <SettingsTab />
         case DataWarehouseTab.MODELING:
             return <DataModelingTab />
+        case DataWarehouseTab.DB_USERS:
+            return <DbUsersTab />
     }
 }
 
