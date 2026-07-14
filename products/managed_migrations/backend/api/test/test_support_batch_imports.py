@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
+import structlog.testing
 from parameterized import parameterized
 from rest_framework import status
 
@@ -111,6 +112,21 @@ class TestBatchImportSupportAPI(APIBaseTest):
 
         detail_response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+
+    def test_audit_log_never_contains_credentials(self):
+        # PersonalAPIKeyAuthentication accepts `?personal_api_key=...` - the audit log
+        # must allowlist query params or it writes the plaintext staff key to logs.
+        token = self._create_pat(scopes=["batch_import_support:read"])
+        self.client.logout()
+
+        with structlog.testing.capture_logs() as logs:
+            response = self.client.get(f"/api/managed_migrations_support/?personal_api_key={token}&status=paused")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        audit_logs = [log for log in logs if log.get("event") == "batch_import_support_api_request"]
+        self.assertEqual(len(audit_logs), 1)
+        self.assertNotIn(token, str(audit_logs[0]))
+        self.assertEqual(audit_logs[0]["query_params"], {"status": "paused"})
 
     def test_secret_values_never_appear_in_responses(self):
         # Structural guarantee first: neither serializer declares the field at all

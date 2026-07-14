@@ -277,6 +277,12 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
             return BatchImportSupportDetailSerializer
         return BatchImportSupportListSerializer
 
+    # Allowlist of query params safe to audit-log. PersonalAPIKeyAuthentication accepts
+    # `?personal_api_key=...`, so logging raw query_params would write plaintext staff
+    # keys to centralized logs; an allowlist fails closed for any future secret-bearing
+    # param too.
+    LOGGED_QUERY_PARAMS = frozenset({"status", "team_id", "search", "ordering", "limit", "offset"})
+
     def finalize_response(
         self, request: request.Request, response: response.Response, *args, **kwargs
     ) -> response.Response:
@@ -287,7 +293,7 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
                 "batch_import_support_api_request",
                 staff_user_id=user.id,
                 action=self.action,
-                query_params=dict(request.query_params),
+                query_params={k: v for k, v in request.query_params.items() if k in self.LOGGED_QUERY_PARAMS},
                 object_id=self.kwargs.get("pk"),
             )
         return super().finalize_response(request, response, *args, **kwargs)
