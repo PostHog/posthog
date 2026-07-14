@@ -17,7 +17,7 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 
 /**

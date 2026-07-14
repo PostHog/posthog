@@ -8,6 +8,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { Region } from '~/types'
 
+import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from './incidentStatus'
 import type { incidentStatusLogicType } from './incidentStatusLogicType'
 
 // Raw status page API types
@@ -16,8 +17,9 @@ export type Impact = 'partial_outage' | 'degraded_performance' | 'full_outage'
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring'
 export type MaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
 
-// Normalized status for display
-export type NormalizedStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
+// The normalized display status and its shared read/write module live in ./incidentStatus, a
+// deliberate leaf so LemonToast can read the status without importing this logic's graph.
+export { getIncidentStatus, setIncidentStatus, STATUS_PAGE_BASE, type NormalizedStatus } from './incidentStatus'
 
 export interface AffectedComponent {
     id: string
@@ -66,10 +68,7 @@ export interface ComponentIncidentAlert {
     severity: 'warning' | 'error'
 }
 
-export const STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
 const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
-
-const DEFAULT_STATUS: NormalizedStatus = 'operational'
 
 // A failed `fetch` to an external host throws a `TypeError` ("Failed to fetch", "NetworkError when
 // attempting to fetch resource", "Load failed", ...). These are expected and outside our control —
@@ -78,16 +77,6 @@ const DEFAULT_STATUS: NormalizedStatus = 'operational'
 // error type (e.g. a `SyntaxError` from `response.json()`), which we still want to capture.
 function isNetworkError(error: unknown): boolean {
     return error instanceof TypeError
-}
-
-let currentStatus: NormalizedStatus = DEFAULT_STATUS
-
-export function setIncidentStatus(status: NormalizedStatus): void {
-    currentStatus = status
-}
-
-export function getIncidentStatus(): NormalizedStatus {
-    return currentStatus
 }
 
 // incident.io component name for the PostHog AI service. An incident is treated as affecting AI only
