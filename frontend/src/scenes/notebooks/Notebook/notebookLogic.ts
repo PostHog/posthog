@@ -337,7 +337,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     actions({
-        setEditor: (editor: NotebookEditor) => ({ editor }),
+        setEditor: (editor: NotebookEditor | null) => ({ editor }),
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,

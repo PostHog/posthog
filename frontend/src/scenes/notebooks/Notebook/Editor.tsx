@@ -222,6 +222,10 @@ export function Editor(): JSX.Element {
                     unbindEditor()
                 }
             }}
+            onDestroy={() => {
+                setEditor(null)
+                unbindEditor()
+            }}
         >
             <FloatingSuggestions />
             {isEditable && <TableMenu />}
