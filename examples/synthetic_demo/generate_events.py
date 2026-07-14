@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Deterministic pseudo-randomness so the output is reproducible without
@@ -66,4 +66,4 @@ if __name__ == "__main__":
     out = generate()
     target = Path(__file__).parent / "sample_events.csv"
     write_csv(out, target)
-    print(f"Wrote {len(out)} synthetic events to {target}")
+    print(f"Wrote {len(out)} synthetic events to {target}")  # noqa: T201 — demo CLI script
