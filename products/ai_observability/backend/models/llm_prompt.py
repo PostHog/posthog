@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
@@ -72,6 +73,44 @@ class LLMPrompt(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     deleted = models.BooleanField(default=False)
+
+
+class LLMPromptLabel(TeamScopedRootMixin, UUIDModel):
+    """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
+
+    Version rows are immutable; releasing a version means pointing a label at it and
+    rolling back means pointing it back. The (team, prompt_name, name) uniqueness is
+    what keeps fetch-by-label single-valued.
+    """
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "prompt_name", "name"],
+                name="unique_llm_prompt_label_per_prompt",
+            ),
+        ]
+        db_table = "posthog_llmpromptlabel"
+
+    name = models.CharField(max_length=128)
+    # Prompts have no parent entity — version rows are grouped by name, so the label
+    # keys the prompt family by name and points at one version row via the FK below.
+    prompt_name = models.CharField(max_length=255)
+    prompt = models.ForeignKey(LLMPrompt, on_delete=models.CASCADE, related_name="labels")
+
+    # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
+    # constraint locks the parent table during migration.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 def annotate_llm_prompt_version_history_metadata(queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
