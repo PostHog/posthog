@@ -63,6 +63,8 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
         toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
         setEvaluationsFilter: (filter: string) => ({ filter }),
+        setShowDisabledEvaluations: (show: boolean) => ({ show }),
+        toggleEvaluationDescription: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -112,6 +114,19 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             '',
             {
                 setEvaluationsFilter: (_, { filter }) => filter,
+            },
+        ],
+        showDisabledEvaluations: [
+            true,
+            {
+                setShowDisabledEvaluations: (_, { show }) => show,
+            },
+        ],
+        expandedDescriptionIds: [
+            [] as string[],
+            {
+                toggleEvaluationDescription: (state, { id }) =>
+                    state.includes(id) ? state.filter((e) => e !== id) : [...state, id],
             },
         ],
     }),
@@ -212,12 +227,15 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
     selectors({
         filteredEvaluations: [
-            (s) => [s.evaluations, s.evaluationsFilter],
-            (evaluations: EvaluationConfig[], filter: string) => {
+            (s) => [s.evaluations, s.evaluationsFilter, s.showDisabledEvaluations],
+            (evaluations: EvaluationConfig[], filter: string, showDisabledEvaluations: boolean) => {
+                const visible = showDisabledEvaluations
+                    ? evaluations
+                    : evaluations.filter((e: EvaluationConfig) => e.enabled)
                 if (!filter) {
-                    return evaluations
+                    return visible
                 }
-                return evaluations.filter(
+                return visible.filter(
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||

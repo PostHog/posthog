@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
+import { IconEye, IconHide, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,6 +20,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -125,12 +126,21 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         filteredEvaluations,
         evaluationsLoading,
         evaluationsFilter,
+        showDisabledEvaluations,
+        expandedDescriptionIds,
         dateFilter,
         providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, loadEvaluations, setDates } = useActions(evaluationsLogic)
+    const {
+        setEvaluationsFilter,
+        setShowDisabledEvaluations,
+        toggleEvaluationDescription,
+        toggleEvaluationEnabled,
+        loadEvaluations,
+        setDates,
+    } = useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -150,14 +160,30 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, evaluation) => (
-                <div className="flex flex-col">
-                    <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
-                        {evaluation.name}
-                    </Link>
-                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
-                </div>
-            ),
+            render: (_, evaluation) => {
+                const isExpanded = expandedDescriptionIds.includes(evaluation.id)
+                return (
+                    <div className="flex flex-col">
+                        <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
+                            {evaluation.name}
+                        </Link>
+                        {evaluation.description && (
+                            <div className="flex items-start gap-1">
+                                <div className={`text-muted text-sm ${isExpanded ? '' : 'line-clamp-1'}`}>
+                                    {evaluation.description}
+                                </div>
+                                <LemonButton
+                                    size="xsmall"
+                                    onClick={() => toggleEvaluationDescription(evaluation.id)}
+                                    data-attr="toggle-evaluation-description"
+                                >
+                                    {isExpanded ? 'Show less' : 'Show more'}
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                )
+            },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
         {
@@ -303,6 +329,17 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             },
         },
         {
+            title: 'Created by',
+            key: 'created_by',
+            render: (_, evaluation) =>
+                evaluation.created_by ? (
+                    <ProfilePicture user={evaluation.created_by} size="md" showName />
+                ) : (
+                    <span className="text-muted text-sm">–</span>
+                ),
+            sorter: (a, b) => (a.created_by?.first_name ?? '').localeCompare(b.created_by?.first_name ?? ''),
+        },
+        {
             title: 'Actions',
             key: 'actions',
             render: (_, evaluation) => (
@@ -420,6 +457,16 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     prefix={<IconSearch />}
                     className="max-w-sm"
                 />
+                <LemonButton
+                    type="secondary"
+                    active={!showDisabledEvaluations}
+                    icon={showDisabledEvaluations ? <IconEye /> : <IconHide />}
+                    onClick={() => setShowDisabledEvaluations(!showDisabledEvaluations)}
+                    data-attr="toggle-show-disabled-evaluations"
+                    tooltip={showDisabledEvaluations ? 'Hide disabled evals' : 'Show disabled evals'}
+                >
+                    {showDisabledEvaluations ? 'Hide disabled' : 'Show disabled'}
+                </LemonButton>
             </div>
 
             <LemonTable
