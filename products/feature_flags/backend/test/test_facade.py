@@ -7,18 +7,23 @@ from posthog.constants import AvailableFeature
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy
-from products.feature_flags.backend.facade.api import archive_flag, flag_disable_requires_approval, roll_out_variant
+from products.feature_flags.backend.facade.api import (
+    archive_flag,
+    flag_disable_requires_approval,
+    roll_out_variant,
+    ship_variant,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
-    def _create_flag(self, *, active: bool = True) -> FeatureFlag:
+    def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="facade-gated-flag",
             active=active,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters=filters if filters is not None else {"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
     def test_archive_active_flag_with_disable_succeeds(self):
@@ -52,6 +57,28 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.archived is False
         assert flag.active is True
+
+    def test_ship_variant_without_base_filters_uses_flag_filters(self):
+        flag = self._create_flag(
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            }
+        )
+
+        ship_variant(flag, "test", team=self.team, user=self.user)
+
+        flag.refresh_from_db()
+        variants = flag.filters["multivariate"]["variants"]
+        assert {v["key"]: v["rollout_percentage"] for v in variants} == {"control": 0, "test": 100}
+        # Default mode: no catch-all prepended, the existing release condition is preserved
+        assert len(flag.filters["groups"]) == 1
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
 
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_archive_with_disable_honors_disable_approval_policy(self, _mock_enabled):
