@@ -295,11 +295,10 @@ describe('PersonHog ↔ Postgres parity', () => {
                     {}
                 )
 
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys(
-                    [teamId, teamId],
-                    [0 as GroupTypeIndex, 1 as GroupTypeIndex],
-                    ['acme', 'eng-team']
-                )
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'acme' },
+                    { teamId, groupTypeIndex: 1 as GroupTypeIndex, groupKey: 'eng-team' },
+                ])
 
                 const rawAcme = await readRawGroup(teamId, 0, 'acme')
                 const rawEng = await readRawGroup(teamId, 1, 'eng-team')
@@ -338,11 +337,10 @@ describe('PersonHog ↔ Postgres parity', () => {
                     {}
                 )
 
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys(
-                    [teamId, teamId],
-                    [0 as GroupTypeIndex, 0 as GroupTypeIndex],
-                    ['exists', 'missing']
-                )
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'exists' },
+                    { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'missing' },
+                ])
 
                 const rawExists = await readRawGroup(teamId, 0, 'exists')
 
@@ -370,7 +368,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             })
 
             it('empty input produces identical output', async () => {
-                const fromPostgres = await postgresRepo.fetchGroupsByKeys([], [], [])
+                const fromPostgres = await postgresRepo.fetchGroupsByKeys([])
 
                 const grpcClient = createMockPersonHogClient({})
                 const fromGrpc = await grpcClient.groups.fetchGroupsByKeys([], [], [])

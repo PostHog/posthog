@@ -219,6 +219,10 @@ rules:
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |ReviewReport
+                              |ReviewReportArtefact
+                              |ReviewSkillConfig
+                              |ReviewUserSettings
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -250,6 +254,7 @@ rules:
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
+                              |TableCertification
                               |Tag
                               |Tagger
                               |Task
@@ -260,6 +265,7 @@ rules:
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
+                              |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -503,6 +509,10 @@ rules:
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |ReviewReport
+                        |ReviewReportArtefact
+                        |ReviewSkillConfig
+                        |ReviewUserSettings
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -534,6 +544,7 @@ rules:
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
+                        |TableCertification
                         |Tag
                         |Tagger
                         |Task
@@ -544,6 +555,7 @@ rules:
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
+                        |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
                         |Text

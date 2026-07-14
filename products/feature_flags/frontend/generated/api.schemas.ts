@@ -99,6 +99,79 @@ export interface StaffCacheEntryResponseApi {
     data: StaffCacheEntryResponseApiData
 }
 
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `cancelled` - cancelled
+ */
+export type FlagsWarmRunStateEnumApi = (typeof FlagsWarmRunStateEnumApi)[keyof typeof FlagsWarmRunStateEnumApi]
+
+export const FlagsWarmRunStateEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `all_teams` - all_teams
+ * * `teams_with_flags` - teams_with_flags
+ */
+export type FlagsWarmRunScopeEnumApi = (typeof FlagsWarmRunScopeEnumApi)[keyof typeof FlagsWarmRunScopeEnumApi]
+
+export const FlagsWarmRunScopeEnumApi = {
+    AllTeams: 'all_teams',
+    TeamsWithFlags: 'teams_with_flags',
+} as const
+
+export interface StaffWarmRunApi {
+    /** Unique id of the warm-all run. */
+    run_id: string
+    /** 'running' while the warmer is working, 'completed' when it finished (per-team failures are counted, not fatal), or 'cancelled' when a cancel request was honored.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `cancelled` - cancelled */
+    state: FlagsWarmRunStateEnumApi
+    /** Which teams the run covers: every team, or only teams that have ever had a flag.
+     *
+     * * `all_teams` - all_teams
+     * * `teams_with_flags` - teams_with_flags */
+    scope: FlagsWarmRunScopeEnumApi
+    /** Number of teams the run will warm. */
+    total: number
+    /** Teams processed so far (successful + failed). */
+    processed: number
+    /** Teams whose evaluation cache was rebuilt successfully. */
+    successful: number
+    /** Teams whose rebuild failed; details are in the warmer's logs. */
+    failed: number
+    /**
+     * Highest team id dispatched so far — a resume cursor for operators re-running the warmer.
+     * @nullable
+     */
+    last_team_id: number | null
+    /** When the run started. */
+    started_at: string
+    /** Heartbeat: last time the warmer reported progress. */
+    updated_at: string
+    /** True when the run claims to be running but its heartbeat stopped — the warmer process likely died without writing a final state. */
+    is_stale: boolean
+    /** True when a cancel has been requested for this run but the warmer has not yet honored it. */
+    cancel_requested: boolean
+}
+
+export interface StaffWarmRunResponseApi {
+    /** Most recent warm-all run, or null when none has been recorded (or the dedicated flags cache is not configured). */
+    run: StaffWarmRunApi | null
+}
+
+export interface StaffWarmRunCancelResponseApi {
+    /** Id of the run the cancel request targets. */
+    run_id: string
+    /** Always true on success. */
+    cancel_requested: boolean
+}
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
