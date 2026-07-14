@@ -222,7 +222,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         Runners that support a no-join query shape check this gate; anything not
         covered falls through to the join path untouched.
         """
-        if self.team.pk not in settings.WEB_ANALYTICS_NO_JOIN_TEAM_IDS:
+        if not self._team_in_no_join_rollout():
             return False
         if getattr(self.query, "conversionGoal", None):
             return False
@@ -239,6 +239,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         if sampling and (sampling.enabled or sampling.forceSamplingRate):
             return False
         return True
+
+    def _team_in_no_join_rollout(self) -> bool:
+        if self.team.pk in settings.WEB_ANALYTICS_NO_JOIN_TEAM_IDS:
+            return True
+        percent = settings.WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT
+        # Deterministic per-team bucketing: query results must come from one code
+        # path for everyone on a team, so the rollout unit is the team, not the user.
+        return percent > 0 and self.team.pk % 100 < percent
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:
