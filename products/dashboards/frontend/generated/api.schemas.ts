@@ -503,14 +503,23 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
-export interface JsonValueApi {}
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
 
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
-
-/**
- * Event and person property filters, matching Activity > Explore events.
- */
-export type ActivityEventsListWidgetConfigApiProperties = { [key: string]: JsonValueApi }[] | null
 
 export interface ActivityEventsListWidgetConfigApi {
     dateRange?: WidgetDateRangeApi | null
@@ -525,7 +534,7 @@ export interface ActivityEventsListWidgetConfigApi {
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
     /** Event and person property filters, matching Activity > Explore events. */
-    properties?: ActivityEventsListWidgetConfigApiProperties
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**

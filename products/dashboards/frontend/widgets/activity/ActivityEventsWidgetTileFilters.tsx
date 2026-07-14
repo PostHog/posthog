@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
@@ -107,6 +108,10 @@ export function ActivityEventsWidgetTileFilters({
                 <EventPropertyFilters
                     query={propertyFilterQuery}
                     setQuery={(query) => applyProperties(query.properties ?? [])}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ]}
                 />
             ) : properties.length > 0 ? (
                 <WidgetTileFilterReadOnlyLabel

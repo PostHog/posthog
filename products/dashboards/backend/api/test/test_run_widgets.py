@@ -148,6 +148,18 @@ class TestWidgetRegistry(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("missing_key", {"type": "person", "operator": "icontains", "value": "@posthog.com"}),
+            ("unknown_type", {"type": "unknown", "key": "email", "operator": "exact", "value": "a@b.com"}),
+        ]
+    )
+    def test_validate_activity_events_list_config_rejects_invalid_property_filters(
+        self, _label: str, property_filter: dict[str, object]
+    ) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"properties": [property_filter]})
+
+    @parameterized.expand(
+        [
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),

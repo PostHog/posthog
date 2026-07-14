@@ -6,7 +6,7 @@
  */
 import { z as zod } from 'zod'
 
-import { JsonValue } from './jsonValue.zod'
+import { ActivityEventsPropertyFilter } from './activityEventsPropertyFilter.zod'
 import { WidgetDateRange } from './widgetDateRange.zod'
 import { WidgetFilterEntry } from './widgetFilterEntry.zod'
 
@@ -28,7 +28,7 @@ export const ActivityEventsListWidgetConfig = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Limit the feed to a single event name. Omit or null for all events.'),
     properties: zod
-        .union([zod.array(zod.record(zod.string(), JsonValue)), zod.null()])
+        .union([zod.array(ActivityEventsPropertyFilter), zod.null()])
         .optional()
         .describe('Event and person property filters, matching Activity > Explore events.'),
 })

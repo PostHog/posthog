@@ -44,6 +44,7 @@ export function useWidgetTileConfigPersist(
     persistConfigNow: (config: Record<string, unknown>) => Promise<void>
 } {
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const persistQueueRef = useRef<Promise<void>>(Promise.resolve())
     const onUpdateConfigRef = useRef(onUpdateConfig)
     onUpdateConfigRef.current = onUpdateConfig
 
@@ -52,7 +53,11 @@ export function useWidgetTileConfigPersist(
             clearTimeout(debounceRef.current)
             debounceRef.current = null
         }
-        await onUpdateConfigRef.current?.(config)
+        const persistPromise = persistQueueRef.current
+            .catch(() => undefined)
+            .then(() => onUpdateConfigRef.current?.(config))
+        persistQueueRef.current = persistPromise
+        await persistPromise
     }, [])
 
     const persistConfigDebounced = useCallback(

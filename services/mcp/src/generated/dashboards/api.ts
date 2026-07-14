@@ -314,7 +314,67 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'Limit the feed to a single event name. Omit or null for all events.'
                                             ),
                                         properties: zod
-                                            .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        key: zod.string(),
+                                                        label: zod.union([zod.string(), zod.null()]).optional(),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        type: zod.enum(['event', 'person']),
+                                                        value: zod
+                                                            .union([
+                                                                zod.array(
+                                                                    zod.union([
+                                                                        zod.string(),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                ),
+                                                                zod.string(),
+                                                                zod.number(),
+                                                                zod.boolean(),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
                                             .optional()
                                             .describe(
                                                 'Event and person property filters, matching Activity > Explore events.'
@@ -1245,7 +1305,63 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
                                 properties: zod
-                                    .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['event', 'person']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
                                     .optional()
                                     .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
@@ -2154,7 +2270,63 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
                                 properties: zod
-                                    .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod.enum(['event', 'person']),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
                                     .optional()
                                     .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
