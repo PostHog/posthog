@@ -7,6 +7,7 @@ import { defineConfig } from 'vite'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
+import { loadPrebundledDeps } from './plugins/vite-deps-cache'
 import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
 import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
@@ -14,6 +15,28 @@ import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
+
+    // On a cold start Vite scans the whole first-party module graph (~3s) just to discover the
+    // node_modules it must pre-bundle. When a committed snapshot of that set still matches the
+    // current dependency closure, feed it directly and skip the scan. Only in dev serve — the
+    // production build does its own bundling.
+    const prebundledDeps = isDev && !process.env.VITE_DEPS_REGEN ? loadPrebundledDeps(__dirname) : null
+
+    if (isDev && !process.env.VITE_DEPS_REGEN) {
+        if (prebundledDeps) {
+            console.info(`⚡ Reusing pre-bundle snapshot (${prebundledDeps.include.length} deps) — skipping cold scan`)
+        } else {
+            console.info(
+                'ℹ️  No matching vite.deps.json snapshot — running full scan. Run `pnpm vite:deps` to speed up cold starts.'
+            )
+        }
+    }
+
+    // Resolve aliases so the optimizer can pre-bundle `products/*`-scoped deps that don't resolve
+    // from the frontend root. Paths in the snapshot are stored relative to this dir.
+    const prebundledAliases = Object.fromEntries(
+        Object.entries(prebundledDeps?.aliases ?? {}).map(([name, rel]) => [name, resolve(__dirname, rel)])
+    )
 
     return {
         plugins: [
@@ -46,6 +69,8 @@ export default defineConfig(({ mode }) => {
         resolve: {
             dedupe: ['@base-ui/react'],
             alias: {
+                // products/*-scoped deps, so the cold-start optimizer can pre-bundle them (dev only).
+                ...prebundledAliases,
                 '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -134,7 +159,15 @@ export default defineConfig(({ mode }) => {
             devSourcemap: true,
         },
         optimizeDeps: {
-            include: ['react', 'react-dom', 'buffer'],
+            include: prebundledDeps?.include ?? ['react', 'react-dom', 'buffer'],
+            // With a fingerprint-matched snapshot the include list is complete, so disable the
+            // cold-start scan. Without it, keep discovery on so nothing is missed.
+            //
+            // Tradeoff: while noDiscovery is on, first-importing an already-installed dep that
+            // isn't in the snapshot won't auto-optimize (no lockfile change means the fingerprint
+            // still matches). Re-run `pnpm vite:deps` and restart to refresh it. Installing a dep
+            // changes the lockfile, which flips the fingerprint and falls back to discovery anyway.
+            noDiscovery: prebundledDeps != null,
             // snappy-wasm: don't pre-bundle so the WASM file stays with the JS.
             // @posthog/brand: its PNG stubs resolve assets via `new URL(..., import.meta.url)`,
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
