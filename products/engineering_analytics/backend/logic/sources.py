@@ -156,6 +156,10 @@ def _github_sources(team: Team, user_access_control: "UserAccessControl | None" 
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
+        if not user_access_control.has_resource_access("external_data_source"):
+            # "none" resource-level access: the platform filter applies only explicit object grants
+            # and, with no grants at all, nothing — restrict to self-created so this fails closed.
+            sources = sources.filter(created_by=user_access_control.user)
     return sources
 
 
