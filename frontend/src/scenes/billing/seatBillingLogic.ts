@@ -26,10 +26,6 @@ export function isAlphaPlanKey(planKey: string | null | undefined): boolean {
     return planKey === CODE_PLAN_ALPHA_PRO
 }
 
-export function canReactivateSeat(seat: Pick<SeatData, 'plan_key' | 'status'> | null | undefined): boolean {
-    return !!seat && seat.status === 'canceling' && !isAlphaPlanKey(seat.plan_key)
-}
-
 // TODO: Replace with `seat.price` once billing exposes it via SeatSerializer
 export function seatPriceFromPlanKey(planKey: string): number {
     if (isFreePlanKey(planKey)) {
@@ -62,13 +58,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     })),
     actions({
-        upgradeSeat: (planKey: string) => ({ planKey }),
         cancelSeat: true,
-        reactivateSeat: true,
-        createSeat: (planKey: string) => ({ planKey }),
         adminCancelSeat: (userDistinctId: string) => ({ userDistinctId }),
-        adminUpgradeSeat: (userDistinctId: string, planKey: string) => ({ userDistinctId, planKey }),
-        adminReactivateSeat: (userDistinctId: string) => ({ userDistinctId }),
     }),
     loaders(() => ({
         mySeat: [
@@ -113,19 +104,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                     currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
                 ),
         ],
-        isPro: [(s) => [s.mySeat], (mySeat): boolean => isProPlanKey(mySeat?.plan_key)],
-        isFree: [(s) => [s.mySeat], (mySeat): boolean => isFreePlanKey(mySeat?.plan_key)],
-        isAlpha: [(s) => [s.mySeat], (mySeat): boolean => isAlphaPlanKey(mySeat?.plan_key)],
-        canUpgrade: [
-            (s) => [s.mySeat],
-            (mySeat): boolean =>
-                !!mySeat &&
-                mySeat.status === 'active' &&
-                isFreePlanKey(mySeat.plan_key) &&
-                !isAlphaPlanKey(mySeat.plan_key),
-        ],
-        canCancel: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'active'],
-        canReactivate: [(s) => [s.mySeat], (mySeat): boolean => canReactivateSeat(mySeat)],
         displaySeats: [
             (s) => [s.orgSeats],
             (orgSeats): SeatData[] => {
@@ -155,11 +133,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
             (s) => [s.displaySeats],
             (displaySeats): number => displaySeats.filter((s: SeatData) => s.status === 'active').length,
         ],
-        hasAlphaSeats: [
-            (s) => [s.displaySeats, s.mySeat],
-            (displaySeats, mySeat): boolean =>
-                displaySeats.some((s: SeatData) => isAlphaPlanKey(s.plan_key)) || isAlphaPlanKey(mySeat?.plan_key),
-        ],
         cancelingCount: [
             (s) => [s.displaySeats],
             (displaySeats): number => displaySeats.filter((s: SeatData) => s.status === 'canceling').length,
@@ -173,18 +146,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        upgradeSeat: async ({ planKey }) => {
-            try {
-                await api.update(`api/seats/me/`, { product_key: CODE_PRODUCT_KEY, plan_key: planKey })
-                lemonToast.success('Seat upgraded successfully')
-                actions.loadMySeat()
-                if (values.isAdmin) {
-                    actions.loadOrgSeats()
-                }
-            } catch (e) {
-                lemonToast.error(seatErrorMessage(e, 'Failed to upgrade seat'))
-            }
-        },
         cancelSeat: async () => {
             try {
                 await api.delete(`api/seats/me/?product_key=${CODE_PRODUCT_KEY}`)
@@ -197,34 +158,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 lemonToast.error(seatErrorMessage(e, 'Failed to cancel seat'))
             }
         },
-        reactivateSeat: async () => {
-            try {
-                await api.create(`api/seats/me/reactivate/`, { product_key: CODE_PRODUCT_KEY })
-                lemonToast.success('Seat reactivated')
-                actions.loadMySeat()
-                if (values.isAdmin) {
-                    actions.loadOrgSeats()
-                }
-            } catch (e) {
-                lemonToast.error(seatErrorMessage(e, 'Failed to reactivate seat'))
-            }
-        },
-        createSeat: async ({ planKey }) => {
-            try {
-                await api.create(`api/seats/`, {
-                    product_key: CODE_PRODUCT_KEY,
-                    plan_key: planKey,
-                    user_distinct_id: values.user?.distinct_id,
-                })
-                lemonToast.success('Seat created')
-                actions.loadMySeat()
-                if (values.isAdmin) {
-                    actions.loadOrgSeats()
-                }
-            } catch (e) {
-                lemonToast.error(seatErrorMessage(e, 'Failed to create seat'))
-            }
-        },
         adminCancelSeat: async ({ userDistinctId }) => {
             try {
                 await api.delete(`api/seats/${userDistinctId}/?product_key=${CODE_PRODUCT_KEY}`)
@@ -235,35 +168,6 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 }
             } catch (e) {
                 lemonToast.error(seatErrorMessage(e, 'Failed to cancel seat'))
-            }
-        },
-        adminUpgradeSeat: async ({ userDistinctId, planKey }) => {
-            try {
-                await api.update(`api/seats/${userDistinctId}/`, {
-                    product_key: CODE_PRODUCT_KEY,
-                    plan_key: planKey,
-                })
-                lemonToast.success('Seat upgraded')
-                actions.loadOrgSeats()
-                if (userDistinctId === values.user?.distinct_id) {
-                    actions.loadMySeat()
-                }
-            } catch (e) {
-                lemonToast.error(seatErrorMessage(e, 'Failed to upgrade seat'))
-            }
-        },
-        adminReactivateSeat: async ({ userDistinctId }) => {
-            try {
-                await api.create(`api/seats/${userDistinctId}/reactivate/`, {
-                    product_key: CODE_PRODUCT_KEY,
-                })
-                lemonToast.success('Seat reactivated')
-                actions.loadOrgSeats()
-                if (userDistinctId === values.user?.distinct_id) {
-                    actions.loadMySeat()
-                }
-            } catch (e) {
-                lemonToast.error(seatErrorMessage(e, 'Failed to reactivate seat'))
             }
         },
     })),
