@@ -38,10 +38,13 @@ class CostStatus:
 
 
 def _is_free_plan_throttled(context: ThrottleContext) -> bool:
+    # seat_missing free-caps users confirmed to have no seat (seat provisioning
+    # is retired ahead of the usage-based cutover). Resolution failures leave
+    # both fields unset → default limits, so an outage never clamps paying users.
     return (
         context.product == POSTHOG_CODE_PRODUCT
         and not is_pro_plan(context.plan_key)
-        and context.seat_created_at is not None
+        and (context.seat_created_at is not None or context.seat_missing)
     )
 
 
