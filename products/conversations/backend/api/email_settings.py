@@ -433,7 +433,11 @@ class EmailSetDefaultView(APIView):
         config_id = id_serializer.validated_data["config_id"]
 
         with transaction.atomic():
-            config = EmailChannel.objects.select_for_update().filter(id=config_id, team=team).first()
+            # Serialize all per-team default changes on the team row (the connect path takes the
+            # same lock), so concurrent connect/set-default/disconnect can't race two is_default=True
+            # rows into the partial unique constraint
+            Team.objects.select_for_update().get(id=team.id)
+            config = EmailChannel.objects.filter(id=config_id, team=team).first()
             if not config:
                 return Response({"error": "Email config not found"}, status=404)
 
@@ -464,7 +468,10 @@ class EmailDisconnectView(APIView):
         should_delete_from_mailgun = False
 
         with transaction.atomic():
-            config = EmailChannel.objects.select_for_update().filter(id=config_id, team=team).first()
+            # Same team-row lock as connect/set-default, so promoting a replacement default can't
+            # race another default change into the partial unique constraint
+            Team.objects.select_for_update().get(id=team.id)
+            config = EmailChannel.objects.filter(id=config_id, team=team).first()
             if not config:
                 return Response({"error": "Email config not found"}, status=404)
 

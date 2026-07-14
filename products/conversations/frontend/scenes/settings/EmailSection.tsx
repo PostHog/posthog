@@ -61,7 +61,8 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 }
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId } = useValues(supportSettingsLogic)
+    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
+        useValues(supportSettingsLogic)
     const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -71,6 +72,8 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const sendingRecords = config.dns_records?.sending_dns_records as DnsRecord[] | undefined
     const isVerifying = emailVerifyingConfigId === config.id
     const isTesting = emailTestingConfigId === config.id
+    const isSettingDefault = settingDefaultEmailConfigId === config.id
+    const isSettingAnyDefault = settingDefaultEmailConfigId !== null
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -152,9 +155,14 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 <LemonButton
                     type="secondary"
                     size="small"
+                    loading={isSettingDefault}
                     disabledReason={
                         adminRestrictionReason ??
-                        (config.is_default ? 'This is already the primary email address' : undefined)
+                        (config.is_default
+                            ? 'This is already the primary email address'
+                            : isSettingAnyDefault
+                              ? 'Updating the primary address…'
+                              : undefined)
                     }
                     tooltip="Tickets opened from the widget are sent from the primary address"
                     onClick={() => setDefaultEmail(config.id)}

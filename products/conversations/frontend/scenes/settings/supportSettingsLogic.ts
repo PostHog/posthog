@@ -112,6 +112,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         disconnectEmailDone: (configId: string) => ({ configId }),
         setDefaultEmail: (configId: string) => ({ configId }),
         setDefaultEmailDone: (configId: string) => ({ configId }),
+        setDefaultEmailFailed: true,
         verifyEmailDomain: (configId: string) => ({ configId }),
         verifyEmailDomainDone: (configId: string, verified: boolean, dnsRecords: Record<string, any> | null) => ({
             configId,
@@ -268,6 +269,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 verifyEmailDomain: (_, { configId }) => configId,
                 verifyEmailDomainDone: () => null,
+            },
+        ],
+        settingDefaultEmailConfigId: [
+            null as string | null,
+            {
+                setDefaultEmail: (_, { configId }) => configId,
+                setDefaultEmailDone: () => null,
+                setDefaultEmailFailed: () => null,
             },
         ],
         emailTestingConfigId: [
@@ -840,6 +849,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 await api.create('api/conversations/v1/email/set-default', { config_id: configId })
             } catch {
                 lemonToast.error('Failed to set default email address')
+                actions.setDefaultEmailFailed()
                 return
             }
             actions.setDefaultEmailDone(configId)
