@@ -26,6 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -346,7 +347,12 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 ) : (
                     <span className="text-muted text-sm">–</span>
                 ),
-            sorter: (a, b) => (a.created_by?.first_name ?? '').localeCompare(b.created_by?.first_name ?? ''),
+            sorter: (a, b) => {
+                // Match the displayed identity: full name, falling back to email when no name is set.
+                const sortKey = (e: EvaluationConfig): string =>
+                    e.created_by ? fullName(e.created_by) || e.created_by.email : ''
+                return sortKey(a).localeCompare(sortKey(b))
+            },
         },
         {
             title: 'Actions',
