@@ -433,6 +433,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-error-tracking',
         title: 'Error tracking',
         group: 'Products',
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'banner',
@@ -464,6 +468,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Error tracking',
         group: 'Products',
         hideFromNavigation: true,
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',

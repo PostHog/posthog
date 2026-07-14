@@ -1644,6 +1644,20 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreateBodyReasonMax = 500
+
+export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(tasksRunsCancelCreateBodyReasonMax)
+        .nullish()
+        .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+})
+
+/**
  * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to task run
  */

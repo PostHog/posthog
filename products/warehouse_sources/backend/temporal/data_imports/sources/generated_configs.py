@@ -1573,7 +1573,8 @@ class GoogleFormsSourceConfig(config.Config):
 
 @config.config
 class GooglePageSpeedInsightsSourceConfig(config.Config):
-    pass
+    api_key: str
+    urls: str
 
 
 @config.config
@@ -3123,7 +3124,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplicateSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
