@@ -29,7 +29,6 @@ class TestSageHRSource:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Intentionally still hidden: the source lands unreleased until it has synced end-to-end
         # against a live account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/sage-hr"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

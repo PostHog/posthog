@@ -80,7 +80,6 @@ An admin must first enable API access under **Settings → Integrations → API*
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
