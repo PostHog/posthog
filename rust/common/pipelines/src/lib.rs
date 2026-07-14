@@ -11,5 +11,9 @@
 
 pub mod metrics_consts;
 pub mod result;
+pub mod step;
 
 pub use result::{NoOutputs, Outputs, StepError, StepResult};
+pub use step::{
+    ChunkOutcome, ChunkStep, ItemOutcome, Pipeline, PipelineBuilder, Step, Verdict, VerdictKind,
+};
