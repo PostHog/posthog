@@ -361,6 +361,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         if funnelStep >= 0:
             # Match users who reached this step or any later step. Using the exact bit would drop
             # everyone who skipped an optional step, so the actor list wouldn't match the step count.
+            # nosemgrep: hogql-fstring-audit (interpolated value is an internal int mask, not user input)
             conditions.append(parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(funnelStep - 1)}) != 0"))
         else:
             # For dropoff at step N, check that user completed the prior REQUIRED step but not step N
@@ -379,9 +380,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
             # User reached the prior required step but not the target step (nor any step beyond it)
             conditions.append(
+                # nosemgrep: hogql-fstring-audit (interpolated value is an internal int mask, not user input)
                 parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(prior_required_step_index)}) != 0")
             )
             conditions.append(
+                # nosemgrep: hogql-fstring-audit (interpolated value is an internal int mask, not user input)
                 parse_expr(f"bitAnd(steps_bitfield, {self._reached_step_bitmask(target_step_index)}) = 0")
             )
 
