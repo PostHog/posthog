@@ -393,7 +393,9 @@ class TestExperimentService(APIBaseTest):
     # Flag validation errors
     # ------------------------------------------------------------------
 
-    def test_existing_flag_without_control_raises(self):
+    def test_existing_flag_without_control_pins_baseline_to_first_variant(self):
+        # Without 'control' the default baseline is order-sensitive, so create
+        # must persist the inferred key instead of leaving it implicit.
         self._create_flag(
             key="no-control",
             variants=[
@@ -403,10 +405,54 @@ class TestExperimentService(APIBaseTest):
         )
         service = self._service()
 
+        experiment = service.create_experiment(name="No Control", feature_flag_key="no-control")
+
+        assert experiment.stats_config["baseline_variant_key"] == "baseline"
+
+    def test_existing_flag_with_control_leaves_baseline_unset(self):
+        self._create_flag(key="with-control")
+        service = self._service()
+
+        experiment = service.create_experiment(name="With Control", feature_flag_key="with-control")
+
+        assert "baseline_variant_key" not in experiment.stats_config
+
+    def test_create_web_experiment_without_control_raises(self):
+        # The toolbar editor and WebExperimentsAPISerializer hard-require 'control'.
+        self._create_flag(
+            key="no-control-web",
+            variants=[
+                {"key": "baseline", "name": "Baseline", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+
         with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(name="Bad Flag", feature_flag_key="no-control")
+            service.create_experiment(name="Bad Web", feature_flag_key="no-control-web", type="web")
 
         assert "control" in str(ctx.exception)
+
+    def test_update_variants_dropping_control_pins_baseline(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "variant-a", "name": "A", "rollout_percentage": 50},
+                            {"key": "variant-b", "name": "B", "rollout_percentage": 50},
+                        ]
+                    }
+                }
+            },
+        )
+
+        assert updated.stats_config["baseline_variant_key"] == "variant-a"
 
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
@@ -2427,12 +2473,12 @@ class TestExperimentService(APIBaseTest):
         assert groups[0]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
         assert groups[0]["rollout_percentage"] == 50
 
-    def test_launch_experiment_flag_modified_to_invalid_raises(self):
-        """Flag modified after experiment creation to remove control variant. Launch should fail."""
-        flag = self._create_flag(key="will-break")
-        experiment = self._create_launchable_experiment(name="Will Break", feature_flag_key="will-break")
+    def test_launch_experiment_flag_modified_to_control_less_launches(self):
+        # A flag renamed away from 'control' out-of-band stays launchable; the
+        # baseline falls back to the first variant at query time.
+        flag = self._create_flag(key="renamed-variants")
+        experiment = self._create_launchable_experiment(name="Renamed Variants", feature_flag_key="renamed-variants")
 
-        # Simulate someone modifying the flag to remove "control"
         flag.filters["multivariate"]["variants"] = [
             {"key": "variant_a", "rollout_percentage": 50},
             {"key": "variant_b", "rollout_percentage": 50},
@@ -2440,10 +2486,9 @@ class TestExperimentService(APIBaseTest):
         flag.save()
         experiment.feature_flag.refresh_from_db()
 
-        with self.assertRaises(ValidationError) as ctx:
-            self._service().launch_experiment(experiment)
+        launched = self._service().launch_experiment(experiment)
 
-        assert "control" in str(ctx.exception).lower()
+        assert launched.start_date is not None
 
     def test_launch_experiment_flag_reduced_to_single_variant_raises(self):
         """Flag modified to have only 1 variant. Launch should fail."""

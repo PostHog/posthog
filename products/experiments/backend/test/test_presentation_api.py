@@ -3018,6 +3018,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag = FeatureFlag.objects.get(key=ff_key)
         flag_keys = [v["key"] for v in flag.filters["multivariate"]["variants"]]
         self.assertEqual(flag_keys, ["test_0", "test_1", "test_2"])
+        # The inferred baseline is pinned, not left implicit (order-sensitive).
+        self.assertEqual(response.json()["stats_config"]["baseline_variant_key"], "test_0")
 
     @parameterized.expand(
         [

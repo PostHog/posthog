@@ -53,7 +53,7 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
-from products.experiments.backend.hogql_queries import get_baseline_variant_key
+from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -566,6 +566,22 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
+    @staticmethod
+    def _materialize_baseline_variant_key(stats_config: dict | None, variant_keys: list[str]) -> dict | None:
+        """Pin the inferred baseline for control-less variant sets.
+
+        Without 'control' among the variants the implicit default is the first variant,
+        which is order-sensitive — a later reorder of the same keys would silently move
+        the baseline under historical results. Persisting the key at write time makes
+        the choice explicit and visible to API/frontend consumers. With 'control'
+        present the default is order-independent, so absence is left as-is.
+        """
+        if (stats_config or {}).get("baseline_variant_key"):
+            return stats_config
+        if not variant_keys or CONTROL_VARIANT_KEY in variant_keys:
+            return stats_config
+        return {**(stats_config or {}), "baseline_variant_key": variant_keys[0]}
+
     # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
     # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
     # `parameters` input has them copied into the `feature_flag` config path (see
@@ -915,6 +931,14 @@ class ExperimentService:
         # create, so a raise rolls back the just-created flag.
         used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
+
+        # The web experiment editor and WebExperimentsAPISerializer hard-require a
+        # 'control' variant, so a control-less flag would create a web experiment
+        # that can never be edited or saved from the toolbar.
+        if type == "web" and CONTROL_VARIANT_KEY not in used_variant_keys:
+            raise ValidationError("Web experiments require a variant with key 'control'")
+
+        stats_config = self._materialize_baseline_variant_key(stats_config, used_variant_keys)
 
         # Validate excluded_variants against the variants the flag actually ends up with,
         # mirroring the baseline check above. Resolving against the flag (not the request
@@ -2836,6 +2860,16 @@ class ExperimentService:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
+
+            # Web experiments keep requiring 'control' (see the matching guard in create).
+            if update_variants is not None and experiment.type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
+                raise ValidationError("Web experiments require a variant with key 'control'")
+
+            # A variants update can drop 'control' (e.g. a rename), leaving an absent
+            # baseline pointing at an order-sensitive default — pin it, like on create.
+            materialized = self._materialize_baseline_variant_key(effective_stats_config, variant_keys)
+            if materialized is not effective_stats_config:
+                update_data["stats_config"] = materialized
 
         # Validate excluded_variants against the resolved flag variants — no
         # feature_flag_variants resend required.

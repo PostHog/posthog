@@ -329,6 +329,7 @@ class TestCreateExperimentTool(APIBaseTest):
         flag = await FeatureFlag.objects.aget(key="no-control-flag", team=self.team)
         assert experiment.feature_flag_id == flag.id
         assert [v["key"] for v in flag.variants] == ["baseline", "test"]
+        assert experiment.stats_config["baseline_variant_key"] == "baseline"
 
 
 class TestExperimentSummaryTool(APIBaseTest):
