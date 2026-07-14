@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import json
 import textwrap
+import subprocess
+import dataclasses
 import importlib.util
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -311,6 +313,77 @@ def test_filter_shards_preserves_parse_time_test_windows(tmp_path: Path) -> None
     assert filtered[0].tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 300000, tzinfo=UTC)
 
 
+# ---------- team ownership ----------
+
+
+def test_resolve_owner_teams_parses_resolver_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    resolver_json = json.dumps(
+        {
+            "posthog/api/test/test_capture.py": {"owners": None, "status": None, "slack": None, "source": None},
+            "products/replay/backend/tests/test_snapshots.py": {"owners": ["team-replay"]},
+            "products/batch_exports/tests/test_exports.py": {"owners": ["batch-exports", "team-devex"]},
+            "posthog/scripts/tool.py": {"owners": ["@pauldambra"]},
+        }
+    )
+    calls: list[tuple[list[str], str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        calls.append((cmd, str(kwargs.get("input", ""))))
+        return type("Result", (), {"stdout": resolver_json})()
+
+    monkeypatch.setattr(report_test_timings.subprocess, "run", fake_run)
+
+    owners = report_test_timings.resolve_owner_teams({"products/replay/backend/tests/test_snapshots.py"})
+
+    # First listed owner wins; unowned paths are absent; individual '@handles' lose the '@'.
+    assert owners == {
+        "products/replay/backend/tests/test_snapshots.py": "team-replay",
+        "products/batch_exports/tests/test_exports.py": "batch-exports",
+        "posthog/scripts/tool.py": "pauldambra",
+    }
+    # The resolver takes newline-delimited paths on stdin, as `python -m posthog_owners`.
+    assert calls[0][0][1:] == ["-m", "posthog_owners"]
+    assert calls[0][1] == "products/replay/backend/tests/test_snapshots.py"
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        OSError("python: not found"),
+        subprocess.CalledProcessError(1, ["python"]),
+        subprocess.TimeoutExpired(["python"], 120),
+    ],
+)
+def test_resolve_owner_teams_returns_empty_on_resolver_failure(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception
+) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> object:
+        raise raised
+
+    monkeypatch.setattr(report_test_timings.subprocess, "run", fake_run)
+
+    assert report_test_timings.resolve_owner_teams({"m.py"}) == {}
+
+
+def test_resolve_owner_teams_returns_empty_on_malformed_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> object:
+        return type("Result", (), {"stdout": "not json"})()
+
+    monkeypatch.setattr(report_test_timings.subprocess, "run", fake_run)
+
+    assert report_test_timings.resolve_owner_teams({"m.py"}) == {}
+
+
+@pytest.mark.skipif(importlib.util.find_spec("yaml") is None, reason="pyyaml not installed")
+def test_resolve_owner_teams_round_trips_through_real_resolver() -> None:
+    # Guards the JSON contract between `python -m posthog_owners` and the parser above: a
+    # format drift on either side silently lands every production span in 'unowned'.
+    owned = "products/engineering_analytics/product.yaml"
+    owners = report_test_timings.resolve_owner_teams({owned, "no/such/path.py"})
+    assert owners[owned] == "team-devex"  # tracks products/engineering_analytics ownership
+    assert all(slug and "@" not in slug for slug in owners.values())
+
+
 class _FakeSpan:
     def __init__(self, name: str, start_time: int) -> None:
         self.name = name
@@ -382,6 +455,34 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     assert tracer.spans[2].end_time == report_test_timings._to_ns(start + timedelta(seconds=2.4))
     assert tracer.spans[0].attributes["shard.testcase_seconds"] == pytest.approx(2.1)
     assert tracer.spans[0].attributes["shard.overhead_seconds"] == pytest.approx(7.9)
+
+
+def test_emit_shard_span_stamps_owner_team_by_selector_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    start = datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
+    stamped = _testcase(name="stamped", duration=1.0, start=start)  # selector file m.py
+    external = dataclasses.replace(
+        _testcase(name="external", duration=1.0, start=start + timedelta(seconds=1)), selector=""
+    )
+    shard = report_test_timings.Shard(
+        info=report_test_timings.ArtifactInfo(
+            path=Path("junit-results-backend-core-1"), suite="backend", segment="core", group=1, total=1
+        ),
+        junit_filename="junit-core.xml",
+        start=start,
+        end=start + timedelta(seconds=10),
+        testcase_seconds=2.0,
+        overhead_seconds=8.0,
+        tests=[stamped, external],
+    )
+    tracer = _FakeTracer()
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)", {"m.py": "team-replay"})
+
+    assert tracer.spans[1].attributes["test.owner_team"] == "team-replay"
+    # No selector (external shard) or no owner match: the attribute is omitted entirely,
+    # so the read layer's coalesce-to-'unowned' fallback applies.
+    assert "test.owner_team" not in tracer.spans[2].attributes
 
 
 def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatch: pytest.MonkeyPatch) -> None:

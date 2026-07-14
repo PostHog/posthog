@@ -979,9 +979,10 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and "
             "pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. "
-            "Ownership is stamped on the spans at CI emission time from the repo's ownership map "
-            "(products/*/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team "
-            "'unowned'. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "Ownership is stamped on the spans at CI emission time via the repo's ownership resolver "
+            "(distributed owners.yaml, products/*/product.yaml as an alias); unstamped spans aggregate under "
+            "the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. "
+            + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

@@ -35,6 +35,7 @@ import hashlib
 import logging
 import secrets
 import argparse
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,6 +58,9 @@ INSTRUMENTATION_NAME = "posthog-ci-test-timings"
 INSTRUMENTATION_VERSION = "0.1.0"
 # ~150 KB serialized at this size — well under capture-logs' 2 MiB body limit.
 SPAN_BATCH_SIZE = 1000
+# The repo's ownership resolver (distributed owners.yaml, product.yaml as alias), the same
+# resolution CI enforces — team attribution must match what the repo says it owns.
+OWNERSHIP_RESOLVER_DIR = Path(__file__).resolve().parents[2] / "tools/owners"
 
 
 @dataclass(frozen=True)
@@ -346,6 +350,48 @@ def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shar
     ]
 
 
+# ---------- team ownership ----------
+
+
+def selector_file(test: TestCase) -> str:
+    """Repo-relative test file from the runnable selector; '' when JUnit omitted `file`."""
+    return test.selector.partition("::")[0]
+
+
+def resolve_owner_teams(files: set[str]) -> dict[str, str]:
+    """Map test files to their owning team slug (first listed owner) via the ownership resolver
+    (``python -m posthog_owners``: newline paths on stdin, JSON keyed by path on stdout).
+
+    Best-effort by design: on any failure (resolver missing, non-zero exit, timeout, bad
+    JSON) returns {} so spans emit unstamped and aggregate server-side under the literal
+    team 'unowned' — attribution loss must never cost the timing data itself.
+    """
+    if not files or not OWNERSHIP_RESOLVER_DIR.is_dir():
+        return {}
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "posthog_owners"],
+            input="\n".join(sorted(files)),
+            env={**os.environ, "PYTHONPATH": str(OWNERSHIP_RESOLVER_DIR)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+        resolved = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        stderr = getattr(exc, "stderr", "") or ""
+        logger.warning("owner-team resolution failed, emitting unstamped spans: %s %s", exc, str(stderr).strip())
+        return {}
+    owners: dict[str, str] = {}
+    for file, resolution in resolved.items():
+        first = (resolution.get("owners") or [""])[0] if isinstance(resolution, dict) else ""
+        if first:
+            # Teams arrive as bare slugs ('team-devex'); individual owners keep a leading '@'.
+            owners[file] = str(first).removeprefix("@")
+    return owners
+
+
 # ---------- workflow context ----------
 
 
@@ -435,7 +481,7 @@ def job_trace_name(workflow: str, info: ArtifactInfo) -> str:
     return f"{workflow} / {job}"
 
 
-def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
+def emit_traces(shards: list[Shard], endpoint: str, token: str, owner_teams: dict[str, str] | None = None) -> None:
     """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
@@ -456,13 +502,16 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
         id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
-        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info))
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_teams or {})
 
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool:
+def _emit_shard_span(
+    tracer: trace.Tracer, shard: Shard, root_name: str, owner_teams: dict[str, str] | None = None
+) -> bool:
     """Emit the job's root span and its test children. Returns True iff any child has Error."""
+    owner_teams = owner_teams or {}
     info = shard.info
     shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
     shard_span.set_attribute("shard.suite", info.suite)
@@ -497,6 +546,9 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool
             test_span.set_attribute("test.name", test.name)
             if test.selector:
                 test_span.set_attribute("test.selector", test.selector)
+            owner_team = owner_teams.get(selector_file(test), "")
+            if owner_team:
+                test_span.set_attribute("test.owner_team", owner_team)
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True
@@ -575,7 +627,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        emit_traces(shards, args.otlp_endpoint, token)
+        test_files = {file for shard in shards for test in shard.tests if (file := selector_file(test))}
+        owner_teams = resolve_owner_teams(test_files)
+        logger.info("resolved owner teams for %d of %d test files", len(owner_teams), len(test_files))
+        emit_traces(shards, args.otlp_endpoint, token, owner_teams)
         logger.info("emitted %d testcase spans to %s", post_filter, args.otlp_endpoint)
     except Exception:
         logger.exception("failed to emit traces")

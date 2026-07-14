@@ -189,7 +189,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time via the repo's ownership resolver (distributed owners.yaml, products/*\/product.yaml as an alias); unstamped spans aggregate under the literal team 'unowned'. Teams are organizational owners of code surfaces, never authors. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
  */
 export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod

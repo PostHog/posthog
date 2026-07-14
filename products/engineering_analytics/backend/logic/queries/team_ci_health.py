@@ -1,8 +1,9 @@
 """HogQL rollups of per-test CI spans by owning team.
 
 Ownership is stamped on the spans at emission time: the CI reporter resolves each test's
-file path against the repo's ownership map (``products/*/product.yaml`` + CODEOWNERS) and
-sets ``test.owner_team``, so no server-side ownership map exists. Spans without a stamp
+file path through the repo's ownership resolver (``tools/owners``: distributed ``owners.yaml``,
+``products/*/product.yaml`` as an alias) and sets ``test.owner_team``, so no server-side
+ownership map exists. Spans without a stamp
 aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
 ownership gaps instead of dropping them.
 
