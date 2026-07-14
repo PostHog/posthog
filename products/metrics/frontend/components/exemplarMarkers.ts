@@ -100,7 +100,10 @@ export function exemplarMarkersFromSamples(
         if (seriesValue === null || seriesValue === undefined) {
             continue // a dot on a gap would assert data the chart doesn't show
         }
-        if (!byBucket.has(bucket)) {
+        // Newest sample wins per bucket, regardless of the order the API returned
+        // them in, so a busy bucket renders its most recent trace, not a random one.
+        const existing = byBucket.get(bucket)
+        if (!existing || sampleMs > new Date(existing.timestamp).getTime()) {
             byBucket.set(bucket, {
                 index: bucket,
                 value: seriesValue,

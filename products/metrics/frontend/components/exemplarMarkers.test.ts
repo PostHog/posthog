@@ -68,10 +68,12 @@ describe('exemplarMarkersFromSamples', () => {
     })
 
     it('drops non-traced samples and dedupes to the newest per bucket', () => {
+        // Older sample first, so keep-newest can't be faked by keep-first-seen:
+        // the API does not promise chronological order.
         const markers = exemplarMarkersFromSamples(
             [
-                sample({ timestamp: '2026-07-14T10:01:20Z', trace_id: 'newest' }),
                 sample({ timestamp: '2026-07-14T10:01:05Z', trace_id: 'older' }),
+                sample({ timestamp: '2026-07-14T10:01:20Z', trace_id: 'newest' }),
                 sample({ timestamp: '2026-07-14T10:01:10Z', trace_id: '' }),
             ],
             SERIES,
