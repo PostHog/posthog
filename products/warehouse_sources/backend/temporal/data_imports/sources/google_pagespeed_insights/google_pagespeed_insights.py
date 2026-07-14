@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +27,17 @@ PAGESPEED_BASE_URL = "https://pagespeedonline.googleapis.com/pagespeedonline/v5/
 # a timeout worth retrying.
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
+
+# Credential validation runs synchronously on a web worker during source setup, so bound it more
+# tightly than a background sync: a single attempt with a shorter timeout. A valid key still runs a
+# full analysis before returning 200, so keep enough headroom for that while capping the worker hold.
+VALIDATION_TIMEOUT_SECONDS = 60
+
+# Disable adapter-level (urllib3) retries on the tracked session so the Tenacity policy on `_fetch`
+# is the only retry layer. Otherwise the two layers compound — up to `MAX_RETRY_ATTEMPTS` Tenacity
+# attempts each doing several urllib3 retries fans out to ~20 slow Lighthouse requests per URL, which
+# a user could weaponise with repeatedly-timing-out URLs to tie up import workers.
+_NO_ADAPTER_RETRIES = Retry(total=0)
 
 # Each URL costs one full (slow) Lighthouse run per enabled table on every sync, so cap the config to
 # bound worker time and outbound fan-out — a malformed or abusive config can't tie up the pipeline.
@@ -218,7 +230,9 @@ def validate_credentials(api_key: str, urls_raw: str | None) -> tuple[bool, str 
 
     url = _build_url(urls[0], "DESKTOP", api_key)
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session(retry=_NO_ADAPTER_RETRIES, redact_values=(api_key,)).get(
+            url, timeout=VALIDATION_TIMEOUT_SECONDS
+        )
     except Exception:
         return False, "Could not reach the Google PageSpeed Insights API. Please try again."
 
@@ -241,8 +255,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = PAGESPEED_ENDPOINTS[endpoint]
     # One session reused across every URL so urllib3 keeps the connection alive instead of re-handshaking.
-    # `redact_values` masks the API key wherever the tracked transport logs or samples the request URL.
-    session = make_tracked_session(redact_values=(api_key,))
+    # Adapter-level retries are disabled so Tenacity on `_fetch` is the only retry layer (see
+    # `_NO_ADAPTER_RETRIES`). `redact_values` masks the API key wherever the tracked transport logs or
+    # samples the request URL.
+    session = make_tracked_session(retry=_NO_ADAPTER_RETRIES, redact_values=(api_key,))
 
     for target_url in urls:
         response = _fetch(session, api_key, config.strategy, target_url, logger)
