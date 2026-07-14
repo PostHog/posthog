@@ -63,7 +63,7 @@ class TestGitHubPRWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
-        # The wizard-merge path dispatches the signals setup audit (a Temporal workflow start);
+        # The wizard-merge path dispatches the signals wizard setup review (a Temporal workflow start);
         # neutralize it class-wide so these tests never open a real Temporal connection.
         setup_review_patcher = patch("products.tasks.backend.webhooks.signals_facade.start_wizard_setup_review")
         self.mock_start_setup_review = setup_review_patcher.start()

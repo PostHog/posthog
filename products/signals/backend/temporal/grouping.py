@@ -731,6 +731,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 if input.updated_title:
                     report.title = input.updated_title
                     update_fields.append("title")
+                # A wizard setup-review signal joining a pre-existing report makes that report
+                # complimentary too: the customer was promised the review's PRs are free, and
+                # the exempt row doubles as the review's once-per-team marker.
+                if input.source_product == SignalSourceProduct.WIZARD and not report.billing_exempt:
+                    report.billing_exempt = True
+                    update_fields.append("billing_exempt")
                 report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(

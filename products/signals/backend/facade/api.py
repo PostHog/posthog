@@ -396,6 +396,8 @@ def start_wizard_setup_review(team_id: int, repository: str) -> None:
     """
     import asyncio  # noqa: PLC0415
 
+    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
+
     from products.signals.backend.temporal.wizard_review import (  # noqa: PLC0415
         WizardReviewInputs,
         WizardSetupReviewWorkflow,
@@ -410,6 +412,10 @@ def start_wizard_setup_review(team_id: int, repository: str) -> None:
                 id=WizardSetupReviewWorkflow.workflow_id_for(team_id),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 run_timeout=timedelta(minutes=30),
+                # One review per team, ever — even after the first run completes (webhook
+                # redeliveries, a second repository onboarded later). ALLOW_DUPLICATE would
+                # only dedupe while the first run is still open.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass

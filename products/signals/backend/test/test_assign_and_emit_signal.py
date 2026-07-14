@@ -154,6 +154,24 @@ async def test_new_report_billing_exemption_follows_source(ateam, source_product
     assert report.billing_exempt is expected_exempt
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_wizard_signal_joining_existing_report_makes_it_exempt(ateam):
+    """The wizard review's PRs are promised free: a wizard signal matching a pre-existing
+    billable report must flip it exempt (also serves as the review's once-per-team marker)."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.POTENTIAL, total_weight=0.5, signal_count=1
+    )
+    input_ = _build_input(
+        ateam.id, _existing_match(str(report.id)), source_product="wizard", source_type="setup_review"
+    )
+
+    await assign_and_emit_signal_activity(input_)
+
+    await database_sync_to_async(report.refresh_from_db)()
+    assert report.billing_exempt is True
+
+
 # ---------------------------------------------------------------------------
 # Happy path: existing POTENTIAL crossing thresholds
 # ---------------------------------------------------------------------------
