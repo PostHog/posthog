@@ -183,12 +183,20 @@ class SignalReportSummary:
     signal_count: int
 
 
+# Briefs may read reports from every signal source product except pulse itself: a consumer that
+# also *emits* signals must never read its own emitted output back as input (self-amplification).
+_BRIEF_INPUT_SOURCE_PRODUCTS: list[str] = [
+    p.value for p in SignalSourceConfig.SourceProduct if p != SignalSourceConfig.SourceProduct.PULSE
+]
+
+
 def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[SignalReportSummary]:
     """Recent inbox-visible reports with authored content, newest first.
 
-    Covers every signal source product (scout, replay-vision, ...). Hidden statuses mirror the
-    inbox list surface. Report content is LLM-authored, so this returns [] when the organization
-    has not approved AI data processing — mirroring emit_signal's gate.
+    Covers every signal source product except pulse itself, so a brief never reads its own emitted
+    signals back as input. Hidden statuses mirror the inbox list surface. Report content is
+    LLM-authored, so this returns [] when the organization has not approved AI data processing —
+    mirroring emit_signal's gate.
     """
     from products.signals.backend.temporal.signal_queries import (
         fetch_report_ids_for_source_products,  # noqa: PLC0415 — module-level import forms a cycle (signal_queries -> temporal stack -> facade)
@@ -197,7 +205,7 @@ def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[S
     team = Team.objects.filter(id=team_id).select_related("organization").first()
     if team is None or not team.organization.is_ai_data_processing_approved:
         return []
-    report_ids = fetch_report_ids_for_source_products(team, [p.value for p in SignalSourceConfig.SourceProduct])
+    report_ids = fetch_report_ids_for_source_products(team, _BRIEF_INPUT_SOURCE_PRODUCTS)
     if not report_ids:
         return []
     reports = (

@@ -58,16 +58,21 @@ class TestGetRecentReports(BaseTest):
             signal_count=3,
         )
 
-    def test_scoped_to_all_source_products(self) -> None:
+    def test_reads_every_source_product_except_pulse(self) -> None:
         report = self._report(title="Cross-product finding")
 
         with patch(_FETCH_REPORT_IDS, return_value={str(report.id)}) as fetch_mock:
             results = get_recent_reports(self.team.id, since=timezone.now() - timedelta(days=7))
 
         assert [result.id for result in results] == [str(report.id)]
-        # Every source product feeds briefs.
-        requested_products = fetch_mock.call_args.args[1]
-        assert set(requested_products) == {p.value for p in SignalSourceConfig.SourceProduct}
+        # A brief may read any source product's reports but never pulse's own — otherwise it would
+        # read its emitted signals back as input (self-amplification).
+        requested_products = set(fetch_mock.call_args.args[1])
+        assert SignalSourceConfig.SourceProduct.PULSE.value not in requested_products
+        assert {
+            SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+            SignalSourceConfig.SourceProduct.REPLAY_VISION.value,
+        } <= requested_products
 
     def test_no_reports_returns_empty(self) -> None:
         self._report()
