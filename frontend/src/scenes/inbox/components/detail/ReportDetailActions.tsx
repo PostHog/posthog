@@ -30,6 +30,8 @@ export interface ReportDetailAction {
     onClick: (event: MouseEvent) => void
     loading?: boolean
     tooltip?: string
+    /** Renders the action disabled with this explanation (e.g. a PR past its refund window). */
+    disabledReason?: string
 }
 
 /**
@@ -83,7 +85,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
     })
 
-    const { canRefund, isRefunding, onRefundClick } = useReportRefund({
+    const { canRefund, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund({
         report,
         surface: 'detail_pane',
         // Refunding archives the report server-side, so reconcile the lists the same way and
@@ -106,6 +108,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         icon: <IconReceipt />,
         loading: isRefunding,
         tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        disabledReason: refundDisabledReason ?? undefined,
         onClick: onRefundClick,
     }
 

@@ -13,6 +13,7 @@ from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend import contracts
+from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -328,6 +329,12 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
 
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    refund_ineligibility_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why refunding this report's PR would be rejected right now, or null when a refund "
+            "would be accepted (see the field's schema for the reason values)."
+        ),
+    )
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest priority judgment artefact (when present).",
     )
@@ -380,6 +387,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scout_name",
             "implementation_pr_url",
             "refund",
+            "refund_ineligibility_reason",
             "billing_exempt_reason",
         ]
         read_only_fields = fields
@@ -502,6 +510,31 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if refund is None:
             return None
         return SignalReportRefundSerializer(refund).data
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=list(REFUND_INELIGIBILITY_REASONS),
+            allow_null=True,
+            help_text=(
+                "Why refunding this report's PR would be rejected right now, or null when a refund "
+                "would be accepted. Shares the refund endpoint's eligibility decision, so the UI can "
+                "disable the Refund action instead of offering a request that would 400. One of: "
+                "already_refunded, billing_exempt, no_billable_pr, out_of_period."
+            ),
+        )
+    )
+    def get_refund_ineligibility_reason(self, obj: SignalReport) -> str | None:
+        period = self.context.get("billing_period_bounds")
+        # Degrades to null (eligible) outside the reports viewset, where neither the period
+        # context nor the billable-moment annotation exists — the refund endpoint re-enforces.
+        if period is None:
+            return None
+        return refund_ineligibility_reason(
+            has_refund=getattr(obj, "refund", None) is not None,
+            billing_exempt=bool(obj.billing_exempt_reason),
+            billable_run_at=getattr(obj, "first_billable_pr_run_at", None),
+            period=period,
+        )
 
 
 # ── Report `signals` action ─────────────────────────────────────────────────────

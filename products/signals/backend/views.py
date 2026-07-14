@@ -71,10 +71,15 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
 )
 from products.signals.backend.billing import (
+    REFUND_INELIGIBLE_BILLING_EXEMPT,
+    REFUND_INELIGIBLE_NO_BILLABLE_PR,
+    REFUND_INELIGIBLE_OUT_OF_PERIOD,
     SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+    annotate_first_billable_pr_run_at,
     current_billing_period_bounds,
     first_billable_pr_run,
     period_billable_credits_for_org,
+    refund_ineligibility_reason,
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
@@ -546,6 +551,15 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
 
 
+# User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
+# (`already_refunded` never reaches a 400 — it takes the idempotent 200 path instead).
+_REFUND_INELIGIBLE_MESSAGES = {
+    REFUND_INELIGIBLE_BILLING_EXEMPT: "This report is marked never-billable, so there is nothing to refund.",
+    REFUND_INELIGIBLE_NO_BILLABLE_PR: "This report has no billable implementation PR to refund.",
+    REFUND_INELIGIBLE_OUT_OF_PERIOD: "This PR was billed in a previous billing period and can no longer be refunded.",
+}
+
+
 class SignalReportRefundRequestSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=SignalReportRefund.Reason.choices,
@@ -690,6 +704,8 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
+        # Batched billable-moment lookup for the serializer's refund_ineligibility_reason field.
+        qs = annotate_first_billable_pr_run_at(qs)
         if self.action != "list":
             qs = self._annotate_implementation_pr_url(qs)
         return qs
@@ -1095,7 +1111,13 @@ class SignalReportViewSet(
         return login.lower() if login else None
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {
+            **super().get_serializer_context(),
+            "team": self.team,
+            # For the serializer's refund_ineligibility_reason field — computed once per request,
+            # not per report (the bounds are org-level).
+            "billing_period_bounds": current_billing_period_bounds(self.organization),
+        }
 
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source-product and PR-url maps the
@@ -1687,25 +1709,21 @@ class SignalReportViewSet(
             if existing is not None:
                 return self._refund_response(existing, already_refunded=True)
 
-            if report.billing_exempt_reason:
-                return Response(
-                    {"error": "This report is marked never-billable, so there is nothing to refund."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
+            # Same decision the serializer's `refund_ineligibility_reason` field renders from,
+            # so the UI's button state and this endpoint's 400s can never disagree.
             billable_run = first_billable_pr_run(report.id)
-            if billable_run is None:
+            ineligibility = refund_ineligibility_reason(
+                has_refund=False,  # the idempotent 200 above already handled existing refunds
+                billing_exempt=bool(report.billing_exempt_reason),
+                billable_run_at=billable_run.created_at if billable_run else None,
+                period=current_billing_period_bounds(self.organization),
+            )
+            if ineligibility is not None:
                 return Response(
-                    {"error": "This report has no billable implementation PR to refund."},
+                    {"error": _REFUND_INELIGIBLE_MESSAGES[ineligibility]},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
-            period_start, period_end = current_billing_period_bounds(self.organization)
-            if not (period_start <= billable_run.created_at < period_end):
-                return Response(
-                    {"error": "This PR was billed in a previous billing period and can no longer be refunded."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            assert billable_run is not None  # narrowed by the no_billable_pr reason above
 
             # Freeze the billing path by the UTC-day rule: refunds committed on the PR run's own
             # UTC day land before any usage send covering that day (all sends happen ≥3h45m into

@@ -80,6 +80,8 @@ export interface SignalReport {
     refund?: SignalReportRefundApi | null
     /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
     billing_exempt_reason?: string | null
+    /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+    refund_ineligibility_reason?: string | null
 }
 
 export enum SignalReportStatus {

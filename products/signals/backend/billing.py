@@ -41,7 +41,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, QuerySet, Sum
+from django.db.models import F, OuterRef, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -205,6 +205,59 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     """`first_billable_pr_run`, timestamp only."""
     run = first_billable_pr_run(report_id)
     return run.created_at if run else None
+
+
+def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
+    """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
+    `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same
+    fail-closed filters as the usage query, so list-rendered refund eligibility can never
+    disagree with what the refund action would accept."""
+    earliest = (
+        _bridges_with_pr_run()
+        .filter(report_id=OuterRef("id"))
+        .order_by("task__runs__created_at")
+        .values("task__runs__created_at")[:1]
+    )
+    return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
+
+
+# Why a report can't be refunded right now (`refund_ineligibility_reason`); None = refundable.
+REFUND_INELIGIBLE_ALREADY_REFUNDED = "already_refunded"
+REFUND_INELIGIBLE_BILLING_EXEMPT = "billing_exempt"
+REFUND_INELIGIBLE_NO_BILLABLE_PR = "no_billable_pr"
+REFUND_INELIGIBLE_OUT_OF_PERIOD = "out_of_period"
+
+REFUND_INELIGIBILITY_REASONS = (
+    REFUND_INELIGIBLE_ALREADY_REFUNDED,
+    REFUND_INELIGIBLE_BILLING_EXEMPT,
+    REFUND_INELIGIBLE_NO_BILLABLE_PR,
+    REFUND_INELIGIBLE_OUT_OF_PERIOD,
+)
+
+
+def refund_ineligibility_reason(
+    *,
+    has_refund: bool,
+    billing_exempt: bool,
+    billable_run_at: datetime | None,
+    period: tuple[datetime, datetime],
+) -> str | None:
+    """Why a report can't be refunded right now, or None when a refund would be accepted.
+
+    The single eligibility decision, shared by the refund action (which maps each reason to its
+    400/idempotent response) and the report serializer (which exposes the reason so the UI can
+    disable the Refund button) — the button state can never drift from what the POST enforces.
+    """
+    if has_refund:
+        return REFUND_INELIGIBLE_ALREADY_REFUNDED
+    if billing_exempt:
+        return REFUND_INELIGIBLE_BILLING_EXEMPT
+    if billable_run_at is None:
+        return REFUND_INELIGIBLE_NO_BILLABLE_PR
+    period_start, period_end = period
+    if not (period_start <= billable_run_at < period_end):
+        return REFUND_INELIGIBLE_OUT_OF_PERIOD
+    return None
 
 
 def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:

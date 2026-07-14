@@ -13,6 +13,13 @@ import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxA
 import { SignalReport } from '../../types'
 import { openRefundReportDialog } from '../shell/RefundReportDialog'
 
+// Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
+// reach the button (it's hidden for those), so only the two visible-but-ineligible reasons map.
+const REFUND_DISABLED_REASONS: Record<string, string> = {
+    out_of_period: 'This PR was billed in a previous billing period and can no longer be refunded',
+    no_billable_pr: "This PR isn't billable, so there's nothing to refund",
+}
+
 /**
  * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportArchive`.
  * Opens the refund dialog and posts to the refund endpoint; the backend freezes the billing path,
@@ -30,7 +37,12 @@ export function useReportRefund({
     surface?: InboxReportActionSurface
     /** Fired once the refund API call succeeds (the report is archived server-side by then). */
     onRefunded?: () => void
-}): { canRefund: boolean; isRefunding: boolean; onRefundClick: (event: React.MouseEvent) => void } {
+}): {
+    canRefund: boolean
+    refundDisabledReason: string | null
+    isRefunding: boolean
+    onRefundClick: (event: React.MouseEvent) => void
+} {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const [isRefunding, setIsRefunding] = useState(false)
@@ -42,6 +54,13 @@ export function useReportRefund({
         !!report.implementation_pr_url &&
         !report.refund &&
         !report.billing_exempt_reason
+
+    // Backend-owned eligibility: when the visible button would only ever 400 (e.g. the PR was
+    // billed in a previous period), disable it with the reason instead of hiding it.
+    const refundDisabledReason =
+        canRefund && report.refund_ineligibility_reason
+            ? (REFUND_DISABLED_REASONS[report.refund_ineligibility_reason] ?? "This PR can't be refunded right now")
+            : null
 
     const onRefundClick = (event: React.MouseEvent): void => {
         event.preventDefault()
@@ -76,5 +95,5 @@ export function useReportRefund({
         })
     }
 
-    return { canRefund, isRefunding, onRefundClick }
+    return { canRefund, refundDisabledReason, isRefunding, onRefundClick }
 }

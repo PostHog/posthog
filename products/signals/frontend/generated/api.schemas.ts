@@ -122,6 +122,16 @@ export interface SignalReportRefundApi {
     readonly created_at: string
 }
 
+export type RefundIneligibilityReasonEnumApi =
+    (typeof RefundIneligibilityReasonEnumApi)[keyof typeof RefundIneligibilityReasonEnumApi]
+
+export const RefundIneligibilityReasonEnumApi = {
+    AlreadyRefunded: 'already_refunded',
+    BillingExempt: 'billing_exempt',
+    NoBillablePr: 'no_billable_pr',
+    OutOfPeriod: 'out_of_period',
+} as const
+
 /**
  * * `posthog_health_check` - PostHog health check
  * * `posthog_onboarding` - PostHog onboarding
@@ -188,6 +198,8 @@ export interface SignalReportApi {
     readonly implementation_pr_url: string | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
     /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
      *
      * * `posthog_health_check` - PostHog health check

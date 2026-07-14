@@ -140,6 +140,36 @@ class TestSignalReportRefundAPI(APIBaseTest):
         response = self._refund(report)
         assert response.status_code == expected_status
 
+    @parameterized.expand(
+        [
+            ("eligible", None),
+            ("out_of_period", "out_of_period"),
+            ("no_billable_pr", "no_billable_pr"),
+            ("already_refunded", "already_refunded"),
+            ("billing_exempt", "billing_exempt"),
+        ]
+    )
+    @freeze_time(_NOW)
+    def test_report_response_carries_refund_ineligibility_reason(self, _flag, case, expected):
+        # The serializer field shares the refund endpoint's eligibility decision (annotation +
+        # period context + helper); a wiring regression would re-enable buttons that only 400.
+        if case == "no_billable_pr":
+            report = _make_report(self.team)
+        else:
+            pr_at = datetime(2026, 5, 20, tzinfo=UTC) if case == "out_of_period" else datetime(2026, 6, 10, tzinfo=UTC)
+            report = self._report_with_pr(pr_created_at=pr_at)
+        if case == "already_refunded":
+            _make_refund(report)
+        if case == "billing_exempt":
+            SignalReport.objects.filter(id=report.id).update(
+                billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == 200
+        assert response.json()["refund_ineligibility_reason"] == expected
+
     @freeze_time(_NOW)
     def test_refund_on_exempt_report_is_rejected(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))

@@ -305,7 +305,7 @@ export function InboxDetailFrame({
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : undefined,
+        disabledReason: action.loading ? 'Working…' : action.disabledReason,
         onClick: action.onClick,
     }))
 
@@ -415,6 +415,7 @@ export function InboxDetailFrame({
                                     icon={action.icon}
                                     loading={action.loading}
                                     tooltip={action.tooltip}
+                                    disabledReason={action.disabledReason}
                                     onClick={action.onClick}
                                 >
                                     {action.label}
