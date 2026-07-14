@@ -306,7 +306,8 @@ class RelationshipProposalViewSet(
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write"],
+        required_scopes=["data_catalog_approval:write", "query:read"],
+        throttle_classes=[HogQLQueryThrottle],
         request=None,
         responses={200: RelationshipProposalSerializer},
     )

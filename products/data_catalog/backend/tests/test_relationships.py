@@ -16,6 +16,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import HogQLQueryThrottle
 
 from products.data_catalog.backend.facade.enums import RelationshipStatus
 from products.data_catalog.backend.logic import relationships
@@ -240,18 +241,49 @@ class TestRelationshipAPI(APIBaseTest):
         response = self.client.post(self.url, {**_JOIN, "source_table_key": "("}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_accept_requires_approval_scope(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "without_approval_scope",
+                ["data_catalog:read", "data_catalog:write", "query:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "without_query_scope",
+                ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "with_both_scopes",
+                ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write", "query:read"],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_accept_requires_approval_and_query_scopes(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
         proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="k",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=["data_catalog:read", "data_catalog:write"],
+            scopes=scopes,
         )
         self.client.logout()
-        response = self.client.post(f"{self.url}{proposal.id}/accept/", HTTP_AUTHORIZATION=f"Bearer {raw}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        with patch.object(relationships, "execute_hogql_query"):
+            response = self.client.post(f"{self.url}{proposal.id}/accept/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert response.status_code == expected_status
+
+    def test_accept_uses_hogql_query_throttle(self) -> None:
+        proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
+        with (
+            patch.object(HogQLQueryThrottle, "allow_request", return_value=False),
+            patch.object(HogQLQueryThrottle, "wait", return_value=None),
+        ):
+            response = self.client.post(f"{self.url}{proposal.id}/accept/")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_reject_via_api(self) -> None:
         proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
