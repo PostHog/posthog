@@ -871,7 +871,8 @@ const createViewNode = (
     options?: {
         expandedLazyNodeIds?: Set<string>
     },
-    schemaTable?: DatabaseSchemaTable
+    schemaTable?: DatabaseSchemaTable,
+    isMaterializing = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
@@ -896,7 +897,9 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedViewsetView ? (
+        icon: isMaterializing ? (
+            <Spinner />
+        ) : isManagedViewsetView ? (
             <IconBolt />
         ) : isManagedView || isMaterializedView ? (
             <IconDatabase />
@@ -1035,9 +1038,9 @@ const createSourceFolderNode = (
                 type={
                     sourceType === 'Self-managed' && (tables.length > 0 || matches.length > 0)
                         ? mapUrlToProvider(
-                              tables.length > 0
+                              (tables.length > 0
                                   ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
-                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern
+                                  : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern) ?? ''
                           )
                         : sourceType
                 }
@@ -1379,6 +1382,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'dataWarehouseSavedQueryFolders',
                 'dataWarehouseSavedQueryMapById',
                 'dataWarehouseSavedQueriesLoading',
+                'materializingViewIds',
             ],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
@@ -1793,13 +1797,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTerm,
                 s.featureFlags,
                 s.expandedSearchFolders,
+                s.materializingViewIds,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
                 searchTreeMatches: SearchTreeMatches,
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
-                expandedSearchFolders: string[]
+                expandedSearchFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -1899,9 +1905,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
 
                 // Add saved queries
+                const materializingViewIdSet = new Set(materializingViewIds)
                 relevantSavedQueries.forEach(([view, matches]) => {
                     const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                    const viewNode = createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable)
+                    const viewNode = createViewNode(
+                        view,
+                        matches,
+                        true,
+                        tableLookup,
+                        tableNodeOptions,
+                        schemaTable,
+                        materializingViewIdSet.has(view.id)
+                    )
                     if (view.folder_id) {
                         const currentChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                         currentChildren.push(viewNode)
@@ -2023,6 +2038,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.featureFlags,
                 s.queryTabState,
                 s.expandedFolders,
+                s.materializingViewIds,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -2033,7 +2049,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
-                expandedFolders: string[]
+                expandedFolders: string[],
+                materializingViewIds: string[]
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -2134,11 +2151,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 } else {
                     const viewChildrenByFolderId = new Map<string, TreeDataItem[]>()
+                    const materializingViewIdSet = new Set(materializingViewIds)
 
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
                         const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                        const viewNode = createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                        const viewNode = createViewNode(
+                            view,
+                            null,
+                            false,
+                            tableLookup,
+                            tableNodeOptions,
+                            schemaTable,
+                            materializingViewIdSet.has(view.id)
+                        )
                         if (view.folder_id) {
                             const folderChildren = viewChildrenByFolderId.get(view.folder_id) ?? []
                             folderChildren.push(viewNode)

@@ -433,6 +433,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-error-tracking',
         title: 'Error tracking',
         group: 'Products',
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'banner',
@@ -464,6 +468,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Error tracking',
         group: 'Products',
         hideFromNavigation: true,
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -1139,7 +1147,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'conversations-imports',
-                title: 'Imports',
+                title: (
+                    <>
+                        Imports
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 description: 'Import historical support data from external tools into Conversations.',
                 component: <ZendeskImportSection />,
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',

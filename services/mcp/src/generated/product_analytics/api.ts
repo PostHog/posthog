@@ -51,7 +51,7 @@ export const ElementsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https:/\/example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.'
         ),
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })

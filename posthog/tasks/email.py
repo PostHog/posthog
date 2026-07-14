@@ -383,7 +383,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", repository: str | None = None) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -396,6 +396,7 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") 
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "partner_name": partner_name,
+            "repository": repository or "",
         },
     )
     message.add_user_recipient(user)
@@ -471,21 +472,18 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_mfa_link(user_id: int, token: str, next_url: str | None = None) -> None:
-    """Send email MFA verification link"""
+def send_code_based_verification(user_id: int, code: str) -> None:
+    """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)
-
-    next_query = f"&next={quote(next_url, safe='')}" if next_url else ""
-    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}{next_query}"
 
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
-        subject="Verify your PostHog login",
-        template_name="email_mfa_link",
+        campaign_key=f"code_based_verification_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Your PostHog login code",
+        template_name="code_based_verification",
         template_context={
-            "preheader": "Please follow the link inside to verify your login.",
-            "url": verification_link,
+            "preheader": "Enter this code to verify your login.",
+            "code": code,
             "expiration_minutes": 10,
             "site_url": settings.SITE_URL,
         },
@@ -494,7 +492,7 @@ def send_email_mfa_link(user_id: int, token: str, next_url: str | None = None) -
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
-        event="email mfa link sent",
+        event="login verification code sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 

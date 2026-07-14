@@ -60,6 +60,7 @@ import type {
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
     TaskRunBootstrapCreateRequestApi,
+    TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
@@ -1142,6 +1143,29 @@ export const tasksRunsArtifactsPresignCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/cancel/`
+}
+
+/**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCancelRequestApi?: TaskRunCancelRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsCancelCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCancelRequestApi),
     })
 }
 

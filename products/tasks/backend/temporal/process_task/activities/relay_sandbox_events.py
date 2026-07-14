@@ -74,6 +74,16 @@ class RelaySandboxEventsInput:
 @activity.defn
 @close_db_connections
 async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
+    await _relay_sandbox_events(input, finalize_stream_on_exit=True)
+
+
+@activity.defn
+@close_db_connections
+async def relay_sandbox_events_deferred_completion(input: RelaySandboxEventsInput) -> None:
+    await _relay_sandbox_events(input, finalize_stream_on_exit=False)
+
+
+async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stream_on_exit: bool) -> None:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 
     Connects to the sandbox's GET /events SSE endpoint and writes each event
@@ -148,13 +158,15 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             slack_thread_context=input.slack_thread_context,
             is_agent_design_enabled=input.is_agent_design_enabled,
+            finalize_stream_on_exit=finalize_stream_on_exit,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
         # Cancellation is expected when the workflow finishes or is replaced.
         # Do not emit an error sentinel: it makes clients treat a still-valid
         # task run as unrecoverably disconnected.
-        await redis_stream.mark_complete()
+        if finalize_stream_on_exit:
+            await redis_stream.mark_complete()
         raise
     except RuntimeError as e:
         # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
@@ -173,7 +185,12 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         raise ApplicationError(str(e), non_retryable=True) from e
     except Exception as e:
         try:
-            marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
+            marked_complete = await _mark_error_unless_run_is_terminal(
+                redis_stream,
+                input.run_id,
+                str(e),
+                finalize_stream=finalize_stream_on_exit,
+            )
         except Exception as status_check_error:
             logger.exception(
                 "relay_sandbox_events_terminal_status_check_failed",
@@ -205,6 +222,8 @@ async def _mark_error_unless_run_is_terminal(
     redis_stream: TaskRunRedisStream,
     run_id: str,
     error: str,
+    *,
+    finalize_stream: bool = True,
 ) -> bool:
     try:
         task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
@@ -217,7 +236,8 @@ async def _mark_error_unless_run_is_terminal(
         TaskRunModel.Status.FAILED,
         TaskRunModel.Status.CANCELLED,
     ):
-        await redis_stream.mark_complete()
+        if finalize_stream:
+            await redis_stream.mark_complete()
         return True
 
     await redis_stream.mark_error(error[:500])
@@ -277,6 +297,7 @@ async def _relay_loop(
     inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
     slack_thread_context: dict[str, Any] | None = None,
     is_agent_design_enabled: bool = False,
+    finalize_stream_on_exit: bool = True,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -288,8 +309,11 @@ async def _relay_loop(
         from posthog.temporal.common.client import async_connect
 
         temporal_client = await async_connect()
-        workflow_id = TaskRunModel.get_workflow_id(task_id, run_id)
-        workflow_handle = temporal_client.get_workflow_handle(workflow_id)
+        # Signals our own parent workflow — its real id, not a re-derived default (which a
+        # prefixed dispatch wouldn't match).
+        workflow_id = activity.info().workflow_id
+        if workflow_id:
+            workflow_handle = temporal_client.get_workflow_handle(workflow_id)
     except Exception as e:
         logger.warning("relay_workflow_handle_init_failed", run_id=run_id, error=str(e))
 
@@ -444,11 +468,13 @@ async def _relay_loop(
                                     )
 
                             if _is_terminal_event(event_data):
-                                await redis_stream.mark_complete()
+                                if finalize_stream_on_exit:
+                                    await redis_stream.mark_complete()
                                 return
 
                     # SSE stream ended normally (sandbox closed connection)
-                    await redis_stream.mark_complete()
+                    if finalize_stream_on_exit:
+                        await redis_stream.mark_complete()
                     logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
                     return
 

@@ -16,9 +16,11 @@ import { subscriptions } from 'kea-subscriptions'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
-import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
+import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
+import { isOperatorSemver } from 'lib/utils/operators'
+import { isValidSemverValue } from 'lib/utils/semver'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -30,6 +32,7 @@ import {
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
+    PropertyOperator,
     UserBlastRadiusType,
 } from '~/types'
 
@@ -39,6 +42,21 @@ import type { featureFlagReleaseConditionsLogicType } from './featureFlagRelease
 // A property filter targets people by their raw distinct id.
 export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+}
+
+// Gates the release-condition save on the same rules the backend enforces, so a bad value is
+// surfaced inline instead of failing with an opaque 400 on submit.
+function getPropertyValueError(property: AnyPropertyFilter): string | undefined {
+    if (isEmptyProperty(property)) {
+        return "Property filters can't be empty"
+    }
+    if (isPropertyFilterWithOperator(property) && isOperatorSemver(property.operator)) {
+        const allowWildcard = property.operator === PropertyOperator.SemverWildcard
+        if (typeof property.value !== 'string' || !isValidSemverValue(property.value, { allowWildcard })) {
+            return 'Enter a valid semver value (e.g. 1.2.3)'
+        }
+    }
+    return undefined
 }
 
 // Server caps batch_by_distinct_ids per request; chunk client-side so every id resolves.
@@ -768,7 +786,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (filters) => {
                 return filters?.groups?.map(({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
                     properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
+                        value: getPropertyValueError(property),
                     })),
                     rollout_percentage:
                         rollout_percentage === undefined || rollout_percentage === null
@@ -859,11 +877,26 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
     }),
-    propsChanged(({ props, values, actions }) => {
+    propsChanged(({ props, values, actions }, oldProps) => {
         // Compare only the fields that affect release conditions and blast radius,
         // excluding payloads which don't affect targeting
-        const { payloads: _newPayloads, ...newRelevant } = props.filters
-        const { payloads: _oldPayloads, ...oldRelevant } = values.filters
+        const { payloads: _newPayloads, ...newRelevant } = props.filters ?? {}
+        const { payloads: _prevPropPayloads, ...prevPropRelevant } = oldProps?.filters ?? {}
+
+        // Only adopt the incoming filters when the parent actually pushed a new value.
+        // The child emits its edits up to the parent, which stores them and echoes them
+        // back down as this prop. A re-render caused by the child's own edit can fire
+        // propsChanged before that edit has round-tripped back to the parent, so
+        // props.filters still holds the pre-edit snapshot. Adopting it here would clobber
+        // the fresher local edit and silently reset the rollout percentage (e.g. back to a
+        // newly-added condition set's 0% default). Reacting only to genuine parent changes
+        // breaks that loop while still syncing external updates (template application,
+        // variant removal, flag reload).
+        if (objectsEqual(newRelevant, prevPropRelevant)) {
+            return
+        }
+
+        const { payloads: _oldPayloads, ...oldRelevant } = values.filters ?? {}
         if (!objectsEqual(newRelevant, oldRelevant)) {
             actions.setFilters(props.filters)
         }
