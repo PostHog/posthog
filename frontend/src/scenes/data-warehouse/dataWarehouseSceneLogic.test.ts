@@ -67,6 +67,27 @@ describe('dataWarehouseSceneLogic', () => {
         expect(logic.values.activeTab).toBe(expectedTabs[0])
     })
 
+    // DB users manages live warehouse credentials, so — like Overview — it must stay hidden until a
+    // warehouse actually exists, not just behind its own feature flag.
+    it.each([
+        { name: 'flag off, warehouse ready', dbUsersFlagEnabled: false, status: { state: 'ready' }, expected: false },
+        { name: 'flag on, warehouse not ready', dbUsersFlagEnabled: true, status: null, expected: false },
+        { name: 'flag on, warehouse ready', dbUsersFlagEnabled: true, status: { state: 'ready' }, expected: true },
+    ])('db users tab: $name', async ({ dbUsersFlagEnabled, status, expected }) => {
+        warehouseStatusResponse = status ? [200, status] : [404, {}]
+        flagsLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.DATA_WAREHOUSE_DB_USERS_TAB],
+            {
+                [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
+                [FEATURE_FLAGS.DATA_WAREHOUSE_DB_USERS_TAB]: dbUsersFlagEnabled,
+            }
+        )
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.availableTabs.includes(DataWarehouseTab.DB_USERS)).toBe(expected)
+    })
+
     it('leaves the tab set unresolved until the warehouse status lands', () => {
         warehouseStatusResponse = [200, { state: 'ready' }]
         mountScene()
