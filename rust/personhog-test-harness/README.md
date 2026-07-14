@@ -116,6 +116,12 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 15s --shutdown-a
 Fix direction: ordered shutdown — drain the coordination component before stopping the gRPC server and producer (the lifecycle crate currently has no phase/ordering primitive).
 Once fixed, this run's Failed count should drop to ~0, matching the zombie scenario's.
 
+**A crashed coordinator blocks all handoffs for 10–20s — currently masked in the gate.**
+The coordinator election is a lease-backed CAS (15s TTL, 5s keepalives, 5s campaign retry); a crash of the router holding it leaves the key in place until the lease expires, and no handoff can start until a survivor wins.
+Leader crashes are usually unaffected (their own 30s registration lease gates discovery anyway), but a leader *drain* during the window stalls — which today, combined with the unordered-shutdown defect above, black-holes the draining pod's partitions for the whole gap (observed: 731 failed writes in ~10s at harness scale; one served strong read also returned NotFound for a person with acked writes, unreproduced and unexplained).
+The gate's coordinator-kill scenario deliberately revokes the election lease to stay deterministic, so it does NOT exercise this window; the slow-failover variant is worth adding once the shutdown ordering is fixed and traffic survives the wait.
+Fix direction: release the election on graceful exit reliably (the best-effort revoke can be dropped by the surrounding `select!` before it runs), and/or tune the election lease and retry intervals against the drain grace budget.
+
 ## `seed` / `cleanup` — manage traffic targets
 
 ```bash
