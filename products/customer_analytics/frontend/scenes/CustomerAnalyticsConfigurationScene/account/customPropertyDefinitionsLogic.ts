@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import type { DataWarehouseSavedQuery } from '~/types'
+import type { DataWarehouseSavedQuery, DataWarehouseTable } from '~/types'
 
 import {
     customPropertyDefinitionsCreate,
@@ -30,6 +30,14 @@ import type { customPropertyDefinitionsLogicType } from './customPropertyDefinit
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
+export type CustomPropertyTargetType = 'account' | 'person'
+
+// One warehouse-column → person-property pair in the person-target editor. Serialized to the
+// backend's `column_property_map` object ({column: property}) on save.
+export interface ColumnPropertyMapping {
+    column: string
+    property: string
+}
 
 export interface CustomPropertyFormValues {
     name: string
@@ -37,10 +45,16 @@ export interface CustomPropertyFormValues {
     displayType: CustomPropertyDisplayTypeEnumApi
     isBigNumber: boolean
     options: CustomPropertyOptionApi[]
+    // 'account' feeds an account (group) property from a saved query; 'person' upserts warehouse
+    // columns onto person properties (usable in flags/cohorts/insights) from a raw synced table.
+    targetType: CustomPropertyTargetType
     sourceMode: CustomPropertySourceMode
     savedQuery: string | null
     sourceColumn: string | null
     keyColumn: string | null
+    // Person target: the warehouse table (its schema id backs the source) + the column mappings.
+    warehouseTable: string | null
+    columnMappings: ColumnPropertyMapping[]
     isEnabled: boolean
 }
 
@@ -50,10 +64,13 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     displayType: 'text',
     isBigNumber: false,
     options: [],
+    targetType: 'account',
     sourceMode: 'manual',
     savedQuery: null,
     sourceColumn: null,
     keyColumn: null,
+    warehouseTable: null,
+    columnMappings: [{ column: '', property: '' }],
     isEnabled: true,
 }
 
@@ -63,16 +80,20 @@ const serializeDefinition = ({
     displayType,
     isBigNumber,
     options,
+    targetType,
 }: CustomPropertyFormValues): {
     name: string
     description: string | null
     display_type: CustomPropertyDisplayTypeEnumApi
+    target_type: CustomPropertyTargetType
     is_big_number: boolean
     options?: CustomPropertyOptionApi[]
 } => ({
     name: name.trim(),
     description: description?.trim() || null,
     display_type: displayType,
+    // Create-only on the backend; a definition's target doesn't change after creation.
+    target_type: targetType,
     // The switch is hidden for non-numeric types, so never send a stale flag for them.
     is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
     // Options only apply to select; the backend clears them for other types.
@@ -86,6 +107,18 @@ const serializeDefinition = ({
           }
         : {}),
 })
+
+// The backend stores column_property_map as a JSON object; the form edits it as an ordered list.
+const parseColumnPropertyMap = (value: unknown): ColumnPropertyMapping[] => {
+    if (!value || typeof value !== 'object') {
+        return [{ column: '', property: '' }]
+    }
+    const entries = Object.entries(value as Record<string, unknown>).map(([column, property]) => ({
+        column,
+        property: String(property),
+    }))
+    return entries.length ? entries : [{ column: '', property: '' }]
+}
 
 const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: string }) => void): boolean => {
     if ((error as { status?: number })?.status !== 409) {
@@ -158,6 +191,16 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 },
             },
         ],
+        warehouseTables: [
+            [] as DataWarehouseTable[],
+            {
+                loadWarehouseTables: async (): Promise<DataWarehouseTable[]> => {
+                    const response = await api.dataWarehouseTables.list()
+                    // Only synced tables carry an external_schema, which is what a person source binds to.
+                    return response.results.filter((table) => !!table.external_schema)
+                },
+            },
+        ],
         newWorkflowUrl: [
             null as string | null,
             {
@@ -189,20 +232,31 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 name,
                 displayType,
                 options,
+                targetType,
                 sourceMode,
                 savedQuery,
                 sourceColumn,
                 keyColumn,
-            }: CustomPropertyFormValues) => ({
-                name: !name?.trim() ? 'Name is required' : undefined,
-                options:
-                    displayType === 'select'
-                        ? options.map((_, index) => ({ label: optionLabelError(options, index) }))
-                        : undefined,
-                savedQuery: sourceMode === 'data_warehouse' && !savedQuery ? 'Select a view' : undefined,
-                sourceColumn: sourceMode === 'data_warehouse' && !sourceColumn ? 'Select the value column' : undefined,
-                keyColumn: sourceMode === 'data_warehouse' && !keyColumn ? 'Select the key column' : undefined,
-            }),
+                warehouseTable,
+                columnMappings,
+            }: CustomPropertyFormValues) => {
+                const isPerson = targetType === 'person'
+                const isAccountWarehouse = !isPerson && sourceMode === 'data_warehouse'
+                const hasMapping = columnMappings.some((m) => m.column.trim() && m.property.trim())
+                return {
+                    name: !name?.trim() ? 'Name is required' : undefined,
+                    options:
+                        !isPerson && displayType === 'select'
+                            ? options.map((_, index) => ({ label: optionLabelError(options, index) }))
+                            : undefined,
+                    savedQuery: isAccountWarehouse && !savedQuery ? 'Select a view' : undefined,
+                    sourceColumn: isAccountWarehouse && !sourceColumn ? 'Select the value column' : undefined,
+                    keyColumn:
+                        (isAccountWarehouse || isPerson) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
+                    warehouseTable: isPerson && !warehouseTable ? 'Select a warehouse table' : undefined,
+                    columnMappings: isPerson && !hasMapping ? 'Map at least one column to a property' : undefined,
+                }
+            },
             submit: async (formValues: CustomPropertyFormValues) => {
                 const projectId = String(values.currentProjectId)
                 const editing = values.editingDefinition
@@ -217,9 +271,27 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     actions.setEditingDefinition(definition)
                 }
                 try {
-                    const { sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
+                    const { targetType, sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
                     const existingSource = editing?.source ?? null
-                    if (sourceMode === 'data_warehouse' && savedQuery && sourceColumn && keyColumn) {
+                    if (targetType === 'person') {
+                        const schemaId = values.selectedWarehouseSchemaId
+                        if (existingSource) {
+                            // The binding + column map are create-only on the backend; only key_column
+                            // and is_enabled are mutable on a person source.
+                            await customPropertySourcesPartialUpdate(projectId, existingSource.id, {
+                                key_column: keyColumn ?? '',
+                                is_enabled: isEnabled,
+                            })
+                        } else if (schemaId && keyColumn?.trim()) {
+                            await customPropertySourcesCreate(projectId, {
+                                definition: definition.id,
+                                external_data_schema: schemaId,
+                                column_property_map: values.serializedColumnPropertyMap,
+                                key_column: keyColumn.trim(),
+                                is_enabled: isEnabled,
+                            })
+                        }
+                    } else if (sourceMode === 'data_warehouse' && savedQuery && sourceColumn && keyColumn) {
                         if (existingSource) {
                             // saved_query is create-only — only the mutable fields are sent on update.
                             await customPropertySourcesPartialUpdate(projectId, existingSource.id, {
@@ -258,6 +330,22 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return (view?.columns ?? []).map((column) => column.name)
             },
         ],
+        // The chosen warehouse table's schema id — what a person source actually binds to.
+        selectedWarehouseSchemaId: [
+            (s) => [s.warehouseTables, s.customPropertyForm],
+            (warehouseTables: DataWarehouseTable[], form: CustomPropertyFormValues): string | null =>
+                warehouseTables.find((table) => table.id === form.warehouseTable)?.external_schema?.id ?? null,
+        ],
+        // The person-target column mappings as the backend's `column_property_map` object.
+        serializedColumnPropertyMap: [
+            (s) => [s.customPropertyForm],
+            (form: CustomPropertyFormValues): Record<string, string> =>
+                Object.fromEntries(
+                    form.columnMappings
+                        .filter((mapping) => mapping.column.trim() && mapping.property.trim())
+                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
+                ),
+        ],
         editingReferences: [
             (s) => [s.definitions, s.editingDefinition],
             (
@@ -276,15 +364,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         openCreateModal: () => {
             actions.resetCustomPropertyForm()
             actions.loadSavedQueries()
+            actions.loadWarehouseTables()
         },
         openEditModal: ({ definition }) => {
             actions.loadSavedQueries()
+            actions.loadWarehouseTables()
+            const isPerson = definition.target_type === 'person'
             actions.setCustomPropertyFormValues({
                 name: definition.name,
                 description: definition.description ?? '',
                 displayType: definition.display_type,
                 isBigNumber: definition.is_big_number ?? false,
                 options: definition.options ?? [],
+                targetType: isPerson ? 'person' : 'account',
                 sourceMode: definition.source
                     ? 'data_warehouse'
                     : definition.references?.length
@@ -293,6 +385,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 savedQuery: definition.source?.saved_query ?? null,
                 sourceColumn: definition.source?.source_column ?? null,
                 keyColumn: definition.source?.key_column ?? null,
+                // The warehouse-table binding is create-only, so on edit we surface the existing map
+                // (read-only in the modal) rather than resolving the table back for the picker.
+                warehouseTable: null,
+                columnMappings: isPerson
+                    ? parseColumnPropertyMap(definition.source?.column_property_map)
+                    : [{ column: '', property: '' }],
                 isEnabled: definition.source?.is_enabled ?? true,
             })
         },
@@ -356,6 +454,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         loadSavedQueriesFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadSavedQueries' })
             lemonToast.error('Failed to load data warehouse views')
+        },
+        loadWarehouseTablesFailure: ({ error }) => {
+            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadWarehouseTables' })
+            lemonToast.error('Failed to load data warehouse tables')
         },
     })),
     afterMount(({ actions }) => {
