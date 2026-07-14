@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.schema import AlertCondition, AlertConditionType, InsightThreshold, MetricsAlertConfig, MetricsQuery
+from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -44,8 +44,10 @@ class MetricsExtractor:
         if not (alert.config and alert.config.get("type") == "MetricsAlertConfig"):
             raise ValueError(f"Unsupported alert config type: {alert.config}")
         config = MetricsAlertConfig.model_validate(alert.config)
-        condition = AlertCondition.model_validate(alert.condition)
         # Dispatcher short-circuits when threshold/bounds are missing, so both are present here.
+        # Config/condition compatibility (e.g. check_ongoing_interval needs an upper bound) is
+        # _validate_metrics_alert_config's job — enforced at save time and re-run by prepare_alert
+        # before every check — so it isn't re-checked here.
         if alert.threshold is None:
             raise ValueError("MetricsExtractor requires a threshold — dispatcher invariant violated")
         threshold = InsightThreshold.model_validate(alert.threshold.configuration)
@@ -53,15 +55,6 @@ class MetricsExtractor:
             raise ValueError("MetricsExtractor requires threshold bounds — dispatcher invariant violated")
 
         check_ongoing_interval = bool(config.check_ongoing_interval)
-        if (
-            check_ongoing_interval
-            and threshold.bounds.upper is None
-            and condition.type in (AlertConditionType.ABSOLUTE_VALUE, AlertConditionType.RELATIVE_INCREASE)
-        ):
-            raise ValueError(
-                f"check_ongoing_interval is only supported for alert condition {condition.type} "
-                "when upper threshold is specified"
-            )
 
         calculation_result = calculate_for_query_based_insight(
             insight,
