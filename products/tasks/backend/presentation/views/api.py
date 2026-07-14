@@ -2037,13 +2037,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
         task_id = self._task_id()
-        is_internal_debug_read = (
-            _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve")
-            and self.request.query_params.get("ph_debug") == "true"
-        )
+        is_read = self.action in ("list", "retrieve")
+        bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
-            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=is_internal_debug_read
+            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=bypass_visibility
         ):
             raise NotFound("Task not found")
         return task_id

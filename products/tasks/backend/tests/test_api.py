@@ -814,6 +814,15 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         ids = {item["id"] for item in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
+    def test_staff_list_living_artifacts_for_other_user_run(self):
+        # Living artifacts are a separate run-read viewset whose gate previously required an
+        # internal-debug team — staff must reach it on any team too.
+        task = self.create_task(created_by=self.other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_staff_write_on_other_user_task_still_404s(self, _mock_workflow):
         # Read-only bypass — staff still can't drive another member's task.
