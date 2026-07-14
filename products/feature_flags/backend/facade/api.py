@@ -185,7 +185,10 @@ def ship_variant(
 
     ``base_filters`` lets a caller fold companion adjustments it already computed from
     the flag's current filters into the same gated write; defaults to the flag's
-    current filters. Variant keys must be unchanged from the flag's own.
+    current filters. ``variant_key`` is validated against ``base_filters`` (not
+    ``flag.filters``), so its ``multivariate.variants`` must match the flag's own.
+    The parameter is transitional: it exists so the experiments-side freeze-strip
+    folds into a single gated write, and goes away once that strip moves flag-side.
 
     Raises ValidationError when the variant doesn't exist on the flag, and
     ApprovalRequired when a policy gates the write — the flag is left untouched
