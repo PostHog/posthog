@@ -479,40 +479,54 @@ class TestExternalDataSchema(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
             data={
                 "sync_type": "full_refresh",
-                "full_refresh_append": True,
                 "snapshot_retention_mode": "days",
                 "snapshot_retention_value": 7,
             },
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["full_refresh_append"] is True
         assert response.json()["snapshot_retention_mode"] == "days"
         assert response.json()["snapshot_retention_value"] == 7
         schema.refresh_from_db()
+        # A positive retention value is what turns on append mode — there is no separate flag.
         assert schema.is_full_refresh_append is True
         assert schema.snapshot_retention_mode == "days"
         assert schema.snapshot_retention_value == 7
 
-    def test_full_refresh_append_rejected_for_non_full_refresh_sync_type(self):
+    def test_zero_retention_stays_plain_full_refresh(self):
+        schema = self._create_full_refresh_schema(
+            sync_type_config={"snapshot_retention_mode": "count", "snapshot_retention_value": 5}
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "full_refresh", "snapshot_retention_value": 0},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["snapshot_retention_value"] == 0
+        schema.refresh_from_db()
+        # Retention 0 is plain overwrite full refresh, not append.
+        assert schema.is_full_refresh_append is False
+
+    def test_snapshot_retention_rejected_for_non_full_refresh_sync_type(self):
         schema = self._create_full_refresh_schema(sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"full_refresh_append": True},
+            data={"snapshot_retention_value": 3},
         )
 
         assert response.status_code == 400
 
-    @parameterized.expand([("too_small", 0), ("too_large", 366)])
-    def test_full_refresh_append_retention_value_bounds(self, _name: str, value: int):
+    @parameterized.expand([("negative", -1), ("too_large", 366)])
+    def test_snapshot_retention_value_bounds(self, _name: str, value: int):
         schema = self._create_full_refresh_schema()
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
             data={
                 "sync_type": "full_refresh",
-                "full_refresh_append": True,
                 "snapshot_retention_value": value,
             },
         )

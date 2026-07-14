@@ -962,13 +962,14 @@ class TestFullRefreshAppend:
         assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == [t1, t2]
 
     @pytest.mark.asyncio
-    async def test_prune_count_keeps_newest_n(self, tmp_path: Path) -> None:
+    async def test_prune_count_keeps_latest_plus_previous(self, tmp_path: Path) -> None:
         helper = _make_local_helper(str(tmp_path / "table"))
         snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (1, 2, 3)]
         for day, snapshot_at in enumerate(snapshots):
             await self._write_run(helper, [day], snapshot_at)
 
-        pruned = await helper.prune_snapshots("count", 2)
+        # count 1 = keep the latest plus one previous (2 total), so the oldest of three is pruned.
+        pruned = await helper.prune_snapshots("count", 1)
 
         assert pruned == 1
         helper.get_delta_table.cache_clear()
@@ -1039,10 +1040,12 @@ class TestSnapshotsOutsideRetention:
 
     @parameterized.expand(
         [
-            # (name, distinct_days, mode, value, expected_prunable_days)
-            ("count_prunes_oldest", (1, 2, 3, 4, 5), "count", 2, (1, 2, 3)),
+            # (name, distinct_days, mode, value, expected_prunable_days). count value = previous
+            # snapshots to keep beyond the latest, so keep_total = value + 1.
+            ("count_2_keeps_latest_plus_2", (1, 2, 3, 4, 5), "count", 2, (1, 2)),
+            ("count_0_keeps_latest_only", (1, 2, 3), "count", 0, (1, 2)),
             ("count_under_retention_noop", (1, 2), "count", 5, ()),
-            ("count_exactly_retention_noop", (1, 2, 3), "count", 3, ()),
+            ("count_keeps_latest_plus_value", (1, 2, 3), "count", 2, ()),
             ("single_snapshot_noop", (5,), "count", 1, ()),
             ("empty_noop", (), "count", 1, ()),
             # _NOW is Jan 31; a 7-day window keeps >= Jan 24.

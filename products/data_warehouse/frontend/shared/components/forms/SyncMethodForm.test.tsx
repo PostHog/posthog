@@ -35,15 +35,14 @@ describe('SyncMethodForm', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
     })
 
-    // Guards the full-refresh-append retention input: with the sub-mode on, a missing or non-positive
-    // retention value must block save so we never PATCH an invalid config the backend would reject.
+    // Retention 0 is valid (plain overwrite full refresh); only an out-of-range positive value blocks
+    // save so we never PATCH a config the backend would reject.
     it.each([
-        ['append off, no value → allowed', false, null, undefined],
-        ['append on, valid value → allowed', true, 3, undefined],
-        ['append on, empty value → blocked', true, null, 'You must set how many snapshots (or days) to keep'],
-        ['append on, zero value → blocked', true, 0, 'You must set how many snapshots (or days) to keep'],
-        ['append on, over max → blocked', true, 366, 'Keep at most 365 snapshots (or days)'],
-    ])('save disabled reason for full refresh: %s', (_, fullRefreshAppend, retentionValue, expected) => {
-        expect(getSaveDisabledReason('full_refresh', null, null, fullRefreshAppend, retentionValue)).toBe(expected)
+        ['zero → allowed (overwrite)', 0, undefined],
+        ['positive → allowed', 3, undefined],
+        ['at max → allowed', 365, undefined],
+        ['over max → blocked', 366, 'Keep at most 365 snapshots (or days)'],
+    ])('save disabled reason for full refresh: %s', (_, retentionValue, expected) => {
+        expect(getSaveDisabledReason('full_refresh', null, null, retentionValue)).toBe(expected)
     })
 })

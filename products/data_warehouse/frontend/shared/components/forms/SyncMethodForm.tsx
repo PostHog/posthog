@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -83,16 +83,15 @@ const getAppendOnlySyncSupported = (
     }
 }
 
-export interface FullRefreshAppendConfig {
-    /** When true, each sync appends a full snapshot instead of overwriting the table. */
-    enabled: boolean
-    /** Retain the newest N snapshots ('count') or snapshots synced in the last N days ('days'). */
+export interface SnapshotRetentionConfig {
+    /** How retention is measured when retentionValue > 0. */
     retentionMode: 'count' | 'days'
-    retentionValue: number | null
+    /** Previous snapshots to keep beyond the latest ('count') or days of snapshots to keep ('days'). 0 = overwrite. */
+    retentionValue: number
 }
 
-// Start empty (0) so the user has to deliberately choose how many snapshots to keep; save stays
-// disabled until they enter a value of at least 1.
+// Full refresh keeps no history by default (0 = overwrite, today's behavior). A positive value turns on
+// snapshot retention.
 const DEFAULT_SNAPSHOT_RETENTION_VALUE = 0
 
 interface SyncMethodFormProps {
@@ -105,7 +104,7 @@ interface SyncMethodFormProps {
         primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
         incrementalFieldLookbackSeconds?: number | null,
-        fullRefreshAppendConfig?: FullRefreshAppendConfig
+        snapshotRetentionConfig?: SnapshotRetentionConfig
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
@@ -145,8 +144,7 @@ export const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
     appendField: string | null,
-    fullRefreshAppend: boolean,
-    retentionValue: number | null
+    retentionValue: number
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -160,13 +158,9 @@ export const getSaveDisabledReason = (
         return 'You must select an append field'
     }
 
-    if (syncType === 'full_refresh' && fullRefreshAppend) {
-        if (!retentionValue || retentionValue < 1) {
-            return 'You must set how many snapshots (or days) to keep'
-        }
-        if (retentionValue > 365) {
-            return 'Keep at most 365 snapshots (or days)'
-        }
+    // Retention 0 is valid (plain overwrite); only an out-of-range positive value blocks save.
+    if (syncType === 'full_refresh' && retentionValue > 365) {
+        return 'Keep at most 365 snapshots (or days)'
     }
 }
 
@@ -239,9 +233,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const initialLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
     const [lookbackAmount, setLookbackAmount] = useState<number | null>(initialLookback.amount)
     const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
-    const [fullRefreshAppend, setFullRefreshAppend] = useState<boolean>(schema.full_refresh_append ?? false)
     const [retentionMode, setRetentionMode] = useState<'count' | 'days'>(schema.snapshot_retention_mode ?? 'count')
-    const [retentionValue, setRetentionValue] = useState<number | null>(
+    const [retentionValue, setRetentionValue] = useState<number>(
         schema.snapshot_retention_value ?? DEFAULT_SNAPSHOT_RETENTION_VALUE
     )
 
@@ -253,7 +246,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
         setLookbackAmount(resetLookback.amount)
         setLookbackUnit(resetLookback.unit)
-        setFullRefreshAppend(schema.full_refresh_append ?? false)
         setRetentionMode(schema.snapshot_retention_mode ?? 'count')
         setRetentionValue(schema.snapshot_retention_value ?? DEFAULT_SNAPSHOT_RETENTION_VALUE)
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -623,47 +615,42 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                         </p>
                         {radioValue === 'full_refresh' && (
                             <div className="mt-3 pt-3 border-t border-border">
-                                <LemonSwitch
-                                    checked={fullRefreshAppend}
-                                    onChange={setFullRefreshAppend}
-                                    label="Keep previous snapshots"
-                                    bordered
-                                />
-                                <p className="mt-2 mb-0 text-secondary text-sm">
-                                    Instead of overwriting, append a full snapshot of the source on each sync and retain
-                                    past ones. Useful for point-in-time history of tables without an incremental field.
-                                    Each row carries a <code>_ph_snapshot_at</code> timestamp you can filter on.
+                                <p className="mb-1 font-semibold">Keep previous snapshots</p>
+                                <p className="mb-2 text-secondary text-sm">
+                                    By default we overwrite the table on each sync. Set this above 0 to instead append a
+                                    full snapshot each sync and keep past ones — useful for point-in-time history of
+                                    tables without an incremental field. Each row carries a <code>_ph_snapshot_at</code>{' '}
+                                    timestamp you can filter on, and older snapshots are pruned at sync time.
                                 </p>
-                                {fullRefreshAppend && (
-                                    <div className="mt-4">
-                                        <p className="mb-1 font-semibold">Snapshot retention</p>
-                                        <p className="mb-2 text-secondary text-sm">
-                                            How many snapshots to keep. Older snapshots are pruned at sync time, so
-                                            expired snapshots can stay queryable until the next sync runs.
-                                        </p>
-                                        <div className="flex items-center gap-2">
-                                            <LemonInput
-                                                type="number"
-                                                min={1}
-                                                max={365}
-                                                value={retentionValue ?? undefined}
-                                                onChange={(newValue) => setRetentionValue(newValue ?? null)}
-                                                className="w-24"
-                                            />
-                                            <LemonSelect
-                                                value={retentionMode}
-                                                onChange={(newValue) => setRetentionMode(newValue)}
-                                                options={[
-                                                    { value: 'count', label: 'snapshots' },
-                                                    { value: 'days', label: 'days' },
-                                                ]}
-                                            />
-                                        </div>
-                                        <LemonBanner type="info" className="mt-2">
-                                            Retaining snapshots multiplies stored rows and query cost. Each sync keeps a
-                                            full copy of the source, so keep the retention window as small as you need.
-                                        </LemonBanner>
-                                    </div>
+                                <div className="flex items-center gap-2">
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={365}
+                                        value={retentionValue}
+                                        onChange={(newValue) => setRetentionValue(newValue ?? 0)}
+                                        className="w-24"
+                                    />
+                                    <LemonSelect
+                                        value={retentionMode}
+                                        onChange={(newValue) => setRetentionMode(newValue)}
+                                        disabledReason={
+                                            retentionValue === 0 ? 'Set a value above 0 to keep snapshots' : undefined
+                                        }
+                                        options={[
+                                            { value: 'count', label: 'previous snapshots' },
+                                            { value: 'days', label: 'days' },
+                                        ]}
+                                    />
+                                </div>
+                                <p className="mt-1 mb-0 text-secondary text-xs">
+                                    0 keeps no history (overwrite each sync).
+                                </p>
+                                {retentionValue > 0 && (
+                                    <LemonBanner type="info" className="mt-2">
+                                        Retaining snapshots multiplies stored rows and query cost. Each sync keeps a
+                                        full copy of the source, so keep the retention window as small as you need.
+                                    </LemonBanner>
                                 )}
                             </div>
                         )}
@@ -703,16 +690,12 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             return true
         }
         if (radioValue === 'full_refresh') {
-            if (fullRefreshAppend !== (schema.full_refresh_append ?? false)) {
+            if (retentionValue !== (schema.snapshot_retention_value ?? 0)) {
                 return true
             }
-            if (fullRefreshAppend) {
-                if (retentionMode !== (schema.snapshot_retention_mode ?? 'count')) {
-                    return true
-                }
-                if (retentionValue !== (schema.snapshot_retention_value ?? null)) {
-                    return true
-                }
+            // Mode only matters when snapshots are actually kept.
+            if (retentionValue > 0 && retentionMode !== (schema.snapshot_retention_mode ?? 'count')) {
+                return true
             }
         }
         return false
@@ -722,7 +705,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         radioValue,
         incrementalFieldValue,
         appendFieldValue,
-        fullRefreshAppend,
         retentionValue
     )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
@@ -760,7 +742,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             onSave('append', appendFieldValue, fieldSelected.field_type, null)
         } else {
             onSave('full_refresh', null, null, null, undefined, undefined, {
-                enabled: fullRefreshAppend,
                 retentionMode,
                 retentionValue,
             })

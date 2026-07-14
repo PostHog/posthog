@@ -283,13 +283,10 @@ class TestExternalDataSchemaAdmin(BaseTest):
         mock_start.assert_not_called()
 
     def _append_schema(self) -> ExternalDataSchema:
+        # A positive retention value is what puts a full-refresh schema into append mode.
         return self._schema(
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_type_config={
-                "full_refresh_append": True,
-                "snapshot_retention_mode": "count",
-                "snapshot_retention_value": 3,
-            },
+            sync_type_config={"snapshot_retention_mode": "count", "snapshot_retention_value": 3},
         )
 
     def test_trigger_prune_starts_workflow_and_pauses_schedule(self) -> None:

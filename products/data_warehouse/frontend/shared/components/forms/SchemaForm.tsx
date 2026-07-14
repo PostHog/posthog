@@ -711,7 +711,7 @@ const SyncMethodModal = (): JSX.Element => {
                     primaryKeyColumns,
                     cdcTableMode,
                     incrementalFieldLookbackSeconds,
-                    fullRefreshAppendConfig
+                    snapshotRetentionConfig
                 ) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
@@ -734,7 +734,7 @@ const SyncMethodModal = (): JSX.Element => {
                             null,
                             undefined,
                             undefined,
-                            syncType === 'full_refresh' ? fullRefreshAppendConfig : undefined
+                            syncType === 'full_refresh' ? snapshotRetentionConfig : undefined
                         )
                     }
 

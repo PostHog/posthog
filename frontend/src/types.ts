@@ -6279,11 +6279,9 @@ export interface ExternalDataSourceSyncSchema {
     cdc_available?: boolean
     xmin_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
-    /** Full-refresh sub-mode: append a full snapshot each sync instead of overwriting, keeping history. */
-    full_refresh_append?: boolean | null
-    /** How snapshot retention is measured for full_refresh_append: newest N snapshots, or last N days. */
+    /** How full-refresh snapshot retention is measured when the value is > 0: previous snapshots, or last N days. */
     snapshot_retention_mode?: 'count' | 'days' | null
-    /** Number of snapshots (mode 'count') or days of snapshots (mode 'days') to retain. */
+    /** Full-refresh snapshot retention: 0 = overwrite (no history); >0 = keep that many previous snapshots (count) or days (days). */
     snapshot_retention_value?: number | null
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks
@@ -6335,11 +6333,9 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
-    /** Full-refresh sub-mode: append a full snapshot each sync instead of overwriting, keeping history. */
-    full_refresh_append?: boolean | null
-    /** How snapshot retention is measured for full_refresh_append: newest N snapshots, or last N days. */
+    /** How full-refresh snapshot retention is measured when the value is > 0: previous snapshots, or last N days. */
     snapshot_retention_mode?: 'count' | 'days' | null
-    /** Number of snapshots (mode 'count') or days of snapshots (mode 'days') to retain. */
+    /** Full-refresh snapshot retention: 0 = overwrite (no history); >0 = keep that many previous snapshots (count) or days (days). */
     snapshot_retention_value?: number | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".

@@ -97,11 +97,14 @@ def snapshots_outside_retention(
     """Given the ascending distinct snapshot timestamps of a full-refresh-append table, return the ones
     that fall outside the retention window (i.e. should be pruned), oldest first.
 
-    Always keeps at least the newest snapshot, so a table is never emptied even when its only snapshot is
-    older than a day-based window. `now` is injected so the day-mode cutoff stays testable. Pure so both
-    the sync-time prune and the on-demand admin "orphaned snapshots" readout share one definition.
+    `retention_value` is the number of *previous* snapshots to keep beyond the latest (count mode) or the
+    age window in days (days mode). So count 0 keeps only the latest, count 2 keeps the latest plus two
+    older. Always keeps at least the newest snapshot, so a table is never emptied even when its only
+    snapshot is older than a day-based window. `now` is injected so the day-mode cutoff stays testable.
+    Pure so both the sync-time prune and the on-demand admin "orphaned snapshots" readout share one
+    definition.
     """
-    if len(distinct) <= 1:
+    if not distinct:
         return []
     if retention_mode == "days":
         cutoff = now - timedelta(days=retention_value)
@@ -109,9 +112,11 @@ def snapshots_outside_retention(
         # Never drop everything: keep the newest snapshot even when it's older than the cutoff.
         oldest_kept = min(kept) if kept else distinct[-1]
     else:
-        if len(distinct) <= retention_value:
+        # The latest snapshot plus `retention_value` previous ones.
+        keep_total = retention_value + 1
+        if len(distinct) <= keep_total:
             return []
-        oldest_kept = distinct[-retention_value]
+        oldest_kept = distinct[-keep_total]
     return [snapshot for snapshot in distinct if snapshot < oldest_kept]
 
 

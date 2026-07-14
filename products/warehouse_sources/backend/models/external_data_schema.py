@@ -65,7 +65,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "full_refresh_append": bool, "snapshot_retention_mode": "count" | "days", "snapshot_retention_value": int }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "snapshot_retention_mode": "count" | "days", "snapshot_retention_value": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -141,14 +141,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.XMIN
 
     @property
-    def is_full_refresh_append(self) -> bool:
-        # A sub-mode of full refresh: instead of overwriting, each sync appends a full snapshot of the
-        # source and old snapshots are pruned on a retention policy. Kept as a flag on the full_refresh
-        # sync type (not a distinct SyncType) so it inherits full-refresh extraction: a full source pull
-        # every run, no incremental watermark.
-        return self.sync_type == self.SyncType.FULL_REFRESH and bool(
-            (self.sync_type_config or {}).get("full_refresh_append")
-        )
+    def snapshot_retention_value(self) -> int:
+        # How many *previous* snapshots to keep alongside the latest on a full-refresh schema. 0 (the
+        # default) is plain full refresh: overwrite each sync, keep no history, no snapshot column. A
+        # positive value turns on append mode — the latest plus that many older snapshots (count mode),
+        # or the snapshots synced in the last N days (days mode), are retained.
+        if self.sync_type_config:
+            value = self.sync_type_config.get("snapshot_retention_value")
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+        return 0
 
     @property
     def snapshot_retention_mode(self) -> Literal["count", "days"]:
@@ -157,15 +159,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return "count"
 
     @property
-    def snapshot_retention_value(self) -> int:
-        # Defensive fallback when append is enabled but no valid value is stored: keep the newest 3
-        # snapshots. Must not fall back to 1, which would prune down to a single snapshot and defeat
-        # the sub-mode.
-        if self.sync_type_config:
-            value = self.sync_type_config.get("snapshot_retention_value")
-            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-                return value
-        return 3
+    def is_full_refresh_append(self) -> bool:
+        # A full-refresh schema with snapshot retention turned on: instead of overwriting, each sync
+        # appends a full snapshot of the source (stamped `_ph_snapshot_at`) and old snapshots are pruned
+        # to the retention window. Retention 0 is plain full refresh (overwrite, no column). Driven off
+        # the retention value rather than a separate flag, and kept on the full_refresh sync type so it
+        # inherits full-refresh extraction: a full source pull every run, no incremental watermark.
+        return self.sync_type == self.SyncType.FULL_REFRESH and self.snapshot_retention_value > 0
 
     @property
     def xmin_last_value(self) -> int | None:
