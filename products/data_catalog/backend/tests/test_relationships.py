@@ -276,17 +276,28 @@ class TestRelationshipAPI(APIBaseTest):
             ),
             (
                 "without_query_scope",
-                ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write"],
+                ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write", "warehouse_view:write"],
                 status.HTTP_403_FORBIDDEN,
             ),
             (
-                "with_both_scopes",
+                "without_warehouse_view_scope",
                 ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write", "query:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "with_all_scopes",
+                [
+                    "data_catalog:read",
+                    "data_catalog:write",
+                    "data_catalog_approval:write",
+                    "query:read",
+                    "warehouse_view:write",
+                ],
                 status.HTTP_200_OK,
             ),
         ]
     )
-    def test_accept_requires_approval_and_query_scopes(
+    def test_accept_requires_approval_query_and_warehouse_view_scopes(
         self, _name: str, scopes: list[str], expected_status: int
     ) -> None:
         proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)

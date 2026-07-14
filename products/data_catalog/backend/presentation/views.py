@@ -306,18 +306,20 @@ class RelationshipProposalViewSet(
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write", "data_catalog:read", "query:read"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read", "query:read", "warehouse_view:write"],
         throttle_classes=[HogQLQueryThrottle],
         request=None,
         responses={200: RelationshipProposalSerializer},
     )
     def accept(self, request: Request, **kwargs) -> Response:
         """Promote the proposal to a real warehouse join after re-validating and probing it."""
-        # required_scopes gates tokens on query:read, but session users carry no scopes and
-        # AccessControlPermission only checks the data_catalog resource. Enforce query RBAC
-        # explicitly so a member with query access denied can't run the acceptance probe.
+        # required_scopes gates tokens, but session users carry no scopes and AccessControlPermission
+        # only checks the data_catalog resource. Enforce the resources this action actually touches
+        # explicitly: query (the ClickHouse acceptance probe) and warehouse_view (the join it creates).
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise PermissionDenied("You need query access to accept a relationship proposal.")
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", "editor"):
+            raise PermissionDenied("You need warehouse view edit access to accept a relationship proposal.")
         proposal = api.accept_proposal(self.get_object(), cast(User, request.user))
         return Response(self.get_serializer(proposal).data)
 
