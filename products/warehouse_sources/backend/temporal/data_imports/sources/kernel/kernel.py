@@ -162,13 +162,19 @@ def get_rows(
         response = _fetch_page(session, url, headers, logger)
         items = _extract_items(response.json())
 
+        has_more, next_offset = _next_page(response.headers, offset, len(items))
+
         if not items:
-            break
+            # An empty page doesn't necessarily mean the end - the API may signal more pages
+            # via X-Has-More. Keep going, but stop if the offset can't advance (an empty page
+            # with no X-Next-Offset would otherwise loop forever on the same request).
+            if not has_more or next_offset <= offset:
+                break
+            offset = next_offset
+            continue
 
         for item in items:
             batcher.batch(_redact_sensitive_fields(item))
-
-        has_more, next_offset = _next_page(response.headers, offset, len(items))
 
         if batcher.should_yield():
             yield batcher.get_table()

@@ -61,6 +61,7 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset(
     {
         "env_vars",
         "cdp_ws_url",
+        "webdriver_ws_url",
         "browser_live_view_url",
     }
 )

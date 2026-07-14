@@ -65,6 +65,7 @@ class TestRedactSensitiveFields:
             "id": "b1",
             "env_vars": {"SECRET": "x"},
             "CDP_WS_URL": "wss://token@example",
+            "webdriver_ws_url": "wss://jwt@example",
             "browser_live_view_url": "https://token@example",
             "region": "us",
         }
@@ -159,6 +160,23 @@ class TestGetRows:
     def test_empty_first_page_yields_nothing(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = _response([], has_more=False)
         assert self._collect("profiles") == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_page_with_more_pages_keeps_paging(self, mock_session: Any) -> None:
+        # An empty page that still reports X-Has-More must not end the sync early.
+        mock_session.return_value.get.side_effect = [
+            _response([], has_more=True, next_offset=100),
+            _response([{"id": "a1"}], has_more=False),
+        ]
+        assert self._collect("apps") == [{"id": "a1"}]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_page_without_advancing_offset_terminates(self, mock_session: Any) -> None:
+        # Empty page claiming more pages but with no way to advance the offset must stop,
+        # not loop forever re-fetching the same request.
+        mock_session.return_value.get.return_value = _response([], has_more=True)
+        assert self._collect("apps") == []
+        assert mock_session.return_value.get.call_count == 1
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_browsers_requests_all_statuses(self, mock_session: Any) -> None:
