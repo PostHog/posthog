@@ -38,6 +38,7 @@ from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -301,6 +302,14 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+        )
+
+        # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
+        # never raises, so it cannot block or fail signup.
+        start_signup_enrichment_workflow(
+            organization_id=str(self._organization.id),
+            distinct_id=user.distinct_id,
+            email=user.email,
         )
 
         verify_email_or_login(request, user)

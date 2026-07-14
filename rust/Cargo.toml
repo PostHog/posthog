@@ -48,6 +48,7 @@ members = [
   "kafka-assigner",
   "kafka-assigner-proto",
   "ingestion-consumer",
+  "ingestion-control-plane",
   "kafka-deduplicator",
   "personhog-common",
   "personhog-coordination",
