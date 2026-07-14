@@ -12,7 +12,7 @@
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: artifact uploads, PR comment posters, snapshot
+# - Stripped side effects: artifact uploads, CI report section posters, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
