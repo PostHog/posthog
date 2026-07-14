@@ -14,8 +14,10 @@ M = "products.conversations.backend.temporal.zendesk_import.client"
 
 
 class _FakeStreamResponse:
-    def __init__(self, *, headers: dict[str, str] | None = None, chunks: Iterable[bytes] = ()) -> None:
-        self.status_code = 200
+    def __init__(
+        self, *, status_code: int = 200, headers: dict[str, str] | None = None, chunks: Iterable[bytes] = ()
+    ) -> None:
+        self.status_code = status_code
         self.headers = headers or {}
         self._chunks = list(chunks)
         self.consumed_chunks = 0
@@ -91,6 +93,45 @@ class TestDownloadAttachmentSizeCap:
         client._session.get.return_value = resp
 
         assert client.download_attachment("https://acme.zendesk.com/a", max_bytes=10) == b"abcdef"
+
+
+class TestDownloadAttachmentRedirects:
+    def _client(self) -> ZendeskImportClient:
+        return ZendeskImportClient(
+            ZendeskCredentials(subdomain="acme", email_address="agent@acme.com", api_token="tok")
+        )
+
+    def test_follows_offhost_cdn_redirect_dropping_auth(self) -> None:
+        # content_url is on the Zendesk host and 302s to an external CDN. We must follow the hop,
+        # but the reusable Zendesk token must NOT be sent to the CDN.
+        client = self._client()
+        redirect = _FakeStreamResponse(status_code=302, headers={"Location": "https://cdn.zdusercontent.com/blob"})
+        final = _FakeStreamResponse(headers={"Content-Length": "3"}, chunks=[b"abc"])
+        client._session = MagicMock()
+        client._session.get.side_effect = [redirect, final]
+
+        with patch(f"{M}.is_url_allowed", return_value=(True, None)):
+            assert client.download_attachment("https://acme.zendesk.com/attachments/x", max_bytes=10) == b"abc"
+
+        first_headers = client._session.get.call_args_list[0].kwargs["headers"]
+        second_headers = client._session.get.call_args_list[1].kwargs["headers"]
+        assert "Authorization" in first_headers
+        assert "Authorization" not in second_headers
+
+    def test_refuses_redirect_to_internal_host(self) -> None:
+        # A 302 pointing at an internal/metadata host must be refused before the followed request
+        # goes out — the session no longer auto-follows, and the SSRF allowlist blocks the hop.
+        client = self._client()
+        redirect = _FakeStreamResponse(
+            status_code=302, headers={"Location": "https://169.254.169.254/latest/meta-data/"}
+        )
+        client._session = MagicMock()
+        client._session.get.side_effect = [redirect]
+
+        with patch(f"{M}.is_url_allowed", return_value=(False, "Disallowed target IP")):
+            with pytest.raises(ValueError):
+                client.download_attachment("https://acme.zendesk.com/attachments/x", max_bytes=10)
+        assert client._session.get.call_count == 1
 
 
 class TestExpectedHostGuard:

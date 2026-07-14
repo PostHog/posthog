@@ -7,10 +7,12 @@ import time
 import base64
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import structlog
 from requests import Response
+
+from posthog.security.url_validation import is_url_allowed
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -32,6 +34,11 @@ MAX_RATE_LIMIT_SLEEP_SECONDS = 30
 # Stream attachment bodies in bounded chunks so an oversized file is aborted mid-download
 # instead of being fully buffered in the worker's memory before the size check.
 ATTACHMENT_CHUNK_BYTES = 64 * 1024
+
+# Attachment content_url lives on the Zendesk host and 302-redirects to an external CDN, so we
+# must follow at least one hop. Bound it so a redirect loop can't spin forever.
+MAX_ATTACHMENT_REDIRECTS = 5
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # A Zendesk subdomain is a single DNS label: alphanumerics + hyphens, no leading/trailing
 # hyphen, <= 63 chars. Pinning to this stops a crafted subdomain (e.g. "attacker.example#")
@@ -85,9 +92,12 @@ class ZendeskImportClient:
         subdomain = normalize_subdomain(credentials.subdomain)
         if not _SUBDOMAIN_LABEL_RE.match(subdomain):
             raise ValueError(f"Invalid Zendesk subdomain: {credentials.subdomain!r}")
-        # Pin every request (including absolute next_page / attachment URLs echoed back by
-        # the API) to this host so a malicious/compromised API response can't redirect us at
-        # internal services.
+        # Pin the base host and validate every URL we're handed (absolute next_page / attachment
+        # content_url echoed back by the API) against it. Redirects are the escape hatch: the
+        # session never auto-follows (allow_redirects=False), so an HTTP 302 can't silently
+        # retarget a token-bearing request at an internal service. The one legitimate redirect
+        # (attachment content_url -> CDN) is followed manually with per-hop SSRF validation in
+        # download_attachment.
         self._host = f"{subdomain}.zendesk.com".lower()
         self._base_url = f"https://{self._host}"
         token = base64.b64encode(f"{credentials.email_address}/token:{credentials.api_token}".encode("ascii")).decode(
@@ -100,6 +110,7 @@ class ZendeskImportClient:
         self._session = make_tracked_session(
             redact_values=(token, credentials.api_token, credentials.email_address),
             capture=False,
+            allow_redirects=False,
         )
         self._headers = {"Authorization": f"Basic {token}"}
 
@@ -136,6 +147,25 @@ class ZendeskImportClient:
         if parts.scheme.lower() != "https" or host is None or host.lower() != self._host:
             raise ValueError(f"Refusing to fetch non-https or off-host URL (expected https://{self._host}): {url!r}")
 
+    def _validate_download_redirect(self, url: str) -> tuple[str, bool]:
+        """Validate an attachment redirect target and decide whether to keep the auth token.
+
+        Returns (url, send_auth). A hop that stays on the pinned Zendesk host keeps the Basic
+        auth token; an off-host hop (the CDN the content_url 302s to) must be https and pass the
+        SSRF allowlist (no internal/metadata hosts) AND has the token stripped, so the reusable
+        Zendesk credential is never sent to a host the API response chose.
+        """
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if parts.scheme.lower() != "https":
+            raise ValueError(f"Refusing to follow non-https attachment redirect: {url!r}")
+        if host == self._host:
+            return url, True
+        allowed, reason = is_url_allowed(url)
+        if not allowed:
+            raise ValueError(f"Refusing to follow attachment redirect to disallowed host ({reason}): {url!r}")
+        return url, False
+
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if path.startswith("http"):
             self._assert_expected_host(path)
@@ -149,6 +179,11 @@ class ZendeskImportClient:
                 self._handle_rate_limit(response, path, attempt)
                 attempt += 1
                 continue
+            # The API returns JSON directly; a redirect here is anomalous. The session doesn't
+            # auto-follow, so refuse it rather than letting a token-bearing request chase an
+            # unvalidated Location.
+            if response.status_code in _REDIRECT_STATUSES:
+                raise ValueError(f"Refusing to follow unexpected redirect from Zendesk API: {path!r}")
             response.raise_for_status()
             return response.json()
 
@@ -215,13 +250,31 @@ class ZendeskImportClient:
         return comments
 
     def download_attachment(self, content_url: str, *, max_bytes: int) -> bytes:
+        # The content_url the API hands us must start on the pinned Zendesk host.
         self._assert_expected_host(content_url)
+        url = content_url
+        send_auth = True
         attempt = 0
+        redirects = 0
         while True:
-            with self._session.get(content_url, headers=self._headers, timeout=120, stream=True) as response:
+            headers = self._headers if send_auth else {}
+            with self._session.get(url, headers=headers, timeout=120, stream=True) as response:
                 if response.status_code == 429:
-                    self._handle_rate_limit(response, content_url, attempt)
+                    self._handle_rate_limit(response, url, attempt)
                     attempt += 1
+                    continue
+                # Zendesk 302s the on-host content_url to an external CDN. Follow it by hand
+                # (the session never auto-follows) so each hop is host/scheme-validated and the
+                # Zendesk token is dropped before we touch any off-host URL.
+                if response.status_code in _REDIRECT_STATUSES:
+                    redirects += 1
+                    if redirects > MAX_ATTACHMENT_REDIRECTS:
+                        raise ValueError(f"Too many redirects while downloading attachment: {content_url!r}")
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise ValueError(f"Attachment redirect missing Location: {content_url!r}")
+                    url, send_auth = self._validate_download_redirect(urljoin(url, location))
+                    attempt = 0
                     continue
                 response.raise_for_status()
                 # Precheck the declared size so a server-advertised oversized body is rejected
@@ -266,6 +319,7 @@ def validate_zendesk_credentials(credentials: ZendeskCredentials) -> bool:
     session = make_tracked_session(
         redact_values=(token, credentials.api_token, credentials.email_address),
         capture=False,
+        allow_redirects=False,
     )
     # Runs synchronously inside the settings-page create() request handler. Without a timeout a
     # slow/unresponsive host would pin the Django worker indefinitely; without the try/except a
