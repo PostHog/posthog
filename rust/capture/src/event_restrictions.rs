@@ -37,6 +37,9 @@ mod tests {
             pipelines_for_capture_mode(CaptureMode::Recordings),
             vec![Pipeline::SessionRecordings]
         );
-        assert_eq!(pipelines_for_capture_mode(CaptureMode::Ai), vec![Pipeline::Ai]);
+        assert_eq!(
+            pipelines_for_capture_mode(CaptureMode::Ai),
+            vec![Pipeline::Ai]
+        );
     }
 }

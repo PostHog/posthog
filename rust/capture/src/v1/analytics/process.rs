@@ -57,8 +57,16 @@ pub async fn process_batch(
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
-    validate_batch(&batch)?;
+    // Stamp batch metadata onto the context before the request pipeline
+    // consumes the batch. Moved ahead of validation: it only records context
+    // fields (created_at, capture_internal, historical_migration) read by
+    // later steps and logging, and a rejected request never reads them.
     context.set_batch_metadata(&batch);
+
+    let request_pipeline = super::pipeline::CaptureRequestPipeline::<Batch>::builder()
+        .step(ValidateBatch)
+        .build();
+    let batch = super::pipeline::run_request(&request_pipeline, batch).await?;
 
     let mut events = validate_events(context, batch)?;
 
@@ -289,6 +297,31 @@ fn count_validation_abort(err: Error, batch_len: usize) -> Error {
     )
     .increment(batch_len as u64);
     err
+}
+
+/// Framework step wrapping [`validate_batch`]: request-level structural checks
+/// (empty batch, invalid `created_at`). Failure rejects the whole request —
+/// the gate outcome — surfacing the typed [`Error`] via `run_request`.
+pub struct ValidateBatch;
+
+impl Step<Batch, CaptureFx> for ValidateBatch {
+    type Out = Batch;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        batch: Batch,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<Batch, CaptureOutputs>, StepError> {
+        match validate_batch(&batch) {
+            Ok(()) => Ok(StepResult::Continue(batch)),
+            Err(err) => Err(StepError::reject(err)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "validate_batch"
+    }
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {

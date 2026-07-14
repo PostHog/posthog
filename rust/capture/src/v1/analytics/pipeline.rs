@@ -39,9 +39,10 @@
 //! so it is empty. It exists to satisfy the framework's `Fx` type parameter and
 //! to be the natural home for future capture-scoped effects.
 
-use common_pipelines::{NoOutputs, Pipeline};
+use common_pipelines::{NoOutputs, Pipeline, StepError};
 
-use super::types::WrappedEvent;
+use super::types::{Batch, WrappedEvent};
+use crate::v1::Error;
 
 /// The capture profile's composed effects struct. Empty: capture registers no
 /// sink plugins. Threaded through every step as `&mut CaptureFx`.
@@ -58,6 +59,51 @@ pub type CaptureOutputs = NoOutputs;
 /// A built capture policy pipeline: consumes and yields [`WrappedEvent`]s,
 /// threading [`CaptureFx`], never redirecting.
 pub type CapturePipeline = Pipeline<WrappedEvent, WrappedEvent, CaptureFx, CaptureOutputs>;
+
+/// A built capture *request* pipeline: consumes the decoded request [`Batch`]
+/// as a single item and yields `Out` (the request phase ends by expanding the
+/// batch into per-event state). Request steps either `Continue` or reject the
+/// whole request via [`StepError::Reject`] — they never drop the request item.
+pub type CaptureRequestPipeline<Out> = Pipeline<Batch, Out, CaptureFx, CaptureOutputs>;
+
+/// Run a capture request pipeline over the decoded request.
+///
+/// The chunk holds exactly one item (the request). A step rejecting via
+/// [`StepError::reject`] surfaces here as the typed capture [`Error`], which
+/// `process_batch` returns as the request's HTTP error — exactly the semantics
+/// the extracted validation/quota functions had via `?`.
+pub async fn run_request<Out: Send + 'static>(
+    pipeline: &CaptureRequestPipeline<Out>,
+    batch: Batch,
+) -> Result<Out, Error> {
+    let mut fx = CaptureFx;
+    let outcome = pipeline
+        .run_chunk(vec![batch], &mut fx)
+        .await
+        .map_err(reject_to_error)?;
+
+    let mut survivors = outcome.into_survivors();
+    debug_assert_eq!(
+        survivors.len(),
+        1,
+        "request steps continue or reject; they never drop the request item"
+    );
+    survivors
+        .pop()
+        .ok_or_else(|| Error::InternalError("request pipeline yielded no output".into()))
+}
+
+/// Map the framework's error channel back to capture's typed [`Error`].
+///
+/// `Reject` carries the capture error a gate step raised; anything else is a
+/// programming bug (capture steps are otherwise infallible), mapped to a 500
+/// rather than a panic on the request path.
+fn reject_to_error(err: StepError) -> Error {
+    match err.try_into_reject::<Error>() {
+        Ok(capture_err) => capture_err,
+        Err(other) => Error::InternalError(other.to_string()),
+    }
+}
 
 /// Run a capture pipeline over `events` in place, preserving order and length.
 ///
