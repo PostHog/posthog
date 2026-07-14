@@ -89,6 +89,7 @@ _REVIEWS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/r
 _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/comments$")
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
+_CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -145,6 +146,8 @@ class GitHubRecorder:
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
+        if method == "GET" and _CHECK_RUNS_RE.match(path):
+            return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":

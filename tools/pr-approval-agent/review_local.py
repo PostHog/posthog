@@ -106,14 +106,16 @@ def _build_pr_data(context: dict) -> PRData:
     File stats are recomputed locally with the exact function the Action uses
     (`git diff --numstat` over base...head) so PRData.files is identical to a
     real run; the context's file list is only a fallback if the local diff is
-    empty (e.g. a sha failed to fetch). Reviews and top-level discussion comments
-    are carried in the context and normalized with the same helpers the Action
-    uses, so the prerequisite gate still blocks on an active CHANGES_REQUESTED and
-    the agent sees maintainer discussion. Inline review-thread comments (a
-    GraphQL-only surface with thread-resolution state), reactions, and check-runs
-    are not carried, so they default empty — the reviewer prompt renders those
-    sections as "none", which is strictly a subset of what the Action shows,
-    never a fabrication.
+    empty (e.g. a sha failed to fetch). Reviews, top-level discussion comments,
+    and head-commit check runs are carried in the context (reviews/discussion
+    normalized with the same helpers the Action uses, check runs passed through
+    raw as the Action does) — so the prerequisite gate blocks on an active
+    CHANGES_REQUESTED, the agent sees maintainer discussion, and the migration
+    gate can see a passing "Migration risk" check. Inline review-thread comments
+    (a GraphQL-only surface with thread-resolution state) and reactions are not
+    carried, so they default empty — the reviewer prompt renders those sections
+    as "none", which is strictly a subset of what the Action shows, never a
+    fabrication.
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
@@ -138,7 +140,7 @@ def _build_pr_data(context: dict) -> PRData:
         files=files,
         reviews=_normalize_reviews_for_prompt(context.get("reviews") or [], head_sha),
         review_comments=[],
-        check_runs=[],
+        check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
         pr_reactions=[],
         body=pr.get("body") or "",

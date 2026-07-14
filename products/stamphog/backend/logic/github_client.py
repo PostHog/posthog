@@ -419,6 +419,36 @@ class StamphogGitHubClient:
                 break
         return comments
 
+    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+        """Fetch the check runs for a commit, paginating through GitHub's endpoint.
+
+        Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
+        migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
+        deny-list. Without them the hosted path can't see that success and over-refuses safe migration PRs.
+        Bounded by ``_MAX_PAGES``.
+        """
+        check_runs: list[dict] = []
+        for page in range(1, _MAX_PAGES + 1):
+            response = self._request(
+                "GET",
+                f"/repos/{repo}/commits/{head_sha}/check-runs",
+                endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch check runs {repo}@{head_sha}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            data = self._json(response, f"/repos/{repo}/commits/{head_sha}/check-runs")
+            page_runs = data.get("check_runs") if isinstance(data, dict) else None
+            if not isinstance(page_runs, list):
+                raise StamphogGitHubError(f"Unexpected check runs payload for {repo}@{head_sha}")
+            check_runs.extend(run for run in page_runs if isinstance(run, dict))
+            if len(page_runs) < _PER_PAGE:
+                break
+        return check_runs
+
     def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
         """Return the author's merged-PR numbers in this repo (best-effort).
 

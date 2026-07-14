@@ -361,6 +361,14 @@ class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer: BaseSerializer[DigestChannel]) -> None:
         serializer.save(team_id=self.team_id)
 
+    def perform_destroy(self, instance: DigestChannel) -> None:
+        # Soft-disable rather than removing the row. The (team_id, audience_key) row is the tombstone
+        # that stops auto_provision_channel from recreating and re-posting a digest someone opted out of
+        # (see logic/channel_resolution.py — auto-provisioning skips any existing row, disabled included).
+        # A hard delete would let the next daily beat resurrect the channel and re-send the digest.
+        instance.enabled = False
+        instance.save(update_fields=["enabled", "updated_at"])
+
 
 class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only history of posted (or attempted) digests, filterable by digest channel."""

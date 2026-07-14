@@ -128,6 +128,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     reviews = client.get_pr_reviews(repo, pull_request.pr_number)
     # Top-level discussion comments are blocker context (a maintainer's "please hold").
     discussion = client.get_pr_discussion(repo, pull_request.pr_number)
+    # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
+    check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
@@ -144,6 +146,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "files": files,
         "reviews": reviews,
         "discussion": discussion,
+        "check_runs": check_runs,
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
     }
@@ -174,6 +177,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     files = output.get("files", [])
     reviews = output.get("reviews", [])
     discussion = output.get("discussion", [])
+    check_runs = output.get("check_runs", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
@@ -202,6 +206,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         files=files,
         reviews=reviews,
         discussion=discussion,
+        check_runs=check_runs,
         author_pr_numbers=author_pr_numbers,
         base_sha=base_sha,
         head_sha=run.head_sha,

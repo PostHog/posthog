@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
@@ -304,3 +304,24 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # code is the ownership proof — the endpoint must require it.
         response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
+class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def test_delete_soft_disables_as_tombstone(self) -> None:
+        # Deleting a channel keeps the row as a disabled tombstone so the daily beat's auto-provisioning
+        # can't recreate and re-post it. A hard delete would resurrect a channel someone opted out of.
+        channel = DigestChannel.objects.unscoped().create(
+            team_id=self.team.id,
+            audience_key="team-x",
+            slack_integration_id=1,
+            slack_channel_id="C1",
+            enabled=True,
+        )
+        url = f"/api/projects/{self.team.id}/stamphog/digest_channels/{channel.id}/"
+        response = self.client.delete(url)
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        channel.refresh_from_db()
+        assert channel.enabled is False
+        assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()

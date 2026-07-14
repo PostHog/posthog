@@ -90,6 +90,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             files=[],
             reviews=reviews,
             discussion=[],
+            check_runs=[],
             author_pr_numbers=[],
             base_sha="base",
             head_sha="head",

@@ -7572,7 +7572,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-digest-channels-delete": {
-        "description": "Delete a digest channel by id, removing the Slack routing entirely. Prefer `stamphog-digest-channels-update` with `enabled: false` if you only want to pause the digest.",
+        "description": "Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with `enabled: false`.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "Delete stamphog digest channel",
