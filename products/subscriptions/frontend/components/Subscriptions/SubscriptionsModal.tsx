@@ -24,7 +24,7 @@ export interface SubscriptionsModalProps {
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
     /** Field defaults applied when `subscriptionId` is `'new'` (e.g. from the dashboard subscribe nudge). */
-    newSubscriptionDefaults?: Partial<SubscriptionType> | null
+    initialValues?: Partial<SubscriptionType> | null
     'data-attr'?: string
 }
 
@@ -34,7 +34,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         dashboard,
         insightShortId,
         subscriptionId,
-        newSubscriptionDefaults,
+        initialValues,
         isOpen,
         inline,
         'data-attr': dataAttr,
@@ -93,7 +93,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                     id={subscriptionId}
                     insightShortId={insightShortId}
                     dashboard={dashboard}
-                    initialValues={subscriptionId === 'new' ? newSubscriptionDefaults : undefined}
+                    initialValues={subscriptionId === 'new' ? initialValues : undefined}
                     onCancel={() => push(urlForSubscriptions(baseProps))}
                     onDelete={() => push(urlForSubscriptions(baseProps))}
                 />

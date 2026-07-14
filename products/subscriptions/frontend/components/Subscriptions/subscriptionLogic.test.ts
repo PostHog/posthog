@@ -155,6 +155,81 @@ describe('subscriptionLogic', () => {
         prefilledLogic.unmount()
     })
 
+    it.each<[string, boolean, boolean]>([
+        // The prefill marks the form "changed" so Create is enabled, but the user never touched it —
+        // navigating away must not pop the discard-changes prompt.
+        ['an untouched prefilled form', false, false],
+        // Any real edit on top of the prefill re-arms the prompt.
+        ['a prefilled form the user then edited', true, true],
+    ])('navigating away from %s prompts=%s', async (_label, editAfterPrefill, expectPrompt) => {
+        const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const prefilledLogic = subscriptionLogic({
+            insightShortId: Insight1,
+            id: 'new',
+            initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' },
+        })
+        prefilledLogic.mount()
+
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(prefilledLogic).toFinishListeners()
+        if (editAfterPrefill) {
+            prefilledLogic.actions.setSubscriptionValue('title', 'My own title')
+        }
+
+        router.actions.push('/insights/123')
+
+        expect(confirmSpy).toHaveBeenCalledTimes(expectPrompt ? 1 : 0)
+        expect(router.values.location.pathname).toMatch(/\/insights\/123$/)
+
+        prefilledLogic.unmount()
+        confirmSpy.mockRestore()
+    })
+
+    it.each<[string, boolean, boolean]>([
+        // The dashboard-with-tiles nudge flow: InsightSelector auto-selects right after the prefill.
+        // A reset here would wipe the prefill's "changed" flag and disable Create.
+        ['a prefilled form', true, true],
+        // Plain new subscription keeps existing behavior: auto-select resets to a clean form.
+        ['a plain new form', false, false],
+    ])('insight auto-select on %s leaves the form changed=%s', async (_label, prefilled, expectChanged) => {
+        const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const testLogic = subscriptionLogic({
+            dashboardId: 9,
+            id: 'new',
+            ...(prefilled ? { initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' } } : {}),
+        })
+        testLogic.mount()
+
+        router.actions.push('/dashboard/9/subscriptions/new')
+        await expectLogic(testLogic).toFinishListeners()
+
+        testLogic.actions.applyInsightSelectionDefaults([101, 102])
+        await expectLogic(testLogic).toFinishListeners()
+
+        expect(testLogic.values.subscription.dashboard_export_insights).toEqual([101, 102])
+        expect(testLogic.values.subscriptionChanged).toBe(expectChanged)
+
+        // Either way the user never touched the form — navigating away must not prompt to discard.
+        router.actions.push('/dashboard/9')
+        expect(confirmSpy).not.toHaveBeenCalled()
+
+        testLogic.unmount()
+        confirmSpy.mockRestore()
+    })
+
+    it('still prompts when leaving a genuinely edited non-prefilled form', async () => {
+        const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValue('title', 'My own title')
+
+        router.actions.push('/insights/123')
+
+        expect(confirmSpy).toHaveBeenCalledWith('Changes you made will be discarded.')
+        confirmSpy.mockRestore()
+    })
+
     it('does not toast when kea-forms reports client validation failure', async () => {
         await expectLogic(newLogic, () => {
             newLogic.actions.submitSubscriptionFailure(new Error('Validation Failed'), {})

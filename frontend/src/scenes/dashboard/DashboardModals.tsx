@@ -17,6 +17,7 @@ import { SubscriptionsModal } from 'products/subscriptions/frontend/components/S
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
+import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
@@ -27,7 +28,6 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         canEditDashboard,
         showSubscriptions,
         subscriptionId,
-        subscriptionPrefill,
         showTextTileModal,
         textTileId,
         showButtonTileModal,
@@ -37,6 +37,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         dashboardWidgetsEnabled,
         addWidgetTileLoading,
     } = useValues(dashboardLogic)
+    const { subscriptionPrefill } = useValues(dashboardSubscribeNudgeLogic({ dashboardId: dashboard.id }))
     const { setTerraformModalOpen, setAddWidgetModalOpen, addWidgetTiles } = useActions(dashboardLogic)
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
@@ -49,7 +50,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboard={dashboard}
                 subscriptionId={subscriptionId}
-                newSubscriptionDefaults={subscriptionPrefill}
+                initialValues={subscriptionPrefill}
             />
             <SharingModal
                 title="Dashboard permissions & sharing"

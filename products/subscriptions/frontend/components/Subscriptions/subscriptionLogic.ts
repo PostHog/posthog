@@ -8,6 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 
@@ -140,6 +141,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        applyInsightSelectionDefaults: (selectedIds: number[]) => ({ selectedIds }),
         selectAiExamplePrompt: (prompt: string, label: string, window?: AIWindowConfigApi) => ({
             prompt,
             label,
@@ -196,7 +198,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         },
                     }
                 }
-                return { ...NEW_SUBSCRIPTION, ...props.initialValues }
+                return { ...NEW_SUBSCRIPTION }
             },
         },
         summaryQuota: {
@@ -273,11 +275,25 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions, values, props, selectors }) => ({
+    listeners(({ actions, values, props, selectors, cache }) => ({
         submitSubscriptionSuccess: ({ subscription }) => {
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
+        },
+        applyInsightSelectionDefaults: ({ selectedIds }) => {
+            if (cache.prefillBaseline) {
+                // Prefilled form: the auto-selection joins the programmatic baseline. A reset here
+                // would wipe the "changed" flag the prefill deliberately set (disabling Create), so
+                // set the value instead and fold the ids into the baseline, keeping the untouched-form
+                // navigation suppression matching.
+                actions.setSubscriptionValue('dashboard_export_insights', selectedIds)
+                cache.prefillBaseline = { ...cache.prefillBaseline, dashboard_export_insights: selectedIds }
+                return
+            }
+            // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
+            // unsaved-changes warning; merge the IDs into the subscription to preserve them.
+            actions.resetSubscription({ ...values.subscription, dashboard_export_insights: selectedIds })
         },
         selectAiExamplePrompt: ({ prompt, label, window }) => {
             posthog.capture('subscription_ai_example_prompt_selected', { label })
@@ -421,15 +437,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.subscriptionChanged,
+    beforeUnload(({ actions, values, cache }) => ({
+        // A form whose only "changes" are the programmatic prefill was never touched by the user —
+        // navigating away from it must not prompt to discard. Any real edit diverges from the
+        // captured baseline and re-arms the prompt.
+        enabled: () =>
+            values.subscriptionChanged &&
+            !(cache.prefillBaseline && objectsEqual(values.subscription, cache.prefillBaseline)),
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
             actions.resetSubscription()
         },
     })),
 
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, cache }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
             if (props.initialValues) {
@@ -437,6 +458,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // dirty immediately — the prefilled fields are a deliberate change, not the pristine
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
                 actions.setSubscriptionValues(props.initialValues)
+                cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...props.initialValues }
             }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)

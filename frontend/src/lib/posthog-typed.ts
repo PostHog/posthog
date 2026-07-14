@@ -661,6 +661,12 @@ interface EventSchemas {
     'dashboard refreshed': Record<string, any>
     'dashboard renamed': Record<string, any>
     'dashboard share toggled': Record<string, any>
+    'dashboard subscribe nudge check failed': {
+        dashboard_id?: number
+        error_name?: string
+        error_status?: number
+        error_message?: string
+    }
     'dashboard subscribe nudge clicked': {
         dashboard_id?: number
         view_count_7d?: number

@@ -310,12 +310,10 @@ function AiPromptFields({
 
 function DashboardInsightsField({
     dashboard,
-    subscription,
-    onResetSubscription,
+    onDefaultsApplied,
 }: {
     dashboard: DashboardType<any>
-    subscription: SubscriptionType
-    onResetSubscription: (subscription: SubscriptionType) => void
+    onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
         <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -324,11 +322,9 @@ function DashboardInsightsField({
                     tiles={dashboard.tiles}
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
-                    // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
-                    // unsaved-changes warning; merge the IDs into the subscription to preserve them.
-                    onDefaultsApplied={(selectedIds) =>
-                        onResetSubscription({ ...subscription, dashboard_export_insights: selectedIds })
-                    }
+                    // The logic decides whether the auto-selection resets the form to a clean state
+                    // or joins a prefill's baseline — see applyInsightSelectionDefaults.
+                    onDefaultsApplied={onDefaultsApplied}
                 />
             )}
         </LemonField>
@@ -360,7 +356,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { applyInsightSelectionDefaults, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -519,8 +515,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                subscription={subscription}
-                                onResetSubscription={resetSubscription}
+                                onDefaultsApplied={applyInsightSelectionDefaults}
                             />
                         )}
 
