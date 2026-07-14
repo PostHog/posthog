@@ -21,24 +21,6 @@ import {
 
 import { FullRefreshAppendConfig } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
 
-// Build the create-source schema payload keys for the full-refresh-append sub-mode. Only emitted for
-// full_refresh schemas; retention settings are included only when the sub-mode is actually enabled.
-function fullRefreshAppendSchemaPayload(
-    schema: ExternalDataSourceSyncSchema
-): Partial<ExternalDataSourceSyncSchema> {
-    if (schema.sync_type !== 'full_refresh') {
-        return {}
-    }
-    if (!schema.full_refresh_append) {
-        return { full_refresh_append: false }
-    }
-    return {
-        full_refresh_append: true,
-        snapshot_retention_mode: schema.snapshot_retention_mode ?? 'count',
-        snapshot_retention_value: schema.snapshot_retention_value ?? null,
-    }
-}
-
 import {
     ExternalDataSourceType,
     ProductIntentContext,
@@ -71,6 +53,22 @@ import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
+
+// Build the create-source schema payload keys for the full-refresh-append sub-mode. Only emitted for
+// full_refresh schemas; retention settings are included only when the sub-mode is actually enabled.
+function fullRefreshAppendSchemaPayload(schema: ExternalDataSourceSyncSchema): Partial<ExternalDataSourceSyncSchema> {
+    if (schema.sync_type !== 'full_refresh') {
+        return {}
+    }
+    if (!schema.full_refresh_append) {
+        return { full_refresh_append: false }
+    }
+    return {
+        full_refresh_append: true,
+        snapshot_retention_mode: schema.snapshot_retention_mode ?? 'count',
+        snapshot_retention_value: schema.snapshot_retention_value ?? null,
+    }
+}
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     name: 'ssh_tunnel',

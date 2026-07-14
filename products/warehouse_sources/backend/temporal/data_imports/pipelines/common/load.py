@@ -272,6 +272,7 @@ async def run_post_load_operations(
     """
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
         finalize_desc_sort_incremental_value,
+        prune_snapshots_if_needed,
     )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
@@ -337,13 +338,11 @@ async def run_post_load_operations(
             logger.exception(f"Compaction failed: {e}", exc_info=e)
 
     # Prune expired snapshots before the queryable folder / row count are rebuilt below, so neither
-    # reflects rows about to be deleted. Never applies to the CDC companion write. Must not fail the sync.
-    if not is_cdc_companion and schema.is_full_refresh_append:
-        try:
-            await delta_table_helper.prune_snapshots(schema.snapshot_retention_mode, schema.snapshot_retention_value)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Snapshot pruning failed: {e}", exc_info=e)
+    # reflects rows about to be deleted. `file_uris` was captured before this call, so refresh it when
+    # a prune happened — otherwise the pruned parquet files (tombstoned but not yet vacuumed away)
+    # would be copied back into the queryable folder and the deleted snapshots would stay queryable.
+    if not is_cdc_companion and await prune_snapshots_if_needed(delta_table_helper, schema, logger):
+        file_uris = await delta_table_helper.get_file_uris()
 
     if is_cdc_companion:
         # Look up the existing companion table's queryable_folder (not the main schema.table).

@@ -625,7 +625,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                 />
                                 <p className="mt-2 mb-0 text-secondary text-sm">
                                     Instead of overwriting, append a full snapshot of the source on each sync and retain
-                                    past ones — useful for point-in-time history of tables without an incremental field.
+                                    past ones. Useful for point-in-time history of tables without an incremental field.
                                     Each row carries a <code>_ph_snapshot_at</code> timestamp you can filter on.
                                 </p>
                                 {fullRefreshAppend && (
@@ -654,8 +654,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             />
                                         </div>
                                         <LemonBanner type="info" className="mt-2">
-                                            Retaining snapshots multiplies stored rows and query cost — each sync keeps a
-                                            full copy of the source. Keep the retention window as small as you need.
+                                            Retaining snapshots multiplies stored rows and query cost. Each sync keeps a
+                                            full copy of the source, so keep the retention window as small as you need.
                                         </LemonBanner>
                                     </div>
                                 )}

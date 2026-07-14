@@ -144,7 +144,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def is_full_refresh_append(self) -> bool:
         # A sub-mode of full refresh: instead of overwriting, each sync appends a full snapshot of the
         # source and old snapshots are pruned on a retention policy. Kept as a flag on the full_refresh
-        # sync type (not a distinct SyncType) so it inherits full-refresh extraction — a full source pull
+        # sync type (not a distinct SyncType) so it inherits full-refresh extraction: a full source pull
         # every run, no incremental watermark.
         return self.sync_type == self.SyncType.FULL_REFRESH and bool(
             (self.sync_type_config or {}).get("full_refresh_append")
@@ -158,11 +158,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def snapshot_retention_value(self) -> int:
+        # Default matches the frontend's default (keep the newest 3 snapshots). A missing/invalid value
+        # must not fall back to 1, which would prune down to a single snapshot and defeat the sub-mode.
         if self.sync_type_config:
             value = self.sync_type_config.get("snapshot_retention_value")
-            if isinstance(value, int) and value > 0:
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
                 return value
-        return 1
+        return 3
 
     @property
     def xmin_last_value(self) -> int | None:

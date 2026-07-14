@@ -505,6 +505,31 @@ async def handle_corrupted_delta_log(
     return True
 
 
+async def prune_snapshots_if_needed(
+    delta_table_helper: DeltaTableHelper,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Prune expired snapshots for a full-refresh-append schema. Returns True if any were deleted.
+
+    Best-effort: a prune failure must never fail the sync. Callers run this after the new snapshot is
+    written and before the queryable folder / row count are rebuilt, so neither reflects rows about to
+    be deleted; when it returns True the caller must refresh its Delta file list so the pruned files
+    are excluded from the queryable folder.
+    """
+    if not schema.is_full_refresh_append:
+        return False
+    try:
+        pruned = await delta_table_helper.prune_snapshots(
+            schema.snapshot_retention_mode, schema.snapshot_retention_value
+        )
+        return pruned > 0
+    except Exception as e:
+        capture_exception(e)
+        await logger.aexception(f"Snapshot pruning failed: {e}", exc_info=e)
+        return False
+
+
 def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = None) -> None:
     if py_table is not None:
         del py_table

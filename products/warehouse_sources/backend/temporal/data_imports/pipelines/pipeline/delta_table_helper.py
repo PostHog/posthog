@@ -573,9 +573,14 @@ class DeltaTableHelper:
         elif write_type == "full_refresh_append":
             # Full refresh append: keep prior snapshots, append this run's snapshot as new rows. Never
             # overwrites the whole table (that would drop earlier snapshots). On the run's first write,
-            # clear any rows already stamped with this run's snapshot timestamp — a retry after a
+            # clear any rows already stamped with this run's snapshot timestamp, so a retry after a
             # partial failure re-appends the same snapshot, so this keeps the run idempotent instead of
             # duplicating rows. Retention pruning of expired snapshots runs post-load, not here.
+            if snapshot_at is None:
+                # snapshot_at identifies this run's snapshot; without it the delete-before-append below
+                # can't clear a prior failed attempt's rows, so a retry would duplicate the snapshot.
+                raise Exception("snapshot_at is required for full_refresh_append writes")
+
             if delta_table is None:
                 storage_options = self._get_credentials()
                 delta_uri = await self._get_delta_table_uri()
@@ -585,7 +590,7 @@ class DeltaTableHelper:
                     schema=data.schema,
                     storage_options=storage_options,
                 )
-            elif should_overwrite_table and snapshot_at is not None:
+            elif should_overwrite_table:
                 predicate = f"{SNAPSHOT_COLUMN} = '{_snapshot_predicate_literal(snapshot_at)}'"
                 await self._logger.adebug(f"write_to_deltalake: clearing current snapshot with predicate {predicate}")
                 await asyncio.to_thread(delta_table.delete, predicate)
@@ -814,7 +819,7 @@ class DeltaTableHelper:
         if retention_mode == "days":
             cutoff = datetime.now(UTC) - timedelta(days=retention_value)
             kept = [snapshot for snapshot in distinct if snapshot >= cutoff]
-            # Never drop everything — keep the newest snapshot even when it's older than the cutoff.
+            # Never drop everything: keep the newest snapshot even when it's older than the cutoff.
             oldest_kept = min(kept) if kept else distinct[-1]
         else:
             if len(distinct) <= retention_value:

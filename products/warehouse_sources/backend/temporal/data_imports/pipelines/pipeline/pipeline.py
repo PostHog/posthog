@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
+    prune_snapshots_if_needed,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
@@ -501,15 +502,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
 
         # Prune expired snapshots before the queryable folder and row count are (re)built below, so
-        # neither surfaces rows that are about to be deleted. A prune failure must not fail the sync.
-        if self._schema.is_full_refresh_append:
-            try:
-                await self._delta_table_helper.prune_snapshots(
-                    self._schema.snapshot_retention_mode, self._schema.snapshot_retention_value
-                )
-            except Exception as e:
-                capture_exception(e)
-                await self._logger.aexception(f"Snapshot pruning failed: {e}", exc_info=e)
+        # neither surfaces rows that are about to be deleted. file_uris is fetched afterwards, so it
+        # already excludes the pruned files.
+        await prune_snapshots_if_needed(self._delta_table_helper, self._schema, self._logger)
 
         file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")

@@ -845,7 +845,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 payload["snapshot_retention_value"] = data.get("snapshot_retention_value")
             # Turning the sub-mode on or off changes the physical table (append vs overwrite, and the
             # `_ph_snapshot_at` column), so rebuild it from scratch on the next sync. Changing only the
-            # retention window needs no resync — the next sync's prune applies it.
+            # retention window needs no resync; the next sync's prune applies it.
             if bool(payload.get("full_refresh_append")) != was_append and instance.table is not None:
                 trigger_refresh = True
             validated_data["sync_type_config"] = payload

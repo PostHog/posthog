@@ -2351,7 +2351,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
                     if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
                         lookback_seconds = int(lookback_seconds)
-                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    # bool is an int subclass, so exclude it so true/false aren't treated as 1/0.
                     is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
                     if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
                         new_source_model.delete()
@@ -2391,7 +2391,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         },
                     )
                 retention_value = schema.get("snapshot_retention_value")
-                # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                # Coerce whole-number floats (e.g. 7.0) the way DRF's IntegerField does on the update path.
+                if isinstance(retention_value, float) and retention_value.is_integer():
+                    retention_value = int(retention_value)
+                # bool is an int subclass, so exclude it so true/false aren't treated as 1/0.
                 retention_value_valid = retention_value is None or (
                     isinstance(retention_value, int) and not isinstance(retention_value, bool)
                 )
