@@ -10,14 +10,6 @@ from django.utils.crypto import get_random_string
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from google.genai.types import GenerateContentConfig, Schema
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
-from posthoganalytics.ai.gemini import genai
-from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -255,6 +247,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
         )
 
         if model in GEMINI_SUPPORTED_MODELS:
+            # noqa comments: keep the google.genai import (~1s of pydantic model
+            # construction) off the router import path — it loads with the wizard
+            # module in every Django process and pytest session otherwise.
+            from google.genai.types import GenerateContentConfig, Schema  # noqa: PLC0415
+            from posthoganalytics.ai.gemini import genai  # noqa: PLC0415
+
             api_key = settings.GEMINI_API_KEY
             if not api_key:
                 error = exceptions.ValidationError(ERROR_GEMINI_API_KEY_NOT_CONFIGURED)
@@ -309,6 +307,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
             response_data = response.parsed
 
         elif model in OPENAI_SUPPORTED_MODELS:
+            # noqa comments: keep the openai SDK import off the router import path
+            # (loads with the wizard module in every Django process otherwise).
+            from openai.types.chat import (  # noqa: PLC0415
+                ChatCompletionMessageParam,
+                ChatCompletionSystemMessageParam,
+                ChatCompletionUserMessageParam,
+            )
+            from posthoganalytics.ai.openai import OpenAI  # noqa: PLC0415
+
             system_message = ChatCompletionSystemMessageParam(
                 role="system",
                 content=system_prompt,

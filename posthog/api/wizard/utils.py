@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from google.genai.types import Type
+if TYPE_CHECKING:
+    from google.genai.types import Type
 
 
 def get_type_enum(json_type: str) -> Type:
     """Convert JSON Schema type to Gemini Type enum"""
+    from google.genai.types import (
+        Type,  # noqa: PLC0415 — keeps the heavy google.genai import off the router import path
+    )
+
     type_mapping = {
         "string": Type.STRING,
         "number": Type.NUMBER,

@@ -42,7 +42,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.data["host"] == "http://localhost:8010"
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_requires_hash_header(self, mock_openai):
         response = self.client.post(
             self.query_url,
@@ -55,7 +55,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     @patch("django.conf.settings.DEBUG", False)
     def test_query_endpoint_rate_limit(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
@@ -86,7 +86,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_invalid_hash(self, mock_openai):
         response = self.client.post(
             self.query_url,
@@ -99,7 +99,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         mock_openai_instance.chat.completions.create.return_value = MagicMock(
@@ -118,7 +118,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.json() == {"data": {"foo": "bar"}}
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_uses_default_model(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         mock_openai_instance.chat.completions.create.return_value = MagicMock(
@@ -143,7 +143,7 @@ class SetupWizardTests(APIBaseTest):
         mock_openai_instance.chat.completions.create.assert_called_once()
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_accepts_valid_openai_model(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         mock_openai_instance.chat.completions.create.return_value = MagicMock(
@@ -168,7 +168,7 @@ class SetupWizardTests(APIBaseTest):
         mock_openai_instance.chat.completions.create.assert_called_once()
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("django.conf.settings.GEMINI_API_KEY", "test-key")
     def test_query_endpoint_accepts_valid_gemini_model(self, mock_genai_client):
         mock_client_instance = mock_genai_client.return_value
@@ -213,7 +213,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("django.conf.settings.DEBUG", True)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_mock_wizard_data_in_debug_with_fixture_header(self, mock_openai):
         """Test that mock wizard data is used when DEBUG=True and X-PostHog-Wizard-Fixture-Generation header is present"""
         mock_openai_instance = mock_openai.return_value
@@ -248,7 +248,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("django.conf.settings.DEBUG", True)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_mock_wizard_data_overrides_existing_cache(self, mock_openai):
         """Test that mock wizard data overrides existing cache data when conditions are met"""
         mock_openai_instance = mock_openai.return_value
@@ -284,7 +284,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("django.conf.settings.DEBUG", False)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_no_mock_when_debug_false(self, mock_openai):
         """Test that mock wizard data is NOT used when DEBUG=False even with fixture header"""
         # Clear any existing cache data
@@ -307,7 +307,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("django.conf.settings.DEBUG", True)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
-    @patch("posthog.api.wizard.http.OpenAI")
+    @patch("posthoganalytics.ai.openai.OpenAI")
     def test_query_endpoint_no_mock_without_fixture_header(self, mock_openai):
         """Test that mock wizard data is NOT used when DEBUG=True but fixture header is missing"""
         # Clear any existing cache data
