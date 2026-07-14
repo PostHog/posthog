@@ -177,40 +177,40 @@ class TestRelaySlackMessage(TestCase):
         assert "user_activity_report.pdf" in posted
         assert "no file was attached to Slack for this run" in posted
 
-    @patch("posthog.storage.object_storage.get_presigned_url", return_value="https://example.com/report.pdf")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_confirmed_artifact_claim_does_not_get_notice(
+    def test_internal_run_artifacts_are_not_exposed(
         self,
         _mock_delete_progress,
         mock_post,
         _mock_update,
-        mock_presign,
     ):
         self.task_run.artifacts = [
             {
                 "id": "artifact-1",
-                "name": "user_activity_report.pdf",
+                "name": "dc2857b2-e94d-4bbe-a09e-12b16f047ef1.index",
                 "type": "artifact",
-                "storage_path": "tasks/artifacts/report.pdf",
+                "content_type": "application/octet-stream",
+                "storage_path": "tasks/artifacts/handoff.index",
             }
         ]
         self.task_run.save(update_fields=["artifacts", "updated_at"])
 
+        text = "No fixes needed. The linter findings are in the file's existing content, so nothing was changed."
         relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
-                relay_id="relay-confirmed-attachment",
-                text="Done. user_activity_report.pdf is attached.",
+                relay_id="relay-internal-artifact",
+                text=text,
             )
         )
 
         mock_post.assert_called_once()
         posted = mock_post.call_args.args[0]
-        assert "no file was attached to Slack for this run" not in posted
-        assert "<https://example.com/report.pdf|user_activity_report.pdf>" in posted
-        mock_presign.assert_called_once_with("tasks/artifacts/report.pdf")
+        assert posted == f"<@U123> {text}"
+        assert "Artifacts available in Slack" not in posted
+        assert ".index" not in posted
 
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
@@ -502,19 +502,19 @@ class TestNeutralizeApproxTildes(unittest.TestCase):
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
     def test_appends_notice_for_local_file_delivery_claim_without_artifacts(self):
         text = "Generated /tmp/workspace/report.pdf and it is attached."
-        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+        result = _append_unconfirmed_attachment_notice(text, origin_product="slack")
 
         assert result.endswith("no file was attached to Slack for this run._")
 
     def test_skips_notice_for_negated_claim(self):
         text = "Generated /tmp/workspace/report.pdf, but it is not attached yet."
-        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+        result = _append_unconfirmed_attachment_notice(text, origin_product="slack")
 
         assert result == text
 
     def test_skips_notice_for_non_slack_run(self):
         text = "Generated /tmp/workspace/report.pdf and it is attached."
-        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="user_created")
+        result = _append_unconfirmed_attachment_notice(text, origin_product="user_created")
 
         assert result == text
 
