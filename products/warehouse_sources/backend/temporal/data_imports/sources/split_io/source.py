@@ -68,7 +68,6 @@ You can create an Admin API key in Split under **Admin settings â†’ API keys** â
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -109,6 +109,7 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
+            "claude-fable-5",
             "claude-opus-4-5",
             "claude-opus-4-6",
             "claude-opus-4-7",
@@ -151,6 +152,7 @@ class TestCheckProductAccess:
     @pytest.mark.parametrize(
         "model",
         [
+            "claude-fable-5",
             "claude-opus-4-5",
             "claude-opus-4-6",
             "claude-opus-4-7",
@@ -223,6 +225,23 @@ class TestCheckProductAccess:
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    @patch(
+        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+    )
+    def test_posthog_code_rejects_unallowed_model_via_bedrock_provider(self, mock_get_settings: MagicMock):
+        # A model outside the allowlist with no Bedrock mapping must stay rejected on the bedrock
+        # provider path — the BEDROCK_MODELS entries in the allowlist union must not resurrect it.
+        allowed, error = check_product_access(
+            "posthog_code",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-3-opus",
+            provider="bedrock",
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",
