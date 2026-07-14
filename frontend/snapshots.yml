@@ -2733,9 +2733,9 @@ snapshots:
     insights-insightstable--sql-breakdown--light:
         hash: v1.k794b7964.710a5fa22da7eff24e97e754426977214d9cdb9fd0252415534110bc7d9bbf95.EmqhUt-YOAWJV1nbFZ2BA-Let9QcaeDgslu9bcPR_mE
     insights-metric--default--dark:
-        hash: v1.k794b7964.1cebe69afb359b708a6769148047246697c99e189310fe55272267130c647782.QYAUjI9RJ3FeBPlsStBw2DGM5gMlabSChpozM9kc48w
+        hash: v1.k794b7964.bdc893ac78b0c99cb12fe2d3fa70346f932cccab0ae49df0d8e47e4740224266.KsZ8mkjoktS-Fzlo_tl1EQBX5t3-L0MWAbrR6yO2yCo
     insights-metric--default--light:
-        hash: v1.k794b7964.f3d7a94051dbeb60fc73755c1f3f96e06db2c7b240a4c9226e153db9d9152403.2nDJVbZQAVhYH4dlA12MNwqdLbHYRdEDFHLUGtFkplY
+        hash: v1.k794b7964.48725db2ac1e33838b543ca02ec02a9531421ae1b72a906e08769203b062878a.FYtwisigBj0inQ6P1fYQm_mYSl94iSjrfM-o0EKI8S8
     insights-paths--edit-scene--dark:
         hash: v1.k794b7964.c10a62416e61fe00c19684959755b06e2a88c87594a1d290d11c9fadcd78fc83.I3vjwPG_Juw_6WMzb3VYtPeeLkGEC6997iPSmY8EbQs
     insights-paths--edit-scene--light:
