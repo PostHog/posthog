@@ -17,9 +17,11 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 
 from posthog.models.utils import UUIDT
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -1961,3 +1963,40 @@ class TestSanitizeFormulaInjection:
             assert rows[0][0] == "'=SUM(A1:B1)"
         finally:
             os.unlink(path)
+
+
+class TestExportTabularErrorHandling:
+    @parameterized.expand(
+        [
+            # A malformed HogQL query is a user error — re-raise but don't capture it as a tracked exception.
+            ("user_query_error", HogQLSyntaxError("expected ), got EqDouble"), False),
+            # A genuine internal failure is still captured and logged at error level.
+            ("internal_error", ValueError("boom"), True),
+        ]
+    )
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    @patch("products.exports.backend.tasks.csv_exporter.capture_exception")
+    def test_exposed_hogql_error_is_not_captured(
+        self,
+        _name: str,
+        raised: Exception,
+        expect_captured: bool,
+        mock_capture_exception: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        exported_asset = Mock()
+        exported_asset.export_format = ExportedAsset.ExportFormat.CSV
+        exported_asset.team.id = 123
+
+        with patch("products.exports.backend.tasks.csv_exporter._export_tabular", side_effect=raised):
+            with pytest.raises(type(raised)):
+                csv_exporter.export_tabular(exported_asset)
+
+        if expect_captured:
+            mock_capture_exception.assert_called_once()
+            mock_logger.error.assert_called_once()
+            mock_logger.warning.assert_not_called()
+        else:
+            mock_capture_exception.assert_not_called()
+            mock_logger.error.assert_not_called()
+            mock_logger.warning.assert_called_once()
