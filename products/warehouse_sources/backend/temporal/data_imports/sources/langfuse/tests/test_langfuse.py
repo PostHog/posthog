@@ -452,6 +452,43 @@ class TestGetRows:
             self._run(manager, [_response(body_chunks=chunks)])
         assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
 
+    def test_repeated_cursor_raises_without_checkpointing_it(self):
+        # A hostile host that echoes back the cursor it was given would otherwise re-fetch the same
+        # page until the activity timeout. The run must abort (non-retryable) and never checkpoint
+        # the poisoned cursor — a saved checkpoint would make every retry loop on it too.
+        manager = self._manager()
+        with pytest.raises(langfuse_module.LangfusePaginationError) as exc:
+            self._run(
+                manager,
+                [
+                    _cursor_page([{"id": "o1"}], cursor="loop"),
+                    _cursor_page([{"id": "o2"}], cursor="loop"),
+                ],
+                endpoint="observations",
+            )
+        assert langfuse_module.REPEATED_CURSOR_ERROR in str(exc.value)
+        # Only the first page's (legitimate) continuation was saved.
+        assert manager.save_state.call_count == 1
+
+    def test_page_limit_raises_after_checkpointing_next_page(self):
+        # A hostile host reporting ever-more totalPages would otherwise keep the loop alive until
+        # the activity timeout. The run must abort at the cap — retryably, with the next page
+        # already checkpointed, so a legitimately huge sync continues on the next attempt.
+        manager = self._manager()
+        with (
+            mock.patch.object(langfuse_module, "MAX_PAGES_PER_RUN", 2),
+            pytest.raises(langfuse_module.LangfusePaginationError) as exc,
+        ):
+            self._run(
+                manager,
+                [
+                    _page([{"id": "t1"}], page=1, total_pages=10),
+                    _page([{"id": "t2"}], page=2, total_pages=10),
+                ],
+            )
+        assert langfuse_module.PAGE_LIMIT_ERROR in str(exc.value)
+        assert manager.save_state.call_args.args[0].page == 3
+
 
 class TestRetryBehavior:
     @pytest.mark.parametrize(

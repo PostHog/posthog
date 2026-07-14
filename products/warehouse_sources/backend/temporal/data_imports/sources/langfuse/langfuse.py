@@ -36,10 +36,20 @@ MAX_RESPONSE_BYTES = 512 * 1024 * 1024
 MAX_TRANSFER_SECONDS = 600
 RESPONSE_CHUNK_BYTES = 1024 * 1024
 
+# Pagination is server-driven (totalPages / an opaque cursor), so a hostile host could keep the
+# loop alive until the activity timeout by always reporting more pages. Cap the pages fetched per
+# run: hitting the cap raises a RETRYABLE error on purpose — the resume checkpoint was saved after
+# the last yielded page, so a legitimately huge sync continues from where it stopped on the next
+# activity attempt, while a hostile host is bounded per attempt. At the default page sizes this cap
+# allows 2.5M rows per run on page endpoints and 50M observations, far above a normal sync.
+MAX_PAGES_PER_RUN = 50_000
+
 DEFAULT_HOST = "https://cloud.langfuse.com"
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
 RESPONSE_LIMIT_ERROR = "Langfuse response exceeded a transfer limit"
+PAGE_LIMIT_ERROR = "Langfuse pagination page limit reached"
+REPEATED_CURSOR_ERROR = "Langfuse API returned the same pagination cursor twice"
 
 
 class LangfuseRetryableError(Exception):
@@ -55,6 +65,16 @@ class LangfuseHostNotAllowedError(Exception):
 class LangfuseResponseTooLargeError(Exception):
     """A page response blew past the byte or wall-clock cap — treated as non-retryable (a hostile or
     misbehaving host won't return a smaller/faster body on retry)."""
+
+    pass
+
+
+class LangfusePaginationError(Exception):
+    """Pagination metadata tried to extend the run beyond its bounds.
+
+    Raised with PAGE_LIMIT_ERROR (retryable — the resume checkpoint lets the next attempt continue)
+    or REPEATED_CURSOR_ERROR (non-retryable — a compliant server never repeats a cursor, so a retry
+    would loop on the same response)."""
 
     pass
 
@@ -329,6 +349,7 @@ def get_rows(
 
         return json.loads(body)
 
+    pages_fetched = 0
     while True:
         params = dict(base_params)
         if config.pagination == "page":
@@ -337,6 +358,7 @@ def get_rows(
             params["cursor"] = cursor
 
         data = fetch_page(params)
+        pages_fetched += 1
         items = data.get("data") or []
         meta = data.get("meta") or {}
 
@@ -347,6 +369,11 @@ def get_rows(
             next_state = LangfuseResumeConfig(page=page + 1, from_value=from_value)
         else:
             next_cursor = meta.get("cursor")
+            # A compliant server never hands back the cursor it was just given; looping on it would
+            # re-fetch the same page until the activity timeout. Raise (non-retryable) before
+            # yielding or saving state so the poisoned cursor is never checkpointed.
+            if next_cursor is not None and next_cursor == cursor:
+                raise LangfusePaginationError(f"{REPEATED_CURSOR_ERROR} (endpoint {endpoint})")
             has_next = bool(items) and next_cursor is not None
             next_state = LangfuseResumeConfig(cursor=next_cursor, from_value=from_value)
 
@@ -359,6 +386,13 @@ def get_rows(
 
         if not has_next:
             break
+
+        # The checkpoint above already points at the next page, so raising here (retryable) lets a
+        # legitimately huge sync continue on the next activity attempt while bounding what a hostile
+        # host's pagination metadata can extract from a single run.
+        if pages_fetched >= MAX_PAGES_PER_RUN:
+            logger.warning(f"Langfuse: page limit reached for {endpoint} after {pages_fetched} pages")
+            raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
         if config.pagination == "page":
             page += 1

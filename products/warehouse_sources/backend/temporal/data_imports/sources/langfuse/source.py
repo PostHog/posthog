@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    REPEATED_CURSOR_ERROR,
     RESPONSE_LIMIT_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
@@ -102,6 +103,9 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",
             RESPONSE_LIMIT_ERROR: "The Langfuse host returned a response that was too large or too slow to download. Check that the host points at a real Langfuse instance.",
+            # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
+            # from its checkpoint on the next attempt instead of failing permanently.
+            REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
         }
 
     def get_schemas(
