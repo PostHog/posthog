@@ -54,6 +54,9 @@ tools:
     hog-flows-destroy:
         operation: hog_flows_destroy
         enabled: false
+    hog-flows-discard-draft-create:
+        operation: hog_flows_discard_draft_create
+        enabled: false
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
         enabled: false
@@ -62,6 +65,9 @@ tools:
         enabled: false
     hog-flows-partial-update:
         operation: hog_flows_partial_update
+        enabled: false
+    hog-flows-publish-create:
+        operation: hog_flows_publish_create
         enabled: false
     hog-flows-rerun-create:
         operation: hog_flows_rerun_create
