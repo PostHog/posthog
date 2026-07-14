@@ -3731,6 +3731,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
+                "use_modal_vm_sandbox": False,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
@@ -3759,6 +3760,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
                     "use_modal_directory_resume_snapshots": False,
+                    "use_modal_vm_sandbox": True,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
@@ -3780,6 +3782,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_directory_resume_snapshots"] is True
+        assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
@@ -3796,6 +3799,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
+                    "use_modal_vm_sandbox",
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
@@ -3811,6 +3815,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
+        assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
