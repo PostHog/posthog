@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from django.test import override_settings
@@ -7,6 +9,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
     mask_table_columns,
+    mask_table_if_configured,
     mask_value,
     resolve_masked_columns,
 )
@@ -81,4 +84,24 @@ class TestMaskTableColumns:
     def test_matches_source_name_after_normalization(self):
         # Config holds source-style "Email"; the table column is already normalized to "email".
         table = mask_table_columns(self._table(), ["Email"], team_id=3)
+        assert table.column("email").to_pylist() == [mask_value(3, "a@x.com"), mask_value(3, "b@x.com")]
+
+
+class TestMaskTableIfConfigured:
+    def _table(self) -> pa.Table:
+        return pa.table({"id": [1, 2], "email": ["a@x.com", "b@x.com"]})
+
+    def _schema(self, masked):
+        return SimpleNamespace(masked_columns=masked, incremental_field=None, id="s1", team_id=3)
+
+    async def test_raises_when_mask_collides_with_runtime_primary_key(self):
+        # API sources auto-detect the merge key at sync time, so a mask the serializer accepted can
+        # still land on a PK. Dropping it would sync plaintext for a column the user masked — fail loud.
+        resource = SimpleNamespace(primary_keys=["id"])
+        with pytest.raises(ValueError, match="id"):
+            await mask_table_if_configured(self._table(), self._schema(["id"]), resource)
+
+    async def test_masks_when_no_collision(self):
+        resource = SimpleNamespace(primary_keys=["id"])
+        table = await mask_table_if_configured(self._table(), self._schema(["email"]), resource)
         assert table.column("email").to_pylist() == [mask_value(3, "a@x.com"), mask_value(3, "b@x.com")]

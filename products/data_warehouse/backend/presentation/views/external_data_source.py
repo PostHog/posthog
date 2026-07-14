@@ -159,6 +159,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    fold_column_name,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
@@ -2329,6 +2330,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
+
+            # Reject masking a PK/incremental column at creation, mirroring the PATCH endpoint.
+            # `resolve_masked_columns` would otherwise drop these at sync time and the API would
+            # have reported the column as masked while it syncs in plaintext. Uses the PKs resolved
+            # into sync_type_config above (provided, discovered, or CDC-queried).
+            if masked_columns and not is_direct_query:
+                protected = {fold_column_name(c) for c in (sync_type_config.get("primary_key_columns") or [])}
+                if incremental_field:
+                    protected.add(fold_column_name(incremental_field))
+                conflicting = [c for c in masked_columns if fold_column_name(c) in protected]
+                if conflicting:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)} for schema '{schema_name}'."
+                        },
+                    )
 
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
             # and the value prop is near-real-time. Other sync types use the 6h default.

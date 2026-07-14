@@ -33,11 +33,8 @@ import hashlib
 from django.conf import settings
 
 import pyarrow as pa
-import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-
-logger = structlog.get_logger(__name__)
 
 
 def get_masking_key() -> bytes:
@@ -136,19 +133,17 @@ async def mask_table_if_configured(
     transform to a thread (heavier than name normalization — don't block the event loop)."""
     if not schema.masked_columns:
         return table
-    # The serializer can't always know the runtime primary keys (API sources auto-detect them), so
-    # a configured mask can land on a protected column and be dropped here. Dropping is correct —
-    # hashing the merge key corrupts merges — but it must not be silent: the user believes the
-    # column is masked while its values sync in plaintext.
+    # The serializer rejects masking a known PK/incremental column, but API sources auto-detect
+    # their merge keys at runtime, so a mask can still collide with one here. We can't mask it
+    # (hashing the merge key corrupts merges) and must not sync it as plaintext (the user asked for
+    # it masked) — fail the sync loudly instead of silently dropping the mask.
     configured = {fold_column_name(c) for c in schema.masked_columns}
     effective = resolve_masked_columns(schema.masked_columns, resource.primary_keys, schema.incremental_field)
     dropped = configured - effective
     if dropped:
-        logger.warning(
-            "masking_dropped_protected_columns",
-            schema_id=str(schema.id),
-            team_id=schema.team_id,
-            dropped_columns=sorted(dropped),
+        raise ValueError(
+            f"Cannot mask primary-key / incremental columns {sorted(dropped)}: they're the merge key "
+            "for this table, detected at sync time. Remove them from masked_columns to sync."
         )
     return await asyncio.to_thread(
         mask_table_columns,
