@@ -594,6 +594,26 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(parentId)).status).toBe('completed')
             })
 
+            it.each(['ack', 'fail', 'reschedule'] as const)(
+                'checks self in via %s and zeros janitor_touch_count (consecutive-stall counting)',
+                async (kind) => {
+                    const { id: parentId, job } = await seedAndDequeue()
+                    // Simulate prior stalls the janitor had counted.
+                    await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
+                        parentId,
+                    ])
+
+                    await job.bulkCreateAndCheckIn({
+                        newJobs: [],
+                        selfDisposition:
+                            kind === 'reschedule' ? { kind: 'reschedule', scheduledAt: new Date() } : { kind },
+                    })
+
+                    // A deliberate self-checkin is a healthy release — the count resets.
+                    expect((await queryJob(parentId)).janitor_touch_count).toBe(0)
+                }
+            )
+
             it('rolls back both writes if the insert fails (atomicity)', async () => {
                 const { id: parentId, job } = await seedAndDequeue()
 
