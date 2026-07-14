@@ -1,13 +1,16 @@
 import { useValues } from 'kea'
 
-import { HedgehogConstruction1 } from '@posthog/brand/hoggies'
+import * as construction1Png from '@posthog/brand/hoggies/png/construction-1'
 import { IconCheck, IconRocket } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { Survey, SurveyType } from '~/types'
+
+const HedgehogConstruction1 = pngHoggie(construction1Png)
 
 interface ChecklistItem {
     title: string

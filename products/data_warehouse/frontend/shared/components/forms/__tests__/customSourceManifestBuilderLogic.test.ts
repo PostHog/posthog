@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { externalDataSourcesDraftCustomManifestCreate } from 'products/warehouse_sources/frontend/generated/api'
@@ -28,6 +29,9 @@ const pushedFields = (setValue: jest.Mock): Record<string, unknown> =>
     Object.fromEntries(setValue.mock.calls.map(([path, value]) => [(path as (string | number)[]).join('.'), value]))
 
 describe('customSourceManifestBuilderLogic', () => {
+    // Safety net for tests that call silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof customSourceManifestBuilderLogic.build>
     let setValue: jest.Mock
 
@@ -258,6 +262,8 @@ describe('customSourceManifestBuilderLogic', () => {
         ] as [string, number, Record<string, string>][])(
             'surfaces the backend reason (%s) instead of a generic failure',
             async (_label, status, data) => {
+                // Deliberate loader failure — kea-loaders would log it
+                silenceKeaLoadersErrors()
                 mockDraft.mockRejectedValue(new ApiError('failed', status, undefined, data))
                 logic.actions.setDocsUrl('https://docs.example.com')
 

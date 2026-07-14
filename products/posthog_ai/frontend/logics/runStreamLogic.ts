@@ -48,6 +48,7 @@ import {
     isSessionUpdateUserMessage,
     isTaskRunStateFrame,
 } from '../types/wireTypes'
+import { debugLogsLogic } from './debugLogsLogic'
 import type { runStreamLogicType } from './runStreamLogicType'
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
@@ -1185,7 +1186,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
  * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
  * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
  * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
- * `debug` rows are gated separately by `showDebugItems`, so neither needs a content check here.
+ * `debug` rows are gated separately by `showDebugLogs`, so neither needs a content check here.
  */
 function rendersThreadItemContent(item: ThreadItem): boolean {
     switch (item.type) {
@@ -1229,6 +1230,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             ['isDev'],
             userLogic,
             ['user'],
+            debugLogsLogic,
+            ['showDebugLogs'],
         ],
     })),
     actions({
@@ -1663,23 +1666,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
             (s) => [s.log, s.isBootstrapResumeRun],
             (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
         ],
-        /**
-         * Whether `_posthog/console` debug rows should surface in the thread. Derived from the current
-         * user's staff/impersonation flag and dev environment, so debug items are filtered out of
-         * `threadItems` for non-privileged users — never reaching the virtualizer.
-         */
-        showDebugItems: [
-            (s) => [s.user, s.isDev],
-            (user, isDev): boolean => !!user?.is_staff || !!user?.is_impersonated || !!isDev,
-        ],
         threadItems: [
-            (s) => [s.foldedThread, s.showDebugItems],
-            (foldedThread, showDebugItems): ThreadItem[] =>
+            (s) => [s.foldedThread, s.showDebugLogs],
+            (foldedThread, showDebugLogs): ThreadItem[] =>
                 // Filtering lives here, not in the renderer: a row the renderer would return `null` for
                 // (a content-less item, or a debug row a non-privileged user can't see) still reserves an
                 // empty, gap-padded slot in the virtualized thread. Drop them before they become rows.
+                // Debug rows are gated by `debugLogsLogic.showDebugLogs` (staff/dev toggle, force-on when
+                // impersonating).
                 foldedThread.threadItems.filter(
-                    (item: ThreadItem) => (item.type !== 'debug' || showDebugItems) && rendersThreadItemContent(item)
+                    (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                 ),
         ],
         toolInvocations: [

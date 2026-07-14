@@ -569,7 +569,6 @@ mod tests {
             is_mirror_deploy: false,
             chatty_debug_enabled: false,
             user_agent: None,
-            lib_version: None,
             path: "/s/".to_string(),
         }
     }

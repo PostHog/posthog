@@ -22,8 +22,7 @@ describe('RunComposer', () => {
     const getSendButton = (container: HTMLElement): HTMLButtonElement =>
         container.querySelector('[data-attr="sandbox-composer-send"]') as HTMLButtonElement
 
-    const getTextArea = (): HTMLTextAreaElement =>
-        screen.getByRole('textbox', { name: undefined }) as HTMLTextAreaElement
+    const getTextArea = (): HTMLTextAreaElement => screen.getByRole('textbox') as HTMLTextAreaElement
 
     it('shows the placeholder when empty and hides it once there is a value', () => {
         const { rerender } = renderComposer({ placeholder: 'Send a follow-up message…' })

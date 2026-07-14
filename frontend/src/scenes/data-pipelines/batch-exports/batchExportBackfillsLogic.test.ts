@@ -84,6 +84,7 @@ describe('batchExportBackfillsLogic', () => {
         results: RawBatchExportBackfill[]
         next: string | null
     }): Promise<void> {
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
         useMocks({
             get: {
                 [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT_CONFIG,
@@ -242,6 +243,8 @@ describe('batchExportBackfillsLogic', () => {
         })
 
         it('ignores polling errors and continues', async () => {
+            // The poller reports the deliberate failure via console.warn by design
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
             jest.spyOn(api.batchExports, 'getBackfill')
                 .mockRejectedValueOnce(new Error('Network error'))
                 .mockResolvedValueOnce(makeBackfill({ total_records_count: 3000 }))
@@ -254,6 +257,8 @@ describe('batchExportBackfillsLogic', () => {
             await jest.advanceTimersByTimeAsync(POLL_ADVANCE_MS)
 
             expect(lemonToast.info).toHaveBeenCalledWith('Estimated ~3,000 rows to export', expect.anything())
+            expect(warnSpy).toHaveBeenCalledWith('Failed to poll for backfill estimate', expect.any(Error))
+            warnSpy.mockRestore()
         })
 
         it('cancel button in toast calls cancel API', async () => {

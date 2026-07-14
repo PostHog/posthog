@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
+    AxisLinesConfig,
     ChartLegendConfig,
     ChartTheme,
     ComboChartConfig,
@@ -32,6 +33,9 @@ export interface TimeSeriesComboChartConfig {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. */
     barLayout?: ComboChartConfig['barLayout']
+    /** Stacked layout only — stack negative bar values below the zero baseline instead of
+     *  clamping them to 0. See {@link ComboChartConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
@@ -40,7 +44,7 @@ export interface TimeSeriesComboChartConfig {
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
     showTickMarks?: boolean
     /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
@@ -88,6 +92,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         goalLines,
         defaultSeriesType,
         barLayout,
+        divergingStack,
         barCornerRadius,
         showCrosshair,
         showGrid,
@@ -120,7 +125,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,
@@ -130,6 +135,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showCrosshair,
         defaultSeriesType,
         barLayout,
+        divergingStack,
         barCornerRadius,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,

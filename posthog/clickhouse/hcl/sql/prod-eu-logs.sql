@@ -103,8 +103,9 @@ CREATE TABLE posthog.log_attributes_distributed (
   attribute_value String CODEC(ZSTD(5)),
   attribute_count SimpleAggregateFunction(sum, UInt64),
   attribute_type LowCardinality(String) DEFAULT 'log',
-  original_expiry_time_bucket DateTime DEFAULT now()
-) ENGINE = Distributed('logs', 'posthog', 'log_attributes2');
+  original_expiry_time_bucket DateTime DEFAULT now(),
+  severity_text LowCardinality(String)
+) ENGINE = Distributed('logs', 'posthog', 'log_attributes3');
 CREATE TABLE posthog.logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   original_expiry_timestamp DateTime64(6),

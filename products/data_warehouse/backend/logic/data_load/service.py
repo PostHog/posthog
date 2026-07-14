@@ -569,6 +569,22 @@ def pause_cdc_extraction_schedule(source_id: str) -> None:
         raise
 
 
+def unpause_cdc_extraction_schedule(source_id: str) -> None:
+    """Unpause the CDC extraction schedule for a source so it resumes firing.
+
+    Recovery counterpart of `pause_cdc_extraction_schedule`, used by CDC repair once the
+    change-stream resource exists again. A missing schedule is treated as a no-op.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = sync_connect()
+    try:
+        unpause_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
+
+
 @async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],

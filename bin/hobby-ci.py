@@ -10,10 +10,14 @@
 # ruff: noqa: T201 allow print statements
 
 import os
+import re
 import sys
+import json
 import time
 import shlex
+import base64
 import datetime
+import subprocess
 from dataclasses import dataclass
 
 import urllib3
@@ -1170,7 +1174,15 @@ runcmd:
         self.export_droplet()
 
 
+# Legacy standalone comment marker. New runs post into the shared CI report comment
+# instead, and delete-legacy-comments.mjs cleans up any leftover standalone comment.
 COMMENT_MARKER = "<!-- hobby-smoke-test -->"
+CI_REPORT_MARKER = "<!-- posthog-ci-report -->"
+CI_REPORT_SECTION_ID = "hobby-deploy"
+CI_REPORT_SECTION_RE = re.compile(
+    rf"<!-- ci-report:section:{CI_REPORT_SECTION_ID}:([A-Za-z0-9+/=]*) -->\n"
+    rf"([\s\S]*?)\n<!-- ci-report:section-end:{CI_REPORT_SECTION_ID} -->"
+)
 
 
 @dataclass(frozen=True)
@@ -1194,49 +1206,80 @@ class PRCommentContext:
         )
 
 
-def update_smoke_test_comment(
-    ctx: PRCommentContext,
-    success: bool,
-    failure_details: dict,
-) -> None:
-    """Update or create a smoke test comment on the PR.
+def _previous_smoke_test_state(ctx: PRCommentContext) -> tuple[bool, int]:
+    """Read the previous smoke test outcome for flap detection.
 
-    - Only one comment per PR (edit existing if present)
-    - Detect flapping if previous failure and now success
+    Checks the shared CI report comment's section first, falling back to the legacy
+    standalone comment while open PRs still carry one.
     """
     headers = {
         "Authorization": f"token {ctx.gh_token}",
         "Accept": "application/vnd.github.v3+json",
     }
     repo = "PostHog/posthog"
-
-    # Find existing comment and parse failure count
-    existing_comment = None
-    previous_was_failure = False
-    previous_failure_count = 0
     try:
         resp = requests.get(
             f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
             headers=headers,
             timeout=10,
         )
-        if resp.status_code == 200:
-            for comment in resp.json():
-                body = comment.get("body", "")
-                if COMMENT_MARKER in body:
-                    existing_comment = comment
-                    previous_was_failure = "❌" in body
-                    # Parse previous failure count
-                    import re
-
-                    match = re.search(r"Consecutive failures: (\d+)", body)
-                    if match:
-                        previous_failure_count = int(match.group(1))
-                    elif previous_was_failure:
-                        previous_failure_count = 1
-                    break
+        if resp.status_code != 200:
+            return False, 0
+        for comment in resp.json():
+            body = comment.get("body", "")
+            if body.startswith(CI_REPORT_MARKER):
+                section = CI_REPORT_SECTION_RE.search(body)
+                if not section:
+                    continue
+                try:
+                    meta = json.loads(base64.b64decode(section.group(1)))
+                except Exception:
+                    meta = {}
+                was_failure = meta.get("status") == "fail"
+                count_match = re.search(r"Consecutive failures: (\d+)", section.group(2))
+                if count_match:
+                    return was_failure, int(count_match.group(1))
+                return was_failure, 1 if was_failure else 0
+            if COMMENT_MARKER in body:
+                was_failure = "❌" in body
+                count_match = re.search(r"Consecutive failures: (\d+)", body)
+                if count_match:
+                    return was_failure, int(count_match.group(1))
+                return was_failure, 1 if was_failure else 0
     except Exception as e:
         print(f"⚠️  Could not fetch existing comments: {e}", flush=True)
+    return False, 0
+
+
+def _post_ci_report_section(status: str, summary: str, body: str) -> None:
+    """Write our section of the shared CI report comment via the Node tooling that owns it."""
+    try:
+        subprocess.run(
+            ["node", ".github/scripts/post-reminder-section.mjs", CI_REPORT_SECTION_ID, status, summary],
+            env={**os.environ, "BODY": body},
+            timeout=120,
+            check=False,
+        )
+        subprocess.run(
+            ["node", "frontend/bin/ci-report/delete-legacy-comments.mjs"],
+            timeout=120,
+            check=False,
+        )
+    except Exception as e:
+        print(f"⚠️  Could not post CI report section: {e}", flush=True)
+
+
+def update_smoke_test_comment(
+    ctx: PRCommentContext,
+    success: bool,
+    failure_details: dict,
+) -> None:
+    """Post the smoke test outcome as a collapsible section in the shared CI report comment.
+
+    Detects flapping if the previous run failed and this one passed.
+    """
+    previous_was_failure, previous_failure_count = _previous_smoke_test_state(ctx)
+    repo = "PostHog/posthog"
 
     # Build run link
     run_link = ""
@@ -1244,27 +1287,27 @@ def update_smoke_test_comment(
         attempt_suffix = f"/attempts/{ctx.run_attempt}" if ctx.run_attempt and ctx.run_attempt != "1" else ""
         run_link = f"https://github.com/{repo}/actions/runs/{ctx.run_id}{attempt_suffix}"
 
-    # Build comment body
+    # Build section content
     failure_count = 0
     if success:
         if previous_was_failure:
             # Flapping: was failing, now passing
-            status_emoji = "⚠️"
-            status_text = "FLAPPING"
+            status = "warn"
+            summary = f"flapping: passed after {previous_failure_count} failure(s)"
             body_content = (
                 f"Test passed after {previous_failure_count} consecutive failure(s). This may indicate flaky behavior.\n\n"
                 "The hobby deployment smoke test is now passing, but was failing on previous runs."
             )
         else:
-            status_emoji = "✅"
-            status_text = "PASSED"
+            status = "ok"
+            summary = "passed"
             body_content = "Hobby deployment smoke test passed successfully."
     else:
-        status_emoji = "❌"
-        status_text = "FAILED"
+        status = "fail"
         failure_count = previous_failure_count + 1
         reason = failure_details.get("reason", "unknown")
         message = failure_details.get("message", "Unknown failure")
+        summary = message
 
         body_content = f"**Failing fast because:** {message}\n\n"
 
@@ -1290,41 +1333,8 @@ def update_smoke_test_comment(
         footer_parts.append(f"Consecutive failures: {failure_count}")
     footer = " | ".join(p for p in footer_parts if p)
 
-    comment_body = f"""{COMMENT_MARKER}
-## {status_emoji} Hobby deploy smoke test: {status_text}
-
-{body_content}
-
----
-<sub>{footer}</sub>
-"""
-
-    # Create or update comment
-    try:
-        if existing_comment:
-            resp = requests.patch(
-                existing_comment["url"],
-                headers=headers,
-                json={"body": comment_body},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                print(f"✅ Updated smoke test comment on PR #{ctx.pr_number}", flush=True)
-            else:
-                print(f"⚠️  Failed to update comment: {resp.status_code}", flush=True)
-        else:
-            resp = requests.post(
-                f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
-                headers=headers,
-                json={"body": comment_body},
-                timeout=10,
-            )
-            if resp.status_code == 201:
-                print(f"✅ Created smoke test comment on PR #{ctx.pr_number}", flush=True)
-            else:
-                print(f"⚠️  Failed to create comment: {resp.status_code}", flush=True)
-    except Exception as e:
-        print(f"⚠️  Could not update PR comment: {e}", flush=True)
+    section_body = f"{body_content}\n\n---\n<sub>{footer}</sub>"
+    _post_ci_report_section(status=status, summary=summary, body=section_body)
 
 
 def main():

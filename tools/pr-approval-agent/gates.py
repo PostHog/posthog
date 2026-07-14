@@ -1,14 +1,22 @@
 """Deterministic gate logic for PR approval classification.
 
-Handles deny-lists, allow-lists, CODEOWNERS-soft ownership,
-tier assignment, and file classification. No external dependencies.
+Handles deny-lists, allow-lists, multi-source ownership (declared in
+`.stamphog/policy.yml`), tier assignment, and file classification. Policy data
+loads from .stamphog/policy.yml at import via policy.py, which needs PyYAML:
+any uv-run script that imports this module must declare pyyaml in its PEP 723
+dependencies block.
 """
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import Protocol
+
+import yaml
+from policy import OwnershipSource, load_policy
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -128,144 +136,204 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 #   "titles" — matched against the PR title only (scrutiny flag, never a
 #              deny) — for words whose path-side hits are false positives
 
-_DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
-    "auth": {
-        "any": [
-            "auth",
-            "login",
-            "signup",
-            "oauth",
-            "saml",
-            "sso",
-            "oidc",
-            "credential",
-            "password",
-            "2fa",
-            "mfa",
-            "authentication",
-            "authenticate",
-            "authorize",
-            "authorization",
-            r"two[_-]?factor",
-        ],
-        # Past participles hard-deny the wrong things as path patterns
-        # (web analytics' authorized_urls.py health check is domain config,
-        # not the auth system) but are natural title words.
-        "titles": [
-            "authenticated",
-            "authorized",
-        ],
-        # "session" and "token" match too broadly in titles and non-auth
-        # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
-        # "permission" matches permission-checking helpers everywhere.
-        # Restrict these to path-only with tighter patterns.
-        # camelCase compounds (e.g. AuthenticatedShell.tsx) don't break on
-        # word boundaries when lowercased, so the "any" words above only
-        # reliably match snake/kebab paths and natural-language titles.
-        "paths": [
-            "session_auth",
-            "session_token",
-            "auth/session",
-            "auth/token",
-            "permission",
-        ],
-    },
-    "crypto_secrets": {
-        "any": [
-            "crypto",
-            "encrypt",
-            "decrypt",
-            "vault",
-        ],
-        # "key", "secret", "cert", "signing" are too broad for titles.
-        # "key" alone matches "keyboard", "hotkey", "localStorage key".
-        # Use path-only with compound patterns.
-        "paths": [
-            "secret",
-            r"api[_-]?key",
-            r"secret[_-]?key",
-            r"private[_-]?key",
-            r"signing[_-]?key",
-            "certificate",
-            r"\.env",
-            r"\.pem",
-        ],
-    },
-    "migrations": {
-        # `migrations/` substring is load-bearing — also catches rust
-        # *_migrations/ dirs applied by sqlx at deploy.
-        "paths": [
-            "migrations/",
-            "schema_change",
-        ],
-    },
-    "infra_cicd": {
-        "any": [
-            "terraform",
-            "kubernetes",
-            "helm",
-        ],
-        # "routing" and bare "deploy" are gone on purpose: every historical
-        # match was app-level (posthog/api/routing.py DRF routers, Slack/Teams
-        # message-routing tests, deploy-timing docs), never infrastructure.
-        # Narrow deploy literals below (bin/deploy, deploy.sh, .github/pr-deploy)
-        # cover real deployment artifacts without re-introducing the false positives.
-        "paths": [
-            r"k8s",
-            "dockerfile",
-            "docker-compose",
-            r"\.github/workflows",
-            r"\.github/pr-deploy",
-            "iam",
-            "cloudflare",
-            "cdn",
-            "waf",
-            r"(?:^|/)bin/deploy",
-            r"deploy\.sh",
-        ],
-    },
-    "billing": {
-        # "subscription" is gone on purpose: in this repo it means scheduled
-        # insight/report deliveries (ee/api/subscription.py, products/exports),
-        # not payments. Real billing surfaces still match via the other words.
-        "any": [
-            "billing",
-            "payment",
-            "stripe",
-            "invoice",
-            "pricing",
-        ],
-    },
-    "public_api": {
-        "any": [
-            "openapi",
-            "api_schema",
-            "swagger",
-            "public_api",
-        ],
-    },
-    "deps_toolchain": {
-        # All path-only — these are literal filenames, not title words.
-        # Manifests (package.json, pyproject.toml, tsconfig, Cargo.toml,
-        # go.mod) deliberately don't hard-deny: without a lockfile change
-        # they cannot pull in third-party code, and 69-80% of manifest-only
-        # denials merged unchanged. The residual risk — manifest "scripts"/
-        # lifecycle hooks execute in CI — is guarded by the reviewer prompt
-        # (see the dependency-manifest rules in reviewer.py), and such PRs
-        # are kept out of the T0 fast path (see is_allow_listed_only usage).
-        # requirements.txt stays: it pins installed code directly, no
-        # lockfile involved. .nvmrc/.tool-versions stay: they change the
-        # runtime for every CI job. Makefile/Dockerfile stay: they execute.
-        "paths": [
-            *(re.escape(name) for name in sorted(_ALL_LOCKFILE_NAMES)),
-            r"requirements[-\w]*\.(txt|in)",
-            "Makefile",
-            "Dockerfile",
-            r"\.tool-versions",
-            r"\.nvmrc",
-        ],
-    },
+# ── Ownership sources ────────────────────────────────────────────
+#
+# Ownership is advisory reviewer context, not a hard gate. The sources are
+# declared in `.stamphog/policy.yml` (`ownership:`) and compiled here into
+# resolvers; each resolver answers "which teams own this file?" and the
+# per-file result is the union across sources. Two formats ship today:
+# `gh-codeowners` (a CODEOWNERS-soft file, last-match-wins) and `ph-product`
+# (products/*/product.yaml owners). OWNERSHIP_FORMATS is the single place a new
+# format registers.
+
+
+class OwnershipResolver(Protocol):
+    """A compiled ownership source: which teams own a given file."""
+
+    def owners(self, filepath: str) -> set[str]: ...
+
+
+class CodeownersRule:
+    def __init__(self, pattern: str, teams: list[str]):
+        self.raw_pattern = pattern
+        self.teams = set(teams)
+        self._pattern = pattern.lstrip("/").replace("\\*\\*", "**").replace("\\*", "*")
+
+    def matches(self, filepath: str) -> bool:
+        pat = self._pattern
+        if not any(c in pat for c in ("*", "?")):
+            if filepath == pat or filepath == pat.rstrip("/"):
+                return True
+            prefix = pat if pat.endswith("/") else pat + "/"
+            if filepath.startswith(prefix):
+                return True
+            return False
+        if fnmatch(filepath, pat):
+            return True
+        if "**" in pat and fnmatch(filepath, pat.rstrip("/") + "/**"):
+            return True
+        return False
+
+
+def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
+    rules = []
+    if not path.exists():
+        return rules
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            pattern = parts[0]
+            teams = [t for t in parts[1:] if t.startswith("@")]
+            if teams:
+                rules.append(CodeownersRule(pattern, teams))
+    return rules
+
+
+def resolve_owners(filepath: str, rules: list[CodeownersRule]) -> set[str]:
+    matched_teams: set[str] = set()
+    for rule in rules:
+        if rule.matches(filepath):
+            matched_teams = rule.teams
+    return matched_teams
+
+
+class _CodeownersResolver:
+    """gh-codeowners: last-match-wins CODEOWNERS-soft semantics over one file."""
+
+    def __init__(self, rules: list[CodeownersRule]) -> None:
+        self._rules = rules
+
+    def owners(self, filepath: str) -> set[str]:
+        return set(resolve_owners(filepath, self._rules))
+
+
+def _normalize_product_owner(slug: object) -> str | None:
+    """Normalize a product.yaml owner slug exactly like assign-reviewers.js.
+
+    Skip empty / `team-CHANGEME` / already-`@`-prefixed slugs (an existing
+    prefix would build `@PostHog/@PostHog/...`); otherwise prefix `@PostHog/`.
+    """
+    if not isinstance(slug, str):
+        return None
+    slug = slug.strip()
+    if not slug or slug == "team-CHANGEME" or slug.startswith("@"):
+        return None
+    return f"@PostHog/{slug}"
+
+
+def _read_product_owners(path: Path) -> frozenset[str]:
+    """Normalized owners from a product.yaml, or empty on any parse/shape problem."""
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return frozenset()
+    if not isinstance(data, dict) or not isinstance(data.get("owners"), list):
+        return frozenset()
+    teams = {norm for slug in data["owners"] if (norm := _normalize_product_owner(slug)) is not None}
+    return frozenset(teams)
+
+
+class _ProductYamlResolver:
+    """ph-product: each product.yaml owns its parent directory subtree."""
+
+    def __init__(self, owned_dirs: dict[str, frozenset[str]]) -> None:
+        # Maps a repo-relative directory (posix, no trailing slash) to its owners.
+        self._owned_dirs = owned_dirs
+
+    def owners(self, filepath: str) -> set[str]:
+        result: set[str] = set()
+        for directory, teams in self._owned_dirs.items():
+            if filepath.startswith(directory + "/"):
+                result |= teams
+        return result
+
+
+def _build_codeowners_resolver(repo_root: Path, source: OwnershipSource) -> _CodeownersResolver:
+    assert source.path is not None  # validated by the loader (gh-codeowners uses `path`)
+    return _CodeownersResolver(parse_codeowners_soft(repo_root / source.path))
+
+
+def _build_product_yaml_resolver(repo_root: Path, source: OwnershipSource) -> _ProductYamlResolver:
+    assert source.glob is not None  # validated by the loader (ph-product uses `glob`)
+    owned_dirs: dict[str, frozenset[str]] = {}
+    for yaml_path in sorted(repo_root.glob(source.glob)):
+        teams = _read_product_owners(yaml_path)
+        if teams:
+            owned_dirs[yaml_path.parent.relative_to(repo_root).as_posix()] = teams
+    return _ProductYamlResolver(owned_dirs)
+
+
+@dataclass(frozen=True)
+class OwnershipFormat:
+    """A registered source format: its required locator key and resolver builder."""
+
+    locator: str  # "path" or "glob" - which locator the format's builder reads
+    build: Callable[[Path, OwnershipSource], OwnershipResolver]
+
+
+# Registry: format name -> format. Adding a new ownership format is a one-line
+# entry here plus its resolver above; the loader validates each declared
+# source's format name and locator pairing against this table.
+OWNERSHIP_FORMATS: dict[str, OwnershipFormat] = {
+    "gh-codeowners": OwnershipFormat("path", _build_codeowners_resolver),
+    "ph-product": OwnershipFormat("glob", _build_product_yaml_resolver),
 }
+
+OWNERSHIP_FORMAT_LOCATORS: dict[str, str] = {name: fmt.locator for name, fmt in OWNERSHIP_FORMATS.items()}
+
+
+def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> list[OwnershipResolver]:
+    """Compile the declared ownership sources into resolvers, in declared order."""
+    return [OWNERSHIP_FORMATS[source.format].build(repo_root, source) for source in sources]
+
+
+def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
+    """Aggregate per-file team ownership, unioning each source's owners per file."""
+    all_teams: set[str] = set()
+    owned_files = 0
+    unowned_files = 0
+    team_file_counts: Counter = Counter()
+
+    for f in files:
+        teams: set[str] = set()
+        for resolver in resolvers:
+            teams |= resolver.owners(f)
+        if teams:
+            owned_files += 1
+            all_teams.update(teams)
+            for t in teams:
+                team_file_counts[t] += 1
+        else:
+            unowned_files += 1
+
+    return {
+        "teams": sorted(all_teams),
+        "team_count": len(all_teams),
+        "owned_files": owned_files,
+        "unowned_files": unowned_files,
+        "team_file_counts": dict(team_file_counts.most_common()),
+        "cross_team": len(all_teams) > 1,
+    }
+
+
+# ── Policy-sourced data ──────────────────────────────────────────
+#
+# The deny/allow/size/tier/dismiss data lives in .stamphog/policy.yml and is
+# loaded here at import time, keeping the existing module-level constant names
+# populated so importers and tests are unchanged. DEPENDENCY_ECOSYSTEMS (and
+# DISMISS_TIME_LOCKFILES below) stay code-derived; the loader splices the
+# lockfile names into the deps_toolchain deny paths and validates the declared
+# ownership formats against OWNERSHIP_FORMATS. A malformed policy raises at
+# import - fail closed, the tool crashes rather than gating on a half-loaded
+# policy.
+POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
+
+_DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
 
 def _compile_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
@@ -317,41 +385,14 @@ def _compile_patterns(
 
 DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
-ALLOW_ONLY_EXTENSIONS = {
-    ".md",
-    ".mdx",
-    ".txt",
-    ".rst",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".ini",
-    ".cfg",
-    ".csv",
-    ".svg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".webp",
-    ".snap",
-    ".lock",
-}
+# Compiled path patterns for stamphog's own policy/engine files. A dismiss-time
+# guard consults these so a retained approval can't silently absorb a policy
+# edit - .md is otherwise blanket-trivial and AGENT_APPROVALS.md would slip in.
+_STAMPHOG_POLICY_PATH_PATTERNS = DENY_PATTERNS["stamphog_policy"]["paths"]
 
-ALLOW_PATH_PATTERNS = [
-    "docs/",
-    "README",
-    "CHANGELOG",
-    "LICENSE",
-    "CONTRIBUTING",
-    ".github/CODEOWNERS",
-    ".gitignore",
-    ".editorconfig",
-    "generated/",
-    "__snapshots__/",
-]
+ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
+
+ALLOW_PATH_PATTERNS = list(POLICY.allow_path_patterns)
 
 # ── Dismiss-time allow-list ──────────────────────────────────────
 #
@@ -370,15 +411,7 @@ DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset().union(
     *(spec.lockfiles for spec in DEPENDENCY_ECOSYSTEMS.values() if spec.trusted_at_dismiss)
 )
 
-_DISMISS_TIME_TEST_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?|fixtures)/"
-    r"|(?:^|/)test_[^/]+\.py$"
-    r"|_test\.(py|go)$"
-    r"|\.test\.(ts|tsx|js|jsx)$"
-    r"|\.spec\.(ts|tsx|js|jsx)$"
-    r"|(?:^|/)conftest\.py$",
-    re.IGNORECASE,
-)
+_DISMISS_TIME_TEST_RE = re.compile(POLICY.dismiss.test_regex, re.IGNORECASE)
 
 # Non-executable-at-dismiss-time on purpose: at dismiss time the path is
 # the only signal, so generated files in runnable backend languages
@@ -387,13 +420,7 @@ _DISMISS_TIME_TEST_RE = re.compile(
 # Real-world cost in this repo: proto regen under
 # posthog/personhog_client/proto/generated/ falls through to re-review,
 # which is rare and cheap.
-_DISMISS_TIME_GENERATED_RE = re.compile(
-    r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
-    r"|\.gen\.(ts|tsx|js|jsx)$"
-    r"|\.generated\.(ts|tsx|js|jsx)$"
-    r"|^frontend/src/queries/schema/",
-    re.IGNORECASE,
-)
+_DISMISS_TIME_GENERATED_RE = re.compile(POLICY.dismiss.generated_regex, re.IGNORECASE)
 
 
 def is_trivial_at_dismiss_time(path: str) -> bool:
@@ -403,15 +430,21 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
     bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
     anything else that can execute or alter build/CI behavior.
     """
+    # Stamphog's own policy/engine files are never trivial at dismiss time -
+    # otherwise a retained approval would let a post-approval policy edit land
+    # unreviewed (AGENT_APPROVALS.md is .md, which is blanket-trivial below).
+    if any(rx.search(path) for rx in _STAMPHOG_POLICY_PATH_PATTERNS):
+        return False
+
     name = Path(path).name
     name_lower = name.lower()
     if name_lower in DISMISS_TIME_LOCKFILES:
         return True
 
     suffix = Path(path).suffix.lower()
-    if suffix in {".md", ".mdx"}:
+    if suffix in POLICY.dismiss.trivial_extensions:
         return True
-    if name_lower.startswith(("readme", "changelog")):
+    if name_lower.startswith(POLICY.dismiss.trivial_name_prefixes):
         return True
     if path.startswith("docs/") or "/docs/" in path:
         return True
@@ -440,8 +473,13 @@ def parse_conventional_commit(subject: str) -> dict:
 # ── File classification ──────────────────────────────────────────
 
 
+# Directory matching is exact-segment only (__tests__/, test/, tests/, _tests/):
+# suffix matching like `*_tests/` catches runtime packages that merely end in
+# the word (destination_tests/ is API code, ingestion_acceptance_test/ is a
+# Temporal worker). Files inside looser test-tree layouts are still covered by
+# the filename branches (test_*.py, *.test.*, *_test.py).
 _TEST_FILE_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?)/|[_.](?:test|spec)\.[^/]+$|_test\.py$",
+    r"(?:^|/)(?:__tests__|tests?|_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
     re.IGNORECASE,
 )
 
@@ -503,19 +541,15 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Code under these trees performs auth/OAuth/billing-API handshakes as part of
-# its normal job — every data warehouse import connector (Stripe, Google Ads,
-# Salesforce, …) — so file names legitimately mention auth, oauth, stripe,
+# Per-category path prefixes exempt from deny matching, sourced from each deny
+# category's `exempt_path_prefixes` in the policy file. Categories without an
+# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere - connector
+# code that stores customer API keys still deserves the crypto gate. Code under
+# the warehouse-connector trees performs auth/OAuth/billing-API handshakes as
+# part of its normal job, so it legitimately mentions auth, oauth, stripe,
 # api_key, etc. without touching the auth *system* or PostHog's own billing.
-_CONNECTOR_SOURCE_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
-
-# Per-category path prefixes exempt from deny matching. Categories not listed
-# (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
-# code that stores customer API keys still deserves the crypto gate. Add new
-# exempt trees here rather than special-casing in detect_deny_categories.
 DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
-    "auth": _CONNECTOR_SOURCE_PREFIXES,
-    "billing": _CONNECTOR_SOURCE_PREFIXES,
+    category: cat.exempt_path_prefixes for category, cat in POLICY.deny.items() if cat.exempt_path_prefixes
 }
 
 
@@ -617,95 +651,20 @@ def is_allow_listed_only(files: list[str]) -> bool:
     return True
 
 
-# ── CODEOWNERS-soft ──────────────────────────────────────────────
-
-
-class CodeownersRule:
-    def __init__(self, pattern: str, teams: list[str]):
-        self.raw_pattern = pattern
-        self.teams = set(teams)
-        self._pattern = pattern.lstrip("/").replace("\\*\\*", "**").replace("\\*", "*")
-
-    def matches(self, filepath: str) -> bool:
-        pat = self._pattern
-        if not any(c in pat for c in ("*", "?")):
-            if filepath == pat or filepath == pat.rstrip("/"):
-                return True
-            prefix = pat if pat.endswith("/") else pat + "/"
-            if filepath.startswith(prefix):
-                return True
-            return False
-        if fnmatch(filepath, pat):
-            return True
-        if "**" in pat and fnmatch(filepath, pat.rstrip("/") + "/**"):
-            return True
-        return False
-
-
-def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
-    rules = []
-    if not path.exists():
-        return rules
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            pattern = parts[0]
-            teams = [t for t in parts[1:] if t.startswith("@")]
-            if teams:
-                rules.append(CodeownersRule(pattern, teams))
-    return rules
-
-
-def resolve_owners(filepath: str, rules: list[CodeownersRule]) -> set[str]:
-    matched_teams: set[str] = set()
-    for rule in rules:
-        if rule.matches(filepath):
-            matched_teams = rule.teams
-    return matched_teams
-
-
-def detect_ownership(files: list[str], rules: list[CodeownersRule]) -> dict:
-    all_teams: set[str] = set()
-    owned_files = 0
-    unowned_files = 0
-    team_file_counts: Counter = Counter()
-
-    for f in files:
-        teams = resolve_owners(f, rules)
-        if teams:
-            owned_files += 1
-            all_teams.update(teams)
-            for t in teams:
-                team_file_counts[t] += 1
-        else:
-            unowned_files += 1
-
-    return {
-        "teams": sorted(all_teams),
-        "team_count": len(all_teams),
-        "owned_files": owned_files,
-        "unowned_files": unowned_files,
-        "team_file_counts": dict(team_file_counts.most_common()),
-        "cross_team": len(all_teams) > 1,
-    }
-
-
 # ── Size gate ────────────────────────────────────────────────────
 
 
-MAX_LINES = 500
-MAX_FILES = 20
+MAX_LINES = POLICY.size_gate.max_lines
+MAX_FILES = POLICY.size_gate.max_files
 
-# Files that inflate a diff without adding review surface: prose docs,
-# regenerated artifacts, and test snapshots. The size ceiling counts only the
-# substantive remainder, so a 2000-line docs rewrite or type regen isn't
-# auto-denied. Exempt files still count toward tier/subclass classification
-# (which calibrates LLM scrutiny) and still appear in the diff the LLM reads.
+# Files that inflate a diff without raising auto-approval risk: prose docs,
+# regenerated artifacts, test snapshots, and tests (which cannot change
+# production runtime behavior; counting them punished exactly the well-tested
+# PRs the review philosophy waves through). The size ceiling counts only the substantive
+# remainder, so a 2000-line docs rewrite, a type regen, or a fix arriving with
+# extensive tests isn't auto-denied. Exempt files still count toward
+# tier/subclass classification (which calibrates LLM scrutiny) and still
+# appear in the diff the LLM reads.
 # Deliberately narrower than ALLOW_ONLY_EXTENSIONS: .json/.yaml/.toml configs
 # change runtime behavior, so they stay in the count.
 SIZE_EXEMPT_EXTENSIONS = {
@@ -741,7 +700,11 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
 
 
 def is_size_exempt(path: str) -> bool:
-    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+    return (
+        Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS
+        or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+        or bool(_TEST_FILE_RE.search(path))
+    )
 
 
 def substantive_size(files: list[dict]) -> tuple[int, int]:
@@ -775,16 +738,26 @@ def assign_tier(
     return "T1-agent"
 
 
+def _breadth_within(rule: str, breadth: str) -> bool:
+    """Whether a PR's breadth satisfies a sub-tier's breadth rule from the policy.
+
+    `single-area` requires an exact match; `not-cross-cutting` admits anything
+    but a cross-cutting change.
+    """
+    if rule == "single-area":
+        return breadth == "single-area"
+    return breadth != "cross-cutting"
+
+
 def t1_risk_subclass(
     *,
     lines_total: int,
     files_changed: int,
     breadth: str,
 ) -> str:
-    if lines_total <= 20 and files_changed <= 3 and breadth == "single-area":
-        return "T1a-trivial"
-    if lines_total <= 100 and files_changed <= 5 and breadth != "cross-cutting":
-        return "T1b-small"
-    if lines_total <= 300 and files_changed <= 15 and breadth != "cross-cutting":
-        return "T1c-medium"
+    # First matching sub-tier wins (policy order is narrowest first); T1d is the
+    # engine fallback for anything past the largest configured sub-tier.
+    for label, sub in POLICY.t1_subclasses.items():
+        if lines_total <= sub.max_lines and files_changed <= sub.max_files and _breadth_within(sub.breadth, breadth):
+            return label
     return "T1d-complex"

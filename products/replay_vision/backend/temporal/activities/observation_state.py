@@ -7,6 +7,7 @@ from django.utils import timezone
 import structlog
 from temporalio import activity
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -129,12 +130,18 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         if not updated:
             return  # No state transition — retry against an already-terminal row.
         # Write the usage receipt in the same transaction as the transition so a crash can't undercount.
-        obs = ReplayObservation.objects.values("team__organization_id", "created_at").get(pk=inputs.observation_id)
+        obs = ReplayObservation.objects.values(
+            "team_id", "team__organization_id", "created_at", "scanner_snapshot__model"
+        ).get(pk=inputs.observation_id)
+        model = obs["scanner_snapshot__model"] or ""
         ReplayObservationUsage.objects.get_or_create(
             observation_id=inputs.observation_id,
             defaults={
                 "organization_id": obs["team__organization_id"],
+                "team_id": obs["team_id"],
                 "observation_created_at": obs["created_at"],
+                "model": model,
+                "credits": observation_credits_for_model(model),
             },
         )
     REPLAY_VISION_OBSERVATIONS.labels(status="succeeded", scanner_type=inputs.scanner_type).inc()

@@ -50,15 +50,15 @@ describe('EmailTemplateView', () => {
     it('links the edit button to the _posthogUrl', () => {
         render(<EmailTemplateView template={baseTemplate} />)
 
-        const link = screen.getByRole('link', { name: /open in editor/i })
-        expect(link.getAttribute('href')).toBe(baseTemplate._posthogUrl)
+        const link = screen.getByText(/open in editor/i).closest('a')
+        expect(link?.getAttribute('href')).toBe(baseTemplate._posthogUrl)
     })
 
     it('omits the edit link when there is no _posthogUrl', () => {
         const { _posthogUrl, ...withoutUrl } = baseTemplate
         render(<EmailTemplateView template={withoutUrl} />)
 
-        expect(screen.queryByRole('link', { name: /open in editor/i })).toBeNull()
+        expect(screen.queryByText(/open in editor/i)).toBeNull()
     })
 
     it('falls back to plain text when there is no html', () => {

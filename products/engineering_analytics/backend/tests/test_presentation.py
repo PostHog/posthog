@@ -36,6 +36,15 @@ def _cards() -> contracts.CICardSummary:
     return contracts.CICardSummary(open_prs=5, repos=2, stuck=1, failing_ci=1)
 
 
+def _current_branch_health() -> contracts.CurrentBranchHealth:
+    return contracts.CurrentBranchHealth(
+        default_branch="main",
+        settled_workflows=101,
+        failing_workflows=1,
+        failing_workflow_names=["Low-volume failure"],
+    )
+
+
 def _pr_list_item() -> contracts.PullRequestListItem:
     return contracts.PullRequestListItem(
         number=10,
@@ -72,6 +81,35 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
                 bucket_start=datetime(2026, 1, 20, tzinfo=UTC), run_count=10, completed=8, successes=7, failures=1
             )
         ],
+    )
+
+
+def _repo_overview() -> contracts.RepoOverview:
+    return contracts.RepoOverview(
+        run_count=10,
+        run_count_prev=8,
+        success_rate=0.9,
+        success_rate_prev=0.85,
+        rerun_cycles=2,
+        rerun_cycles_prev=1,
+        merged_pr_count=42,
+        merged_pr_count_prev=40,
+        median_open_to_merge_seconds=3600.0,
+        median_open_to_merge_seconds_prev=4000.0,
+        billable_minutes=100.0,
+        billable_minutes_prev=90.0,
+        estimated_cost_usd=12.5,
+        estimated_cost_usd_prev=11.0,
+        jobs_available=True,
+        default_branch="master",
+        cost_series=[],
+        cost_series_granularity="day",
+        time_to_green_series=[],
+        time_to_green_series_granularity="day",
+        success_rate_series=[],
+        success_rate_series_granularity="day",
+        open_to_merge_series=[],
+        open_to_merge_series_granularity="day",
     )
 
 
@@ -191,12 +229,55 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
-    def test_workflow_health_passes_branch_through(self) -> None:
+    def test_workflow_health_passes_filters_through(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
-            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+            response = self.client.get(
+                self._url("workflow_health"),
+                {"branch": "main", "run_scope": "pull_request"},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
+        assert list_health.call_args.kwargs["run_scope"] == "pull_request"
+
+    @parameterized.expand(
+        [
+            ("default_true", {}, True),
+            ("explicit_false", {"include_series": "false"}, False),
+            ("explicit_true", {"include_series": "true"}, True),
+        ]
+    )
+    def test_repo_overview_serializes_and_forwards_include_series(self, _name, params, expected) -> None:
+        # The weekly digest depends on this param actually reaching the facade — a rename or
+        # parse regression silently restores the full chart-query cost it exists to skip.
+        with mock.patch(f"{_VIEWS}.get_repo_overview", return_value=_repo_overview()) as get:
+            response = self.client.get(self._url("repo_overview"), params)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get.call_args.kwargs["include_series"] is expected
+        data = response.json()
+        assert data["merged_pr_count"] == 42
+        assert data["merged_pr_count_prev"] == 40
+        assert data["cost_series"] == []
+
+    def test_repo_overview_400_on_bad_include_series(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_repo_overview", return_value=_repo_overview()):
+            response = self.client.get(self._url("repo_overview"), {"include_series": "maybe"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "include_series" in response.json()["detail"]
+
+    def test_current_branch_health_serializes(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_current_branch_health", return_value=_current_branch_health()):
+            response = self.client.get(self._url("current_branch_health"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "default_branch": "main",
+            "settled_workflows": 101,
+            "failing_workflows": 1,
+            "failing_workflow_names": ["Low-volume failure"],
+        }
 
     def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
         result = contracts.WorkflowRunActivity(
@@ -208,6 +289,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                     duration_seconds=180,
                     head_branch="main",
                     pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 )
             ],
             truncated=False,
@@ -386,9 +468,25 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "run_scope must be one of" in response.json()["detail"]
+
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_requires_rollout_feature_flag(self) -> None:
+        # The whole viewset is gated on the engineering-analytics rollout flag (which the
+        # conftest fixture enables); with the flag off, every endpoint must 403.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "engineering-analytics" in response.json()["detail"]
