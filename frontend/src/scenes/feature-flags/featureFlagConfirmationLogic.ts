@@ -112,7 +112,8 @@ export function checkFeatureFlagConfirmation(
     featureFlagConfirmationEnabled: boolean,
     onConfirm: () => void,
     dependentFlags?: DependentFlag[],
-    isBeingDisabled?: boolean
+    isBeingDisabled?: boolean,
+    requireStatusConfirmation = false
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -134,6 +135,16 @@ export function checkFeatureFlagConfirmation(
             })
             return true // Confirmation modal shown, don't proceed with save
         }
+    }
+
+    if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
+        openConfirmationModal({
+            featureFlag: updatedFlag,
+            type: 'flag-status',
+            activeNewValue: updatedFlag.active,
+            onConfirm,
+        })
+        return true
     }
 
     return false // No confirmation needed, proceed with save

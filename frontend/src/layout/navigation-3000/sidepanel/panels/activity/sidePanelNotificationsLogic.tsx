@@ -25,6 +25,9 @@ import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
 import {
+    notificationsArchiveAllCreate,
+    notificationsArchiveBulkCreate,
+    notificationsArchiveCreate,
     notificationsList,
     notificationsMarkAllReadCreate,
     notificationsMarkReadBulkCreate,
@@ -73,6 +76,7 @@ export interface NotificationGroup {
     last_seen: string
     children: InAppNotification[]
     has_unread: boolean
+    has_archivable: boolean
     full_children_loaded: boolean
 }
 
@@ -81,6 +85,45 @@ export function groupKey(n: InAppNotification): string {
     return `${n.notification_type}|${n.target_type}:${n.target_id}|${n.resource_type ?? ''}:${
         n.resource_id ?? ''
     }|${localDay}`
+}
+
+export function buildGroups(notifications: InAppNotification[], loadedGroupKeys: Set<string>): NotificationGroup[] {
+    const groups: NotificationGroup[] = []
+    const byKey = new Map<string, NotificationGroup>()
+    for (const n of notifications) {
+        const key = groupKey(n)
+        const existing = byKey.get(key)
+        if (existing) {
+            existing.children.push(n)
+            existing.count = existing.children.length
+            if (dayjs(n.created_at).isBefore(existing.first_seen)) {
+                existing.first_seen = n.created_at
+            }
+            if (dayjs(n.created_at).isAfter(existing.last_seen)) {
+                existing.last_seen = n.created_at
+            }
+            if (!n.read) {
+                existing.has_unread = true
+            }
+            if (n.archivable) {
+                existing.has_archivable = true
+            }
+            continue
+        }
+        byKey.set(key, {
+            group_key: key,
+            representative: n,
+            count: 1,
+            first_seen: n.created_at,
+            last_seen: n.created_at,
+            children: [n],
+            has_unread: !n.read,
+            has_archivable: n.archivable,
+            full_children_loaded: loadedGroupKeys.has(key),
+        })
+        groups.push(byKey.get(key)!)
+    }
+    return groups
 }
 
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
@@ -144,6 +187,23 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
+        archiveNotification: (id: string) => ({ id }),
+        archiveGroup: (group: NotificationGroup) => ({ group }),
+        archiveAll: true,
+        removeNotifications: (ids: string[]) => ({ ids }),
+        refreshInAppUnreadCount: true,
+        setArchivedNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
+        appendArchivedNotifications: (notifications: InAppNotification[], hasMore: boolean) => ({
+            notifications,
+            hasMore,
+        }),
+        loadArchivedNotifications: true,
+        loadMoreArchived: true,
+        loadMoreArchivedSuccess: (count: number) => ({ count }),
+        loadArchivedGroupChildren: (group: NotificationGroup) => ({ group }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
@@ -184,6 +244,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     return [...state, ...newItems]
                 },
                 notificationReceived: (state, { notification }) => [notification, ...state],
+                removeNotifications: (state, { ids }) => {
+                    const toRemove = new Set(ids)
+                    return state.filter((n) => !toRemove.has(n.id))
+                },
                 markAsRead: (state, { id }) =>
                     state.map((n) => (n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n)),
                 toggleRead: (state, { id }) =>
@@ -221,6 +285,46 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             {
                 loadMoreNotifications: () => true,
                 appendInAppNotifications: () => false,
+            },
+        ],
+        // Archived notifications are a separate, lazily-loaded data source so the active list is
+        // never polluted. They mirror the main-list reducers (offset cursor, has-more, loading).
+        archivedNotifications: [
+            [] as InAppNotification[],
+            {
+                setArchivedNotifications: (_, { notifications }) => notifications,
+                appendArchivedNotifications: (state, { notifications }) => {
+                    const existingIds = new Set(state.map((n) => n.id))
+                    const newItems = notifications.filter((n) => !existingIds.has(n.id))
+                    return [...state, ...newItems]
+                },
+            },
+        ],
+        archivedLoaded: [
+            false,
+            {
+                setArchivedNotifications: () => true,
+            },
+        ],
+        archivedListOffset: [
+            0,
+            {
+                setArchivedNotifications: (_, { notifications }) => notifications.length,
+                loadMoreArchivedSuccess: (state, { count }) => state + count,
+            },
+        ],
+        hasMoreArchived: [
+            false,
+            {
+                setArchivedNotifications: (_, { hasMore }) => hasMore,
+                appendArchivedNotifications: (_, { hasMore }) => hasMore,
+            },
+        ],
+        isLoadingMoreArchived: [
+            false,
+            {
+                loadMoreArchived: () => true,
+                appendArchivedNotifications: () => false,
             },
         ],
         inAppUnreadCount: [
@@ -354,7 +458,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         ],
     })),
     listeners(({ actions, values, cache }) => {
-        const fetchGroupChildren = async (group: NotificationGroup): Promise<void> => {
+        const fetchGroupChildren = async (group: NotificationGroup, archived = false): Promise<void> => {
             if (group.full_children_loaded) {
                 return
             }
@@ -368,6 +472,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 created_before: day.add(1, 'day').toISOString(),
                 limit: 100,
             }
+            if (archived) {
+                params.archived = true
+            }
             if (group.representative.resource_type) {
                 params.resource_type = group.representative.resource_type
             }
@@ -376,7 +483,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             }
             try {
                 const resp = await notificationsList((values.currentProjectId ?? '').toString(), params)
-                actions.appendInAppNotifications(resp.results as InAppNotification[], values.hasMoreNotifications)
+                const results = resp.results as InAppNotification[]
+                if (archived) {
+                    actions.appendArchivedNotifications(results, values.hasMoreArchived)
+                } else {
+                    actions.appendInAppNotifications(results, values.hasMoreNotifications)
+                }
                 actions.markGroupChildrenLoaded(group.group_key)
             } catch {
                 // Swallow
@@ -621,6 +733,110 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     // Swallow
                 }
             },
+            refreshInAppUnreadCount: async () => {
+                try {
+                    const countResp = await api.get<{ count: number }>(
+                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(countResp.count)
+                } catch {
+                    // Swallow
+                }
+            },
+            archiveNotification: async ({ id }) => {
+                const notification = values.inAppNotifications.find((n) => n.id === id)
+                if (!notification || !notification.archivable) {
+                    return
+                }
+                actions.removeNotifications([id])
+                if (!notification.read) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - 1))
+                }
+                try {
+                    await notificationsArchiveCreate((values.currentProjectId ?? '').toString(), id)
+                } catch {
+                    // Swallow
+                }
+                // Reconcile against the server: the optimistic decrement above only covers the
+                // loaded page, so resync the authoritative count.
+                await actions.refreshInAppUnreadCount()
+            },
+            archiveGroup: async ({ group }) => {
+                if (!group.full_children_loaded) {
+                    await fetchGroupChildren(group)
+                }
+                const refreshed = values.groups.find((g) => g.group_key === group.group_key)
+                if (!refreshed) {
+                    return
+                }
+                const archivable = refreshed.children.filter((c) => c.archivable)
+                const ids = archivable.map((c) => c.id)
+                if (ids.length === 0) {
+                    return
+                }
+                const unreadArchived = archivable.filter((c) => !c.read).length
+                actions.removeNotifications(ids)
+                if (unreadArchived > 0) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadArchived))
+                }
+                try {
+                    await notificationsArchiveBulkCreate((values.currentProjectId ?? '').toString(), {
+                        notification_ids: ids,
+                    })
+                } catch {
+                    // Swallow
+                }
+                await actions.refreshInAppUnreadCount()
+            },
+            archiveAll: async () => {
+                const archivable = values.inAppNotifications.filter((n) => n.archivable)
+                const ids = archivable.map((n) => n.id)
+                if (ids.length === 0) {
+                    return
+                }
+                const unreadArchived = archivable.filter((n) => !n.read).length
+                actions.removeNotifications(ids)
+                if (unreadArchived > 0) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount - unreadArchived))
+                }
+                try {
+                    await notificationsArchiveAllCreate((values.currentProjectId ?? '').toString())
+                } catch {
+                    // Swallow
+                }
+                await actions.refreshInAppUnreadCount()
+            },
+            loadArchivedNotifications: async () => {
+                try {
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: 20,
+                        archived: true,
+                    })
+                    actions.setArchivedNotifications(resp.results as InAppNotification[], !!resp.next)
+                } catch {
+                    // Swallow
+                }
+            },
+            loadMoreArchived: async () => {
+                if (!values.hasMoreArchived) {
+                    return
+                }
+                try {
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: 20,
+                        offset: values.archivedListOffset,
+                        archived: true,
+                    })
+                    const results = resp.results as InAppNotification[]
+                    actions.appendArchivedNotifications(results, !!resp.next)
+                    actions.loadMoreArchivedSuccess(results.length)
+                } catch {
+                    // Swallow
+                }
+            },
+            loadArchivedGroupChildren: async ({ group }) => {
+                await fetchGroupChildren(group, true)
+            },
             loadCurrentTeamSuccess: () => {
                 if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
                     cache.nextStartReason = 'team_reload'
@@ -680,6 +896,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         realTimeNotificationsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+        ],
+        archivingEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.CLEARABLE_NOTIFICATIONS],
         ],
         legacyNotifications: [
             (s) => [s.importantChanges],
@@ -749,6 +969,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
+        hasArchivableNotifications: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): boolean => inAppNotifications.some((n) => n.archivable),
+        ],
         unreadCount: [
             (s) => [s.realTimeNotificationsEnabled, s.legacyNotifications, s.inAppUnreadCount],
             (realTimeEnabled, legacyNotifications, inAppUnreadCount): number => {
@@ -793,41 +1017,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         ],
         groups: [
             (s) => [s.inAppNotifications, s.loadedGroupKeys],
-            (notifications: InAppNotification[], loadedGroupKeys: Set<string>): NotificationGroup[] => {
-                const groups: NotificationGroup[] = []
-                const byKey = new Map<string, NotificationGroup>()
-                for (const n of notifications) {
-                    const key = groupKey(n)
-                    const existing = byKey.get(key)
-                    if (existing) {
-                        existing.children.push(n)
-                        existing.count = existing.children.length
-                        if (dayjs(n.created_at).isBefore(existing.first_seen)) {
-                            existing.first_seen = n.created_at
-                        }
-                        if (dayjs(n.created_at).isAfter(existing.last_seen)) {
-                            existing.last_seen = n.created_at
-                        }
-                        if (!n.read) {
-                            existing.has_unread = true
-                        }
-                        continue
-                    }
-                    const group: NotificationGroup = {
-                        group_key: key,
-                        representative: n,
-                        count: 1,
-                        first_seen: n.created_at,
-                        last_seen: n.created_at,
-                        children: [n],
-                        has_unread: !n.read,
-                        full_children_loaded: loadedGroupKeys.has(key),
-                    }
-                    byKey.set(key, group)
-                    groups.push(group)
-                }
-                return groups
-            },
+            (notifications: InAppNotification[], loadedGroupKeys: Set<string>): NotificationGroup[] =>
+                buildGroups(notifications, loadedGroupKeys),
+        ],
+        archivedGroups: [
+            (s) => [s.archivedNotifications, s.loadedGroupKeys],
+            (notifications: InAppNotification[], loadedGroupKeys: Set<string>): NotificationGroup[] =>
+                buildGroups(notifications, loadedGroupKeys),
         ],
     }),
     afterMount(({ cache, actions, values }) => {

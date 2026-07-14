@@ -21,7 +21,15 @@ import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { Suspense } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonSearchableSelect,
+    Spinner,
+    lemonToast,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -105,7 +113,11 @@ export interface SqlEditorLogicProps {
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
 // positions of the range's start/end on each line.
-function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: HTMLElement, range: IRange): void {
+export function renderQueryOutline(
+    editorInstance: editor.IStandaloneCodeEditor,
+    node: HTMLElement,
+    range: IRange
+): void {
     const model = editorInstance.getModel()
     if (!model) {
         node.style.display = 'none'
@@ -117,9 +129,18 @@ function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: 
     let minTop = Infinity
     let maxBottom = -Infinity
 
-    for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
-        const leftCol = line === range.startLineNumber ? range.startColumn : 1
-        const rightCol = line === range.endLineNumber ? range.endColumn : model.getLineMaxColumn(line)
+    // The cached range can outlive the document it was computed against: a paste or edit
+    // that removes lines shrinks the model, but this render path runs on scroll/layout
+    // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
+    // "Illegal value for lineNumber", so clamp every line/column against the live model.
+    const lineCount = model.getLineCount()
+    const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
+    const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+
+    for (let line = startLine; line <= endLine; line++) {
+        const lineMaxColumn = model.getLineMaxColumn(line)
+        const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
+        const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
         if (leftCol >= rightCol) {
             continue
         }
@@ -1325,6 +1346,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 LemonDialog.openForm({
                     title: 'Save as view',
+                    showErrorsOnTouch: true,
                     initialValues: {
                         viewName: values.activeTab?.name || '',
                         folderId: null,
@@ -1334,7 +1356,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
                     },
-                    description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
+                    description: `View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'. Spaces are not allowed.`,
                     content: (isLoading) =>
                         isLoading ? (
                             <div className="h-[37px] flex items-center">
@@ -1342,7 +1364,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </div>
                         ) : (
                             <>
-                                <LemonField name="viewName">
+                                <LemonField name="viewName" label="Name">
                                     <LemonInput
                                         data-attr="sql-editor-input-save-view-name"
                                         disabled={isLoading}
@@ -1353,9 +1375,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 <div className="flex gap-2 mt-2">
                                     <LemonField name="folderId" label="Add to folder" className="flex-1">
                                         {({ value, onChange }) => (
-                                            <LemonSelect<string | null>
+                                            <LemonSearchableSelect<string | null>
                                                 value={value}
                                                 onChange={onChange}
+                                                searchPlaceholder="Search folders"
                                                 options={[
                                                     ...folderOptions,
                                                     {
@@ -1364,7 +1387,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                         labelInMenu: () => (
                                                             <button
                                                                 type="button"
-                                                                className="w-full text-left text-primary px-2 py-1.5"
+                                                                className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
                                                                 onClick={() => createFolderAndSelect(onChange)}
                                                             >
                                                                 + Add new folder

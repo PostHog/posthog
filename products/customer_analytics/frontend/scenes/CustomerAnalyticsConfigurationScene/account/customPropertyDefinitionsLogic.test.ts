@@ -18,8 +18,18 @@ import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
 const DEFINITION_URL = '/api/projects/:team_id/custom_property_definitions/:id/'
 const SAVED_QUERIES_URL = '/api/environments/:team_id/warehouse_saved_queries/'
+const WAREHOUSE_TABLES_URL = '/api/environments/:team_id/warehouse_tables/'
 const SOURCES_URL = '/api/projects/:team_id/custom_property_sources/'
 const SOURCE_URL = '/api/projects/:team_id/custom_property_sources/:id/'
+const PROPERTY_DEFINITIONS_URL = '/api/projects/:team_id/property_definitions/'
+
+// Loosely-typed warehouse table — the logic only reads id/name/external_schema.id.
+const buildTable = (overrides: Record<string, any> = {}): any => ({
+    id: 'table-1',
+    name: 'users',
+    external_schema: { id: 'schema-1', name: 'users' },
+    ...overrides,
+})
 
 const buildSource = (overrides: Partial<CustomPropertySourceApi> = {}): CustomPropertySourceApi =>
     ({
@@ -66,6 +76,8 @@ const defaultMocks = (): Parameters<typeof useMocks>[0] => ({
     get: {
         [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] },
         [SAVED_QUERIES_URL]: { count: 1, results: [buildView()] },
+        [WAREHOUSE_TABLES_URL]: { count: 1, results: [buildTable()] },
+        [PROPERTY_DEFINITIONS_URL]: { count: 1, results: [{ id: 'p1', name: 'existing_prop' }] },
     },
     post: {
         [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }),
@@ -120,10 +132,13 @@ describe('customPropertyDefinitionsLogic', () => {
             displayType: 'currency',
             isBigNumber: true,
             options: [],
+            targetType: 'account',
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
             keyColumn: 'org_id',
+            warehouseTable: null,
+            columnMappings: [{ column: '', property: '' }],
             isEnabled: true,
         })
     })
@@ -277,6 +292,93 @@ describe('customPropertyDefinitionsLogic', () => {
         })
     })
 
+    it('creates a person-target definition and binds it to a warehouse schema', async () => {
+        let definitionBody: Record<string, any> | null = null
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [DEFINITIONS_URL]: async ({ request }) => {
+                    definitionBody = (await request.json()) as Record<string, any>
+                    return buildDefinition({ id: 'def-2', target_type: 'person' })
+                },
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseTable: 'table-1',
+            keyColumn: 'distinct_id',
+            columnMappings: [
+                { column: 'plan', property: 'plan_tier' },
+                // A half-filled row is dropped rather than sent.
+                { column: '', property: '' },
+            ],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'setEditingDefinition',
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(definitionBody).toMatchObject({ name: 'Plan tier', target_type: 'person' })
+        // The person source binds to the table's schema id, not the table id, with the mapped columns.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
+            external_data_schema: 'schema-1',
+            column_property_map: { plan: 'plan_tier' },
+            key_column: 'distinct_id',
+            is_enabled: true,
+        })
+    })
+
+    it('resolves the selected table schema id and serialized column map for the person source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            targetType: 'person',
+            warehouseTable: 'table-1',
+            columnMappings: [
+                { column: ' plan ', property: ' plan_tier ' },
+                { column: 'seats', property: '' },
+            ],
+        })
+        expect(logic.values.selectedWarehouseSchemaId).toBe('schema-1')
+        // Trims and drops incomplete pairs.
+        expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
+    })
+
+    it('warns when a person mapping targets an identity or already-existing property', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadPersonPropertyDefinitionsSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValue('columnMappings', [
+            { column: 'a', property: 'plan_tier' }, // fine
+            { column: 'b', property: 'email' }, // identity property
+            { column: 'c', property: '$browser' }, // $-prefixed
+            { column: 'd', property: 'existing_prop' }, // already defined on persons
+        ])
+        const warnings = logic.values.columnMappingWarnings
+        expect(warnings[0]).toBeNull()
+        expect(warnings[1]).toContain('identity property')
+        expect(warnings[2]).toContain('identity property')
+        expect(warnings[3]).toContain('already exists')
+    })
+
     it('updates an existing source via PATCH without the create-only fields', async () => {
         let patchedBody: Record<string, any> | null = null
         useMocks({
@@ -297,6 +399,41 @@ describe('customPropertyDefinitionsLogic', () => {
             'submitCustomPropertyFormSuccess',
         ])
         expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
+    })
+
+    it('saves an existing person source even when its warehouse table is no longer selectable', async () => {
+        // The table + column map are create-only and hidden on edit, so form validation must not
+        // require a re-selected warehouse table — only key_column and is_enabled stay editable.
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [WAREHOUSE_TABLES_URL]: { count: 0, results: [] } },
+            patch: {
+                ...defaultMocks().patch,
+                [SOURCE_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        logic.actions.setCustomPropertyFormValue('isEnabled', false)
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(patchedBody).toEqual({ key_column: 'distinct_id', is_enabled: false })
     })
 
     it('deletes the source when saving after switching away from data warehouse mode', async () => {

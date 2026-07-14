@@ -90,6 +90,8 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.LOGS, ['install:logs', 'invite_teammates:logs']],
             // Data Warehouse has no install step — the link_data step is the entry point.
             [ProductKey.DATA_WAREHOUSE, ['link_data:data_warehouse', 'invite_teammates:data_warehouse']],
+            // Support has no product-specific step; it's enabled on completion, so only the shared step shows.
+            [ProductKey.CONVERSATIONS, ['invite_teammates:conversations']],
         ]
 
         it.each(cases)('builds the expected flow when only %s is selected', (product, expected) => {
@@ -594,6 +596,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],
             [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
+            [ProductKey.CONVERSATIONS, /support/i],
         ]
 
         it.each(cases)('%s lands on a product-specific page', (product, pattern) => {

@@ -25,6 +25,7 @@ import type {
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
+    ManagedWarehouseDataStatusResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
@@ -328,6 +329,26 @@ export const dataWarehouseJobStatsRetrieve = async (projectId: string, options?:
     })
 }
 
+export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-data-status/`
+}
+
+/**
+ * Get events, persons, and imported source readiness for the managed warehouse.
+ */
+export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseDataStatusResponseApi> => {
+    return apiMutator<ManagedWarehouseDataStatusResponseApi>(
+        getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getDataWarehousePropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/property_values/`
 }
@@ -614,7 +635,10 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsRetrieveUrl = (
+    projectId: string,
+    kind: 'revenue_analytics' | 'engineering_analytics'
+) => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -624,7 +648,7 @@ export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_
  */
 export const managedViewsetsRetrieve = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
@@ -633,7 +657,7 @@ export const managedViewsetsRetrieve = async (
     })
 }
 
-export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics' | 'engineering_analytics') => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }
 
@@ -643,7 +667,7 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
  */
 export const managedViewsetsUpdate = async (
     projectId: string,
-    kind: 'revenue_analytics',
+    kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {

@@ -668,17 +668,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 11 once at least one insight materializes
+            # baseline + 11 + 9 once at least one insight materializes
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 9):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 9):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 11):
+        with self.assertNumQueries(baseline + 11 + 9):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -826,25 +826,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertIsNotNone(response_data["tiles"][0]["last_refresh"])
             self.assertEqual(response_data["tiles"][0]["insight"]["result"][0]["count"], 0)
 
-            item_default.refresh_from_db()
-            item_trends.refresh_from_db()
-
-            self.assertEqual(
-                isoparse(response_data["tiles"][0]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-            self.assertEqual(
-                isoparse(response_data["tiles"][1]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-
             self.assertAlmostEqual(
-                item_default.caching_state.last_refresh,
+                isoparse(response_data["tiles"][0]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )
             self.assertAlmostEqual(
-                item_trends.caching_state.last_refresh,
+                isoparse(response_data["tiles"][1]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )

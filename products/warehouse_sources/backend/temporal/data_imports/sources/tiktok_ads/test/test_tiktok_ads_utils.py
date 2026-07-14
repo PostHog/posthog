@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     TIKTOK_ADS_CONFIG,
@@ -17,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
-    TikTokAdsListingError,
     TikTokAdsPaginator,
     TikTokDateRangeManager,
     TikTokReportResource,
@@ -848,7 +848,38 @@ class TestListAdvertisers:
     def test_non_zero_code_raises_with_api_code(self):
         session = self._session_returning({"code": 40105, "message": "Access token is invalid"})
         with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
-            with pytest.raises(TikTokAdsListingError) as excinfo:
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
                 list_advertisers("token")
 
         assert excinfo.value.api_code == 40105
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_body_without_code_raises_with_none_api_code(self):
+        # A malformed body must not be mistaken for one of the known code sets.
+        session = self._session_returning({"unexpected": "shape"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code is None
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_json_body_raises_tiktok_error_not_json_decode_error(self):
+        # A proxy answering HTML would otherwise surface as an opaque JSONDecodeError.
+        response = Mock()
+        response.json.side_effect = ValueError("Expecting value")
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError):
+                list_advertisers("token")
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_http_error_status_is_raised(self):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError("502 Bad Gateway")
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(HTTPError):
+                list_advertisers("token")
