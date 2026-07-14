@@ -372,7 +372,9 @@ services:
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
         # They are only for DEV and should not be used in production.
-        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+        # fsync/synchronous_commit/full_page_writes off: dev and CI data is disposable,
+        # so commits skip WAL durability waits — a real win on CI runners with real disks.
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
 
     redis7:
         extends:
