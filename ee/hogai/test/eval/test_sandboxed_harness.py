@@ -10,9 +10,11 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import requests
+from parameterized import parameterized
 
 from ee.hogai.eval.sandboxed import runner
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
+from ee.hogai.eval.sandboxed.harness.cli import parse_args
 from ee.hogai.eval.sandboxed.harness.live_server import EvalLiveServer
 from ee.hogai.eval.sandboxed.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
 
@@ -112,6 +114,14 @@ def test_setup_django_disables_self_capture_before_settings_load() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+@parameterized.expand([(0,), (-1,)])
+def test_parse_args_rejects_non_positive_case_timeout(case_timeout: int) -> None:
+    with pytest.raises(SystemExit) as error:
+        parse_args(["--case-timeout", str(case_timeout)])
+
+    assert error.value.code == 2
 
 
 @pytest.mark.asyncio
