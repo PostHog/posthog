@@ -33,8 +33,8 @@ Lists live ingestion-consumer pods and serves the consumer's routing debug UI pe
 | `ANALYSIS_MAX_FETCH_BYTES` | `536870912` | Kafka transfers full records even for header-only analysis |
 | `POD_DISCOVERY_MODE` | `kubernetes` | `static` for local testing |
 | `STATIC_PODS` | `local=127.0.0.1:3301` | `name=host:port` pairs for static mode |
-| `POD_LABEL_SELECTORS` | `app=ingestion-analytics-main,app=ingestion-analytics-async` | One `key=value` per entry |
-| `K8S_NAMESPACE` | `posthog` | |
+| `POD_LABEL_SELECTORS` | `ingestion-analytics-main/app=ingestion-analytics-main,ingestion-analytics-async/app=ingestion-analytics-async` | One `namespace/key=value` per entry (each lane runs in its own namespace); bare `key=value` uses `K8S_NAMESPACE` |
+| `K8S_NAMESPACE` | `posthog` | Default namespace for unqualified selector entries |
 | `DEBUG_PORT` | `3301` | Consumer debug API port (kubernetes mode) |
 
 ## Local development

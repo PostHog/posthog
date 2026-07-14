@@ -5,7 +5,7 @@ use k8s_awareness::DiscoveredPod;
 use kube::Client;
 use tokio::sync::OnceCell;
 
-use crate::config::Config;
+use crate::config::{Config, PodDiscoveryMode};
 
 /// A fixed proxy target used by static discovery (local testing), mirroring
 /// the ingestion-consumer's static worker discovery.
@@ -27,12 +27,9 @@ pub enum PodDiscovery {
 
 impl PodDiscovery {
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
-        match config.pod_discovery_mode.as_str() {
-            "kubernetes" => Ok(Self::Kubernetes(OnceCell::new())),
-            "static" => Ok(Self::Static(parse_static_pods(&config.static_pods)?)),
-            other => Err(anyhow!(
-                "invalid POD_DISCOVERY_MODE '{other}' (expected 'kubernetes' or 'static')"
-            )),
+        match config.pod_discovery_mode {
+            PodDiscoveryMode::Kubernetes => Ok(Self::Kubernetes(OnceCell::new())),
+            PodDiscoveryMode::Static => Ok(Self::Static(parse_static_pods(&config.static_pods)?)),
         }
     }
 
@@ -70,14 +67,19 @@ impl PodDiscovery {
             Self::Kubernetes(cell) => {
                 let client = Self::client(cell).await?;
                 let mut pods = Vec::new();
-                for selector in config.label_selectors() {
+                for target in config.pod_targets() {
                     let mut found = k8s_awareness::list_pods_by_selector(
                         client,
-                        &config.k8s_namespace,
-                        &selector,
+                        &target.namespace,
+                        &target.selector,
                     )
                     .await
-                    .with_context(|| format!("list pods for selector '{selector}'"))?;
+                    .with_context(|| {
+                        format!(
+                            "list pods for selector '{}' in namespace '{}'",
+                            target.selector, target.namespace
+                        )
+                    })?;
                     pods.append(&mut found);
                 }
                 pods.sort_by(|a, b| a.name.cmp(&b.name));
@@ -89,8 +91,8 @@ impl PodDiscovery {
 
     /// Resolve a pod name to the `host:port` of its debug API. In kubernetes
     /// mode the pod is fetched fresh from the API and must match one of the
-    /// configured label selectors — the debug proxy must never dial a
-    /// client-chosen host.
+    /// configured targets (namespace + label selector) — the debug proxy must
+    /// never dial a client-chosen host.
     pub async fn resolve_proxy_target(
         &self,
         config: &Config,
@@ -103,13 +105,30 @@ impl PodDiscovery {
                 .map(|static_pod| static_pod.address.clone())),
             Self::Kubernetes(cell) => {
                 let client = Self::client(cell).await?;
-                let pod = k8s_awareness::get_pod(client, &config.k8s_namespace, name)
-                    .await
-                    .with_context(|| format!("fetch pod '{name}'"))?;
-                Ok(pod
-                    .filter(|p| matches_any_selector(&p.labels, &config.label_selectors()))
-                    .and_then(|p| p.ip)
-                    .map(|ip| format!("{ip}:{}", config.debug_port)))
+                let targets = config.pod_targets();
+                let mut namespaces: Vec<&str> = Vec::new();
+                for target in &targets {
+                    if !namespaces.contains(&target.namespace.as_str()) {
+                        namespaces.push(&target.namespace);
+                    }
+                }
+                for namespace in namespaces {
+                    let pod = k8s_awareness::get_pod(client, namespace, name)
+                        .await
+                        .with_context(|| format!("fetch pod '{name}' in '{namespace}'"))?;
+                    let selectors: Vec<&str> = targets
+                        .iter()
+                        .filter(|t| t.namespace == namespace)
+                        .map(|t| t.selector.as_str())
+                        .collect();
+                    if let Some(ip) = pod
+                        .filter(|p| matches_any_selector(&p.labels, &selectors))
+                        .and_then(|p| p.ip)
+                    {
+                        return Ok(Some(format!("{ip}:{}", config.debug_port)));
+                    }
+                }
+                Ok(None)
             }
         }
     }
@@ -138,7 +157,7 @@ fn parse_static_pods(raw: &str) -> anyhow::Result<Vec<StaticPod>> {
 }
 
 /// Each configured selector is a single `key=value` pair.
-fn matches_any_selector(labels: &BTreeMap<String, String>, selectors: &[String]) -> bool {
+fn matches_any_selector(labels: &BTreeMap<String, String>, selectors: &[&str]) -> bool {
     selectors.iter().any(|selector| {
         selector.split_once('=').is_some_and(|(key, value)| {
             labels.get(key.trim()).map(String::as_str) == Some(value.trim())
@@ -160,9 +179,9 @@ mod tests {
     #[test]
     fn matches_when_any_selector_matches() {
         let pod_labels = labels(&[("app", "ingestion-analytics-main"), ("team", "ingestion")]);
-        let selectors = vec![
-            "app=ingestion-analytics-async".to_string(),
-            "app=ingestion-analytics-main".to_string(),
+        let selectors = [
+            "app=ingestion-analytics-async",
+            "app=ingestion-analytics-main",
         ];
         assert!(matches_any_selector(&pod_labels, &selectors));
     }
@@ -172,12 +191,9 @@ mod tests {
         let pod_labels = labels(&[("app", "some-other-service")]);
         assert!(!matches_any_selector(
             &pod_labels,
-            &["app=ingestion-analytics-main".to_string()]
+            &["app=ingestion-analytics-main"]
         ));
-        assert!(!matches_any_selector(
-            &pod_labels,
-            &["no-equals".to_string()]
-        ));
+        assert!(!matches_any_selector(&pod_labels, &["no-equals"]));
     }
 
     #[test]
