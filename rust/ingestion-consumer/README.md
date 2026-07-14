@@ -12,12 +12,16 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
 | Commits are contiguous, monotonic, non-empty per partition | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
-| Async commits actually succeed | `ingestion_consumer_commit_results_total{result=error}` | `{result=ok}`, `ingestion_consumer_last_successful_commit_timestamp_seconds` |
+| Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
 | Per-key sends are in offset order, never re-sent after ACK | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys` |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
 
+Commit success can't be observed via rdkafka's `commit_callback` — librdkafka drops the result of manual async commits (no conf-level `offset_commit_cb` is ever registered by rust-rdkafka, and only sync commits attach a reply queue).
+Instead a background commit monitor fetches the group's broker-committed offsets every 30s (one OffsetFetch) and compares them to what was attempted: `commit_confirmation_lag` is transiently positive while async commits are in flight, and persistently positive when commits are submitted but not landing (e.g. a stuck coordinator).
+Alerts should gate on `ingestion_consumer_offset_commits_total > 0` — an idle consumer that never committed has nothing to confirm.
+
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
-The commit-result and rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
+The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
@@ -40,7 +44,8 @@ Fix: cap sub-batch payload size at build time (chunks sent sequentially per work
 
 ### 2. Commit-error observability — done
 
-Addressed by `SentinelContext` (`order_sentinel.rs`): the offset-commit callback feeds `ingestion_consumer_commit_results_total{result}` and a last-successful-commit gauge, and rebalance callbacks log assignment changes and reset the ordering sentinels.
+Addressed by the commit monitor plus `SentinelContext` (`order_sentinel.rs`): broker-committed offsets are polled and compared against attempted commits (see "Ordering sentinels" above), and rebalance callbacks log assignment changes and reset the ordering sentinels.
+The originally envisioned offset-commit callback turned out to be unreachable for manual async commits (librdkafka drops their results unless a conf-level `offset_commit_cb` is registered, which rust-rdkafka never does) — hence the polling design.
 Remaining: alert rules on the new metrics.
 
 ### 3. DLQ for poison messages
