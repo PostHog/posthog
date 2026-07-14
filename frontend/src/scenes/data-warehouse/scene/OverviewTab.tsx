@@ -206,7 +206,6 @@ export function OverviewTab(): JSX.Element {
                 <div className="p-4 flex items-start justify-between gap-3 border-b">
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>
-                        <p className="text-muted mb-0">{managedWarehouseDataStatus.sources.detail}</p>
                         <p className="text-xs text-muted mb-0">
                             Reflects the warehouse source imports currently enabled to sync.{' '}
                             <Link to={urls.sources()}>Manage sources</Link>
