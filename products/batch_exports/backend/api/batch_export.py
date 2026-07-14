@@ -1070,7 +1070,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def validate_interval(self, interval: str | None) -> str | None:
+    def validate_interval(self, interval: str) -> str:
         """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
         team_id = self.context["team_id"]
 
