@@ -361,34 +361,39 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
-                  # full ancestry needed to find the divergence point is available.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -z "$MERGE_BASE" ]; then
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      SCHEMA_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      MIGRATION_REF="$SCHEMA_BASE"
+                  else
+                      # Product jobs run in parallel with the migration job on master,
+                      # so restore the previous push's schema and let pytest apply any delta.
+                      SCHEMA_BASE=$(git rev-parse HEAD^ 2>/dev/null || echo "")
+                      MIGRATION_REF=HEAD
+                  fi
+                  if [ -z "$SCHEMA_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      echo "::notice::schema base not found — schema cache will be skipped"
                       exit 0
                   fi
-                  # Exact branch-point key, kept as the fallback restore key below.
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
-                  # apply as the pytest delta. uv.lock covers third-party migration changes; the
-                  # postgres image is folded in so a server-version bump invalidates the key.
+                  # Exact base key, kept as the fallback restore key below.
+                  echo "key=posthog-schema-master-${SCHEMA_BASE}" >> $GITHUB_OUTPUT
+                  # Shared key: hash the schema inputs. On PRs this is the merge base;
+                  # on master it is HEAD, with the previous SHA key as a safe fallback
+                  # when the current push introduces a migration.
                   # Non-Django migration frameworks are excluded from this Postgres schema dump.
                   # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MIGRATION_REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                  PG_IMAGE=$(git show "${MIGRATION_REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -433,7 +438,7 @@ jobs:
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
-                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
+                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || format('{0}^', github.sha) }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
@@ -725,7 +730,7 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              if: ${{ needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -736,7 +741,7 @@ jobs:
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; db:restore-test-db recreates the DB after failure.
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ needs.turbo-discover.outputs.schema_cache_key != '' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"

@@ -12,10 +12,18 @@ const path = require('path')
 const {
     collectTestFiles,
     checkProductStaleness,
+    includeDependencyScopedProducts,
     productPrefix,
     productEffectiveCost,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
 } = require('./turbo-discover')
+
+test('dependency-scoped products only join full sweeps when affected', () => {
+    const allProducts = ['experiments', 'signals', 'surveys']
+
+    assert.deepEqual(includeDependencyScopedProducts(allProducts, ['signals']), ['signals', 'surveys'])
+    assert.deepEqual(includeDependencyScopedProducts(allProducts, ['experiments']), allProducts)
+})
 
 test('productPrefix converts dashes to underscores', () => {
     assert.equal(productPrefix('warehouse-sources'), 'products/warehouse_sources/')

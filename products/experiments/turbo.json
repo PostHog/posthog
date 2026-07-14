@@ -1,0 +1,30 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            "inputs": [
+                "backend/**/*.py",
+                "!backend/**/__pycache__/**",
+                "stats/**/*.py",
+                "../../pyproject.toml",
+                "../../uv.lock",
+                "../../common/**/*.py",
+                "../../posthog/**/*.py",
+                "../../ee/**/*.py",
+                "../../products/actions/backend/**/*.py",
+                "../../products/ai_observability/backend/**/*.py",
+                "../../products/analytics_platform/backend/**/*.py",
+                "../../products/approvals/backend/**/*.py",
+                "../../products/cohorts/backend/**/*.py",
+                "../../products/data_tools/backend/**/*.py",
+                "../../products/event_definitions/backend/**/*.py",
+                "../../products/feature_flags/backend/**/*.py",
+                "../../products/notifications/backend/**/*.py",
+                "../../products/product_tours/backend/**/*.py",
+                "../../products/surveys/backend/**/*.py",
+                "../../products/tasks/backend/**/*.py",
+                "../../products/warehouse_sources/backend/**/*.py"
+            ]
+        }
+    }
+}

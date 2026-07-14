@@ -53,6 +53,12 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // the temporal durations must count toward product sizing so the product is sharded for that load —
 // otherwise a huge suite lands in one unsharded bucket and times out.
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
+
+// These products declare their non-product Python dependencies as Turbo task
+// inputs, so they do not need to join a full product sweep unless Turbo marks
+// them affected. Keep this list deliberately small: missing an input would skip
+// a product test that should have run.
+const DEPENDENCY_SCOPED_PRODUCTS = new Set(['experiments'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -132,6 +138,13 @@ function getIsolatedProducts(contractTasks) {
 
 function getAffectedTaskProducts(tasks) {
     return [...new Set(tasks.map((t) => packageToProduct(t.package.name)))].sort()
+}
+
+function includeDependencyScopedProducts(allProducts, affectedProducts) {
+    const affectedProductSet = new Set(affectedProducts)
+    return allProducts.filter(
+        (product) => !DEPENDENCY_SCOPED_PRODUCTS.has(product) || affectedProductSet.has(product)
+    )
 }
 
 function getAllProducts(testTasks) {
@@ -500,7 +513,15 @@ function buildMatrix(products, durations) {
 }
 
 // Exported for unit tests only — not part of the public API.
-module.exports = { collectTestFiles, checkProductStaleness, productPrefix, productEffectiveCost, STALENESS_COVERAGE_THRESHOLD, STALENESS_FALLBACK_SECONDS_PER_FILE }
+module.exports = {
+    collectTestFiles,
+    checkProductStaleness,
+    includeDependencyScopedProducts,
+    productPrefix,
+    productEffectiveCost,
+    STALENESS_COVERAGE_THRESHOLD,
+    STALENESS_FALLBACK_SECONDS_PER_FILE,
+}
 
 // --- Main ---
 if (require.main === module) {
@@ -511,10 +532,10 @@ const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
     allTestTasks = parseTurboTasks(runTurbo(['run', 'backend:test', '--dry-run=json']))
+    console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
+    console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
+    affectedTestTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:test')))
     if (!legacyChanged) {
-        console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
-        console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
-        affectedTestTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:test')))
         affectedContractTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:contract-check')))
         contractTasks = parseTurboTasks(runTurbo(['run', 'backend:contract-check', '--dry-run=json']))
     }
@@ -526,17 +547,19 @@ try {
     process.exit(1)
 }
 const allProducts = getAllProducts(allTestTasks)
+const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
 
 let products
 let runLegacy
 
 if (legacyChanged) {
-    console.error('Legacy code changed — testing all products')
-    products = allProducts
+    console.error(`Legacy code changed — testing all products except unaffected dependency-scoped products`)
+    console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
+    logAffectedReasons('backend:test', affectedTestTasks)
+    products = includeDependencyScopedProducts(allProducts, affectedProducts)
     runLegacy = true
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
-    const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
     const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
 
     console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
@@ -544,11 +567,12 @@ if (legacyChanged) {
     logAffectedReasons('backend:test', affectedTestTasks)
 
     if (nonIsolatedAffectedProducts.length > 0) {
-        // Non-isolated product changed — must test everything
+        // Non-isolated product changed — test every product except dependency-scoped
+        // products whose declared inputs were unaffected.
         console.error(
-            `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing all products + Django`
+            `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing affected dependency-scoped products, all other products, and Django`
         )
-        products = allProducts
+        products = includeDependencyScopedProducts(allProducts, affectedProducts)
         runLegacy = true
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
