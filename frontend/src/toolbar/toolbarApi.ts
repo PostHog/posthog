@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
@@ -25,9 +25,9 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
- *     they are logged but not reported as exceptions.
+ *     genuinely-unexpected failures (5xx, malformed JSON, unexpected throws) are reported
+ *     to error tracking. Transient network/CORS failures and expected auth (401/403) /
+ *     client (4xx) errors are logged but not reported as exceptions — they are noise, not bugs.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
  * What stays at the call site is only what is genuinely call-site specific: the
@@ -80,7 +80,8 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
+     * Report unexpected failures (5xx / malformed JSON / unexpected throws) to error
+     * tracking. Transient network/CORS failures are always logged-only regardless.
      * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
      * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
      * exception is only captured once.
@@ -164,7 +165,10 @@ async function request<T>(
             isNetworkError: true,
         }
         toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
+        // Transient network failures (offline, CORS, ad-blocker, a customer fetch wrapper
+        // that threw) are expected and logged above — don't report them as exceptions.
+        // Anything that isn't a recognizable network error is unexpected and still captured.
+        if (captureOnError && !isBenignNetworkError(e)) {
             captureToolbarException(e, context, { reason: 'network' })
         }
         emitToast(toastOnError, error)

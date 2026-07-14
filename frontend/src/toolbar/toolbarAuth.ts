@@ -1,7 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { asNonEmptyString, safeFetch } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
@@ -93,7 +93,12 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // A network/CORS/timeout failure here is transient and already surfaced via the
+        // toast + re-auth below; HTTP failures are captured as `token_refresh` inside
+        // refreshOAuthTokens. Only report anything else that's genuinely unexpected.
+        if (!isBenignNetworkError(e)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response

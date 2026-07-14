@@ -9,7 +9,7 @@ import { useSecondRender } from 'lib/hooks/useSecondRender'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
@@ -68,11 +68,12 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // via logger + telemetry and render the toolbar anyway —
                   // missing styles is a worse UX than nothing.
                   styleLink.onerror = () => {
+                      // A stylesheet load failure is a benign, gracefully-handled condition
+                      // (usually a 404 from a misconfigured apiHost, or an ad-blocker / CORS
+                      // block) — we render the toolbar anyway. It's already recorded on the
+                      // logger and the `toolbar css load failed` analytics event, so don't
+                      // also report it to error tracking where it drowns out real bugs.
                       toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
-                      captureToolbarException(
-                          new Error(`Failed to load toolbar.css from ${styleLink.href}`),
-                          'toolbar_css_load'
-                      )
                       toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
                       setDidLoadStyles(true)
                   }

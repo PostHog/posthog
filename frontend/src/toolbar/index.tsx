@@ -17,7 +17,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -49,10 +49,14 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                     reducer_key: reducerKey,
                     action_key: actionKey,
                 })
-                captureToolbarException(error, 'kea_loader', {
-                    reducer_key: reducerKey,
-                    action_key: actionKey,
-                })
+                // Transient network/CORS/timeout failures are expected and already logged
+                // above; don't report them as exceptions where they bury real toolbar bugs.
+                if (!isBenignNetworkError(error)) {
+                    captureToolbarException(error, 'kea_loader', {
+                        reducer_key: reducerKey,
+                        action_key: actionKey,
+                    })
+                }
             },
         }),
         subscriptionsPlugin,
