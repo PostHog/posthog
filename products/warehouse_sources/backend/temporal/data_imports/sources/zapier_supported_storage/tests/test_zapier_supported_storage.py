@@ -26,13 +26,8 @@ def _response(body: Any, status_code: int = 200) -> MagicMock:
     resp.ok = 200 <= status_code < 300
     resp.json.return_value = body
     resp.text = str(body)
-    resp.raise_for_status.side_effect = (
-        None
-        if resp.ok
-        else requests.HTTPError(
-            f"{status_code} Client Error for url: https://store.zapier.com/api/records", response=resp
-        )
-    )
+    resp.reason = "Bad Request"
+    resp.url = "https://store.zapier.com/api/records"
     return resp
 
 
@@ -75,18 +70,13 @@ class TestGetRows:
         rows = _rows_from_store({"k": stored_value})
         assert rows == [{"key": "k", "value": expected}]
 
-    def test_non_dict_payload_is_ignored(self) -> None:
-        # The endpoint always returns a flat object; a list/other shape is unexpected and must not
-        # crash the sync (it yields nothing rather than iterating the wrong structure).
-        assert _rows_from_store([1, 2, 3]) == []
-
 
 class TestFetchStore:
     def _fetch_once(self, response: MagicMock) -> Any:
         # Collapse the retry to a single attempt with no backoff so retryable-status tests don't sleep.
         session = MagicMock()
         session.get.return_value = response
-        fetch = _fetch_store.retry_with(stop=stop_after_attempt(1), wait=wait_none())
+        fetch = _fetch_store.retry_with(stop=stop_after_attempt(1), wait=wait_none())  # type: ignore[attr-defined]
         return fetch(session, "secret", MagicMock())
 
     @pytest.mark.parametrize("status", [429, 500, 502, 503])
@@ -95,10 +85,23 @@ class TestFetchStore:
             self._fetch_once(_response({}, status_code=status))
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404])
-    def test_client_errors_propagate_and_are_not_retried(self, status: int) -> None:
-        # 4xx can't be fixed by retrying, so raise_for_status must surface immediately.
-        with pytest.raises(requests.HTTPError):
-            self._fetch_once(_response({}, status_code=status))
+    def test_client_errors_raise_scrubbed_http_error(self, status: int) -> None:
+        # 4xx can't be fixed by retrying, so an HTTPError must surface immediately. The message must
+        # keep the "<status> Client Error ... for url: https://store.zapier.com/api/records" prefix
+        # (get_non_retryable_errors matches on it) but never echo the response body, which can hold
+        # arbitrary store secrets and would otherwise leak into logs and latest_error.
+        secret_body = {"leaked": "super-secret-store-value"}
+        with pytest.raises(requests.HTTPError) as exc:
+            self._fetch_once(_response(secret_body, status_code=status))
+        message = str(exc.value)
+        assert "https://store.zapier.com/api/records" in message
+        assert "super-secret-store-value" not in message
+
+    def test_non_dict_payload_raises_retryable(self) -> None:
+        # A non-object payload (transient API/proxy response) must not complete a "successful" full
+        # refresh with zero rows and wipe previously synced records; it must raise so the sync retries.
+        with pytest.raises(ZapierSupportedStorageRetryableError):
+            self._fetch_once(_response([1, 2, 3]))
 
 
 class TestValidateCredentials:
