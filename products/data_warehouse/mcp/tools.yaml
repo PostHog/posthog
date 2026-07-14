@@ -63,6 +63,24 @@ tools:
     data-warehouse-total-rows-stats-retrieve:
         operation: data_warehouse_total_rows_stats_retrieve
         enabled: false
+    data-warehouse-users-create:
+        operation: data_warehouse_users_create
+        enabled: false
+    data-warehouse-users-destroy:
+        operation: data_warehouse_users_destroy
+        enabled: false
+    data-warehouse-users-disable-create:
+        operation: data_warehouse_users_disable_create
+        enabled: false
+    data-warehouse-users-enable-create:
+        operation: data_warehouse_users_enable_create
+        enabled: false
+    data-warehouse-users-list:
+        operation: data_warehouse_users_list
+        enabled: false
+    data-warehouse-users-reset-password-create:
+        operation: data_warehouse_users_reset_password_create
+        enabled: false
     data-warehouse-warehouse-status-retrieve:
         operation: data_warehouse_warehouse_status_retrieve
         enabled: false
