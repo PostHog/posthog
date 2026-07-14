@@ -48,6 +48,10 @@ _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY = """Slack delivery constraints:
 - For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY` using adapter `slack_message`. To update a prior deliverable, GET the returned artifact id or POST new `content` to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
 - If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."""
 
+_SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY = """Slack delivery constraints:
+- Slack artifact delivery is disabled. Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.
+- Return the useful result as text instead."""
+
 # Cap on how many messages a single follow-up update block can carry. Threads with
 # hundreds of intervening messages between interactions are an edge case (a chatty
 # channel that mostly ignored the bot); we surface the most recent slice so the
@@ -191,7 +195,7 @@ def _with_slack_delivery_constraints(
     prompt: str, *, canvas_file_artifacts_enabled: bool, living_artifacts_enabled: bool = True
 ) -> str:
     if not living_artifacts_enabled:
-        return prompt
+        return f"{_SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY}\n{prompt}"
 
     constraints = (
         _SLACK_DELIVERY_CONSTRAINTS if canvas_file_artifacts_enabled else _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY
