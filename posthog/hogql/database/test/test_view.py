@@ -13,6 +13,7 @@ from posthog.hogql.database.test.tables import (
     create_aapl_stock_table_view,
     create_nested_aapl_stock_view,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -86,6 +87,15 @@ class TestView(BaseTest):
                 "aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) "
                 "AS aapl_stock_view LIMIT 10",
             )
+
+    def test_self_referencing_view_raises_clean_error(self):
+        # A view whose query selects from itself would expand forever; without a depth guard the
+        # resolver overflows the Python stack (RecursionError -> opaque 500). It must instead
+        # surface a clean, user-facing QueryError.
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query="SELECT * FROM aapl_stock_self LIMIT 10")
+        self.assertIn("aapl_stock_self", str(ctx.exception))
+        self.assertIn("exceeds the maximum expansion depth", str(ctx.exception))
 
     def test_view_with_alias(self):
         with override_settings(

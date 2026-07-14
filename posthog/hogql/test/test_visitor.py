@@ -252,13 +252,13 @@ class TestVisitor(BaseTest):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
 
     def test_deeply_nested_clone_raises_query_error_not_recursion_error(self):
-        # clone_expr never passes through resolve_types, so guarding only that boundary would leave
-        # this path (and the direct Resolver.visit in query.py) crashing with a raw RecursionError.
-        # The guard lives on the shared Visitor.visit, so a deep clone surfaces a clean QueryError.
+        # clone_expr walks the AST recursively and does not pass through resolve_types, so its depth
+        # guard is exercised independently. A pathologically deep tree must raise a clean QueryError
+        # rather than overflowing the Python stack with a RecursionError.
         node: ast.Expr = ast.Constant(value=1)
-        for _ in range(2000):
+        for _ in range(200):
             node = ast.Not(expr=node)
 
         with self.assertRaises(QueryError) as context:
             clone_expr(node)
-        self.assertEqual(str(context.exception), "Query is too deeply nested to process. Please simplify it.")
+        self.assertIn("too deeply nested", str(context.exception))

@@ -89,17 +89,19 @@ class TestResolver(BaseTest):
             "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
         )
 
-    def test_resolve_deeply_nested_raises_query_error(self):
-        expr: ast.Expr = ast.Constant(value=1)
-        for _ in range(2000):
-            expr = ast.ArithmeticOperation(left=expr, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
-
+    @parameterized.expand(
+        [
+            ("nested_subqueries", "select * from (" * 200 + "select 1" + ")" * 200),
+            ("nested_expressions", "select " + "1" + "+1" * 200),
+        ]
+    )
+    def test_pathologically_deep_query_raises_clean_error(self, _name: str, query: str):
+        # Deeply nested subqueries/expressions used to overflow the Python stack while walking the
+        # AST (RecursionError -> opaque 500). The resolver must bound its recursion and surface a
+        # clean, user-facing QueryError instead.
         with self.assertRaises(QueryError) as context:
-            resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(
-            str(context.exception),
-            "Query is too deeply nested to process. Please simplify it.",
-        )
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIn("too deeply nested", str(context.exception))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):

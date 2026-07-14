@@ -69,6 +69,12 @@ from posthog.models.utils import UUIDT
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
 
+# View expansion re-parses and re-resolves the view's inner query, so a cyclic chain of views
+# (A -> B -> A) would otherwise recurse forever. Capped low — no legitimate view nests near this,
+# and low enough that a cyclic view trips this check (with its clearer "references itself" message)
+# before the more general AST-depth guard in Visitor.visit kicks in.
+MAX_VIEW_EXPANSION_DEPTH = 15
+
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EMPTY_SCOPE = ast.SelectQueryType()
@@ -1173,6 +1179,12 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
+                if self.current_view_depth > MAX_VIEW_EXPANSION_DEPTH:
+                    raise QueryError(
+                        f'View "{database_table.name}" exceeds the maximum expansion depth of '
+                        f"{MAX_VIEW_EXPANSION_DEPTH}. This usually means a view references itself, "
+                        f"directly or through a chain of other views, forming a cycle."
+                    )
 
                 node.table = parse_select(str(database_table.query))
 

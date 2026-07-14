@@ -3,7 +3,7 @@ from typing import Any, Generic, Optional, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
-from posthog.hogql.base import AST, Expr
+from posthog.hogql.base import AST, MAX_AST_RECURSION_DEPTH, Expr
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.utils import is_simple_value
 
@@ -26,24 +26,30 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 
 class Visitor(Generic[T]):
+    # Live recursion depth, defaulted here (class attribute) so subclasses that skip super().__init__
+    # still get the guard without any construction-time wiring.
+    _visit_depth: int = 0
+
     def visit(self, node: AST | None) -> T:
         if node is None:
             return node  # type: ignore
 
+        self._visit_depth += 1
         try:
+            if self._visit_depth > MAX_AST_RECURSION_DEPTH:
+                raise QueryError(
+                    "Query is too deeply nested to process. This happens with an extreme level of "
+                    "nested subqueries or expressions, or a view that references itself (a cycle). "
+                    "Simplify the query or remove the circular view reference."
+                )
             return node.accept(self)
         except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
             raise
-        except RecursionError:
-            # A pathologically nested AST exhausts Python's stack mid-visit. Convert the raw
-            # overflow into a clean, user-facing HogQL error at this shared visit() chokepoint so
-            # every visitor (resolver, cloning, printer) and every entry point is covered, instead
-            # of letting it escape to error tracking as an unhandled server failure. Only queries
-            # that already overflow are intercepted, so this never rejects a query that resolves today.
-            raise QueryError("Query is too deeply nested to process. Please simplify it.") from None
+        finally:
+            self._visit_depth -= 1
 
 
 class TraversingVisitor(Visitor[None]):
