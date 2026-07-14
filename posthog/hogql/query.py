@@ -609,13 +609,16 @@ class HogQLQueryExecutor:
     def _execute_clickhouse_query(self):
         # A None prepared AST compiles to empty SQL: nothing to run, so return empty results.
         # execute() guards this, but direct callers (e.g. web-analytics events prefilter) don't.
-        if not self.clickhouse_sql:
+        # A None (vs "") clickhouse_sql means _prepare_execution() never ran — surface that.
+        if self.clickhouse_sql == "":
             self.results = []
             self.types = []
             return
+        if self.clickhouse_sql is None:
+            raise ValueError("Cannot execute ClickHouse query: SQL was not prepared")
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
-            raise ValueError("Cannot execute ClickHouse query: HogQL context was not prepared")
+            raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
