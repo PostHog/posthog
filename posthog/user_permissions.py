@@ -149,11 +149,17 @@ class UserPermissions:
             result[org_member_id].append(membership["role_id"])
         return result
 
-    def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
+    def set_preloaded_dashboard_tiles(
+        self, tiles: list[DashboardTile], current_dashboard: Optional[Dashboard] = None
+    ):
         """
-        Allows for speeding up insight-related permissions code
+        Allows for speeding up insight-related permissions code.
+
+        ``current_dashboard`` is the dashboard being served (already loaded by the caller); when
+        given it's reused directly so ``preloaded_insight_dashboards`` doesn't re-query it.
         """
         self._tiles = tiles
+        self._preloaded_current_dashboard = current_dashboard
 
     @cached_property
     def preloaded_insight_dashboards(self) -> Optional[list[Dashboard]]:
@@ -161,6 +167,15 @@ class UserPermissions:
             return None
 
         dashboard_ids = {tile.dashboard_id for tile in self._tiles}
+        current = getattr(self, "_preloaded_current_dashboard", None)
+        # The dashboard being served is already loaded — reuse it and only query the DB for any
+        # *other* dashboards these insights also appear on (usually none on a single-dashboard view).
+        if current is not None and current.pk in dashboard_ids:
+            others = dashboard_ids - {current.pk}
+            if not others:
+                return [current]
+            # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
+            return [current, *Dashboard.objects.filter(pk__in=others)]
         # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 

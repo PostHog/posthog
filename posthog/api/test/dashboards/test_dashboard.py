@@ -668,20 +668,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 5):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 5 + 2 once at least one insight materializes
+            # baseline + 5 + 1 once at least one insight materializes
             # (dropped from +11/+9: a dashboard GET no longer re-syncs the FileSystem
             # entry or writes last_accessed_at on every read, skips the InsightVariable lookup
             # when the dashboard has no variables, and prefetches tiles in a single fetch)
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 5 + 2):
+            with self.assertNumQueries(baseline + 5 + 1):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 5 + 2):
+            with self.assertNumQueries(baseline + 5 + 1):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 5 + 2):
+        with self.assertNumQueries(baseline + 5 + 1):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries

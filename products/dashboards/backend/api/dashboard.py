@@ -2006,7 +2006,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # prefetches tiles for that action (it would just be re-fetched and discarded here).
             "insight__dashboard_tiles",
         )
-        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
+        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles), current_dashboard=dashboard)
 
         team = self.context["get_team"]()
         chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
@@ -2785,7 +2785,7 @@ class DashboardsViewSet(
                 to_attr="prefetched_tags",
             ),
         )
-        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
+        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles), current_dashboard=dashboard)
 
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, "sm")
 
