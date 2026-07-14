@@ -1638,7 +1638,7 @@ class GridlySourceConfig(config.Config):
 
 @config.config
 class GroqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

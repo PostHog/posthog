@@ -198,6 +198,7 @@ the row lists both.
 | gorgias                   | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                | HTTP                        | requests                                                        | ✅                          |
 | gridly                    | HTTP                        | requests                                                        | ✅                          |
+| groq                      | HTTP                        | requests                                                        | ✅                          |
 | guardian                  | HTTP                        | requests                                                        | ✅                          |
 | guru                      | HTTP                        | requests                                                        | ✅                          |
 | harvey                    | HTTP                        | requests                                                        | ✅                          |
