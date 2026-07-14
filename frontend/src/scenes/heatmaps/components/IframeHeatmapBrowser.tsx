@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 export function IframeHeatmapBrowser({
@@ -11,34 +13,42 @@ export function IframeHeatmapBrowser({
 }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { widthOverride, heightOverride, dataUrl, displayUrl } = useValues(logic)
+    const { widthOverride, heightOverride, dataUrl, displayUrl, isHeightCapped } = useValues(logic)
     const { onIframeLoad } = useActions(logic)
 
     return (
-        <div className="flex flex-row gap-x-2 w-full">
-            <div className="relative flex justify-center flex-1 w-full overflow-visible">
-                <div
-                    className="relative"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: widthOverride, height: heightOverride }}
-                >
-                    <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
-                    <iframe
-                        id="heatmap-iframe"
-                        ref={iframeRef}
-                        title="Heatmap browser"
-                        className="bg-white"
+        <div className="flex flex-col gap-y-2 w-full">
+            {isHeightCapped && (
+                <LemonBanner type="info" dismissKey="heatmap-height-capped">
+                    This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast, so
+                    clicks and scrolls below that point aren't shown.
+                </LemonBanner>
+            )}
+            <div className="flex flex-row gap-x-2 w-full">
+                <div className="relative flex justify-center flex-1 w-full overflow-visible">
+                    <div
+                        className="relative"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride, height: heightOverride }}
-                        src={displayUrl || dataUrl || ''}
-                        onLoad={onIframeLoad}
-                        // these two sandbox values are necessary so that the site and toolbar can run
-                        // this is a very loose sandbox,
-                        // but we specify it so that at least other capabilities are denied
-                        sandbox="allow-scripts allow-same-origin"
-                        // we don't allow things such as camera access though
-                        allow=""
-                    />
+                    >
+                        <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
+                        <iframe
+                            id="heatmap-iframe"
+                            ref={iframeRef}
+                            title="Heatmap browser"
+                            className="bg-white"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: widthOverride, height: heightOverride }}
+                            src={displayUrl || dataUrl || ''}
+                            onLoad={onIframeLoad}
+                            // these two sandbox values are necessary so that the site and toolbar can run
+                            // this is a very loose sandbox,
+                            // but we specify it so that at least other capabilities are denied
+                            sandbox="allow-scripts allow-same-origin"
+                            // we don't allow things such as camera access though
+                            allow=""
+                        />
+                    </div>
                 </div>
             </div>
         </div>
