@@ -11,9 +11,12 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -96,7 +99,12 @@ function EmailUnavailable(): JSX.Element {
 }
 
 function ResetForm(): JSX.Element {
-    const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
+    const { isRequestPasswordResetSubmitting, requestPasswordReset, precheckResponse, precheckResponseLoading } =
+        useValues(passwordResetLogic)
+    const { precheck } = useActions(passwordResetLogic)
+
+    const email = requestPasswordReset?.email || ''
+    const ssoEnforcement = precheckResponse.sso_enforcement
 
     return (
         <Form
@@ -116,20 +124,28 @@ function ResetForm(): JSX.Element {
                     placeholder="email@yourcompany.com"
                     type="email"
                     disabled={isRequestPasswordResetSubmitting}
+                    onBlur={() => precheck({ email })}
                 />
             </LemonField>
-            <LemonButton
-                fullWidth
-                type="primary"
-                status="alt"
-                center
-                htmlType="submit"
-                data-attr="password-reset"
-                loading={isRequestPasswordResetSubmitting}
-                size="large"
-            >
-                Continue
-            </LemonButton>
+            {ssoEnforcement ? (
+                <>
+                    <LemonBanner type="info">{ERROR_MESSAGES.sso_enforced}</LemonBanner>
+                    <SSOEnforcedLoginButton provider={ssoEnforcement} email={email} />
+                </>
+            ) : (
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    status="alt"
+                    center
+                    htmlType="submit"
+                    data-attr="password-reset"
+                    loading={isRequestPasswordResetSubmitting || precheckResponseLoading}
+                    size="large"
+                >
+                    Continue
+                </LemonButton>
+            )}
         </Form>
     )
 }

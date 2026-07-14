@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import type { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
 
 import type { passwordResetLogicType } from './passwordResetLogicType'
 
@@ -31,7 +32,7 @@ export interface PasswordResetForm {
 
 export const passwordResetLogic = kea<passwordResetLogicType>([
     path(['scenes', 'authentication', 'password-reset', 'passwordResetLogic']),
-    loaders(() => ({
+    loaders(({ values }) => ({
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,
             {
@@ -42,6 +43,24 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
+                },
+            },
+        ],
+        // Mirror the login page's precheck so an SSO-enforced user is pointed at their SSO button
+        // instead of submitting a reset that the backend rejects with `sso_enforced`.
+        precheckResponse: [
+            { status: 'pending' } as PrecheckResponseType,
+            {
+                precheck: async ({ email }: { email: string }, breakpoint) => {
+                    if (!email) {
+                        return { status: 'pending' }
+                    }
+                    if (email === values.precheckResponse.email && values.precheckResponse.status === 'completed') {
+                        return values.precheckResponse
+                    }
+                    breakpoint()
+                    const response = await api.create<any>('api/login/precheck', { email })
+                    return { status: 'completed', ...response, email }
                 },
             },
         ],
@@ -69,6 +88,12 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             }),
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
+
+                // If the domain enforces SSO, don't fire a reset that the backend rejects — the form
+                // already surfaces the SSO login button instead.
+                if (values.precheckResponse.sso_enforcement) {
+                    return
+                }
 
                 try {
                     await api.create('api/reset/', { email })
@@ -135,6 +160,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
         '/reset': (_, { email }) => {
             if (email) {
                 actions.setRequestPasswordResetValue('email', email)
+                actions.precheck({ email })
             }
         },
     })),
