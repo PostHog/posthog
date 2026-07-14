@@ -1,5 +1,7 @@
 import { Counter, Histogram, Registry } from 'prom-client'
 
+import { type StageTimings } from './scrub.ts'
+
 export const register = new Registry()
 
 const scrubbed = new Counter({
@@ -44,6 +46,29 @@ const outputBytes = new Histogram({
     buckets: [64, 256, 1024, 4096, 16384, 65536],
     registers: [register],
 })
+// The scrub is a privacy control, so its OUTCOME signals matter as much as its error signals: a
+// runaway NSFW gate irreversibly blanking everything, or a detector flatlining at zero (persisting
+// un-redacted screenshots), must be distinguishable from healthy operation.
+const blanked = new Counter({
+    name: 'ml_mirror_image_scrub_blanked_total',
+    help: 'Images irreversibly replaced with a blank PNG by the NSFW/gore gate (alert on rate spikes)',
+    registers: [register],
+})
+const facesRedacted = new Counter({
+    name: 'ml_mirror_image_scrub_faces_redacted_total',
+    help: 'Face regions solid-filled (alert on a sustained zero rate under traffic: detector outage)',
+    registers: [register],
+})
+const textBoxesRedacted = new Counter({
+    name: 'ml_mirror_image_scrub_text_boxes_redacted_total',
+    help: 'Text regions solid-filled (alert on a sustained zero rate under traffic: detector outage)',
+    registers: [register],
+})
+const codesRedacted = new Counter({
+    name: 'ml_mirror_image_scrub_codes_redacted_total',
+    help: 'QR/barcode regions solid-filled',
+    registers: [register],
+})
 
 export const ScrubMetrics = {
     incScrubbed: () => scrubbed.inc(),
@@ -54,4 +79,12 @@ export const ScrubMetrics = {
     incAborted: () => aborted.inc(),
     startTimer: (): (() => void) => duration.startTimer(),
     observeOutputBytes: (n: number) => outputBytes.observe(n),
+    observeScrubOutcome: (t: StageTimings): void => {
+        if (t.blanked) {
+            blanked.inc()
+        }
+        facesRedacted.inc(t.faces)
+        textBoxesRedacted.inc(t.textBoxes)
+        codesRedacted.inc(t.codes)
+    },
 }

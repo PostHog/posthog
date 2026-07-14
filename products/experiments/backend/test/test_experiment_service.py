@@ -31,6 +31,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -50,7 +51,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -2511,7 +2512,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
 
@@ -2522,7 +2523,7 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
 
     def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
-        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # Exercises the real user_can_edit_flag check (no patching): a user with no access to
         # the flag is refused, so an inverted/broken access check would fail this test.
         experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
         outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
@@ -2590,8 +2591,8 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         with (
-            patch.object(service, "_user_can_edit_flag", return_value=True),
-            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+            patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=True),
+            patch("products.experiments.backend.experiment_service.flag_disable_requires_approval", return_value=True),
         ):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
@@ -2632,7 +2633,7 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.save()
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             service.archive_experiment(experiment)
 
         experiment.refresh_from_db()
@@ -2708,6 +2709,41 @@ class TestExperimentService(APIBaseTest):
         assert refreshed.feature_flag_auto_archived is False
         # The flag stays disabled — re-enabling is an explicit user decision
         assert flag.active is False
+
+    def test_unarchive_experiment_flag_unarchive_not_blocked_by_approval_policies(self):
+        # unarchive_experiment runs inside transaction.atomic, so its gated flag write must
+        # never trip an approval policy — an ApprovalRequired escaping the block would roll
+        # back the just-created change request. Archived-only payloads match no flag action
+        # today; this pins that invariant against detect() being broadened.
+        experiment = self._create_ended_experiment(name="Unarchive Policy", feature_flag_key="unarchive-policy-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        for action_key in ["feature_flag.enable", "feature_flag.disable", "feature_flag.update"]:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+
+        service = self._service()
+        service.archive_experiment(experiment)
+        service.unarchive_experiment(experiment)
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+        # Positive control: the gate is live in this harness — a payload a policy does
+        # match must trip it, or the zero-change-request assertion above proves nothing.
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(experiment.feature_flag, True, team=self.team, user=self.user)
 
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.
@@ -3205,14 +3241,7 @@ class TestExperimentService(APIBaseTest):
         flag.save()
 
     def _update_flag_filters(self, flag: FeatureFlag, filters: dict) -> None:
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": filters},
-            partial=True,
-            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
     @contextmanager
@@ -3513,7 +3542,10 @@ class TestExperimentService(APIBaseTest):
 
         # Any failure persisting the narrowed flag must not leave the snapshot cohort behind.
         with self._stub_freeze_population():
-            with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+            with patch(
+                "products.experiments.backend.experiment_service.update_flag",
+                side_effect=ValidationError("boom"),
+            ):
                 with self.assertRaises(ValidationError):
                     self._service().freeze_exposure(experiment, request=self._make_request())
 
@@ -4100,7 +4132,10 @@ class TestExperimentService(APIBaseTest):
 
         # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
         # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
-        with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+        with patch(
+            "products.experiments.backend.experiment_service.update_flag",
+            side_effect=ValidationError("boom"),
+        ):
             with self.assertRaises(ValidationError):
                 self._service().ship_variant(frozen, variant_key="test", request=self._make_request())
 
@@ -4120,18 +4155,7 @@ class TestExperimentService(APIBaseTest):
             "rollout_percentage": 100,
         }
         updated_filters = {**flag.filters, "groups": [scoped_group]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4153,18 +4177,7 @@ class TestExperimentService(APIBaseTest):
         }
         existing_groups = flag.filters.get("groups", [])
         updated_filters = {**flag.filters, "groups": [override_group, *existing_groups]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4237,18 +4250,7 @@ class TestExperimentService(APIBaseTest):
             "aggregation_group_type_index": 1,
             "groups": [{**g, "aggregation_group_type_index": 1} for g in flag.filters.get("groups", [])],
         }
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        flag_serializer.is_valid(raise_exception=True)
-        flag_serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
         shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())

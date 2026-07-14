@@ -495,6 +495,116 @@ mod tests {
         );
     }
 
+    /// Regression test: detailed condition analysis must resolve a group-typed filter
+    /// against the group's properties, not the person's, through the full
+    /// `evaluate_all_feature_flags` -> `process_flag_result` -> `merged_group_properties_for_flag`
+    /// wiring (not just `FlagDetails::build_condition_analysis` in isolation).
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_group_filters_against_group_properties() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "plan".mock_into(),
+                            value: Some(json!("pro")),
+                            prop_type: PropertyType::Person
+                        ),
+                        mock!(PropertyFilter,
+                            key: "industry".mock_into(),
+                            value: Some(json!("tech")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1)
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+
+        // The person carries a conflicting `industry` value; it must not leak into the
+        // group-typed condition's analysis.
+        let person_overrides = HashMap::from([
+            ("plan".to_string(), json!("pro")),
+            ("industry".to_string(), json!("finance")),
+        ]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        )
+        .with_detailed_analysis(true);
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(person_overrides),
+                Some(group_overrides),
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert_eq!(flag_details.to_value(), FlagValue::Boolean(true));
+
+        let conditions = flag_details
+            .conditions
+            .as_ref()
+            .expect("detailed_analysis(true) should populate conditions");
+        assert_eq!(conditions.len(), 1);
+        let properties = &conditions[0].properties;
+        assert_eq!(properties.len(), 2);
+
+        let plan_analysis = properties.iter().find(|p| p.key == "plan").unwrap();
+        assert!(plan_analysis.matched);
+        assert_eq!(plan_analysis.actual_value, Some(json!("pro")));
+
+        let industry_analysis = properties.iter().find(|p| p.key == "industry").unwrap();
+        assert!(
+            industry_analysis.matched,
+            "group-typed filter should resolve against group properties, not the person's"
+        );
+        assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
+    }
+
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
     fn dep_filter(flag_id: i32, value: FlagValue) -> PropertyFilter {
         mock!(crate::properties::property_models::PropertyFilter,
