@@ -20652,6 +20652,46 @@ export namespace Schemas {
       Redshift: 'redshift',
     } as const;
 
+    export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      branch: string;
+      success_rate: number;
+      run_count: number;
+      latest_conclusion: string;
+      window_hours: number;
+    }
+
+    export interface EngineeringAnalyticsCIDurationRegressionSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      current_p95_seconds: number;
+      baseline_p95_seconds: number;
+      pct_increase: number;
+      current_p50_seconds: number;
+      baseline_p50_seconds: number;
+      window_days: number;
+    }
+
+    /**
+     * One immutable flaky observation: failed then passed on a later attempt of the same run,
+     * so only non-determinism can explain the flip.
+     */
+    export interface EngineeringAnalyticsCIFlakyCheckSignalExtra {
+      repo_owner: string;
+      repo_name: string;
+      workflow_name: string;
+      job_name: string;
+      run_id: number;
+      head_sha: string;
+      failed_attempt: number;
+      passed_attempt: number;
+      flaky_count: number;
+      window_days: number;
+    }
+
     /**
      * * `open` - OPEN
      * * `closed` - CLOSED
@@ -37292,6 +37332,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `engineering_analytics` - Engineering analytics
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -37311,6 +37352,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -37328,6 +37370,9 @@ export namespace Schemas {
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -37347,6 +37392,9 @@ export namespace Schemas {
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SignalSourceConfig {
@@ -51742,6 +51790,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `engineering_analytics` - engineering_analytics
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -51761,6 +51810,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      EngineeringAnalytics: 'engineering_analytics',
     } as const;
 
     /**
@@ -51779,6 +51829,9 @@ export namespace Schemas {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
+     * * `ci_flaky_check` - ci_flaky_check
+     * * `ci_broken_default_branch` - ci_broken_default_branch
+     * * `ci_duration_regression` - ci_duration_regression
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -51799,6 +51852,9 @@ export namespace Schemas {
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
+      CiFlakyCheck: 'ci_flaky_check',
+      CiBrokenDefaultBranch: 'ci_broken_default_branch',
+      CiDurationRegression: 'ci_duration_regression',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -51861,7 +51917,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -51885,7 +51941,8 @@ export namespace Schemas {
        * * `signals_scout` - signals_scout
        * * `logs` - logs
        * * `health_checks` - health_checks
-       * * `replay_vision` - replay_vision */
+       * * `replay_vision` - replay_vision
+       * * `engineering_analytics` - engineering_analytics */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -51903,7 +51960,10 @@ export namespace Schemas {
        * * `cross_source_issue` - cross_source_issue
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
-       * * `scanner_finding` - scanner_finding */
+       * * `scanner_finding` - scanner_finding
+       * * `ci_flaky_check` - ci_flaky_check
+       * * `ci_broken_default_branch` - ci_broken_default_branch
+       * * `ci_duration_regression` - ci_duration_regression */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;

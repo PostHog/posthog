@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pydantic
 import temporalio.exceptions
+from temporalio.common import WorkflowIDReusePolicy
 
 from products.signals.backend.contracts import SignalRemediation
 from products.signals.backend.facade.api import (
@@ -180,6 +181,33 @@ class TestEmitSignalValidation:
             )
 
         assert client.start_workflow.await_count == 2
+
+    async def test_emit_signal_uses_a_deterministic_idempotency_key(self, team_stub):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            temporalio.exceptions.WorkflowAlreadyStartedError("already emitted", "signal-emitter-1"),
+        ]
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="posthog/posthog#42",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+                idempotency_key="github:issue:posthog/posthog#42",
+            )
+
+        emitter_call = client.start_workflow.call_args_list[1]
+        assert emitter_call.kwargs["id"] == SignalEmitterWorkflow.workflow_id_for(
+            team_stub.id, "github:issue:posthog/posthog#42"
+        )
+        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
 
 
 @pytest.mark.asyncio

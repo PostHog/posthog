@@ -319,7 +319,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         try:
-            instance = serializer.save()
+            # Emitters read `config` under `created_by`'s access control — the last writer must
+            # become the authorizer, or an editor could ride the original creator's broader access.
+            instance = serializer.save(created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
