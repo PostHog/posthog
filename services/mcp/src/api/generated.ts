@@ -12836,6 +12836,22 @@ export namespace Schemas {
       Both: 'both',
     } as const;
 
+    /**
+     * Input for proposing a certification: address the target by id or (convenience) by name.
+     */
+    export interface CertificationCreate {
+      /** Warehouse table id to certify (XOR the other targets). */
+      table_id?: string;
+      /** Warehouse view (saved query) id to certify. */
+      saved_query_id?: string;
+      /** Table name; 409 with candidates if ambiguous. */
+      table_name?: string;
+      /** View name; 409 with candidates if ambiguous. */
+      view_name?: string;
+      /** Why this mark exists. */
+      notes?: string;
+    }
+
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
@@ -15548,6 +15564,35 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    export interface DataCatalogCertification {
+      readonly id: string;
+      /**
+         * The warehouse table this mark applies to (XOR saved_query).
+         * @nullable
+         */
+      readonly table: string | null;
+      /**
+         * The warehouse view this mark applies to (XOR table).
+         * @nullable
+         */
+      readonly saved_query: string | null;
+      /** Whether the marked target is a 'table' or a 'view'. */
+      readonly target_type: string;
+      /** Name of the marked table or view. */
+      readonly target_name: string;
+      /** proposed, certified (prefer this source), or deprecated (avoid this source). */
+      readonly status: string;
+      /** Why this mark exists, e.g. 'canonical MRR source'. */
+      notes?: string;
+      /** User who last set certified/deprecated, or null. */
+      readonly certified_by: UserBasic | null;
+      /** @nullable */
+      readonly certified_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
     }
 
     /**
@@ -34998,6 +35043,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDataCatalogCertificationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogCertification[];
     }
 
     export interface PaginatedDataCatalogMetricList {
@@ -62859,6 +62913,10 @@ export namespace Schemas {
      */
     integration_id: number;
     /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
+    /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
     source_type: string;
@@ -67079,6 +67137,7 @@ export namespace Schemas {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -67165,6 +67224,7 @@ export namespace Schemas {
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
+      TableCertification: 'TableCertification',
     } as const;
 
     /**
@@ -67237,6 +67297,7 @@ export namespace Schemas {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -67311,6 +67372,7 @@ export namespace Schemas {
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
+      TableCertification: 'TableCertification',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -68558,6 +68620,17 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DataCatalogCertificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type DataCatalogMetricsListParams = {
     /**
@@ -69909,6 +69982,10 @@ export namespace Schemas {
      * The OAuth integration id whose accounts should be listed.
      */
     integration_id: number;
+    /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
     /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
