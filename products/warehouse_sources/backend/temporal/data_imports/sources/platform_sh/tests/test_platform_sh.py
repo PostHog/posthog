@@ -111,6 +111,27 @@ class TestPlatformShClientAuth:
         with pytest.raises(PlatformShUntrustedURLError):
             client.validate_url("http://api.platform.sh/organizations")
 
+    def test_refuses_redirected_token_exchange(self) -> None:
+        # requests preserves the POST body on 307/308, so following a redirect would re-send the
+        # long-lived API token to whatever host the redirect names.
+        session = _session([], post_side_effect=lambda *a, **k: _resp({}, status=307))
+        with mock.patch.object(platform_sh, "make_tracked_session", return_value=session):
+            client = PlatformShClient("api-tok", "platform_sh", mock.Mock())
+            with pytest.raises(PlatformShUntrustedURLError, match="redirect"):
+                client.get(f"{API}/organizations")
+        assert session.post.call_args.kwargs["allow_redirects"] is False
+
+    def test_sessions_exclude_secret_bearing_bodies_from_capture(self) -> None:
+        # Environment/activity responses carry secrets that `_clean_rows` strips only after HTTP
+        # sample capture would have recorded the raw body, so capture must stay off — including on
+        # the session rebuilt after each token exchange.
+        session = _session([_resp(_envelope([{"id": "org-1"}]))])
+        with mock.patch.object(platform_sh, "make_tracked_session", return_value=session) as factory:
+            client = PlatformShClient("api-tok", "platform_sh", mock.Mock())
+            client.get(f"{API}/organizations")
+        assert factory.call_count >= 2  # __init__ + post-exchange rebuild
+        assert all(call.kwargs["capture"] is False for call in factory.call_args_list)
+
 
 class TestGetRowsOrganizations:
     def test_follows_relative_next_link_and_checkpoints_after_each_page(self) -> None:

@@ -97,7 +97,11 @@ class PlatformShClient:
         self._logger = logger
         self._access_token: str | None = None
         self._token_deadline = 0.0
-        self._session = make_tracked_session(redact_values=(api_token,))
+        # capture=False: environment responses carry `http_access.basic_auth` and activity
+        # responses carry raw `log` output — secrets we strip client-side in `_clean_rows`, which
+        # runs after HTTP sample capture would have recorded the raw body. Requests stay metered
+        # and logged; only the opt-in body capture is excluded.
+        self._session = make_tracked_session(redact_values=(api_token,), capture=False)
 
     def validate_url(self, url: str) -> str:
         """Reject a URL whose scheme or host differs from the configured API base.
@@ -118,12 +122,21 @@ class PlatformShClient:
         reraise=True,
     )
     def _exchange_token(self) -> None:
+        # allow_redirects=False: requests preserves the POST body on 307/308 redirects, so
+        # following one would re-send the long-lived API token to whatever host the redirect
+        # names — the body isn't covered by requests' cross-host Authorization stripping.
         response = self._session.post(
             self._token_url,
             auth=("platform-api-user", ""),
             data={"grant_type": "api_token", "api_token": self._api_token},
             timeout=REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
+        if 300 <= response.status_code < 400:
+            raise PlatformShUntrustedURLError(
+                f"Platform.sh: token endpoint responded with a redirect (status={response.status_code}); "
+                "refusing to re-send the API token"
+            )
         if response.status_code == 429 or response.status_code >= 500:
             raise PlatformShRetryableError(
                 f"Platform.sh token exchange error (retryable): status={response.status_code}"
@@ -137,9 +150,9 @@ class PlatformShClient:
         payload = response.json()
         self._access_token = payload["access_token"]
         self._token_deadline = time.monotonic() + float(payload.get("expires_in", 900)) - TOKEN_REFRESH_MARGIN_SECONDS
-        # Rebuild the session so the fresh bearer token is masked from tracked logs and captured
-        # request/response samples, same as the long-lived API token.
-        self._session = make_tracked_session(redact_values=(self._api_token, self._access_token))
+        # Rebuild the session so the fresh bearer token is masked from tracked logs, same as the
+        # long-lived API token; capture stays off (see __init__).
+        self._session = make_tracked_session(redact_values=(self._api_token, self._access_token), capture=False)
 
     def _ensure_token(self) -> str:
         if self._access_token is None or time.monotonic() >= self._token_deadline:
