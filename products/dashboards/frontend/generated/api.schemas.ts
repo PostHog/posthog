@@ -308,6 +308,21 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
+ * * `vertical` - Vertical
+ * * `horizontal` - Horizontal
+ * * `wrap` - Wrap
+ * * `none` - None
+ */
+export type LayoutCompactTypeEnumApi = (typeof LayoutCompactTypeEnumApi)[keyof typeof LayoutCompactTypeEnumApi]
+
+export const LayoutCompactTypeEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Wrap: 'wrap',
+    None: 'none',
+} as const
+
+/**
  * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
@@ -365,6 +380,13 @@ export interface DashboardApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** How dashboard tiles close gaps in the grid layout.
+     *
+     * * `vertical` - Vertical
+     * * `horizontal` - Horizontal
+     * * `wrap` - Wrap
+     * * `none` - None */
+    layout_compact_type?: LayoutCompactTypeEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */

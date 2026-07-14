@@ -21,6 +21,12 @@ class DashboardManager(RootTeamManager):
 
 
 class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+    class LayoutCompactType(models.TextChoices):
+        VERTICAL = "vertical", "Vertical"
+        HORIZONTAL = "horizontal", "Horizontal"
+        WRAP = "wrap", "Wrap"
+        NONE = "none", "None"
+
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -78,6 +84,12 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
+    layout_compact_type = models.CharField(
+        max_length=10,
+        choices=LayoutCompactType,
+        default=LayoutCompactType.VERTICAL,
+        help_text="How dashboard tiles close gaps in the grid layout.",
+    )
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

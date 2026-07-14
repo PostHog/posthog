@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
@@ -181,6 +182,40 @@ class TestDashboardDeleteTile(APIBaseTest):
         assert left_top.layouts["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
         assert right_top.layouts["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}
         assert right_gapped.layouts["sm"] == {"x": 6, "y": 5, "w": 6, "h": 5}
+
+    def test_delete_tile_compacts_horizontally(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "dashboard", "layout_compact_type": Dashboard.LayoutCompactType.HORIZONTAL}
+        )
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="left")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="middle")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="right")
+
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+        for index, tile_id in enumerate(tile_ids):
+            DashboardTile.objects.filter(id=tile_id).update(layouts={"sm": {"x": index * 3, "y": 0, "w": 3, "h": 5}})
+
+        self._delete_tile(dashboard_id, tile_ids[1])
+
+        right = DashboardTile.objects.get(id=tile_ids[2])
+        assert right.layouts["sm"] == {"x": 3, "y": 0, "w": 3, "h": 5}
+
+    def test_delete_tile_does_not_compact_when_disabled(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "dashboard", "layout_compact_type": Dashboard.LayoutCompactType.NONE}
+        )
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="top")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="middle")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="bottom")
+
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+        for index, tile_id in enumerate(tile_ids):
+            DashboardTile.objects.filter(id=tile_id).update(layouts={"sm": {"x": 0, "y": index * 5, "w": 6, "h": 5}})
+
+        self._delete_tile(dashboard_id, tile_ids[1])
+
+        bottom = DashboardTile.objects.get(id=tile_ids[2])
+        assert bottom.layouts["sm"] == {"x": 0, "y": 10, "w": 6, "h": 5}
 
     def test_delete_tile_leaves_tiles_without_layouts_alone(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

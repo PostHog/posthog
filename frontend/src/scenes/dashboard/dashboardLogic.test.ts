@@ -451,6 +451,27 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('saving after compaction change calls api', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutCompactType('horizontal')
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    layout_compact_type: 'horizontal',
+                })
+            )
+        })
+
         it('confirms a real save with a success toast', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -520,6 +541,20 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        it('discarding edit mode restores the compaction setting', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutCompactType('none')
+            }).toMatchValues({ layoutCompactType: 'none' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ layoutCompactType: 'vertical' })
         })
 
         describe('layoutEditMode', () => {

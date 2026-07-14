@@ -4,8 +4,15 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
-import { GridBackground } from 'react-grid-layout/extras'
+import {
+    horizontalCompactor,
+    Layout,
+    noCompactor,
+    Responsive as ReactGridLayout,
+    useContainerWidth,
+    verticalCompactor,
+} from 'react-grid-layout'
+import { GridBackground, wrapCompactor } from 'react-grid-layout/extras'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -39,6 +46,12 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+const LAYOUT_COMPACTORS = {
+    vertical: verticalCompactor,
+    horizontal: horizontalCompactor,
+    wrap: wrapCompactor,
+    none: noCompactor,
+}
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -91,7 +104,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetRefreshStatus,
         scrollToBottomSignal,
     } = useValues(dashboardLogic)
-    const { layoutZoom = 1 } = useValues(dashboardLogic)
+    const { layoutZoom = 1, layoutCompactType } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -496,6 +509,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
+                        compactor={LAYOUT_COMPACTORS[layoutCompactType]}
                         onResizeStart={handleResizeStart}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}

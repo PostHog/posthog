@@ -92,6 +92,7 @@ import {
     Breadcrumb,
     DashboardLayoutSize,
     DashboardMode,
+    DashboardLayoutCompactType,
     DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
@@ -381,6 +382,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelEditMode: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
+        setLayoutCompactType: (layoutCompactType: DashboardLayoutCompactType) => ({ layoutCompactType }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -530,6 +532,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const persistedVariables = currentDashboard.persisted_variables || {}
                         const persistedBreakdownColors = currentDashboard.breakdown_colors || []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
+                        const persistedLayoutCompactType = currentDashboard.layout_compact_type ?? 'vertical'
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
                         const variablesChanged = !equal(
@@ -541,6 +544,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             values.temporaryBreakdownColors || []
                         )
                         const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
+                        const layoutCompactTypeChanged = values.layoutCompactType !== persistedLayoutCompactType
 
                         const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
                             const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
@@ -553,6 +557,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             !variablesChanged &&
                             !breakdownColorsChanged &&
                             !themeChanged &&
+                            !layoutCompactTypeChanged &&
                             !layoutsChanged
                         ) {
                             actions.resetUrlFilters()
@@ -573,6 +578,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: values.temporaryBreakdownColors,
                                 data_color_theme_id: values.dataColorThemeId,
+                                layout_compact_type: values.layoutCompactType,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -1134,6 +1140,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
+        layoutCompactType: [
+            'vertical' as DashboardLayoutCompactType,
+            {
+                loadDashboardSuccess: (_, { dashboard }) => dashboard?.layout_compact_type ?? 'vertical',
+                loadDashboardMetadataSuccess: (_, { dashboard }) => dashboard?.layout_compact_type ?? 'vertical',
+                saveEditModeChangesSuccess: (_, { dashboard }) => dashboard?.layout_compact_type ?? 'vertical',
+                setLayoutCompactType: (_, { layoutCompactType }) => layoutCompactType,
+            },
+        ],
         pendingInsertion: [
             null as PendingInsertion | null,
             {
@@ -1534,13 +1549,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
         ],
         hasUnsavedLayoutChanges: [
-            (s) => [s.dashboard, s.dashboardLayouts],
+            (s) => [s.dashboard, s.dashboardLayouts, s.layoutCompactType],
             (
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
-                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>,
+                layoutCompactType: DashboardLayoutCompactType
             ): boolean => {
                 if (!dashboard) {
                     return false
+                }
+                if (layoutCompactType !== (dashboard.layout_compact_type ?? 'vertical')) {
+                    return true
                 }
                 return (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
                     const originalSm = dashboardLayouts?.[tile.id]?.sm
@@ -2866,9 +2885,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
-                title: 'Discard layout changes?',
+                title: 'Discard dashboard changes?',
                 description:
-                    'You have moved tiles around but not saved. If you discard now, the layout will revert to its last saved state.',
+                    'You have unsaved dashboard layout changes. If you discard now, the layout will revert to its last saved state.',
                 primaryButton: {
                     children: 'Discard changes',
                     status: 'danger',
@@ -2907,6 +2926,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
+                actions.setLayoutCompactType(values.dashboard?.layout_compact_type ?? 'vertical')
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
                 actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
