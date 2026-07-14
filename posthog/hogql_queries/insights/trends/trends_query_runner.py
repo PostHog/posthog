@@ -44,7 +44,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -149,6 +149,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+        # Set in to_queries() when a custom-expression breakdown on the fewer-array-ops path needs
+        # the old ClickHouse analyzer to avoid a NotFoundColumnInBlock query failure.
+        self._breakdown_needs_old_analyzer = False
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -203,6 +206,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     limit_context=self.limit_context,
                 )
                 query = query_builder.build_query()
+
+                if query_builder.breakdown_needs_old_analyzer():
+                    self._breakdown_needs_old_analyzer = True
 
                 # Get around the default 100 limit, bump to the max 10000.
                 # This is useful for the world map view and other cases with a lot of breakdowns.
@@ -329,6 +335,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     user=self.user,
                     # timings=timings,
                     # modifiers=modifiers,
+                    settings=HogQLGlobalSettings(enable_analyzer=False)
+                    if query_builder.breakdown_needs_old_analyzer()
+                    else None,
                 )
 
                 breakdown_values = [
@@ -403,6 +412,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    settings=HogQLGlobalSettings(enable_analyzer=False) if self._breakdown_needs_old_analyzer else None,
                 )
 
                 timings_matrix[index + 1] = response.timings

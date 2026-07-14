@@ -64,6 +64,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -2126,6 +2127,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[5]["count"] == 1
         assert response.results[6]["count"] == 1
         assert response.results[7]["count"] == 1
+
+    def test_trends_custom_hogql_breakdown_on_fewer_array_ops_flag(self):
+        # A custom-expression (multiIf) HogQL breakdown threaded through the fewer-array-ops
+        # multi-CTE outer select crashed ClickHouse's new analyzer with NotFoundColumnInBlock,
+        # failing the whole query. The old-analyzer workaround must keep it returning results.
+        self._create_test_events()
+
+        breakdown_expr = (
+            "multiIf(properties.$browser = 'Chrome', 'chromium', properties.$browser = 'Firefox', 'gecko', 'other')"
+        )
+
+        with patch.object(TrendsQueryBuilder, "_team_flag_fewer_array_ops", return_value=True):
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                None,
+                BreakdownFilter(breakdown_type=BreakdownType.HOGQL, breakdown=breakdown_expr),
+            )
+
+        breakdown_counts = {result["breakdown_value"]: result["count"] for result in response.results}
+        assert breakdown_counts == {"chromium": 6, "gecko": 2, "other": 2}
 
     def test_trends_breakdowns_and_compare(self):
         self._create_test_events()
