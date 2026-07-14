@@ -70,6 +70,51 @@ class TestQuerySchemaDiscriminators(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # (case_name, model, payload) — the union member's tag field has a pydantic
+            # default, but discriminated unions require the tag in the raw input; these pin
+            # the intentional rejection of tag-less payloads (previously silent coercion to
+            # the first structurally-matching member).
+            ("trends_series", TrendsQuery, {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}),
+            ("stickiness_series", StickinessQuery, {"kind": "StickinessQuery", "series": [{"event": "$pageview"}]}),
+            ("lifecycle_series", LifecycleQuery, {"kind": "LifecycleQuery", "series": [{"event": "$pageview"}]}),
+            (
+                "calendar_heatmap_series",
+                CalendarHeatmapQuery,
+                {"kind": "CalendarHeatmapQuery", "series": [{"event": "$pageview"}]},
+            ),
+            (
+                "funnel_exclusions",
+                FunnelsFilter,
+                {"exclusions": [{"event": "$pageview", "funnelFromStep": 0, "funnelToStep": 1}]},
+            ),
+            ("data_table_source", DataTableNode, {"kind": "DataTableNode", "source": {"query": "select 1"}}),
+            (
+                "hogql_metadata_source_query",
+                HogQLMetadata,
+                {"kind": "HogQLMetadata", "language": "hogQL", "query": "select 1", "sourceQuery": {"select": ["*"]}},
+            ),
+            ("detector_config_root", DetectorConfig, {"threshold": 0.9}),
+            (
+                "ensemble_sub_detectors",
+                DetectorConfig,
+                {"type": "ensemble", "operator": "and", "detectors": [{"threshold": 0.9}]},
+            ),
+        ]
+    )
+    def test_missing_tag_returns_single_union_tag_error(
+        self, _name: str, model: type[BaseModel], payload: dict
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            model.model_validate(payload)
+
+        errors = ctx.exception.errors()
+        assert len(errors) == 1, f"expected exactly one error, got {len(errors)}: {errors}"
+        assert errors[0]["type"] == "union_tag_not_found", (
+            f"expected union_tag_not_found (tag-less payload must be rejected, not coerced), got {errors[0]['type']!r}: {errors[0]}"
+        )
+
+    @parameterized.expand(
+        [
             (
                 "trends_series",
                 TrendsQuery,
