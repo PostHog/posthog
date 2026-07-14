@@ -57,6 +57,9 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
 
     assert result == {"matched": True, "fields_filled": 3}
     assert enrich.await_count == 2
+    # The is_recheck label is threaded through to the enrichment core: False first, True on recheck.
+    assert enrich.await_args_list[0].kwargs["is_recheck"] is False
+    assert enrich.await_args_list[1].kwargs["is_recheck"] is True
     # is_recheck=True skips the at-signup snapshot, so it is captured only on the first attempt.
     snapshot.assert_called_once()
 

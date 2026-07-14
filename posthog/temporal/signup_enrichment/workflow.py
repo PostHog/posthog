@@ -84,6 +84,7 @@ async def enrich_signup_organization_activity(
             domain=inputs.domain,
             provider=HarmonicEnrichmentProvider(),
             pha_client=pha_client,
+            is_recheck=is_recheck,
         )
         filled = fields.to_dict() if fields else {}
         matched = fields is not None
