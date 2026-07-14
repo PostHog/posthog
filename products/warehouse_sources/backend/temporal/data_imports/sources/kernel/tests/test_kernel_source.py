@@ -26,7 +26,6 @@ class TestKernelSource:
         assert config.name.value == "Kernel"
         assert config.label == "Kernel"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/kernel"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

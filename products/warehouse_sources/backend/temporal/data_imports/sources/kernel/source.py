@@ -48,7 +48,6 @@ class KernelSource(SimpleSource[KernelSourceConfig]):
 You can create an API key in your [Kernel dashboard](https://dashboard.onkernel.com) under API keys. Kernel keys are long-lived and grant organization-wide read access.""",
             iconPath="/static/services/kernel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kernel",
-            unreleasedSource=True,
             keywords=["browser", "automation", "agents", "infrastructure"],
             fields=cast(
                 list[FieldType],
