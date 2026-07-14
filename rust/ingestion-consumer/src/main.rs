@@ -7,6 +7,7 @@ use axum::routing::get;
 use axum::Router;
 use envconfig::Envconfig;
 use futures::future::ready;
+use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
@@ -19,6 +20,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
@@ -150,19 +152,34 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
+    // Debug event recorder: a bounded in-memory event buffer plus live
+    // broadcast, injected into every component below and served by the /debug
+    // API (consumed by the ingestion control plane UI). `None` (the default)
+    // records nothing.
+    let debug_recorder = if config.debug_api_enabled {
+        Some(DebugRecorder::new(5_000, Duration::from_secs(900)))
+    } else {
+        None
+    };
+
     // Build the worker health registry empty; the discovery provider below
     // populates it (statically from config, or dynamically from EndpointSlices).
     let registry_config = WorkerRegistryConfig::from(&config);
-    let registry = Arc::new(WorkerRegistry::new(&[], registry_config));
+    let mut registry = WorkerRegistry::new(&[], registry_config);
+    if let Some(recorder) = &debug_recorder {
+        registry.set_debug_recorder(Arc::clone(recorder));
+    }
+    let registry = Arc::new(registry);
 
     // Probe tasks run until shutdown.
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
 
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry),
-        config.routing_strategy,
-    ));
+    let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    if let Some(recorder) = &debug_recorder {
+        dispatcher.set_debug_recorder(Arc::clone(recorder));
+    }
+    let dispatcher = Arc::new(dispatcher);
 
     let api_secret = if config.internal_api_secret.is_empty() {
         None
@@ -170,13 +187,17 @@ async fn async_main(config: Config) -> Result<()> {
         Some(config.internal_api_secret.clone())
     };
     // Transport semaphores are created lazily per worker, so it starts empty.
-    let transport = Arc::new(HttpTransport::new(
+    let mut transport = HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
         api_secret,
         &[],
         config.ingestion_worker_concurrent_batches,
-    ));
+    );
+    if let Some(recorder) = &debug_recorder {
+        transport.set_debug_recorder(Arc::clone(recorder));
+    }
+    let transport = Arc::new(transport);
 
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
@@ -262,6 +283,75 @@ async fn async_main(config: Config) -> Result<()> {
         app = app.route("/metrics", get(move || ready(handle.render())));
     }
 
+    // Debug API: fast load snapshots, a full state snapshot, and the live SSE
+    // event feed, consumed by the ingestion control plane UI. Only mounted
+    // when DEBUG_API_ENABLED.
+    if let Some(recorder) = &debug_recorder {
+        let group_id = config.ingestion_consumer_group_id.clone();
+        {
+            let registry = Arc::clone(&registry);
+            let dispatcher = Arc::clone(&dispatcher);
+            let group_id = group_id.clone();
+            app = app.route(
+                "/debug/load",
+                get(move || {
+                    let load = build_debug_load(&group_id, &registry, &dispatcher);
+                    ready(axum::Json(load))
+                }),
+            );
+        }
+        {
+            let recorder = Arc::clone(recorder);
+            let registry = Arc::clone(&registry);
+            let dispatcher = Arc::clone(&dispatcher);
+            let group_id = group_id.clone();
+            app = app.route(
+                "/debug/state",
+                get(move || {
+                    let load = build_debug_load(&group_id, &registry, &dispatcher);
+                    let state = DebugState {
+                        group_id: load.group_id,
+                        workers: load.workers,
+                        dispatcher: load.dispatcher,
+                        events: recorder.backlog(),
+                    };
+                    ready(axum::Json(state))
+                }),
+            );
+        }
+        {
+            let recorder = Arc::clone(recorder);
+            app = app.route(
+                "/debug/events",
+                get(move || {
+                    // Replay the retained backlog first, then stream live events;
+                    // a lagged subscriber skips dropped events rather than dying.
+                    let backlog = recorder.backlog();
+                    let live = futures::stream::unfold(recorder.subscribe(), |mut rx| async {
+                        loop {
+                            match rx.recv().await {
+                                Ok(event) => return Some((event, rx)),
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    continue
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    return None
+                                }
+                            }
+                        }
+                    });
+                    let stream = futures::stream::iter(backlog)
+                        .chain(live)
+                        .map(|event| axum::response::sse::Event::default().json_data(&event));
+                    ready(
+                        axum::response::Sse::new(stream)
+                            .keep_alive(axum::response::sse::KeepAlive::default()),
+                    )
+                }),
+            );
+        }
+    }
+
     let bind = config.bind_address();
     info!(address = %bind, "Health/metrics server starting");
     let listener = TcpListener::bind(&bind).await?;
@@ -291,8 +381,14 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
-    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
-        .context("Failed to create Kafka consumer")?;
+    let consumer = IngestionConsumer::new(
+        &config,
+        Arc::clone(&dispatcher),
+        transport,
+        consumer_handle,
+        debug_recorder,
+    )
+    .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;
@@ -305,4 +401,40 @@ async fn async_main(config: Config) -> Result<()> {
 
     info!("Ingestion consumer stopped");
     Ok(())
+}
+
+/// Merge the registry's health snapshots with the dispatcher's in-flight load
+/// into the `/debug/load` payload.
+fn build_debug_load(
+    group_id: &str,
+    registry: &ingestion_consumer::worker_registry::WorkerRegistry,
+    dispatcher: &Dispatcher,
+) -> DebugLoad {
+    let dispatcher_load = dispatcher.debug_load();
+    let workers = registry
+        .health_snapshots()
+        .into_iter()
+        .map(|snap| {
+            let in_flight_messages = dispatcher_load
+                .per_worker
+                .iter()
+                .find(|entry| entry.worker == snap.url)
+                .map(|entry| entry.in_flight)
+                .unwrap_or(0);
+            WorkerStatus {
+                url: snap.url,
+                state: snap.state,
+                draining: snap.draining,
+                consecutive_probe_failures: snap.consecutive_probe_failures,
+                passive_error_rate: snap.passive_error_rate,
+                passive_samples: snap.passive_samples,
+                in_flight_messages,
+            }
+        })
+        .collect();
+    DebugLoad {
+        group_id: group_id.to_string(),
+        workers,
+        dispatcher: dispatcher_load,
+    }
 }

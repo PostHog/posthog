@@ -26,6 +26,16 @@ The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 
+## Debug API
+
+Set `DEBUG_API_ENABLED=true` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.
+The ingestion control plane UI consumes these endpoints to render the consumer's live state.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, send retries/exhaustion, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
+
+- `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
+- `/debug/state` — the same plus the retained event backlog.
+- `/debug/events` — SSE stream: backlog replay, then live events.
+
 ## Testing
 
 - `cargo test -p ingestion-consumer --lib` — unit tests.
