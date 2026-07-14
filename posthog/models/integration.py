@@ -88,6 +88,15 @@ oauth_refresh_counter = Counter(
     labelnames=["kind", "result", "reason", "attempt"],
 )
 
+# Terminal rows are skipped by the sweep and stop emitting failure metrics, so a gradual fleet
+# die-off would otherwise be invisible. Incremented once per row at the transition; a rising
+# rate means connections are permanently breaking (e.g. a provider mass-revoking grants).
+oauth_refresh_terminal_counter = Counter(
+    "integration_oauth_refresh_went_terminal",
+    "OAuth integrations whose refresh went terminal (unbroken invalid_grant streak)",
+    labelnames=["kind"],
+)
+
 # Consecutive-failure backoff for the every-minute refresh sweep (posthog/tasks/integrations.py).
 # Without it, permanently dead integrations (revoked grants, deleted consumers) are retried every
 # minute forever, hammering providers and drowning the failure metric in a noise floor that
@@ -138,8 +147,10 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     if reason == REFRESH_FAILURE_REASON_INVALID_GRANT:
         grant_streak = int(integration.config.get("refresh_invalid_grant_count") or 0) + 1
         integration.config["refresh_invalid_grant_count"] = grant_streak
-        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT:
+        # Guarded so on-demand refreshes (which bypass the backoff) can't re-count a dead row
+        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT and not integration.config.get("refresh_terminal"):
             integration.config["refresh_terminal"] = True
+            oauth_refresh_terminal_counter.labels(kind=integration.kind).inc()
     else:
         integration.config.pop("refresh_invalid_grant_count", None)
     return attempt

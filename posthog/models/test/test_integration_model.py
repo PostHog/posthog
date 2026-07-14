@@ -51,6 +51,7 @@ from posthog.models.integration import (
     SnowflakeIntegrationError,
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
+    oauth_refresh_terminal_counter,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -610,11 +611,45 @@ class TestOauthIntegrationModel(BaseTest):
             config["refresh_invalid_grant_count"] = prior_grant_streak
         integration = self.create_integration(kind="hubspot", config=config)
 
+        terminal_counter = oauth_refresh_terminal_counter.labels(kind="hubspot")
+        counter_before = terminal_counter._value.get()
+
         with self.settings(**self.mock_settings):
             OauthIntegration(integration).refresh_access_token()
 
         integration.refresh_from_db()
         assert bool(integration.config.get("refresh_terminal")) is expected_terminal
+        # The transition is the fleet die-off signal: exactly one increment when a row goes
+        # terminal, none otherwise
+        assert terminal_counter._value.get() - counter_before == (1 if expected_terminal else 0)
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_already_terminal_row_does_not_recount_on_bypassing_refresh(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"error": "invalid_grant"}
+
+        # On-demand refreshes bypass the backoff, so a dead row can keep failing after the
+        # transition - it must not inflate the die-off counter again
+        integration = self.create_integration(
+            kind="hubspot",
+            config={
+                "expires_in": 1000,
+                "refresh_failure_count": 6,
+                "refresh_invalid_grant_count": 6,
+                "refresh_terminal": True,
+            },
+        )
+
+        terminal_counter = oauth_refresh_terminal_counter.labels(kind="hubspot")
+        counter_before = terminal_counter._value.get()
+
+        with self.settings(**self.mock_settings):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.config.get("refresh_terminal") is True
+        assert terminal_counter._value.get() == counter_before
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
