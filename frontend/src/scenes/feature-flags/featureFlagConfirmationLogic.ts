@@ -6,6 +6,7 @@ import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
+import { openFeatureFlagDisableDialog, reportFeatureFlagDisableDialogOptionSelected } from './featureFlagDisableDialog'
 import { DependentFlag } from './featureFlagLogic'
 
 /**
@@ -113,7 +114,8 @@ export function checkFeatureFlagConfirmation(
     onConfirm: () => void,
     dependentFlags?: DependentFlag[],
     isBeingDisabled?: boolean,
-    requireStatusConfirmation = false
+    requireStatusConfirmation = false,
+    onDisableAndArchive?: () => void
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -138,6 +140,28 @@ export function checkFeatureFlagConfirmation(
     }
 
     if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
+        // Disabling can offer "Disable and archive" behind the disable-and-archive experiment
+        if (!updatedFlag.active && onDisableAndArchive) {
+            openFeatureFlagDisableDialog({
+                source: 'feature-flag-detail',
+                onDisable: onConfirm,
+                onDisableAndArchive,
+                openControlDialog: () =>
+                    openConfirmationModal({
+                        featureFlag: updatedFlag,
+                        type: 'flag-status',
+                        activeNewValue: updatedFlag.active,
+                        onConfirm: () => {
+                            reportFeatureFlagDisableDialogOptionSelected('feature-flag-detail', 'disable')
+                            onConfirm()
+                        },
+                        onCancel: () => {
+                            reportFeatureFlagDisableDialogOptionSelected('feature-flag-detail', 'cancel')
+                        },
+                    }),
+            })
+            return true
+        }
         openConfirmationModal({
             featureFlag: updatedFlag,
             type: 'flag-status',

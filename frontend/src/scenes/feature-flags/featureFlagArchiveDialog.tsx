@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FeatureFlagType } from '~/types'
@@ -19,7 +21,10 @@ export function openFeatureFlagArchiveDialog(
         primaryButton: {
             children: 'Archive',
             type: 'primary',
-            onClick: onArchive,
+            onClick: () => {
+                posthog.capture('feature flag archived', { via: 'archive-dialog' })
+                onArchive()
+            },
             size: 'small',
         },
         secondaryButton: {

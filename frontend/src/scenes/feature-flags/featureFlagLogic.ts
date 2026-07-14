@@ -660,6 +660,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
@@ -1180,8 +1181,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             updatedFlag: Partial<FeatureFlagType>
             onConfirm: () => void
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => {
-            const { originalFlag, updatedFlag, onConfirm, requireStatusConfirmation = false } = payload
+            const {
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                requireStatusConfirmation = false,
+                onDisableAndArchive,
+            } = payload
             const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
             let dependentFlagsForConfirmation: DependentFlag[] = []
@@ -1208,6 +1216,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 isBeingDisabled,
                 dependentFlags: dependentFlagsForConfirmation,
                 requireStatusConfirmation,
+                onDisableAndArchive,
             })
         },
         showDependentFlagsConfirmation: (payload: {
@@ -1217,6 +1226,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => {
             const {
                 originalFlag,
@@ -1225,6 +1235,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled = false,
                 requireStatusConfirmation = false,
+                onDisableAndArchive,
             } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
@@ -1244,7 +1255,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 onConfirm,
                 dependentFlags,
                 isBeingDisabled,
-                requireStatusConfirmation
+                requireStatusConfirmation,
+                onDisableAndArchive
             )
 
             // If no confirmation was shown, proceed immediately
@@ -2460,6 +2472,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.updateFeatureFlagActive(active)
                     },
                     requireStatusConfirmation: true,
+                    onDisableAndArchive: () => {
+                        actions.updateFeatureFlagArchived(true)
+                    },
                 },
                 breakpoint,
                 action as any,
