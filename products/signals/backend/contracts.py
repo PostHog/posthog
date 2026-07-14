@@ -388,16 +388,21 @@ class HealthCheckSignalInput(SignalInputBase):
 
 
 class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
+    """One immutable flaky observation: a job that failed then passed on a later attempt of the
+    same run (same commit), so only non-determinism can explain the flip. The concrete run/attempt
+    pair is the evidence the research agent starts from; grouping aggregates repeat observations."""
+
     repo_owner: str
     repo_name: str
     workflow_name: str
-    # Distinct head commits where a failing run later passed on re-run, within the window.
+    job_name: str
+    run_id: int
+    head_sha: str
+    failed_attempt: int
+    passed_attempt: int
+    # How many runs this job flapped on within the window — how established the flake is.
     flaky_count: int
-    # Distinct head commits the workflow ran on in the window (the flaky-rate denominator).
-    total_commits: int
     window_days: int
-    # A few example head SHAs that flapped, so the agent can start from a concrete run.
-    sample_head_shas: list[str]
 
 
 class EngineeringAnalyticsCIFlakyCheckSignalInput(SignalInputBase):

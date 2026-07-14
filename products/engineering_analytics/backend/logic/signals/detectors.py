@@ -11,6 +11,7 @@ Thresholds are conservative defaults — tuned to surface real, actionable condi
 are arguments so a team-level config can override them later without touching the queries.
 """
 
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -18,7 +19,10 @@ import structlog
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.default_branches import query_default_branches
-from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import (
+    FlakyJobRun,
+    query_workflow_flakiness,
+)
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_BROKEN_MASTER,
@@ -50,6 +54,10 @@ DURATION_MIN_PCT_INCREASE = 0.5
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
+def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
+    return (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
+
+
 def detect_flaky_checks(
     curated: CuratedGitHubSource,
     *,
@@ -58,15 +66,11 @@ def detect_flaky_checks(
 ) -> list[CISignalFinding]:
     date_from = datetime.now(UTC) - timedelta(days=window_days)
     observations = query_workflow_flakiness(curated=curated, date_from=date_from)
-    counts: dict[tuple[str, str, str, str], int] = {}
-    for row in observations:
-        key = (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
-        counts[key] = counts.get(key, 0) + 1
+    flap_counts = Counter(_job_key(row) for row in observations)
 
     findings: list[CISignalFinding] = []
     for row in observations:
-        key = (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
-        flaky_count = counts[key]
+        flaky_count = flap_counts[_job_key(row)]
         if flaky_count < min_flaky_runs:
             continue
         repo = f"{row.repo_owner}/{row.repo_name}"
@@ -123,6 +127,8 @@ def detect_broken_master(
         for item in query_workflow_health(
             curated=curated, date_from=date_from, date_to=now, branch=branch, run_scope=WorkflowHealthRunScope.ALL
         ):
+            # The branch-scoped health query returns every repo with runs on `branch`; keep only
+            # repos for which `branch` is actually the default branch.
             if default_branches.get((item.repo.owner, item.repo.name)) != branch:
                 continue
             if item.run_count < min_runs or item.success_rate is None or not item.latest_run_failed:
@@ -207,6 +213,8 @@ def detect_ci_duration_regressions(
             continue
         owner, repo_name, workflow_name = key
         repo = f"{owner}/{repo_name}"
+        # Key the observation to the ISO week (Monday) so hourly sweeps of a still-present
+        # regression dedupe to one signal per workflow per week instead of 168.
         observation_week = (now.date() - timedelta(days=now.weekday())).isoformat()
         findings.append(
             CISignalFinding(

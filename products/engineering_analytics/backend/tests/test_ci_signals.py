@@ -14,6 +14,7 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_BROKEN_MASTER,
     SOURCE_TYPE_DURATION_REGRESSION,
     SOURCE_TYPE_FLAKY_CHECK,
+    CISignalFinding,
 )
 from products.engineering_analytics.backend.logic.signals.detectors import (
     detect_broken_master,
@@ -26,6 +27,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
+from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -96,6 +98,20 @@ def _job_row(
         "completed_at": _ts(started + timedelta(seconds=60)),
         "steps": "[]",
     }
+
+
+def _assert_emittable(finding: CISignalFinding) -> None:
+    # The exact emit-time schema check emit_signal runs: raises if the detector's payload has
+    # drifted from the typed contract variant (which would silently reject every signal in prod).
+    validate_signal_input(
+        source_product=SOURCE_PRODUCT,
+        source_type=finding.source_type,
+        source_id=finding.source_id,
+        description=finding.description,
+        weight=finding.weight,
+        extra=finding.extra,
+        remediation=finding.remediation,
+    )
 
 
 def test_source_type_constants_match_signals_taxonomy() -> None:
@@ -177,6 +193,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].extra["flaky_count"] == 1
         assert findings[0].extra["run_id"] == 1
         assert findings[0].source_id.endswith(":2:flaky")
+        _assert_emittable(findings[0])
 
     def test_broken_master_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -216,6 +233,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_type == SOURCE_TYPE_BROKEN_MASTER
         assert findings[0].extra["branch"] == "trunk"
         assert findings[0].source_id.endswith(":3:1:broken")
+        _assert_emittable(findings[0])
 
     def test_duration_regression_requires_absolute_and_relative_jump(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -240,3 +258,4 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
         assert {f.extra["workflow_name"] for f in findings} == {"slow-ci"}
         assert findings[0].source_type == SOURCE_TYPE_DURATION_REGRESSION
+        _assert_emittable(findings[0])

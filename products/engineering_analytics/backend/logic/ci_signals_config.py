@@ -27,12 +27,12 @@ CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFL
 
 
 def get_ci_signals_config(*, team: Team) -> CISignalsConfig:
-    configured, enabled = signal_source_types_state(
+    state = signal_source_types_state(
         team_id=team.id,
         source_product=SOURCE_PRODUCT,
         source_types=CI_SIGNAL_SOURCE_TYPES,
     )
-    return CISignalsConfig(configured=configured, enabled=enabled, sync_status=_sync_status(team.id))
+    return CISignalsConfig(configured=state.configured, enabled=state.all_enabled, sync_status=_sync_status(team.id))
 
 
 def update_ci_signals_config(*, team: Team, enabled: bool, created_by_id: int) -> CISignalsConfig:

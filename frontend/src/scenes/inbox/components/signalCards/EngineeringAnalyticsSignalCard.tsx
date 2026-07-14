@@ -37,7 +37,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIFlakyCheckSignalExtraApi
             return (
                 <LemonTag type="warning" size="small" icon={<IconWarning />}>
-                    Flaky · {e.flaky_count}/{e.total_commits} commits
+                    Flaky · {e.job_name} · {e.flaky_count} runs in {e.window_days}d
                 </LemonTag>
             )
         }

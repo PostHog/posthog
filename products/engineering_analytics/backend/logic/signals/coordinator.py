@@ -66,6 +66,7 @@ def _discover_targets_for_team(team_id: int) -> list[CISignalTarget]:
 
 def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], Team | None]:
     team = Team.objects.filter(id=target.team_id).first()
+    # Re-check the rollout flag: retries can run this activity well after discovery checked it.
     if team is None or not _rollout_flag_enabled(team):
         return [], None
     return detect_for_source(team, target.source_id), team
