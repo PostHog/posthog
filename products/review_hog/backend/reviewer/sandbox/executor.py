@@ -3,6 +3,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from products.review_hog.backend.reviewer.constants import SANDBOX_TURN_POLL_SECONDS
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.api import TaskOriginProduct
 
@@ -44,6 +45,7 @@ async def _run_prompt(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            max_poll_seconds=SANDBOX_TURN_POLL_SECONDS,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -156,6 +158,8 @@ async def start_sandbox_session(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            # Stored on the session, so follow-up validation turns get the same budget.
+            max_poll_seconds=SANDBOX_TURN_POLL_SECONDS,
         )
     except Exception:
         logger.exception("Sandbox session start failed")
