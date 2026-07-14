@@ -424,7 +424,6 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
-                    resetTouchCountOnRelease: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

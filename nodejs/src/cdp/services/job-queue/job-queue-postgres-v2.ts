@@ -42,7 +42,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         private config: Pick<
             CdpConfig,
             | 'CYCLOTRON_NODE_DATABASE_URL'
-            | 'CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED'
             | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
@@ -93,7 +92,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
-            resetTouchCountOnRelease: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
         })
 
         await this.worker.connect(async (jobs) => {

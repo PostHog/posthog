@@ -98,7 +98,7 @@ export class CyclotronV2Janitor {
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
-                'CyclotronV2Janitor poison-pill recovery DISABLED via CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED=false — blind-deleting poison pills with no recovery record (legacy behavior)'
+                'CyclotronV2Janitor poison-pill recovery DISABLED via CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED=false — giving up is paused; poison pills accumulate and are retried, never dropped'
             )
         }
     }
@@ -121,12 +121,11 @@ export class CyclotronV2Janitor {
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
-        // Give up on genuine poison pills. When recovery is enabled every give-up
-        // is recorded to hog_invocation_results before the row is deleted, so it
-        // is never silently dropped; the kill-switch reverts to a blind delete.
-        const poisonedIds = this.poisonRecoveryEnabled
-            ? await this.recordAndDeletePoisonPills()
-            : await this.blindDeletePoisonPills()
+        // Give up on genuine poison pills: record each to hog_invocation_results,
+        // then delete, so a give-up is never silently dropped. When recovery is
+        // disabled the janitor pauses giving up entirely — poison pills are left
+        // for resetStalledJobs to retry (they accumulate but are never dropped).
+        const poisonedIds = this.poisonRecoveryEnabled ? await this.recordAndDeletePoisonPills() : []
 
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
@@ -172,38 +171,6 @@ export class CyclotronV2Janitor {
         }
 
         return counts
-    }
-
-    // Legacy pre-recovery behavior, used only when the kill-switch disables
-    // poison-pill recovery: delete poison pills outright with no recovery record.
-    // SKIP LOCKED still keeps us from racing a worker that just re-locked a row.
-    private async blindDeletePoisonPills(): Promise<string[]> {
-        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
-
-        const deleted = await this.pool.query<{ id: string }>(
-            `WITH doomed AS (
-                SELECT id FROM cyclotron_jobs
-                WHERE status = 'running'
-                  AND COALESCE(last_heartbeat, $1) <= $1
-                  AND janitor_touch_count >= $2
-                ORDER BY last_transition ASC
-                LIMIT $3
-                FOR UPDATE SKIP LOCKED
-            )
-            DELETE FROM cyclotron_jobs WHERE id IN (SELECT id FROM doomed) RETURNING id`,
-            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
-        )
-        const deletedIds = deleted.rows.map((r) => r.id)
-
-        if (deletedIds.length > 0) {
-            janitorPoisonedCounter.inc(deletedIds.length)
-            logger.warn('CyclotronV2Janitor blind-deleted poison pill jobs (recovery disabled)', {
-                count: deletedIds.length,
-                ids: deletedIds,
-            })
-        }
-
-        return deletedIds
     }
 
     /**

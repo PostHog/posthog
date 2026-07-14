@@ -145,11 +145,11 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
-    // Master kill-switch for poison-pill recovery. When false the whole feature
-    // reverts to the pre-recovery behavior: the janitor blind-deletes poison
-    // pills (no failed-result record) and workers stop zeroing
-    // janitor_touch_count on release. Flip to false to roll back to the old
-    // behavior without a redeploy. Default true.
+    // Kill-switch for poison-pill recovery. When false the janitor pauses giving
+    // up on poison pills entirely — they are reset/retried and accumulate, but
+    // are never recorded or deleted, so a give-up can never silently drop a job.
+    // Flip to false to stop the recovery machinery instantly without a redeploy.
+    // Default true.
     CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
 }
 
