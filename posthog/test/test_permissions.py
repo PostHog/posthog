@@ -743,10 +743,11 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     def test_allows_explicit_scope_for_internal_viewset(self):
         self.access_token.scope = "clickhouse_test_cluster_perf:read"
         self.access_token.save()
+        # Test cluster is unconfigured here: 503 proves the scope check passed and the action ran.
         response = self._do_request(
             "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 503)
 
     def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
         """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
