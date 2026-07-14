@@ -120,7 +120,7 @@ class PersonPropertySourceProjection:
     columns: frozenset[str]
 
 
-PersonPropertyProjectionResolver = Callable[[int, "uuid.UUID"], Optional[list[PersonPropertySourceProjection]]]
+PersonPropertyProjectionResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySourceProjection]]]
 _person_property_projection_resolver: Optional[PersonPropertyProjectionResolver] = None
 
 
@@ -130,7 +130,7 @@ def register_person_property_projection(fn: PersonPropertyProjectionResolver) ->
 
 
 def person_property_projection_for(
-    team_id: int, schema_id: "uuid.UUID"
+    team_id: int, schema_id: "str | uuid.UUID"
 ) -> Optional[list[PersonPropertySourceProjection]]:
     if _person_property_projection_resolver is None:
         return None

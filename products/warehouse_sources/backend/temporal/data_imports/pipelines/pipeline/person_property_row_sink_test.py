@@ -51,6 +51,7 @@ async def test_stage_chunk_writes_only_projected_columns_present_in_table():
         await sink.stage_chunk(chunk=0, table=_table())
 
     to_thread.assert_awaited_once()
+    assert to_thread.await_args is not None
     written_table = to_thread.await_args.args[1]
     # Only projected columns that exist in the table are staged; "missing" and "unused" are dropped.
     assert written_table.column_names == ["distinct_id", "plan"]
@@ -86,5 +87,6 @@ async def test_stage_chunk_stages_only_sources_with_key_present():
         await sink.stage_chunk(chunk=0, table=_table())
 
     to_thread.assert_awaited_once()
+    assert to_thread.await_args is not None
     written_table = to_thread.await_args.args[1]
     assert written_table.column_names == ["distinct_id", "plan"]
