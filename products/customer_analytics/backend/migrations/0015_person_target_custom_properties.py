@@ -7,7 +7,6 @@ import products.customer_analytics.backend.models.custom_property_definition
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("customer_analytics", "0014_relationships_validate_fks"),
         ("warehouse_sources", "0061_alter_externaldatasource_source_type_and_more"),
@@ -19,9 +18,7 @@ class Migration(migrations.Migration):
             name="target_type",
             field=models.CharField(
                 choices=[("account", "account"), ("person", "person")],
-                default=products.customer_analytics.backend.models.custom_property_definition.TargetType[
-                    "ACCOUNT"
-                ],
+                default=products.customer_analytics.backend.models.custom_property_definition.TargetType["ACCOUNT"],
                 help_text="What entity this property is attached to: an account (default) or a person.",
                 max_length=20,
             ),

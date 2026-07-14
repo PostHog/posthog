@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
     ]
