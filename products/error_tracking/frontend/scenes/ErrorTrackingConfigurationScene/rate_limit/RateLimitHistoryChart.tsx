@@ -65,7 +65,8 @@ export function RateLimitHistoryChart({
     }
 
     return (
-        <div className="h-80 border rounded p-4">
+        // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+        <div className="h-80 border rounded p-4 flex flex-col">
             <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
