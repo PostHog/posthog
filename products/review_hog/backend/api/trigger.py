@@ -163,8 +163,10 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             user__is_active=True,
         ).exists()
         if not run_user_is_authorized:
+            # The Action echoes error bodies into public CI logs, so the id stays server-side.
+            logger.warning("ReviewHog trigger: run user %s is not an active member of the team's organization", user_id)
             return Response(
-                {"error": f"Configured run user {user_id} is not an active member of the team's organization"},
+                {"error": "Configured run user is not an active member of the team's organization"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
