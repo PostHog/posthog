@@ -17,6 +17,7 @@ from posthog.models import Organization, Team
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.tasks import (
+    _OUT_OF_PERIOD_SYNC_ERROR,
     _REFUND_SYNC_MAX_RETRIES,
     sync_pending_signals_refund_credits,
     sync_signals_refund_credit,
@@ -378,6 +379,28 @@ class TestSyncSignalsRefundCredit(BaseTest):
         assert refund.credit_amount_usd == Decimal("0.00")
         assert refund.billing_synced_at is not None
 
+    def test_out_of_period_zero_records_error_instead_of_synced(self):
+        # A $0 with zero_reason=out_of_period means the credit was lost to period rollover —
+        # the row must surface as a sync error for manual recovery, not close as a synced $0.
+        refund = self._credited_refund()
+        with patch(
+            "ee.billing.billing_manager.BillingManager.dispute_signals_pr",
+            return_value={
+                "credit_amount_usd": "0.00",
+                "credit_id": "c1",
+                "already_processed": False,
+                "zero_reason": "out_of_period",
+            },
+        ):
+            with patch("products.signals.backend.tasks.ph_scoped_capture") as mock_capture_cm:
+                mock_capture = mock_capture_cm.return_value.__enter__.return_value
+                sync_signals_refund_credit(str(refund.id))
+        refund.refresh_from_db()
+        assert refund.billing_synced_at is None
+        assert refund.credit_amount_usd is None
+        assert "outside the current billing period" in (refund.billing_sync_error or "")
+        assert mock_capture.call_args.kwargs["event"] == "signals_pr_refund_credit_failed"
+
     def test_already_synced_refund_is_not_resent(self):
         refund = self._credited_refund()
         refund.billing_synced_at = timezone.now()
@@ -453,6 +476,8 @@ class TestSyncSignalsRefundCredit(BaseTest):
         _make_refund(_make_report(self.team), billing_path=SignalReportRefund.BillingPath.EXCLUDED)
         ancient = self._credited_refund()
         SignalReportRefund.objects.filter(id=ancient.id).update(created_at=timezone.now() - timedelta(days=8))
+        rollover_lost = self._credited_refund()
+        SignalReportRefund.objects.filter(id=rollover_lost.id).update(billing_sync_error=_OUT_OF_PERIOD_SYNC_ERROR)
 
         with patch("products.signals.backend.tasks.sync_signals_refund_credit.delay") as mock_delay:
             sync_pending_signals_refund_credits()

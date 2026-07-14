@@ -32,6 +32,13 @@ _REFUND_SYNC_RETRY_MAX_SECONDS = 3600
 # syncs as already_processed on any later attempt).
 _REFUND_SYNC_SWEEP_MAX_AGE = timedelta(days=7)
 
+# Billing answered a handled $0 because the sync outran the billing period the refund was
+# accepted in. Terminal for automation: retrying can't help (the period won't un-roll), so the
+# sweeper skips these rows and recovery is the documented manual credit path.
+_OUT_OF_PERIOD_SYNC_ERROR = (
+    "billing: PR run outside the current billing period at sync time; credit needs manual recovery"
+)
+
 
 @shared_task(
     name="products.signals.backend.tasks.close_dismissed_report_pr",
@@ -131,6 +138,23 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
             _capture_refund_sync_event(refund, "signals_pr_refund_credit_failed", {"error": str(exc)[:1000]})
         return
 
+    if response.get("zero_reason") == "out_of_period":
+        # The $0 means the credit was lost to period rollover, not that it was legitimately free.
+        # Record a sync error instead of a synced $0 so the row surfaces for manual recovery.
+        recorded = (
+            # nosemgrep: idor-lookup-without-team (id comes from the sanctioned unscoped lookup above; system task, no user input)
+            SignalReportRefund.objects.unscoped()
+            .filter(id=refund.id, billing_synced_at__isnull=True)
+            .update(billing_sync_error=_OUT_OF_PERIOD_SYNC_ERROR)
+        )
+        if recorded:
+            capture_exception(
+                Exception("signals refund credit lost to billing period rollover"),
+                {"refund_id": str(refund.id), "team_id": refund.team_id},
+            )
+            _capture_refund_sync_event(refund, "signals_pr_refund_credit_failed", {"error": _OUT_OF_PERIOD_SYNC_ERROR})
+        return
+
     # Atomic claim: the on-commit enqueue and the hourly sweeper can race two deliveries for the
     # same refund past the billing_synced_at gate above while the billing call is in flight
     # (billing stays idempotent, so the credit itself is issued once). Only the delivery that
@@ -175,6 +199,8 @@ def sync_pending_signals_refund_credits() -> None:
             billing_synced_at__isnull=True,
             created_at__gte=cutoff,
         )
+        # Rollover-lost credits are terminal for automation — replaying returns the same $0.
+        .exclude(billing_sync_error=_OUT_OF_PERIOD_SYNC_ERROR)
         .values_list("id", flat=True)
     )
     for refund_id in pending_ids:
