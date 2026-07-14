@@ -27,6 +27,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         canEditDashboard,
         showSubscriptions,
         subscriptionId,
+        subscriptionPrefill,
         showTextTileModal,
         textTileId,
         showButtonTileModal,
@@ -48,6 +49,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboard={dashboard}
                 subscriptionId={subscriptionId}
+                newSubscriptionDefaults={subscriptionPrefill}
             />
             <SharingModal
                 title="Dashboard permissions & sharing"

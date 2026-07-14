@@ -126,6 +126,8 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
+    /** Field defaults applied when creating a new subscription (e.g. from the dashboard subscribe nudge). */
+    initialValues?: Partial<SubscriptionType> | null
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
@@ -194,7 +196,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         },
                     }
                 }
-                return { ...NEW_SUBSCRIPTION }
+                return { ...NEW_SUBSCRIPTION, ...props.initialValues }
             },
         },
         summaryQuota: {
@@ -427,9 +429,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, props }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (props.initialValues) {
+                // Goes through setSubscriptionValues (not the loaded baseline) so the form is marked
+                // dirty immediately — the prefilled fields are a deliberate change, not the pristine
+                // default, so "Create subscription" doesn't require an extra no-op edit to enable.
+                actions.setSubscriptionValues(props.initialValues)
+            }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

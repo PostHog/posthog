@@ -25,6 +25,7 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardSubscribeNudge } from './DashboardSubscribeNudge'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -116,6 +117,7 @@ function DashboardScene({
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && <DashboardSubscribeNudge />}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 

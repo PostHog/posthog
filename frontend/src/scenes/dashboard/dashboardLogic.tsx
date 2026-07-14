@@ -103,6 +103,7 @@ import {
     InsightShortId,
     ProjectTreeRef,
     QueryBasedInsightModel,
+    SubscriptionType,
     TextModel,
     TileLayout,
 } from '~/types'
@@ -375,6 +376,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
+        /** Field defaults applied the next time a new subscription is opened (e.g. from the subscribe nudge). */
+        setSubscriptionPrefill: (prefill: Partial<SubscriptionType> | null) => ({ prefill }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
         /** Exit edit mode, prompting to confirm if there are unsaved changes. */
@@ -1199,6 +1202,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setSubscriptionMode: (_, { id }) => id || null,
+            },
+        ],
+        subscriptionPrefill: [
+            null as Partial<SubscriptionType> | null,
+            {
+                setSubscriptionPrefill: (_, { prefill }) => prefill,
+                // Cleared on close so a stale prefill can't leak into the next, unrelated "new subscription".
+                setSubscriptionMode: (state, { enabled }) => (enabled ? state : null),
             },
         ],
 

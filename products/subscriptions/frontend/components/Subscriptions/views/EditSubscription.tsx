@@ -99,6 +99,8 @@ interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
+    /** Field defaults applied when creating a new subscription (e.g. from the dashboard subscribe nudge). */
+    initialValues?: Partial<SubscriptionType> | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -337,6 +339,7 @@ function EditSubscriptionForm({
     id,
     insightShortId,
     dashboard,
+    initialValues,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
@@ -345,6 +348,7 @@ function EditSubscriptionForm({
         id,
         insightShortId,
         dashboardId,
+        initialValues,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({

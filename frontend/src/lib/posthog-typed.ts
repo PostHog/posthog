@@ -661,6 +661,19 @@ interface EventSchemas {
     'dashboard refreshed': Record<string, any>
     'dashboard renamed': Record<string, any>
     'dashboard share toggled': Record<string, any>
+    'dashboard subscribe nudge clicked': {
+        dashboard_id?: number
+        view_count_7d?: number
+        prefilled?: boolean
+    }
+    'dashboard subscribe nudge dismissed': {
+        dashboard_id?: number
+        view_count_7d?: number
+    }
+    'dashboard subscribe nudge shown': {
+        dashboard_id?: number
+        view_count_7d?: number
+    }
     'dashboard subscription created': Record<string, any>
     'dashboard subscription updated': Record<string, any>
     'dashboard updated': Record<string, any>

@@ -101,6 +101,9 @@ describe('subscriptionLogic', () => {
             bysetpos: 1,
             byweekday: ['monday'],
         })
+        // A plain "new subscription" open (no prefill) must not pre-mark the form as changed,
+        // otherwise "Create subscription" would be enabled before the user has done anything.
+        expect(newLogic.values.subscriptionChanged).toBe(false)
 
         newLogic.actions.setSubscriptionValue('frequency', 'daily')
         await expectLogic(newLogic).toFinishListeners()
@@ -125,6 +128,31 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription).toMatchObject({
             target_type: 'slack',
         })
+    })
+
+    it('applies an initialValues prefill (e.g. from the dashboard subscribe nudge) and marks the form changed', async () => {
+        // Going through setSubscriptionValues (not the loaded baseline) is what marks the form
+        // changed — otherwise "Create subscription" stays disabled until the user edits something,
+        // defeating the point of prefilling.
+        const prefilledLogic = subscriptionLogic({
+            insightShortId: Insight1,
+            id: 'new',
+            initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' },
+        })
+        prefilledLogic.mount()
+
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(prefilledLogic).toFinishListeners()
+
+        expect(prefilledLogic.values.subscription).toMatchObject({
+            title: 'Weekly digest',
+            target_value: 'ben@posthog.com',
+            frequency: 'weekly',
+            target_type: 'email',
+        })
+        expect(prefilledLogic.values.subscriptionChanged).toBe(true)
+
+        prefilledLogic.unmount()
     })
 
     it('does not toast when kea-forms reports client validation failure', async () => {
