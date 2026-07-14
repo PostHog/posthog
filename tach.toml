@@ -114,6 +114,7 @@ depends_on = [
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
+    "products.review_hog",
     "products.signals",
     "products.slack_app",
     "products.streamlit_apps",
@@ -275,6 +276,7 @@ depends_on = [
     "products.cdp",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+    "products.warehouse_sources_queue",
 ]
 layer = "modules"
 
@@ -580,6 +582,17 @@ path = "products.revenue_analytics"
 depends_on = [
     "ee",
     "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.review_hog"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.signals",
+    "products.skills",
+    "products.tasks",
 ]
 layer = "modules"
 

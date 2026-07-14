@@ -285,10 +285,13 @@ database "posthog" {
       type    = "DateTime"
       default = "now()"
     }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
-      remote_table    = "log_attributes2"
+      remote_table    = "log_attributes3"
     }
   }
   table "logs" {
