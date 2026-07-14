@@ -248,8 +248,6 @@ export function DateTimePicker({
     className,
 }: DateTimePickerProps): React.ReactElement {
     const panelMode = selection !== undefined
-    // Thin single-column panel when it sits beside an always-visible calendar.
-    const thinPanel = panelMode && !collapsibleCalendar
     const presetRanges = panelMode ? [] : ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const hasPresets = presetRanges.length > 0
     const maxDate = maxDateProp ?? new Date()
@@ -416,7 +414,7 @@ export function DateTimePicker({
         selection?.kind === 'rolling' ? { count: selection.count, unit: selection.unit } : { count: 7, unit: 'days' }
 
     const presetsPanel = selection && (
-        <div className={cn('flex h-full flex-col', thinPanel ? 'w-48' : 'w-56')}>
+        <div className="flex h-full w-56 flex-col">
             <div className={cn('gap-1 px-2 pt-2 pb-1.5', 'grid grid-cols-3')}>
                 {shortChips.map(({ label, selection: chip }) => (
                     <Button
@@ -444,7 +442,7 @@ export function DateTimePicker({
                     selectContentProps={portalProps}
                 />
             </div>
-            <div className={cn('gap-1 px-2 pt-1.5 pb-2', thinPanel ? 'grid grid-cols-1' : 'grid grid-cols-2')}>
+            <div className="grid grid-cols-2 gap-1 px-2 pt-1.5 pb-2">
                 {namedChips.map((name) => (
                     <Button
                         key={name}

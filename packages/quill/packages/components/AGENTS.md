@@ -88,7 +88,7 @@ Passing `selection` (a `DateRangeSelection`: rolling / fixed / custom) replaces 
 - Two commit paths: `onSelectionChange` fires immediately for chips and the stepper; calendar picks stage until Apply, which fires `onApply` (with `includesTime` when the toggle is on).
 - `value` is not needed in panel mode (the staged range derives from `selection`); `ranges` is ignored.
 - `shortChips` / `namedChips` override the default chip vocabularies; `portalProps` spreads onto the stepper's portaled unit dropdown (skin opt-in attributes).
-- `presetsSide` places the panel `'left'` (default) or `'right'` of the calendars; `collapsibleCalendar={false}` keeps the calendar always visible, drops the "Custom range…" row, and switches the panel to a narrow single-column style — the drop-in replacement shape for the old quick-ranges list.
+- `presetsSide` places the panel `'left'` (default) or `'right'` of the calendars; `collapsibleCalendar={false}` keeps the calendar always visible and drops the "Custom range…" row — the drop-in replacement shape for the old quick-ranges list.
 - `weekStartsOn` drives the calendar grid and the This/Last week chip math — pass the team setting or the chips drift from the query.
 - When hosting in a quill `Popover`, use `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`: the panel sits left so expanding grows rightward without moving the chips, and `align: 'shift'` steps in only when the widened surface would overflow the viewport.
 
