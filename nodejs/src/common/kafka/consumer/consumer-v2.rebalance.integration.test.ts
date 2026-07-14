@@ -1,0 +1,434 @@
+import {
+    AdminClient,
+    HighLevelProducer,
+    LibrdKafkaError,
+    Message,
+    KafkaConsumer as RdKafkaConsumer,
+    TopicPartitionOffset,
+} from 'node-rdkafka'
+import { randomUUID } from 'node:crypto'
+
+import { defaultConfig } from '../../config/config'
+import { delay } from '../../utils/utils'
+import { KafkaConsumerV2 } from './consumer-v2'
+
+/**
+ * Exact rebalance-semantics tests for KafkaConsumerV2, against a real broker reachable at
+ * KAFKA_HOSTS (default: kafka:9092). The existing consumer-v2.integration.test.ts validates
+ * liveness properties with tolerance ("no loss, bounded duplicates"); this suite pins the
+ * exact offset semantics of a cooperative rebalance:
+ *  - work settled before the rebalance is committed at exactly the delivered offsets, and
+ *    the new owner resumes with zero redelivery,
+ *  - cooperative-sticky revokes are incremental: the surviving consumer never drops to zero
+ *    assignments while a partition moves,
+ *  - the generation guard: a batch in flight when the revoke arrives skips its offset store,
+ *    so its messages are redelivered on the moved partition (exactly once more) while the
+ *    retained partition never re-reads them and the group commit stays at the pre-batch mark.
+ *
+ * Producing uses a raw HighLevelProducer with explicit partitions so every delivery report's
+ * assigned offset is kept; all expectations are derived from those reports, never assumed.
+ */
+
+jest.setTimeout(60_000)
+
+const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'kafka:9092'
+const KAFKA_CONFIG = { 'metadata.broker.list': KAFKA_HOSTS }
+
+type LedgerEntry = {
+    consumerId: string
+    partition: number
+    offset: number
+    key: string
+    value: string
+    seenAt: number
+}
+
+type ProducedRecord = {
+    key: string
+    value: string
+    partition: number
+    offset: number
+}
+
+async function createTopic(topic: string, numPartitions: number): Promise<void> {
+    const client = AdminClient.create(KAFKA_CONFIG)
+    await new Promise<void>((resolve, reject) => {
+        client.createTopic(
+            { topic, num_partitions: numPartitions, replication_factor: 1 },
+            10_000,
+            (err: LibrdKafkaError) => {
+                if (err && err.message && !/already exists/i.test(err.message)) {
+                    reject(err)
+                } else {
+                    resolve()
+                }
+            }
+        )
+    })
+    client.disconnect()
+}
+
+async function deleteTopic(topic: string): Promise<void> {
+    const client = AdminClient.create(KAFKA_CONFIG)
+    await new Promise<void>((resolve) => {
+        client.deleteTopic(topic, 10_000, () => resolve())
+    })
+    client.disconnect()
+}
+
+async function createRawProducer(): Promise<HighLevelProducer> {
+    const producer = new HighLevelProducer(KAFKA_CONFIG)
+    await new Promise<void>((resolve, reject) => {
+        producer.connect(undefined, (err) => (err ? reject(err) : resolve()))
+    })
+    producer.setPollInterval(50)
+    return producer
+}
+
+/**
+ * Produces one message per (key, partition) pair and returns each delivery report's
+ * broker-assigned offset, so tests can assert against exact offsets instead of assuming them.
+ */
+async function produceTracked(
+    producer: HighLevelProducer,
+    topic: string,
+    records: { key: string; partition: number }[]
+): Promise<ProducedRecord[]> {
+    return await Promise.all(
+        records.map(
+            ({ key, partition }) =>
+                new Promise<ProducedRecord>((resolve, reject) => {
+                    const value = `payload-${key}`
+                    producer.produce(
+                        topic,
+                        partition,
+                        Buffer.from(value),
+                        Buffer.from(key),
+                        Date.now(),
+                        [],
+                        (err: unknown, offset: number | null | undefined) => {
+                            if (err || typeof offset !== 'number') {
+                                reject(err ?? new Error('no offset in delivery report'))
+                            } else {
+                                resolve({ key, value, partition, offset })
+                            }
+                        }
+                    )
+                })
+        )
+    )
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs: number, pollMs = 20): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        if (predicate()) {
+            return
+        }
+        await delay(pollMs)
+    }
+    throw new Error(`waitFor timed out after ${timeoutMs}ms`)
+}
+
+async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs: number, pollMs = 200): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        if (await predicate()) {
+            return
+        }
+        await delay(pollMs)
+    }
+    throw new Error(`waitForAsync timed out after ${timeoutMs}ms`)
+}
+
+/**
+ * Reads the group's committed offset for a partition via a raw consumer in the same group.
+ * Connecting without subscribing does not join the group, so this never triggers a rebalance.
+ * Returns null when nothing has been committed yet.
+ */
+async function fetchCommittedOffset(groupId: string, topic: string, partition: number): Promise<number | null> {
+    const consumer = new RdKafkaConsumer({ 'group.id': groupId, ...KAFKA_CONFIG }, {})
+    await new Promise<void>((resolve, reject) => {
+        consumer.on('ready', () => resolve())
+        consumer.on('event.error', (err) => reject(err))
+        consumer.connect()
+    })
+    try {
+        const committed = await new Promise<TopicPartitionOffset[]>((resolve, reject) => {
+            consumer.committed([{ topic, partition }], 10_000, (err, toppars) =>
+                err ? reject(err) : resolve(toppars as TopicPartitionOffset[])
+            )
+        })
+        const offset = committed[0]?.offset
+        return typeof offset === 'number' && offset >= 0 ? offset : null
+    } finally {
+        consumer.disconnect()
+    }
+}
+
+function makeConsumer(
+    groupId: string,
+    topic: string,
+    eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
+): KafkaConsumerV2 {
+    const consumer = new KafkaConsumerV2({ groupId, topic, batchTimeoutMs: 50 }, {
+        ...KAFKA_CONFIG,
+        'session.timeout.ms': 10_000,
+        // Commit stored offsets promptly so exact committed-offset assertions don't wait
+        // out the 5s librdkafka default between polls.
+        'auto.commit.interval.ms': 500,
+    } as Record<string, unknown>)
+    void consumer.connect(eachBatch).catch((err: unknown) => {
+        throw new Error(`Consumer failed to connect: ${String(err)}`)
+    })
+    return consumer
+}
+
+function countByPartitionOffset(ledger: LedgerEntry[]): Map<string, number> {
+    const counts = new Map<string, number>()
+    for (const e of ledger) {
+        const k = `${e.partition}:${e.offset}`
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+    return counts
+}
+
+describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
+    let producer: HighLevelProducer
+
+    beforeAll(async () => {
+        producer = await createRawProducer()
+    })
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => producer.disconnect(() => resolve()))
+    })
+
+    it('settled work commits exactly; cooperative rebalance moves one partition with zero redelivery', async () => {
+        const topic = `v2_int_reb_exact_${randomUUID()}`
+        const groupId = `v2-int-reb-exact-${randomUUID()}`
+        await createTopic(topic, 2)
+
+        const ledger: LedgerEntry[] = []
+        const record = (consumerId: string) => (messages: Message[]) => {
+            for (const m of messages) {
+                ledger.push({
+                    consumerId,
+                    partition: m.partition,
+                    offset: m.offset,
+                    key: m.key?.toString() ?? '',
+                    value: m.value?.toString() ?? '',
+                    seenAt: Date.now(),
+                })
+            }
+            return Promise.resolve()
+        }
+
+        const consumerA = makeConsumer(groupId, topic, record('A'))
+        let consumerB: KafkaConsumerV2 | undefined
+
+        try {
+            await waitFor(() => consumerA.assignments().length === 2, 10_000)
+
+            const wave1 = await produceTracked(producer, topic, [
+                ...Array.from({ length: 5 }, (_, i) => ({ key: `a${i}`, partition: 0 })),
+                ...Array.from({ length: 5 }, (_, i) => ({ key: `b${i}`, partition: 1 })),
+            ])
+            // Fresh topic: the broker must have assigned offsets 0..4 on each partition.
+            for (const partition of [0, 1]) {
+                expect(
+                    wave1
+                        .filter((r) => r.partition === partition)
+                        .map((r) => r.offset)
+                        .sort((x, y) => x - y)
+                ).toEqual([0, 1, 2, 3, 4])
+            }
+            await waitFor(() => ledger.length >= wave1.length, 8_000)
+
+            // With every batch settled, the stored offsets are committed at exactly
+            // highest-delivered + 1 per partition.
+            const expectedCommit = new Map<number, number>()
+            for (const partition of [0, 1]) {
+                const highest = Math.max(...wave1.filter((r) => r.partition === partition).map((r) => r.offset))
+                expectedCommit.set(partition, highest + 1)
+            }
+            for (const [partition, offset] of expectedCommit) {
+                await waitForAsync(
+                    async () => (await fetchCommittedOffset(groupId, topic, partition)) === offset,
+                    10_000
+                )
+            }
+
+            // B joins: cooperative-sticky moves exactly one partition, and A never drops to
+            // zero assignments while it happens (the incremental-rebalance property).
+            consumerB = makeConsumer(groupId, topic, record('B'))
+            const b = consumerB
+            let minAssignedA = 2
+            await waitFor(() => {
+                minAssignedA = Math.min(minAssignedA, consumerA.assignments().length)
+                return consumerA.assignments().length === 1 && b.assignments().length === 1
+            }, 15_000)
+            expect(minAssignedA).toBeGreaterThanOrEqual(1)
+
+            // The new owner resumes from the exact committed offsets: a second wave lands
+            // contiguously after the first, and nothing from the first wave is redelivered.
+            const wave2 = await produceTracked(producer, topic, [
+                ...Array.from({ length: 3 }, (_, i) => ({ key: `a${5 + i}`, partition: 0 })),
+                ...Array.from({ length: 3 }, (_, i) => ({ key: `b${5 + i}`, partition: 1 })),
+            ])
+            for (const partition of [0, 1]) {
+                expect(Math.min(...wave2.filter((r) => r.partition === partition).map((r) => r.offset))).toBe(
+                    expectedCommit.get(partition)
+                )
+            }
+
+            const produced = [...wave1, ...wave2]
+            await waitFor(() => countByPartitionOffset(ledger).size >= produced.length, 15_000)
+
+            // Exact per-message validation: every produced record consumed at exactly the
+            // (partition, offset) its delivery report announced, exactly once, correct content.
+            expect(ledger.length).toBe(produced.length)
+            const consumedAt = new Map(
+                ledger.map((e) => [`${e.partition}:${e.offset}`, { key: e.key, value: e.value }])
+            )
+            const producedAt = new Map(
+                produced.map((r) => [`${r.partition}:${r.offset}`, { key: r.key, value: r.value }])
+            )
+            expect(consumedAt).toEqual(producedAt)
+
+            // Both members did real work after the split.
+            expect(
+                new Set(ledger.filter((e) => wave2.some((r) => r.value === e.value)).map((e) => e.consumerId)).size
+            ).toBe(2)
+        } finally {
+            await consumerA.disconnect()
+            await consumerB?.disconnect()
+            await deleteTopic(topic)
+        }
+    })
+
+    it('a batch in flight at revoke skips its offset store (generation guard): moved partition redelivers it, retained partition does not', async () => {
+        const topic = `v2_int_reb_gen_${randomUUID()}`
+        const groupId = `v2-int-reb-gen-${randomUUID()}`
+        await createTopic(topic, 2)
+
+        // The generation guard only engages when the loop processes the REVOKE while a task
+        // is still in flight. With the default of 1 background slot, backpressure blocks the
+        // loop on that very task (no polling → no rebalance callback → the task settles and
+        // stores before the generation ever bumps). Give the loop free slots so it can take
+        // the revoke while the gated task is pending — the scenario the guard exists for.
+        const savedMaxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS = 4
+
+        const ledger: LedgerEntry[] = []
+        // Gate for consumer A's background tasks: once armed, A's batches don't settle
+        // until the test releases them — keeping their offset stores in flight across
+        // the revoke so the generation guard is what decides their fate.
+        let gateArmed = false
+        let releaseGate: () => void = () => {}
+        const gate = new Promise<void>((resolve) => {
+            releaseGate = resolve
+        })
+
+        const recordA = (messages: Message[]): { backgroundTask?: Promise<unknown> } => {
+            for (const m of messages) {
+                ledger.push({
+                    consumerId: 'A',
+                    partition: m.partition,
+                    offset: m.offset,
+                    key: m.key?.toString() ?? '',
+                    value: m.value?.toString() ?? '',
+                    seenAt: Date.now(),
+                })
+            }
+            return gateArmed ? { backgroundTask: gate } : {}
+        }
+        const recordB = (messages: Message[]): void => {
+            for (const m of messages) {
+                ledger.push({
+                    consumerId: 'B',
+                    partition: m.partition,
+                    offset: m.offset,
+                    key: m.key?.toString() ?? '',
+                    value: m.value?.toString() ?? '',
+                    seenAt: Date.now(),
+                })
+            }
+        }
+
+        const consumerA = makeConsumer(groupId, topic, (msgs) => Promise.resolve(recordA(msgs)))
+        let consumerB: KafkaConsumerV2 | undefined
+
+        try {
+            await waitFor(() => consumerA.assignments().length === 2, 10_000)
+
+            const wave1 = await produceTracked(producer, topic, [
+                ...Array.from({ length: 3 }, (_, i) => ({ key: `a${i}`, partition: 0 })),
+                ...Array.from({ length: 3 }, (_, i) => ({ key: `b${i}`, partition: 1 })),
+            ])
+            await waitFor(() => ledger.length >= wave1.length, 8_000)
+
+            const preGateCommit = new Map<number, number>()
+            for (const partition of [0, 1]) {
+                const highest = Math.max(...wave1.filter((r) => r.partition === partition).map((r) => r.offset))
+                preGateCommit.set(partition, highest + 1)
+                await waitForAsync(
+                    async () => (await fetchCommittedOffset(groupId, topic, partition)) === highest + 1,
+                    10_000
+                )
+            }
+
+            // One gated message per partition: consumed by A, but its settle chain (and
+            // therefore its offset store) hangs on the gate.
+            gateArmed = true
+            const gated = await produceTracked(producer, topic, [
+                { key: 'gated-p0', partition: 0 },
+                { key: 'gated-p1', partition: 1 },
+            ])
+            await waitFor(() => gated.every((g) => ledger.some((e) => e.value === g.value)), 8_000)
+
+            // B joins while the gated batch is still in flight. The revoke bumps the
+            // generation and drains — the drain blocks on our gate. Hold it long enough
+            // for the revoke to be firmly in progress, then release.
+            consumerB = makeConsumer(groupId, topic, (msgs) => Promise.resolve(recordB(msgs)))
+            const b = consumerB
+            await delay(8_000)
+            releaseGate()
+
+            await waitFor(() => consumerA.assignments().length === 1 && b.assignments().length === 1, 15_000)
+            const movedPartition = b.assignments()[0].partition
+            const retainedPartition = movedPartition === 0 ? 1 : 0
+
+            // The generation guard skipped the gated batch's store, so the moved partition's
+            // gated message is redelivered to B from the pre-gate commit point: seen exactly
+            // twice overall (once by A pre-revoke, once by B). The retained partition stays
+            // with A, whose in-memory position is already past its gated message: exactly once.
+            const gatedMoved = gated.find((g) => g.partition === movedPartition)!
+            const gatedRetained = gated.find((g) => g.partition === retainedPartition)!
+            await waitFor(() => ledger.filter((e) => e.value === gatedMoved.value).length >= 2, 15_000)
+            expect(
+                ledger
+                    .filter((e) => e.value === gatedMoved.value)
+                    .map((e) => e.consumerId)
+                    .sort()
+            ).toEqual(['A', 'B'])
+            expect(ledger.filter((e) => e.value === gatedRetained.value).map((e) => e.consumerId)).toEqual(['A'])
+
+            // Commits reflect the guard exactly: the retained partition's commit is still the
+            // pre-gate mark (its gated store was skipped and nothing re-stored it), while the
+            // moved partition advances past the gated message once B's redelivery settles.
+            await waitForAsync(
+                async () => (await fetchCommittedOffset(groupId, topic, movedPartition)) === gatedMoved.offset + 1,
+                15_000
+            )
+            expect(await fetchCommittedOffset(groupId, topic, retainedPartition)).toBe(
+                preGateCommit.get(retainedPartition)
+            )
+        } finally {
+            defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS = savedMaxBackgroundTasks
+            await consumerA.disconnect()
+            await consumerB?.disconnect()
+            await deleteTopic(topic)
+        }
+    })
+})
