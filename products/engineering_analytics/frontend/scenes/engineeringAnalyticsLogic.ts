@@ -37,6 +37,9 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
+// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+export const FLAKY_TEST_LIMIT = 200
+
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
@@ -439,8 +442,6 @@ export interface FlakyTestRow {
     failedCount: number
     /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
     failedPrCount: number
-    /** Distinct branches across the test's flaky-signal spans. */
-    branchCount: number
     /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
     xfailedCount: number
     lastSeenAt: string
@@ -681,6 +682,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: async (): Promise<FlakyTestsData> => {
                         const data = await engineeringAnalyticsFlakyTests(projectId(), {
                             date_from: values.flakyTestWindow,
+                            limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
                         })
                         return {
@@ -691,7 +693,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     rerunPassedCount: it.rerun_passed_count,
                                     failedCount: it.failed_count,
                                     failedPrCount: it.failed_pr_count,
-                                    branchCount: it.branch_count,
                                     xfailedCount: it.xfailed_count,
                                     lastSeenAt: it.last_seen_at,
                                 })

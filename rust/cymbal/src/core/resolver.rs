@@ -73,6 +73,7 @@ pub fn build_catalog(
         s3_client.clone(),
         config.object_storage_bucket.clone(),
         config.ss_prefix.clone(),
+        std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
     );
     let smp_caching = Caching::new(smp_saving, ss_cache.clone());
     // We want to fetch each sourcemap from the outside world exactly once,

@@ -128,6 +128,27 @@
                             },
                             "required": ["metric"],
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+                                },
+                                "type": {
+                                    "default": "MetricsAlertConfig",
+                                    "enum": ["MetricsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         }
                     ],
                     "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
@@ -2225,6 +2246,7 @@
         },
         "name": {
             "description": "Human-readable name for the alert.",
+            "maxLength": 255,
             "type": "string"
         },
         "schedule_restriction": {
@@ -2347,6 +2369,7 @@
                 },
                 "name": {
                     "description": "Optional name for the threshold.",
+                    "maxLength": 255,
                     "type": "string"
                 }
             },

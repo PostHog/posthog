@@ -85,7 +85,10 @@ export interface InsightThresholdApi {
 export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
-    /** Optional name for the threshold. */
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
     name?: string
     /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
@@ -235,11 +238,27 @@ export interface FunnelsAlertConfigApi {
     type: FunnelsAlertConfigApiType
 }
 
+export type MetricsAlertConfigApiType = (typeof MetricsAlertConfigApiType)[keyof typeof MetricsAlertConfigApiType]
+
+export const MetricsAlertConfigApiType = {
+    MetricsAlertConfig: 'MetricsAlertConfig',
+} as const
+
+export interface MetricsAlertConfigApi {
+    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
+    check_ongoing_interval?: boolean | null
+    type: MetricsAlertConfigApiType
+}
+
 /**
  * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
  * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
  */
-export type AlertConfigUnionApi = TrendsAlertConfigApi | HogQLAlertConfigApi | FunnelsAlertConfigApi
+export type AlertConfigUnionApi =
+    | TrendsAlertConfigApi
+    | HogQLAlertConfigApi
+    | FunnelsAlertConfigApi
+    | MetricsAlertConfigApi
 
 export interface PreprocessingConfigApi {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -494,7 +513,10 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users: number[]
@@ -576,7 +598,10 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
-    /** Human-readable name for the alert. */
+    /**
+     * Human-readable name for the alert.
+     * @maxLength 255
+     */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users?: number[]
@@ -713,7 +738,10 @@ export interface AlertSimulateResponseApi {
 export interface ThresholdWithAlertApi {
     readonly id: string
     readonly created_at: string
-    /** Optional name for the threshold. */
+    /**
+     * Optional name for the threshold.
+     * @maxLength 255
+     */
     name?: string
     /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
     configuration: InsightThresholdApi
