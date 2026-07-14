@@ -26,7 +26,6 @@ class TestPinterestAdsSource:
         assert config.featureFlag is None
         assert len(config.fields) == 2
 
-        # OAuth field comes first — the account selector below reads from it
         oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "pinterest_ads_integration_id"

@@ -43,15 +43,17 @@ catalog:
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    '@posthog/icons': ^0.37.4
+    '@posthog/icons': ^0.38.0
     '@posthog/brand': 0.6.0
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.399.1
+    posthog-js: ^1.400.0
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
     typescript: 6.0.3
-    oxfmt: ^0.35.0
+    oxfmt: ^0.57.0
+    vite: ^8.1.0
+    '@vitejs/plugin-react': ^5.2.0
     # Testing
     jest: ^29.7.0
     jest-junit: ^16.0.0
@@ -91,13 +93,20 @@ minimumReleaseAgeExclude:
     - typebox
     - chartjs-plugin-stacked100@1.7.1
     - torph@0.0.5
-    - oxfmt@0.35.0
+    - oxfmt@0.57.0
     - '@oxfmt/*'
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
-    - '@mermaid-js/*'
     - kea-typegen
+    - '@typescript/native-preview'
+    - '@typescript/native-preview-darwin-arm64'
+    - '@typescript/native-preview-darwin-x64'
+    - '@typescript/native-preview-linux-arm'
+    - '@typescript/native-preview-linux-arm64'
+    - '@typescript/native-preview-linux-x64'
+    - '@typescript/native-preview-win32-arm64'
+    - '@typescript/native-preview-win32-x64'
     - shiki
     - shadcn
     - '@shikijs/*'

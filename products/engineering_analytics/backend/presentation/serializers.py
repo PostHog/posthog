@@ -17,16 +17,20 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    CurrentBranchHealth,
     FlakyTestItem,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    OpenToMergeBucket,
+    PassRateBucket,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
     PullRequestList,
     PullRequestListItem,
+    PushCISample,
     QuarantineEntry,
     QuarantineFile,
     QuarantineRequest,
@@ -35,6 +39,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     RunCost,
     RunFailureLogs,
+    TimeToGreenBucket,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -236,6 +241,7 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
             },
             "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "head_sha": {"help_text": "Head commit SHA of the run/commit, or '' when unknown."},
         }
 
 
@@ -433,10 +439,33 @@ class CIStatusRollupSerializer(DataclassSerializer):
         }
 
 
+class PushCISampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PushCISample
+        extra_kwargs = {
+            "head_sha": {"help_text": "Head commit SHA of this push (CI round)."},
+            "started_at": {"help_text": "Earliest workflow-run start on this push."},
+            "wall_seconds": {
+                "help_text": "Wall-clock CI seconds for this push: earliest run start to latest completed "
+                "run end. Null while nothing has completed.",
+                "allow_null": True,
+            },
+            "failed": {
+                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+            },
+            "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
+        }
+
+
 class PullRequestListItemSerializer(DataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
+    push_history = PushCISampleSerializer(
+        many=True,
+        help_text="This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per "
+        "push for the push-history sparkline. `pushes` stays the uncapped count.",
+    )
 
     class Meta:
         dataclass = PullRequestListItem
@@ -725,11 +754,74 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class TimeToGreenBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TimeToGreenBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
+                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "allow_null": True,
+            },
+        }
+
+
+class PassRateBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PassRateBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "success_rate": {
+                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
+                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "allow_null": True,
+            },
+        }
+
+
+class OpenToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OpenToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median merged_at - created_at seconds over PRs merged in this bucket, bots and "
+                "drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
-        "cost_series_granularity. Empty when the job-level source isn't synced.",
+        "cost_series_granularity. Empty when the job-level source isn't synced or include_series=false.",
+    )
+    time_to_green_series = TimeToGreenBucketSerializer(
+        many=True,
+        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
+        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
+        "whole series is empty when include_series=false.",
+    )
+    success_rate_series = PassRateBucketSerializer(
+        many=True,
+        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
+        "series is empty when include_series=false.",
+    )
+    open_to_merge_series = OpenToMergeBucketSerializer(
+        many=True,
+        help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
+        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
+        "the whole series is empty when include_series=false.",
     )
 
     class Meta:
@@ -749,6 +841,11 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
+                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+            },
+            "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
                 "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
                 "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
@@ -780,6 +877,33 @@ class RepoOverviewSerializer(DataclassSerializer):
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {
                 "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+            "time_to_green_series_granularity": {
+                "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
+            },
+            "success_rate_series_granularity": {
+                "help_text": "Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'."
+            },
+            "open_to_merge_series_granularity": {
+                "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class CurrentBranchHealthSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CurrentBranchHealth
+        extra_kwargs = {
+            "default_branch": {
+                "help_text": "Detected default branch ('master' or 'main') from runs in the same 24-hour window."
+            },
+            "settled_workflows": {"help_text": "Workflows with at least one completed run in the last 24 hours."},
+            "failing_workflows": {
+                "help_text": "Workflows whose latest completed run in the last 24 hours failed or timed out."
+            },
+            "failing_workflow_names": {
+                "help_text": "Alphabetical preview of failing workflow names, capped at 20; use failing_workflows "
+                "for the complete count."
             },
         }
 

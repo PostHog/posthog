@@ -49,8 +49,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _format_permission(permission: str) -> str:
-    """Render Pinterest's screaming-snake permission enum as a badge label (``CAMPAIGN_MANAGER`` ->
-    ``Campaign manager``)."""
     return permission.replace("_", " ").capitalize()
 
 
@@ -83,7 +81,6 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             fields=cast(
                 list[FieldType],
                 [
-                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="pinterest_ads_integration_id",
                         label="Pinterest Ads account",
@@ -112,7 +109,10 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
@@ -122,8 +122,17 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             ) from e
 
         oauth = OauthIntegration(integration)
-        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-            oauth.refresh_access_token()
+        if oauth.access_token_expired():
+            try:
+                oauth.refresh_access_token()
+            except (requests.RequestException, ValueError) as e:
+                # `refresh_access_token` only records failure in `integration.errors` when Pinterest
+                # answers with a parseable body. A network error, or an HTML error page it then fails
+                # to `.json()`, escapes instead — transient either way, so don't let it 500.
+                raise IntegrationAccountListingError(
+                    "Could not reach Pinterest to refresh the credentials for this integration. "
+                    "Please try again in a few minutes."
+                ) from e
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
             raise IntegrationAccountListingError(
                 "Could not refresh the Pinterest Ads credentials. Please reconnect your Pinterest Ads integration."
@@ -133,13 +142,22 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             accounts = list_ad_accounts(build_session(integration.access_token))
         except requests.HTTPError as e:
             status_code = e.response.status_code if e.response is not None else None
-            if status_code not in (401, 403):
-                # Any other status is a bug in the request we build, not something the user can fix.
-                raise
-            raise IntegrationAccountListingError(
-                "Pinterest rejected the credentials for this integration. Please reconnect your Pinterest Ads "
-                "integration and make sure the connected account can access your ad accounts."
-            ) from e
+            if status_code in (401, 403):
+                raise IntegrationAccountListingError(
+                    "Pinterest rejected the credentials for this integration. Please reconnect your Pinterest Ads "
+                    "integration and make sure the connected account can access your ad accounts."
+                ) from e
+            if status_code == 429:
+                # Pinterest rate-limits `/ad_accounts`, so this is neither a bug nor the user's fault.
+                raise IntegrationAccountListingError(
+                    "Pinterest is rate limiting this connection. Please wait a moment and try again."
+                ) from e
+            if status_code is not None and status_code >= 500:
+                raise IntegrationAccountListingError(
+                    "Pinterest is having trouble responding right now. Please try again in a few minutes."
+                ) from e
+            # Any other status means we built a bad request, which the user cannot fix.
+            raise
 
         return [
             IntegrationAccount(

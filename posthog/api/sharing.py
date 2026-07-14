@@ -722,7 +722,11 @@ def _compute_inline_query_results_for_shared_notebook(
     if not inline_nodes:
         return results_by_node_id
 
-    execution_mode = shared_insights_execution_mode(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    # cache_age_seconds is deliberately unused: blocking-if-stale passes through the whitelist
+    # without a throttle override, so there is nothing to thread into process_query_dict here.
+    execution_mode = shared_insights_execution_mode(
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    ).execution_mode
     for node_id, query in inline_nodes:
         serialized: dict | None = None
         try:

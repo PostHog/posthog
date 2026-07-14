@@ -85,6 +85,18 @@ Env vars alone create nothing — you must complete the install flow:
    - `code`; the frontend POSTs them and the `Integration(kind="github")` row is
      created (and the repository cache begins syncing).
 
+### Connecting a second project to the same org
+
+A GitHub App installs **once per org**, so a second PostHog project in the same
+org can't reinstall it: GitHub shows "already configured" and may not redirect
+back with a fresh `code`. For that case the GitHub integration settings expose a
+**Link existing installation** button (`GithubIntegration` in
+`Integrations.tsx`), which POSTs to `integrations/github/link_existing`
+(`link_existing_team_github_integration`) and reuses the org's existing
+installation without the install redirect. A team admin can link without a
+personal GitHub OAuth link; non-admins still need one as an ownership proof (see
+`authorize_link_existing_installation`).
+
 ## Callback routes
 
 | Route                           | Handler                                               | Flow               |
