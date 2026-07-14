@@ -13,6 +13,10 @@ name: Seed agent-builder
 #     once the backend deploy carrying them has rolled out — a push-time seed
 #     would freeze against the previous backend. The daily run also heals any
 #     manual drift in the live deployment.
+#
+# Churn-free: seed.py compares the freshly frozen bundle_sha256 to the live
+# revision's and skips promote when the artifact is byte-identical, so a
+# scheduled run with nothing to converge promotes nothing.
 on:
     push:
         branches:

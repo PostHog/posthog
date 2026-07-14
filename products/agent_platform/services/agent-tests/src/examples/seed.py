@@ -10,7 +10,11 @@ deploy pipeline for each selected one against a target PostHog project:
 
 Idempotent: a bundle whose live revision already matches (per-file sha256 AND
 spec) is a no-op; a drifted bundle branches a new draft and re-promotes,
-leaving the previously-live revision archived.
+leaving the previously-live revision archived. Bundles that receive
+platform-injected content at freeze (kernel skills) never match the on-disk
+manifest, so they get a second, post-freeze check: if the new frozen
+bundle_sha256 equals the live one, the artifact is byte-identical — the draft
+is archived and promote is skipped, so repeated seeds don't churn revisions.
 
 Usage:
     # Seed every discovered bundle into the default local project:
@@ -611,20 +615,32 @@ def promote(slug: str, app_id: str, rev_id: str) -> None:
         raise SeedError(f"promote failed for {slug}: {status} {payload}")
 
 
-def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None]:
-    """Returns (live_revision_id, {path: sha256}, spec) or (None, None, None)."""
+def archive(slug: str, app_id: str, rev_id: str) -> None:
+    """Archive a duplicate ready revision. Cosmetic cleanup — a failure here
+    leaves a stray ready revision but the live deployment is already correct,
+    so log instead of failing the run."""
+    if DRY_RUN:
+        return
+    status, payload = _req("POST", f"/agent_applications/{app_id}/revisions/{rev_id}/archive/")
+    if status != 200:
+        log(slug, f"WARNING: failed to archive duplicate revision {rev_id}: {status} {payload}")
+
+
+def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None, str | None]:
+    """Returns (live_revision_id, {path: sha256}, spec, bundle_sha256) or Nones."""
     status, payload = _req("GET", f"/agent_applications/{app_id}/")
     if status != 200:
-        return None, None, None
+        return None, None, None, None
     rev_id = payload.get("live_revision")
     if not rev_id:
-        return None, None, None
+        return None, None, None, None
     status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
     spec = rev.get("spec") if status == 200 else None
+    live_sha = rev.get("bundle_sha256") if status == 200 else None
     status, manifest = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/manifest/")
     if status != 200:
-        return rev_id, None, spec
-    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec
+        return rev_id, None, spec, live_sha
+    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec, live_sha
 
 
 def seed_bundle(bundle_root: Path) -> None:
@@ -641,7 +657,7 @@ def seed_bundle(bundle_root: Path) -> None:
         log(slug, "would deploy: draft -> bundle -> spec -> validate -> freeze -> promote")
         return
 
-    live_rev, live_manifest, live_spec = get_live(app_id)
+    live_rev, live_manifest, live_spec, live_sha = get_live(app_id)
     log(slug, f"current live: rev={live_rev}")
 
     if live_rev and live_manifest == target_manifest and live_spec == spec:
@@ -663,6 +679,14 @@ def seed_bundle(bundle_root: Path) -> None:
     validate(slug, app_id, rev_id)
     new_sha = freeze(slug, app_id, rev_id)
     log(slug, f"frozen sha={new_sha[:12]}...")
+    # The frozen sha hashes the full materialized bundle (author files + spec +
+    # freeze-injected kernel skills), so equality with the live revision means a
+    # byte-identical artifact: the manifest "drift" above was only platform-injected
+    # content the on-disk bundle can't carry. Don't churn a new live revision.
+    if live_sha and new_sha == live_sha:
+        log(slug, "frozen artifact identical to live — archiving duplicate, skipping promote")
+        archive(slug, app_id, rev_id)
+        return
     promote(slug, app_id, rev_id)
     log(slug, f"DONE: live at {rev_id}")
 

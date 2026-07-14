@@ -129,7 +129,9 @@ runs `seed.py agent-builder` against `us.posthog.com` on every master
 push touching this bundle, `seed.py`, or `backend/kernel_skills/`, plus
 a daily schedule (kernel-skill changes only take effect once the
 backend deploy carrying them is live, so the scheduled run converges
-them; it also heals manual drift). It authenticates with the
+them; it also heals manual drift). Runs are churn-free: a seed whose
+frozen artifact is byte-identical to the live revision skips promote
+instead of minting a new live revision. It authenticates with the
 `AGENT_BUILDER_SEED_PAT` repo secret and is gated to the canonical
 deploy repo via `CD_DEPLOY_ENABLED`. Manual seeding is only needed for
 other environments or when bootstrapping from scratch.
