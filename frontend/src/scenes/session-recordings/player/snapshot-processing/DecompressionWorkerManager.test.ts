@@ -4,7 +4,19 @@ import {
     terminateDecompressionWorker,
 } from './DecompressionWorkerManager'
 
-jest.mock('snappy-wasm')
+const mockSnappyInit = jest.fn<Promise<void>, []>().mockResolvedValue(undefined)
+const mockDecompressRaw = jest.fn((data: Uint8Array) => data)
+
+jest.mock('snappy-wasm', () => ({
+    __esModule: true,
+    default: () => mockSnappyInit(),
+    decompress_raw: (data: Uint8Array) => mockDecompressRaw(data),
+}))
+
+// The globally-mocked manager (jest.setup.ts) is a no-op stand-in; grab the real class to
+// exercise the actual worker/WASM init failure handling.
+const RealDecompressionWorkerManager: typeof DecompressionWorkerManager =
+    jest.requireActual('./DecompressionWorkerManager').DecompressionWorkerManager
 
 describe('DecompressionWorkerManager', () => {
     let manager: DecompressionWorkerManager
@@ -54,6 +66,50 @@ describe('DecompressionWorkerManager', () => {
             expect(result1).toEqual(data1)
             expect(result2).toEqual(data2)
             expect(result3).toEqual(data3)
+        })
+    })
+
+    describe('worker init failure, main-thread WASM fallback', () => {
+        const originalWorker = (global as any).Worker
+
+        beforeEach(() => {
+            mockSnappyInit.mockReset()
+            mockDecompressRaw.mockReset().mockImplementation((data: Uint8Array) => data)
+            // Force worker construction to fail so we drop into the main-thread fallback path.
+            ;(global as any).Worker = jest.fn(() => {
+                throw new Error('Worker unavailable')
+            })
+        })
+
+        afterEach(() => {
+            ;(global as any).Worker = originalWorker
+        })
+
+        it('falls back to the main thread and captures worker failure when snappy init succeeds', async () => {
+            mockSnappyInit.mockResolvedValue(undefined)
+            const capture = jest.fn()
+            const fallbackManager = new RealDecompressionWorkerManager({ capture } as any)
+
+            const data = new Uint8Array([1, 2, 3])
+            await expect(fallbackManager.decompress(data)).resolves.toEqual(data)
+
+            expect(capture).toHaveBeenCalledWith('replay_worker_init_failed', expect.any(Object))
+            expect(capture).not.toHaveBeenCalledWith('replay_snappy_init_failed', expect.any(Object))
+        })
+
+        it('degrades cleanly and captures telemetry when the snappy WASM fetch also fails', async () => {
+            // Mirror the transient network failure that used to escape as an uncaught rejection.
+            mockSnappyInit.mockRejectedValue(new TypeError('Failed to fetch'))
+            const capture = jest.fn()
+            const fallbackManager = new RealDecompressionWorkerManager({ capture } as any)
+
+            // readyPromise must settle (not reject uncaught), and decompress must fail cleanly.
+            await expect(fallbackManager.decompress(new Uint8Array([1, 2, 3]))).rejects.toThrow(
+                'Decompression unavailable'
+            )
+
+            expect(capture).toHaveBeenCalledWith('replay_worker_init_failed', expect.any(Object))
+            expect(capture).toHaveBeenCalledWith('replay_snappy_init_failed', expect.any(Object))
         })
     })
 
