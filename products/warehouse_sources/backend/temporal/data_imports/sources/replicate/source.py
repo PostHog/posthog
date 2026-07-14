@@ -114,6 +114,7 @@ You can create an API token in your [Replicate account settings](https://replica
                 supports_append=has_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
+                detected_primary_keys=endpoint_config.primary_keys,
                 description=_description(endpoint),
             )
 

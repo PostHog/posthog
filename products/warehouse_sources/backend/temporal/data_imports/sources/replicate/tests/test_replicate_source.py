@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.replicate import ReplicateResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source import ReplicateSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -20,6 +22,7 @@ class TestReplicateSource:
     def test_source_config_has_password_api_key_field(self) -> None:
         config = ReplicateSource().get_source_config
         api_key_field = next(f for f in config.fields if getattr(f, "name", None) == "api_key")
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.type.value == "password"
         assert api_key_field.required is True
 
@@ -43,6 +46,9 @@ class TestReplicateSource:
         schema = schemas[endpoint]
         assert schema.supports_incremental is supports_incremental
         assert schema.should_sync_default is should_sync_default
+        # Merge keys must survive into the schema, otherwise default-created tables lose their
+        # dedupe metadata and incremental syncs would append duplicates.
+        assert schema.detected_primary_keys == primary_keys
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
 

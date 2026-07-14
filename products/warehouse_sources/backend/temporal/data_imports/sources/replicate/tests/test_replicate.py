@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.
     _format_incremental_value,
     _next_url,
     _page_predates_cutoff,
+    _sanitize_next_url,
     get_rows,
     replicate_source,
 )
@@ -130,6 +131,30 @@ class TestPagePredatesCutoff:
         assert _page_predates_cutoff(items, "created_at", cutoff) is expected
 
 
+class TestSanitizeNextUrl:
+    @parameterized.expand(
+        [
+            # The API can return an http:// next URL; following it verbatim would leak the bearer
+            # token over plaintext, so it must be pinned back to the https origin.
+            (
+                "http_upgraded_to_https",
+                "http://api.replicate.com/v1/predictions?cursor=c",
+                "https://api.replicate.com/v1/predictions?cursor=c",
+            ),
+            (
+                "https_preserved",
+                "https://api.replicate.com/v1/predictions?cursor=c",
+                "https://api.replicate.com/v1/predictions?cursor=c",
+            ),
+            # A cursor pointing at any other host is dropped rather than followed with the token.
+            ("foreign_host_rejected", "https://evil.example.com/v1/predictions?cursor=c", None),
+            ("none_passthrough", None, None),
+        ]
+    )
+    def test_sanitize_next_url(self, _name: str, raw: str | None, expected: str | None) -> None:
+        assert _sanitize_next_url(raw) == expected
+
+
 def _collect(
     manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], endpoint: str, **incremental: Any
 ) -> tuple[list[dict], list[str]]:
@@ -202,6 +227,51 @@ class TestGetRows:
 
         assert [r["id"] for r in rows] == ["a", "b"]
         assert fetched == [initial, page2]  # page3 never fetched
+
+    def test_incremental_ignores_stale_cursor_when_watermark_advanced(self, monkeypatch: Any) -> None:
+        # A cursor saved against an older watermark must not be resumed: descending pagination puts
+        # predictions created since the prior run on the first page, so we rebuild the initial URL
+        # for the current watermark instead of paging deeper and skipping them.
+        watermark = datetime(2026, 3, 4, tzinfo=UTC)
+        initial = _build_initial_url(REPLICATE_ENDPOINTS["predictions"], True, watermark)
+        stale_cursor = "https://api.replicate.com/v1/predictions?cursor=stale"
+        pages = {initial: {"results": [{"id": "new", "created_at": "2026-05-01T00:00:00Z"}], "next": None}}
+        manager = _FakeResumableManager(
+            ReplicateResumeConfig(next_url=stale_cursor, created_after="2026-01-01T00:00:00Z")
+        )
+        rows, fetched = _collect(
+            manager,
+            monkeypatch,
+            pages,
+            "predictions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            incremental_field="created_at",
+        )
+
+        assert [r["id"] for r in rows] == ["new"]
+        assert fetched == [initial]  # stale cursor never fetched
+
+    def test_incremental_resumes_when_watermark_matches(self, monkeypatch: Any) -> None:
+        # Same-watermark cursor (a crash mid-run) is safe to resume: no newer rows exist above it.
+        watermark = datetime(2026, 3, 4, tzinfo=UTC)
+        resume_url = "https://api.replicate.com/v1/predictions?cursor=resume"
+        pages = {resume_url: {"results": [{"id": "r", "created_at": "2026-05-01T00:00:00Z"}], "next": None}}
+        manager = _FakeResumableManager(
+            ReplicateResumeConfig(next_url=resume_url, created_after=_format_incremental_value(watermark))
+        )
+        rows, fetched = _collect(
+            manager,
+            monkeypatch,
+            pages,
+            "predictions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            incremental_field="created_at",
+        )
+
+        assert [r["id"] for r in rows] == ["r"]
+        assert fetched == [resume_url]
 
     def test_single_request_endpoints_do_not_paginate(self, monkeypatch: Any) -> None:
         cases = [

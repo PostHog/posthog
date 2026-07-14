@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.
 )
 
 REPLICATE_BASE_URL = "https://api.replicate.com/v1"
+REPLICATE_API_HOST = "api.replicate.com"
 
 
 class ReplicateRetryableError(Exception):
@@ -28,6 +29,9 @@ class ReplicateResumeConfig:
     # Full next-page URL returned by the API (carries the opaque cursor and any created_after filter).
     # None means "start the endpoint from its first page".
     next_url: str | None = None
+    # The `created_after` watermark this cursor was built against. A run whose watermark has since
+    # advanced must not resume from this cursor (see `get_rows`), so we can tell the two apart.
+    created_after: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -73,7 +77,7 @@ def _to_cutoff(value: Any) -> datetime | None:
 
 def validate_credentials(api_key: str) -> bool:
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{REPLICATE_BASE_URL}/account", headers=_get_headers(api_key), timeout=10
         )
         return response.status_code == 200
@@ -119,9 +123,25 @@ def _extract_items(data: Any, config: ReplicateEndpointConfig) -> list[dict[str,
     return data.get("results", []) if isinstance(data, dict) else []
 
 
+def _sanitize_next_url(raw_url: str | None) -> str | None:
+    """Pin a Replicate pagination URL to the fixed HTTPS API origin.
+
+    Replicate's documented pagination `next` (and any cursor loaded from resume state) can come
+    back as `http://api.replicate.com/...`, which would send the bearer token over plaintext where
+    an on-path attacker could capture it. Only the path and query are trusted; the scheme is forced
+    to https and the host must be Replicate's API host, otherwise we stop rather than follow it.
+    """
+    if not raw_url:
+        return None
+    parts = urlsplit(raw_url)
+    if parts.hostname != REPLICATE_API_HOST:
+        return None
+    return urlunsplit(("https", REPLICATE_API_HOST, parts.path, parts.query, ""))
+
+
 def _next_url(data: Any) -> str | None:
     if isinstance(data, dict):
-        return data.get("next")
+        return _sanitize_next_url(data.get("next"))
     return None
 
 
@@ -145,8 +165,8 @@ def _page_predates_cutoff(items: list[dict[str, Any]], incremental_field: str, c
     `created_after` on paginated requests (unverified against the live API), matching the skill's
     "incremental pagination must terminate at the watermark" rule. Merge dedupes the boundary re-read.
     """
-    dated = [_parse_datetime(item.get(incremental_field)) for item in items]
-    dated = [d for d in dated if d is not None]
+    parsed = [_parse_datetime(item.get(incremental_field)) for item in items]
+    dated = [d for d in parsed if d is not None]
     if not dated:
         return False
     return max(dated) <= cutoff
@@ -163,8 +183,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = REPLICATE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Redact the token
+    # so it never lands in tracked HTTP logs or samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     # Single-request endpoints (bare array / single object) have no pagination or resume state.
     if config.response_shape != "paginated":
@@ -174,18 +195,25 @@ def get_rows(
             yield items
         return
 
+    incremental = config.time_filter_param is not None and should_use_incremental_field
+    current_watermark = (
+        _format_incremental_value(db_incremental_field_last_value)
+        if incremental and db_incremental_field_last_value is not None
+        else None
+    )
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        url = resume.next_url
+    resumed_url = _sanitize_next_url(resume.next_url) if resume is not None else None
+    # Only honor a saved cursor when it was written for the current watermark. If the watermark has
+    # advanced, resuming from an older descending page would skip predictions created since the prior
+    # run (they live on the first page), so rebuild from the initial URL instead.
+    if resumed_url and resume is not None and resume.created_after == current_watermark:
+        url = resumed_url
         logger.debug(f"Replicate: resuming {endpoint} from URL: {url}")
     else:
         url = _build_initial_url(config, should_use_incremental_field, db_incremental_field_last_value)
 
-    cutoff = (
-        _to_cutoff(db_incremental_field_last_value)
-        if config.time_filter_param and should_use_incremental_field
-        else None
-    )
+    cutoff = _to_cutoff(db_incremental_field_last_value) if incremental else None
     cursor_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)
 
     while True:
@@ -206,8 +234,9 @@ def get_rows(
             break
 
         # Save AFTER yielding, so a crash re-yields the last page rather than skipping it (merge
-        # dedupes on the primary key).
-        resumable_source_manager.save_state(ReplicateResumeConfig(next_url=next_url))
+        # dedupes on the primary key). Tag it with the watermark so a later run with an advanced
+        # watermark rebuilds from the first page instead of trusting this cursor.
+        resumable_source_manager.save_state(ReplicateResumeConfig(next_url=next_url, created_after=current_watermark))
         url = next_url
 
 
