@@ -140,9 +140,7 @@ describe('supportLogic', () => {
             ;(posthog as any).conversations = { isAvailable: () => true, sendMessage }
             enableConversationsFlag()
 
-            await expectLogic(logic, () => {
-                logic.actions.submitSupportTicket(FORM_FIELDS)
-            }).toFinishAllListeners()
+            await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
             expect(sendMessage).toHaveBeenCalledTimes(1)
             expect(sendMessage).toHaveBeenCalledWith('Help!', { name: 'Max', email: 'max@example.com' }, true)
@@ -218,17 +216,16 @@ describe('supportLogic', () => {
             expect(sendMessage.mock.calls[0][0]).toBe('Just a message')
         })
 
-        it('does not fall back to Zendesk when sendMessage fails, to avoid double-filing', async () => {
+        it('does not fall back to Zendesk when sendMessage throws, to avoid double-filing', async () => {
             ;(posthog as any).conversations = {
                 isAvailable: () => true,
                 sendMessage: jest.fn().mockRejectedValue(new Error('network down')),
             }
             enableConversationsFlag()
 
-            await expectLogic(logic, () => {
-                logic.actions.submitSupportTicket(FORM_FIELDS)
-            }).toFinishAllListeners()
+            await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
 
+            // lastSubmittedTicketId stays null on failure — callers use this to detect the failure
             expect(zendeskCalls()).toHaveLength(0)
             expect(logic.values.lastSubmittedTicketId).toBeNull()
         })

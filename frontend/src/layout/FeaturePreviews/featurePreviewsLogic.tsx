@@ -66,6 +66,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                     const feature = values.rawEarlyAccessFeatures.find(
                         (f) => f.flagKey === values.activeFeedbackFlagKey
                     )
+                    // submitSupportTicket sets lastSubmittedTicketId only on success (it swallows
+                    // failures with an error toast), so compare it before/after to tell them apart
+                    const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
                     await supportLogic.asyncActions.submitSupportTicket({
                         name: values.user.first_name,
                         email: values.user.email,
@@ -77,7 +80,11 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         // carry no target_area, so without this the feedback arrives context-free
                         message: `Feedback on feature preview "${feature?.name ?? values.activeFeedbackFlagKey}":\n\n${message}`,
                     })
-                    return null
+                    const ticketId = supportLogic.values.lastSubmittedTicketId
+                    const succeeded = ticketId != null && ticketId !== ticketIdBefore
+                    // On success clear the active key (closes the panel); on failure keep it open so
+                    // the user's text survives for a retry (supportLogic already showed the error)
+                    return succeeded ? null : values.activeFeedbackFlagKey
                 },
             },
         ],
