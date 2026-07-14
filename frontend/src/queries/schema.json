@@ -26841,6 +26841,7 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
+                "apns",
                 "postgresql",
                 "aws-s3",
                 "s3-compatible"

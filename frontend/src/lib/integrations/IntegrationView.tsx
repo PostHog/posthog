@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -18,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
-import { getIntegrationNameFromKind } from './utils'
+import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
     integration,
@@ -74,7 +75,10 @@ export function IntegrationView({
                         src={integration.icon_url}
                         alt={`Integration for ${integrationName}`}
                         title={integrationName}
-                        className="w-10 h-10 rounded"
+                        className={clsx(
+                            'w-10 h-10 rounded',
+                            DARK_MODE_INVERT_ICON_KINDS.has(integration.kind) && 'dark:invert'
+                        )}
                     />
                     <div>
                         <div className="flex gap-2">
