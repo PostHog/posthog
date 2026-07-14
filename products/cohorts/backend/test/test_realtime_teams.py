@@ -1,6 +1,13 @@
+import os
+import importlib
+
+from unittest import mock
+
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+import posthog.settings.cohorts as cohorts_settings
 
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
@@ -35,3 +42,19 @@ class TestIsRealtimeCohortTeam(SimpleTestCase):
     def test_membership_matches_rust_grammar(self, _name: str, allowlist: str, team_id: int, expected: bool) -> None:
         with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
             self.assertEqual(is_realtime_cohort_team(team_id), expected)
+
+
+class TestRealtimeCohortAllowlistSetting(SimpleTestCase):
+    def _reload_allowlist(self) -> str:
+        self.addCleanup(importlib.reload, cohorts_settings)
+        importlib.reload(cohorts_settings)
+        return cohorts_settings.REALTIME_COHORT_TEAM_ALLOWLIST
+
+    def test_unset_defaults_to_off(self) -> None:
+        with mock.patch.dict(os.environ):
+            os.environ.pop("REALTIME_COHORT_TEAM_ALLOWLIST", None)
+            self.assertEqual(self._reload_allowlist(), "none")
+
+    def test_set_but_empty_value_is_preserved(self) -> None:
+        with mock.patch.dict(os.environ, {"REALTIME_COHORT_TEAM_ALLOWLIST": ""}):
+            self.assertEqual(self._reload_allowlist(), "")
