@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
 common-metrics = { path = "../common/metrics" }
