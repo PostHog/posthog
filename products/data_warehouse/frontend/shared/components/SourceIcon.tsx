@@ -25,7 +25,10 @@ import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
  * heuristic to guess, then fallback to a shrugging hedgehog.
  * @param url
  */
-export function mapUrlToProvider(url: string): string {
+export function mapUrlToProvider(url: string | undefined): string {
+    if (!url) {
+        return 'BlushingHog'
+    }
     if (url.includes('amazonaws.com')) {
         return 'aws'
     } else if (url.startsWith('https://storage.googleapis.com')) {

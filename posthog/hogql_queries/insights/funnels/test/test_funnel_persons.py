@@ -12,7 +12,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -994,8 +993,7 @@ class TestFunnelComparePersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(expected_count, len(results))
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_actor_count_matches_bar_count(self, _feature_enabled) -> None:
+    def test_actor_count_matches_bar_count(self) -> None:
         self._seed_converters_and_dropoffs()
         query = self._compare_query()
 

@@ -9,6 +9,7 @@ from posthog.ducklake.client import execute_ducklake_query
 from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -37,7 +38,7 @@ def build_ducklake_hogql_query(
     """Build the HogQL an endpoint would run against DuckLake, matching the inline path's
     variable overrides and pagination so the shadow mirrors what ClickHouse executed."""
     strategy = strategy_for(endpoint, version, team)
-    query = strategy.prepare_inline_query(version.query.copy())
+    query = strategy.prepare_inline_query(upgrade(version.query.copy()))
     if limit is not None:
         query, _ = strategy.apply_pagination(query, limit, offset or 0)
     plan = strategy.build_inline_plan(query, data)
