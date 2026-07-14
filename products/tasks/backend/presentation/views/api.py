@@ -114,7 +114,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
-    WizardCloudRunHandleSerializer,
+    WizardCloudRunSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
@@ -326,7 +326,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=WizardCloudRunHandleSerializer,
+                response=WizardCloudRunSerializer,
                 description="The team's active onboarding wizard cloud run.",
             ),
             204: OpenApiResponse(description="No active onboarding wizard cloud run for this project."),
@@ -347,10 +347,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filter_backends=[],
     )
     def active_wizard_run(self, request, **kwargs):
-        handle = tasks_facade.get_active_wizard_cloud_run(self.team_id)
-        if handle is None:
+        run = tasks_facade.get_active_wizard_cloud_run(self.team_id)
+        if run is None:
             return Response(status=status.HTTP_204_NO_CONTENT)
-        return Response(WizardCloudRunHandleSerializer(handle).data)
+        return Response(WizardCloudRunSerializer(run).data)
 
     @validated_request(
         request_serializer=TaskSummariesRequestSerializer,

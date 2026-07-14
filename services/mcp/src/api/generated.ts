@@ -61475,10 +61475,10 @@ export namespace Schemas {
     }
 
     /**
-     * Minimal handle for the team's active onboarding wizard cloud run, used to rehydrate
+     * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
-    export interface WizardCloudRunHandleDTO {
+    export interface WizardCloudRunDTO {
       /** Id of the onboarding wizard task. */
       task_id: string;
       /** Id of the task's latest run, for reconnecting to its progress stream. */

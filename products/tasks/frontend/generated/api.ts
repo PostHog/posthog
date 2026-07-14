@@ -91,7 +91,7 @@ import type {
     TasksThreadMessagesListParams,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
-    WizardCloudRunHandleDTOApi,
+    WizardCloudRunDTOApi,
 } from './api.schemas'
 
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
@@ -1617,8 +1617,8 @@ export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
 export const tasksActiveWizardRunRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<WizardCloudRunHandleDTOApi | void> => {
-    return apiMutator<WizardCloudRunHandleDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+): Promise<WizardCloudRunDTOApi | void> => {
+    return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

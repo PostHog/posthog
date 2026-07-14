@@ -33,7 +33,7 @@ from products.tasks.backend.facade.contracts import (
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
-    WizardCloudRunHandleDTO,
+    WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -309,8 +309,8 @@ class TaskRunDetailSerializer(DataclassSerializer):
         ]
 
 
-class WizardCloudRunHandleSerializer(DataclassSerializer):
-    """Minimal handle for the team's active onboarding wizard cloud run, used to rehydrate
+class WizardCloudRunSerializer(DataclassSerializer):
+    """The team's active onboarding wizard cloud run, used to rehydrate
     the setup-progress FAB when the run was started server-side (drop flow)."""
 
     task_id = serializers.UUIDField(help_text="Id of the onboarding wizard task.")
@@ -321,7 +321,7 @@ class WizardCloudRunHandleSerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = WizardCloudRunHandleDTO
+        dataclass = WizardCloudRunDTO
         fields = ["task_id", "run_id", "status", "started_at"]
 
 

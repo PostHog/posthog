@@ -115,33 +115,65 @@ class TestFacadeReadsAndMappers(TestCase):
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
+    def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
+        # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
+        # a cloud environment and the (caller-unsettable) wizard_config state key.
+        return TaskRun.objects.create(
+            task=task,
+            team=task.team,
+            status=status,
+            environment=TaskRun.Environment.CLOUD,
+            state={"wizard_config": {}},
+            **kwargs,
+        )
+
     def test_get_active_wizard_cloud_run_returns_latest_onboarding_run(self):
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
-        latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        self._make_wizard_run(task, TaskRun.Status.QUEUED)
+        latest = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
 
-        handle = facade.get_active_wizard_cloud_run(self.team.id)
-        assert handle is not None
-        self.assertIsInstance(handle, contracts.WizardCloudRunHandleDTO)
-        self.assertEqual(handle.task_id, task.id)
-        self.assertEqual(handle.run_id, latest.id)
-        self.assertEqual(handle.status, TaskRun.Status.IN_PROGRESS.value)
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertIsInstance(run, contracts.WizardCloudRunDTO)
+        self.assertEqual(run.task_id, task.id)
+        self.assertEqual(run.run_id, latest.id)
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS.value)
 
     def test_get_active_wizard_cloud_run_ignores_non_onboarding_tasks(self):
         task = self._make_task(origin_product=Task.OriginProduct.USER_CREATED)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_ignores_user_created_run_without_wizard_markers(self):
+        # A project member could create an onboarding task and bootstrap a cloud run through the
+        # normal task APIs, but they can't set the protected wizard_config marker — so such a
+        # planted run must never be surfaced to a provisioned teammate as the active wizard run.
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+        genuine = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertEqual(run.run_id, genuine.id)
+
+    def test_get_active_wizard_cloud_run_ignores_local_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.LOCAL)
         self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
 
     def test_get_active_wizard_cloud_run_surfaces_recently_completed_run(self):
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
         handle = facade.get_active_wizard_cloud_run(self.team.id)
         assert handle is not None
         self.assertEqual(handle.run_id, run.id)
 
     def test_get_active_wizard_cloud_run_drops_stale_completed_run(self):
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
         # auto_now fields can't be set on create — force them past the freshness window.
         stale = django_timezone.now() - timedelta(days=2)
         TaskRun.objects.filter(id=run.id).update(created_at=stale, updated_at=stale)
@@ -150,16 +182,16 @@ class TestFacadeReadsAndMappers(TestCase):
     def test_get_active_wizard_cloud_run_is_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
         self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id))
 
     def test_get_active_wizard_cloud_run_surfaces_older_active_run_behind_newer_stale_task(self):
         # The newest onboarding task's run is stale, but an older task still has a live run:
         # keying off task-recency alone would return nothing and hide the active run.
         older_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        active = TaskRun.objects.create(task=older_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        active = self._make_wizard_run(older_task, TaskRun.Status.IN_PROGRESS)
         newer_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
-        stale_run = TaskRun.objects.create(task=newer_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        stale_run = self._make_wizard_run(newer_task, TaskRun.Status.COMPLETED)
         now = django_timezone.now()
         TaskRun.objects.filter(id=active.id).update(
             created_at=now - timedelta(days=3), updated_at=now - timedelta(days=3)

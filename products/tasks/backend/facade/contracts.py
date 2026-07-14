@@ -42,8 +42,8 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
-class WizardCloudRunHandleDTO:
-    """Minimal handle for a team's active onboarding wizard cloud run.
+class WizardCloudRunDTO:
+    """A team's active onboarding wizard cloud run.
 
     Lets the frontend rehydrate the setup-progress FAB from the server when the drop
     flow started the run server-side (so no client-side localStorage handle exists).
