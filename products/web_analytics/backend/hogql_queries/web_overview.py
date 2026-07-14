@@ -35,12 +35,12 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 
 logger = structlog.get_logger(__name__)
 
-# Ceiling on the phase-1 id set for the two-phase fast path. Above this, shipping the
-# id set to every shard trends toward the known GLOBAL IN broadcast regression, and a
-# filter matching this many sessions isn't selective enough to beat the join anyway.
-# ~1M UInt128 ids ≈ 16 MB per shard — comfortably small; the measured sweet spot
-# (62k ids) is orders of magnitude below.
-TWO_PHASE_MAX_MATCHING_SESSIONS = 1_000_000
+# Ceiling on the phase-1 id set for the two-phase fast path. Cross-team production
+# benchmarks (findings-10): two-phase memory scales ~190 MiB per million ids and still
+# beats the join at 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated
+# crossover where the shipped set stops paying is ~20M. 10M caps two-phase memory at
+# ~2 GiB — under half the join's typical footprint — with margin before the crossover.
+TWO_PHASE_MAX_MATCHING_SESSIONS = 10_000_000
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
