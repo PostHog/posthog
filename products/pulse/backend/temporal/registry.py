@@ -1,4 +1,5 @@
 from products.pulse.backend.temporal.activities import (
+    expand_mission_activity,
     gather_brief_inputs_activity,
     mark_brief_failed_activity,
     mark_brief_quiet_activity,
@@ -14,6 +15,7 @@ ACTIVITIES = [
     gather_brief_inputs_activity,
     synthesize_brief_activity,
     prepare_mission_activity,
+    expand_mission_activity,
     run_agent_activity,
     validate_and_persist_activity,
     mark_brief_quiet_activity,

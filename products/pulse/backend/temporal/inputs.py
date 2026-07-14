@@ -30,6 +30,10 @@ VALIDATE_PERSIST_TIMEOUT = dt.timedelta(minutes=5)
 VALIDATE_PERSIST_ATTEMPTS = 2  # cheap idempotent retry; the expensive agent run is already captured
 MARK_STATUS_TIMEOUT = dt.timedelta(minutes=1)
 MARK_STATUS_ATTEMPTS = 3  # failed/quiet terminal writes
+EXPAND_MISSION_TIMEOUT = dt.timedelta(minutes=5)
+EXPAND_MISSION_ATTEMPTS = 1  # a retry re-bills the LLM
+MAX_EXPANSION_QUERIES = 5
+MAX_EXPANSION_ROWS = 20
 
 
 class MissionBundleDict(TypedDict, total=False):
@@ -39,6 +43,7 @@ class MissionBundleDict(TypedDict, total=False):
 
     seed_items: list[dict]
     goal_status: dict | None
+    focus_prompt: str
 
 
 def pulse_brief_workflow_id(team_id: int, brief_config_id: str | None) -> str:
@@ -86,6 +91,13 @@ class ValidatePersistInputs:
     # Mirrors synthesize's `goal_status is None` check so goalless zeroing is symmetric across
     # engines even when the goal collector degrades to no status.
     has_goal: bool = False
+
+
+@dataclasses.dataclass
+class ExpandMissionInputs:
+    team_id: int
+    brief_id: str
+    bundle: MissionBundleDict
 
 
 @dataclasses.dataclass

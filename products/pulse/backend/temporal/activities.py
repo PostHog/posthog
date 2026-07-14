@@ -13,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.agent.mission import MissionBundle, build_general_brief_mission
 from products.pulse.backend.agent.sandbox_run import run_mission
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
+from products.pulse.backend.generation.expand import execute_expansion, propose_expansions, valid_hogql
 from products.pulse.backend.generation.gate import gate_thresholds
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
@@ -24,9 +25,14 @@ from products.pulse.backend.sources.anchored_insights import InsightResultsCache
 from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
+    MAX_EXPANSION_QUERIES,
+    MAX_EXPANSION_ROWS,
+    MISSION_SEED_ITEMS_KEY,
+    ExpandMissionInputs,
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
     MarkBriefQuietInputs,
+    MissionBundleDict,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -133,6 +139,32 @@ async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
     # No secrets in the bundle: the OAuth token is minted inside run_agent so it
     # never lands in persisted workflow history.
     return bundle.model_dump(mode="json")
+
+
+@temporalio.activity.defn
+async def expand_mission_activity(inputs: ExpandMissionInputs) -> MissionBundleDict:
+    """Best-effort enrichment: ask the LLM to propose extra read-only HogQL queries beyond the
+    gathered seeds, execute the valid ones, and fold their results back in as seed items. Skips
+    entirely without a billing user — the LLM spend has no one to attribute to."""
+    team = await database_sync_to_async(_get_team, thread_sensitive=False)(inputs.team_id)
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    bundle = inputs.bundle
+    if brief.created_by is None:
+        return bundle
+    seeds = bundle.get(MISSION_SEED_ITEMS_KEY, [])
+    focus_prompt = bundle.get("focus_prompt", "")
+    proposals = await propose_expansions(
+        seeds, team=team, user=brief.created_by, focus_prompt=focus_prompt, max_proposals=MAX_EXPANSION_QUERIES
+    )
+    valid_proposals = [proposal for proposal in proposals if valid_hogql(proposal.hogql)]
+    for proposal in valid_proposals:
+        item = await database_sync_to_async(execute_expansion, thread_sensitive=False)(
+            proposal, team=team, max_rows=MAX_EXPANSION_ROWS
+        )
+        if item is not None:
+            seeds.append(dataclasses.asdict(item))
+    bundle[MISSION_SEED_ITEMS_KEY] = seeds
+    return bundle
 
 
 def _store_agent_session(team_id: int, brief_id: str, agent_session_ref: str, transcript_key: str | None) -> None:

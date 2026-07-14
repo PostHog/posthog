@@ -19,12 +19,14 @@ from posthog.models.scoping import team_scope
 from products.pulse.backend.agent.mission import build_general_brief_mission
 from products.pulse.backend.agent.sandbox_run import MissionRunResult
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.expand import ExpansionProposal
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
+    expand_mission_activity,
     gather_brief_inputs_activity,
     mark_brief_quiet_activity,
     prepare_mission_activity,
@@ -33,6 +35,8 @@ from products.pulse.backend.temporal.activities import (
     validate_and_persist_activity,
 )
 from products.pulse.backend.temporal.inputs import (
+    MAX_EXPANSION_QUERIES,
+    ExpandMissionInputs,
     GenerateBriefWorkflowInputs,
     MarkBriefQuietInputs,
     MissionBundleDict,
@@ -313,6 +317,65 @@ async def test_run_agent_activity_refuses_without_creating_user(team, user) -> N
     with pytest.raises(ApplicationError) as exc_info:
         await env.run(run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle))
     assert exc_info.value.non_retryable is True
+
+
+def _expand_bundle(seed_items: list[dict] | None = None) -> MissionBundleDict:
+    return cast(MissionBundleDict, {"seed_items": seed_items or [], "focus_prompt": "growth"})
+
+
+async def test_expand_mission_activity_appends_items(team, user) -> None:
+    brief = await _create_brief(team, user)
+    bundle = _expand_bundle([{"source": "stub", "fingerprint_hint": "abc:0"}])
+    proposals = [ExpansionProposal(intent="a", hogql="select 1"), ExpansionProposal(intent="b", hogql="select 2")]
+    new_items = [
+        SourceItem(source="expansion", kind="signal", title="a", description="d", fingerprint_hint="expansion:a"),
+        SourceItem(source="expansion", kind="signal", title="b", description="d", fingerprint_hint="expansion:b"),
+    ]
+    env = ActivityEnvironment()
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.propose_expansions",
+            new_callable=AsyncMock,
+            return_value=proposals,
+        ),
+        patch("products.pulse.backend.temporal.activities.valid_hogql", return_value=True),
+        patch("products.pulse.backend.temporal.activities.execute_expansion", side_effect=new_items),
+    ):
+        result = await env.run(
+            expand_mission_activity, ExpandMissionInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+        )
+    assert [item["fingerprint_hint"] for item in result["seed_items"]] == ["abc:0", "expansion:a", "expansion:b"]
+
+
+async def test_expand_mission_activity_bounded(team, user) -> None:
+    brief = await _create_brief(team, user)
+    bundle = _expand_bundle()
+    env = ActivityEnvironment()
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.propose_expansions",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as propose_mock,
+        patch("products.pulse.backend.temporal.activities.valid_hogql", return_value=True),
+        patch("products.pulse.backend.temporal.activities.execute_expansion"),
+    ):
+        await env.run(
+            expand_mission_activity, ExpandMissionInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+        )
+    assert propose_mock.call_args.kwargs["max_proposals"] == MAX_EXPANSION_QUERIES
+
+
+async def test_expand_mission_activity_skips_without_user(team) -> None:
+    brief = await _create_brief(team, None)
+    bundle = _expand_bundle([{"source": "stub", "fingerprint_hint": "abc:0"}])
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.propose_expansions", new_callable=AsyncMock) as propose_mock:
+        result = await env.run(
+            expand_mission_activity, ExpandMissionInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+        )
+    propose_mock.assert_not_called()
+    assert result == bundle
 
 
 @sync_to_async
