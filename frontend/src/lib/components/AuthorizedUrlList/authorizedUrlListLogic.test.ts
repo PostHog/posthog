@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -18,6 +19,7 @@ import {
     checkUrlIsSafeToFrame,
     directToolbarUrl,
     filterNotAuthorizedUrls,
+    launchToolbarUrl,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
 
@@ -187,6 +189,11 @@ describe('the authorized urls list logic', () => {
             {
                 proposedUrl: 'http://*.valid.com:3000',
                 validityMessage: undefined,
+            },
+            {
+                // Passes the permissive `isURL` regex but `new URL()` (and so `window.open`) throws on it.
+                proposedUrl: 'https://localhost::http//localhost:5173',
+                validityMessage: 'Please enter a valid URL',
             },
         ]
 
@@ -441,6 +448,43 @@ describe('the authorized urls list logic', () => {
             expect(filterNotAuthorizedUrls(urlsWithInvalidPaths, [])).toEqual([
                 { url: 'https://valid.example.com', count: 2 },
             ])
+        })
+    })
+
+    describe('launchToolbarUrl', () => {
+        // The malformed URL below makes `window.open` throw an uncaught DOMException. These guard that
+        // the launch path validates first — showing a message instead of crashing the flow.
+        const malformedUrl = 'https://localhost::http//localhost:5173#__posthog=abc'
+
+        let openSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        })
+
+        it('opens a valid launch target in a new tab', () => {
+            launchToolbarUrl('https://example.com#__posthog=abc')
+            expect(openSpy).toHaveBeenCalledWith('https://example.com#__posthog=abc', '_blank', 'noopener,noreferrer')
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('surfaces a message and does not open a window for a malformed URL', () => {
+            expect(() => launchToolbarUrl(malformedUrl)).not.toThrow()
+            expect(openSpy).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalled()
+        })
+    })
+
+    describe('storing malformed URLs', () => {
+        // Programmatic/onboarding adds bypass the add-form's validation, so the reducer itself must
+        // refuse a URL that would later crash `window.open` on launch.
+        it('does not add a malformed URL to authorizedUrls', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://localhost::http//localhost:5173')
+            }).toMatchValues({
+                authorizedUrls: expect.not.arrayContaining(['https://localhost::http//localhost:5173']),
+            })
         })
     })
 })
