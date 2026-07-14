@@ -36,7 +36,16 @@ from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfi
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
     ManagedWarehouseDataStatusResponseSerializer,
 )
-from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.data_warehouse.backend.presentation.managed_warehouse_users import (
+    CreateManagedWarehouseUserRequestSerializer,
+    DeleteManagedWarehouseUserResponseSerializer,
+    DisableManagedWarehouseUserResponseSerializer,
+    EnableManagedWarehouseUserResponseSerializer,
+    ManagedWarehouseUserCredentialsResponseSerializer,
+    ManagedWarehouseUserSerializer,
+    ResetManagedWarehouseUserPasswordResponseSerializer,
+)
+from products.data_warehouse.backend.presentation.views import managed_warehouse, managed_warehouse_users
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
@@ -71,6 +80,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": f"Only organization admins can {action} the managed warehouse"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        return None
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # `list_users` (GET) and `create_db_user` (POST) share the "users" URL via
+        # `@list_users.mapping.post`, so they can't each carry their own `required_scopes`
+        # kwarg — DRF applies one action's `@action(...)` kwargs to every HTTP method mapped
+        # onto that route. Deriving the scope from `view.action` (which DRF still resolves
+        # per-method) keeps list read-scoped and create write-scoped.
+        if view.action == "list_users":
+            return ["warehouse_view:read"]
+        if view.action == "create_db_user":
+            return ["warehouse_view:write"]
         return None
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
@@ -1052,3 +1073,94 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
         return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
+
+    # --- Managed warehouse DB users (proxied to duckgres, see managed_warehouse_users.py) ---
+    # Scopes for the shared users route are derived in dangerously_get_required_scopes above.
+
+    @extend_schema(responses={200: ManagedWarehouseUserSerializer(many=True)})
+    @action(methods=["GET"], detail=False, url_path="users")
+    def list_users(self, request: Request, **kwargs) -> Response:
+        """List the organization's managed warehouse database users."""
+        return managed_warehouse_users.list_users(self.team.organization_id)
+
+    @extend_schema(
+        request=CreateManagedWarehouseUserRequestSerializer,
+        responses={201: ManagedWarehouseUserCredentialsResponseSerializer},
+    )
+    @list_users.mapping.post
+    def create_db_user(self, request: Request, **kwargs) -> Response:
+        """Create a database user for the managed warehouse.
+
+        The generated password is returned once in this response and never stored.
+        Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "create database users for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse_users.create_user(self.team.organization_id, request.data.get("username"))
+
+    @extend_schema(responses={200: DeleteManagedWarehouseUserResponseSerializer})
+    @action(
+        methods=["DELETE"],
+        detail=False,
+        url_path=r"users/(?P<username>[^/]+)",
+        required_scopes=["warehouse_view:write"],
+    )
+    def delete_db_user(self, request: Request, username: str = "", **kwargs) -> Response:
+        """Delete a managed warehouse database user. Restricted to organization admins."""
+        admin_error = self._require_organization_admin(request, "delete database users for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse_users.delete_user(self.team.organization_id, username)
+
+    @extend_schema(responses={200: ResetManagedWarehouseUserPasswordResponseSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"users/(?P<username>[^/]+)/reset-password",
+        required_scopes=["warehouse_view:write"],
+    )
+    def reset_db_user_password(self, request: Request, username: str = "", **kwargs) -> Response:
+        """Reset a managed warehouse database user's password.
+
+        The new password is returned once in this response and never stored.
+        Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "reset database user passwords for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse_users.reset_user_password(self.team.organization_id, username)
+
+    @extend_schema(responses={200: DisableManagedWarehouseUserResponseSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"users/(?P<username>[^/]+)/disable",
+        required_scopes=["warehouse_view:write"],
+    )
+    def disable_db_user(self, request: Request, username: str = "", **kwargs) -> Response:
+        """Block a database user from connecting and terminate their live sessions.
+
+        Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "disable database users for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse_users.disable_user(self.team.organization_id, username)
+
+    @extend_schema(responses={200: EnableManagedWarehouseUserResponseSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"users/(?P<username>[^/]+)/enable",
+        required_scopes=["warehouse_view:write"],
+    )
+    def enable_db_user(self, request: Request, username: str = "", **kwargs) -> Response:
+        """Allow a previously disabled database user to connect again.
+
+        Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "enable database users for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse_users.enable_user(self.team.organization_id, username)

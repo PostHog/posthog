@@ -35,6 +35,20 @@ export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Create a database user for the managed warehouse.
+ *
+ * The generated password is returned once in this response and never stored.
+ * Restricted to organization admins.
+ */
+export const DataWarehouseUsersCreateBody = /* @__PURE__ */ zod.object({
+    username: zod
+        .string()
+        .describe(
+            'Username for the new database user. Lowercase letters, numbers, and underscores only, starting with a letter, 3-63 characters.'
+        ),
+})
+
 export const insightVariablesCreateBodyNameMax = 400
 
 export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({

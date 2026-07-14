@@ -14741,6 +14741,11 @@ export namespace Schemas {
       representative_email: string;
     }
 
+    export interface CreateManagedWarehouseUserRequest {
+      /** Username for the new database user. Lowercase letters, numbers, and underscores only, starting with a letter, 3-63 characters. */
+      username: string;
+    }
+
     /**
      * Typed output for view set `create`.
      */
@@ -19047,6 +19052,11 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    export interface DeleteManagedWarehouseUserResponse {
+      /** Username of the database user that was deleted. */
+      deleted: string;
+    }
+
     export interface DeleteTileRequest {
       /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -19307,6 +19317,17 @@ export namespace Schemas {
       summary: DiagnosticReportSummary;
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
+    }
+
+    export interface DisableManagedWarehouseUserResponse {
+      /** Whether the user is now blocked from connecting. */
+      disabled: boolean;
+      /** Number of the user's live sessions that were terminated. */
+      killed: number;
+      /** Number of control-plane replicas that confirmed the disable. */
+      cp_responders: number;
+      /** Total number of control-plane replicas in the cluster. */
+      cp_total: number;
     }
 
     /**
@@ -20124,6 +20145,15 @@ export namespace Schemas {
          * @nullable
          */
       remediation: string | null;
+    }
+
+    export interface EnableManagedWarehouseUserResponse {
+      /** Whether the user is still blocked from connecting (false). */
+      disabled: boolean;
+      /** Number of control-plane replicas that confirmed the enable. */
+      cp_responders: number;
+      /** Total number of control-plane replicas in the cluster. */
+      cp_total: number;
     }
 
     export interface EnableWarehouseBackfillRequest {
@@ -33387,6 +33417,37 @@ export namespace Schemas {
       sources: ManagedWarehouseSourcesStatus;
       /** When this status snapshot was generated. */
       generated_at: string;
+    }
+
+    export interface ManagedWarehouseUser {
+      /** Database username. */
+      username: string;
+      /** Whether the user is currently blocked from connecting. */
+      disabled: boolean;
+      /** When the user was created. */
+      created_at: string;
+      /** When the user was last updated. */
+      updated_at: string;
+    }
+
+    export interface ManagedWarehouseUserConnection {
+      /** Connection host for the managed warehouse. */
+      host: string;
+      /** Postgres wire-protocol port. */
+      port: number;
+      /** Database to connect to — always 'ducklake'. */
+      database: string;
+      /** The database username to connect with. */
+      username: string;
+    }
+
+    export interface ManagedWarehouseUserCredentialsResponse {
+      /** Database username. */
+      username: string;
+      /** Plaintext password for the new user — shown only in this response and never persisted or shown again. */
+      password: string;
+      /** Ready-to-use connection details for this user. Null if the managed warehouse hasn't finished provisioning. */
+      connection: ManagedWarehouseUserConnection | null;
     }
 
     export interface MarkToleratedInput {
@@ -52210,6 +52271,13 @@ export namespace Schemas {
       cacheAgeSeconds: number;
       /** Scan evidence details */
       scan?: ScanEvidence;
+    }
+
+    export interface ResetManagedWarehouseUserPasswordResponse {
+      /** Database username. */
+      username: string;
+      /** New plaintext password — shown only in this response and never persisted or shown again. */
+      password: string;
     }
 
     export interface ResetPasswordResponse {

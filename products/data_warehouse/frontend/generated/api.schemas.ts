@@ -267,6 +267,74 @@ export interface ResetPasswordResponseApi {
     password: string
 }
 
+export interface ManagedWarehouseUserApi {
+    /** Database username. */
+    username: string
+    /** Whether the user is currently blocked from connecting. */
+    disabled: boolean
+    /** When the user was created. */
+    created_at: string
+    /** When the user was last updated. */
+    updated_at: string
+}
+
+export interface CreateManagedWarehouseUserRequestApi {
+    /** Username for the new database user. Lowercase letters, numbers, and underscores only, starting with a letter, 3-63 characters. */
+    username: string
+}
+
+export interface ManagedWarehouseUserConnectionApi {
+    /** Connection host for the managed warehouse. */
+    host: string
+    /** Postgres wire-protocol port. */
+    port: number
+    /** Database to connect to — always 'ducklake'. */
+    database: string
+    /** The database username to connect with. */
+    username: string
+}
+
+export interface ManagedWarehouseUserCredentialsResponseApi {
+    /** Database username. */
+    username: string
+    /** Plaintext password for the new user — shown only in this response and never persisted or shown again. */
+    password: string
+    /** Ready-to-use connection details for this user. Null if the managed warehouse hasn't finished provisioning. */
+    connection: ManagedWarehouseUserConnectionApi | null
+}
+
+export interface DeleteManagedWarehouseUserResponseApi {
+    /** Username of the database user that was deleted. */
+    deleted: string
+}
+
+export interface DisableManagedWarehouseUserResponseApi {
+    /** Whether the user is now blocked from connecting. */
+    disabled: boolean
+    /** Number of the user's live sessions that were terminated. */
+    killed: number
+    /** Number of control-plane replicas that confirmed the disable. */
+    cp_responders: number
+    /** Total number of control-plane replicas in the cluster. */
+    cp_total: number
+}
+
+export interface EnableManagedWarehouseUserResponseApi {
+    /** Whether the user is still blocked from connecting (false). */
+    disabled: boolean
+    /** Number of control-plane replicas that confirmed the enable. */
+    cp_responders: number
+    /** Total number of control-plane replicas in the cluster. */
+    cp_total: number
+}
+
+export interface ResetManagedWarehouseUserPasswordResponseApi {
+    /** Database username. */
+    username: string
+    /** New plaintext password — shown only in this response and never persisted or shown again. */
+    password: string
+}
+
 /**
  * * `pending` - pending
  * * `provisioning` - provisioning

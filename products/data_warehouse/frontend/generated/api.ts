@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CreateManagedWarehouseUserRequestApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
@@ -18,14 +19,19 @@ import type {
     DataWarehouseSavedQueryColumnAnnotationApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
+    DeleteManagedWarehouseUserResponseApi,
     DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
+    DisableManagedWarehouseUserResponseApi,
+    EnableManagedWarehouseUserResponseApi,
     EnableWarehouseBackfillRequestApi,
     EnableWarehouseBackfillResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseUserApi,
+    ManagedWarehouseUserCredentialsResponseApi,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
@@ -50,6 +56,7 @@ import type {
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    ResetManagedWarehouseUserPasswordResponseApi,
     ResetPasswordResponseApi,
     SavedQueryColumnAnnotationsListParams,
     TableApi,
@@ -428,6 +435,134 @@ export const dataWarehouseTotalRowsStatsRetrieve = async (projectId: string, opt
         ...options,
         method: 'GET',
     })
+}
+
+export const getDataWarehouseUsersListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/`
+}
+
+/**
+ * List the organization's managed warehouse database users.
+ */
+export const dataWarehouseUsersList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseUserApi[]> => {
+    return apiMutator<ManagedWarehouseUserApi[]>(getDataWarehouseUsersListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseUsersCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/`
+}
+
+/**
+ * Create a database user for the managed warehouse.
+ *
+ * The generated password is returned once in this response and never stored.
+ * Restricted to organization admins.
+ */
+export const dataWarehouseUsersCreate = async (
+    projectId: string,
+    createManagedWarehouseUserRequestApi: CreateManagedWarehouseUserRequestApi,
+    options?: RequestInit
+): Promise<ManagedWarehouseUserCredentialsResponseApi> => {
+    return apiMutator<ManagedWarehouseUserCredentialsResponseApi>(getDataWarehouseUsersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createManagedWarehouseUserRequestApi),
+    })
+}
+
+export const getDataWarehouseUsersDestroyUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/${username}/`
+}
+
+/**
+ * Delete a managed warehouse database user. Restricted to organization admins.
+ */
+export const dataWarehouseUsersDestroy = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<DeleteManagedWarehouseUserResponseApi> => {
+    return apiMutator<DeleteManagedWarehouseUserResponseApi>(getDataWarehouseUsersDestroyUrl(projectId, username), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDataWarehouseUsersDisableCreateUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/${username}/disable/`
+}
+
+/**
+ * Block a database user from connecting and terminate their live sessions.
+ *
+ * Restricted to organization admins.
+ */
+export const dataWarehouseUsersDisableCreate = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<DisableManagedWarehouseUserResponseApi> => {
+    return apiMutator<DisableManagedWarehouseUserResponseApi>(
+        getDataWarehouseUsersDisableCreateUrl(projectId, username),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getDataWarehouseUsersEnableCreateUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/${username}/enable/`
+}
+
+/**
+ * Allow a previously disabled database user to connect again.
+ *
+ * Restricted to organization admins.
+ */
+export const dataWarehouseUsersEnableCreate = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<EnableManagedWarehouseUserResponseApi> => {
+    return apiMutator<EnableManagedWarehouseUserResponseApi>(
+        getDataWarehouseUsersEnableCreateUrl(projectId, username),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getDataWarehouseUsersResetPasswordCreateUrl = (projectId: string, username: string) => {
+    return `/api/projects/${projectId}/data_warehouse/users/${username}/reset-password/`
+}
+
+/**
+ * Reset a managed warehouse database user's password.
+ *
+ * The new password is returned once in this response and never stored.
+ * Restricted to organization admins.
+ */
+export const dataWarehouseUsersResetPasswordCreate = async (
+    projectId: string,
+    username: string,
+    options?: RequestInit
+): Promise<ResetManagedWarehouseUserPasswordResponseApi> => {
+    return apiMutator<ResetManagedWarehouseUserPasswordResponseApi>(
+        getDataWarehouseUsersResetPasswordCreateUrl(projectId, username),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) => {
