@@ -25,6 +25,7 @@ from llm_gateway.bedrock import (
     count_tokens_with_bedrock_mantle,
     ensure_bedrock_configured,
     map_to_bedrock_model,
+    supports_runtime_count_tokens,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
@@ -635,30 +636,43 @@ async def _bedrock_count_tokens_impl(
     status_code = "200"
 
     try:
-        input_tokens = await count_tokens_with_bedrock(
-            data,
-            bedrock_model,
-            bedrock_region_name,
-            settings.request_timeout,
-            product=product,
-        )
-        return {"input_tokens": input_tokens}
-    except Exception as e:
-        # bedrock-runtime CountTokens doesn't support every Claude model (cross-Region-inference-only
-        # models like claude-opus-4-8 return a ValidationException). AWS's recommended path for those
-        # is Anthropic's count_tokens API on the bedrock-mantle endpoint — try it before giving up.
-        logger.exception(
-            "Bedrock CountTokens failed",
-            model=bedrock_model,
-            product=product,
-            **_bedrock_runtime_exception_log_fields(e),
-        )
-        BEDROCK_COUNT_TOKENS_ERRORS.labels(
-            transport="runtime",
-            error_type=type(e).__name__,
-            product=product,
-        ).inc()
-        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
+        runtime_error_log_fields: dict[str, Any] = {}
+        if supports_runtime_count_tokens(bedrock_model):
+            try:
+                input_tokens = await count_tokens_with_bedrock(
+                    data,
+                    bedrock_model,
+                    bedrock_region_name,
+                    settings.request_timeout,
+                    product=product,
+                )
+                return {"input_tokens": input_tokens}
+            except Exception as e:
+                # bedrock-runtime CountTokens can still fail for supported models. AWS's recommended
+                # path in that case is Anthropic's count_tokens API on the bedrock-mantle endpoint —
+                # try it before giving up.
+                logger.exception(
+                    "Bedrock CountTokens failed",
+                    model=bedrock_model,
+                    product=product,
+                    **_bedrock_runtime_exception_log_fields(e),
+                )
+                BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                    transport="runtime",
+                    error_type=type(e).__name__,
+                    product=product,
+                ).inc()
+                logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
+                runtime_error_log_fields = _bedrock_runtime_exception_log_fields(e)
+        else:
+            # Cross-Region-inference-only models always fail runtime CountTokens with a
+            # ValidationException — skip the guaranteed-failing round-trip and count on mantle.
+            logger.info(
+                "Skipping bedrock-runtime CountTokens for CRIS-only model",
+                model=bedrock_model,
+                product=product,
+            )
+
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
                 data,
@@ -676,7 +690,7 @@ async def _bedrock_count_tokens_impl(
                 model=bedrock_model,
                 product=product,
                 **_exception_log_fields(mantle_exc, prefix="mantle"),
-                **_bedrock_runtime_exception_log_fields(e),
+                **runtime_error_log_fields,
             )
             BEDROCK_COUNT_TOKENS_ERRORS.labels(
                 transport="mantle",

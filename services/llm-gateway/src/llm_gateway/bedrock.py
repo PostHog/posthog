@@ -36,6 +36,14 @@ COUNT_TOKENS_ROUTING_PROPERTIES: Final[frozenset[str]] = frozenset({"model"})
 RUNTIME_COUNT_TOKENS_BODY_PROPERTIES: Final[frozenset[str]] = frozenset({"messages", "max_tokens"})
 MANTLE_COUNT_TOKENS_BODY_PROPERTIES: Final[frozenset[str]] = frozenset({"messages", "system", "tool_choice", "tools"})
 
+# claude-fable-5 is gated behind the provider_data_share retention mode on mantle, even for
+# count_tokens, so counting it under the account-default mode is rejected with a 400.
+# claude-opus-4-8 uses the same tokenizer and is allowed under the default mode — counting via
+# the alias returns identical numbers while count-only payloads stay out of provider-share scope.
+MANTLE_COUNT_TOKENS_MODEL_ALIASES: Final[dict[str, str]] = {
+    "anthropic.claude-fable-5": "anthropic.claude-opus-4-8",
+}
+
 BEDROCK_ANTHROPIC_MODEL_PREFIXES: Final[tuple[str, ...]] = (
     "anthropic.",
     "global.anthropic.",
@@ -295,6 +303,16 @@ def _record_count_tokens_sanitization_report(
     )
 
 
+def supports_runtime_count_tokens(bedrock_model: str) -> bool:
+    """Whether bedrock-runtime CountTokens accepts this model id.
+
+    Runtime CountTokens only supports dated foundation-model ids ("...-20250929-v1:0").
+    Cross-Region-inference-only ids (e.g. us.anthropic.claude-opus-4-8) carry no ":<version>"
+    suffix and always fail with a ValidationException — callers should go straight to mantle.
+    """
+    return ":" in bedrock_model
+
+
 async def count_tokens_with_bedrock(
     request_data: dict[str, Any],
     model: str,
@@ -378,6 +396,7 @@ async def count_tokens_with_bedrock_mantle(
     body, mantle takes the native Anthropic shape (model + messages + optional system/tools).
     """
     mantle_model = _strip_regional_inference_prefix(model)
+    mantle_model = MANTLE_COUNT_TOKENS_MODEL_ALIASES.get(mantle_model, mantle_model)
     body: dict[str, Any] = {"model": mantle_model, "messages": request_data.get("messages")}
     body["messages"], report = _sanitize_bedrock_count_tokens_messages(body["messages"])
     _record_count_tokens_top_level_drops(report, request_data, body_properties=MANTLE_COUNT_TOKENS_BODY_PROPERTIES)

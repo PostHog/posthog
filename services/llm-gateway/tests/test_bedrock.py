@@ -333,8 +333,9 @@ class TestBedrockFallback:
 class TestBedrockCountTokensViaProvider:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
+        # A dated foundation-model id — the runtime CountTokens path; CRIS-only ids skip runtime.
         return {
-            "model": "us.anthropic.claude-sonnet-4-6",
+            "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
             "messages": [{"role": "user", "content": "Hello"}],
         }
 
@@ -374,8 +375,16 @@ class TestBedrockCountTokensViaProvider:
     @pytest.mark.parametrize(
         "model,expected_model_id",
         [
-            pytest.param("us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="already_bedrock"),
-            pytest.param("claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
+            pytest.param(
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                id="already_bedrock",
+            ),
+            pytest.param(
+                "claude-sonnet-4-5",
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                id="anthropic_name_mapped",
+            ),
         ],
     )
     @patch("llm_gateway.api.anthropic.get_settings")
@@ -505,7 +514,8 @@ class TestBedrockCountTokensViaProvider:
         mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
-        # Mirrors bedrock-runtime rejecting CountTokens for a CRIS-only model like claude-opus-4-8.
+        # Mirrors bedrock-runtime rejecting CountTokens for a model the gateway expected it to
+        # support (CRIS-only models never reach runtime — they skip straight to mantle).
         mock_count_tokens.side_effect = ClientError(
             {
                 "Error": {
@@ -553,7 +563,7 @@ class TestBedrockCountTokensViaProvider:
         assert mantle_count_tokens_call.kwargs["product"] == "llm_gateway"
         mock_logger.exception.assert_called_once_with(
             "Bedrock CountTokens failed",
-            model="us.anthropic.claude-sonnet-4-6",
+            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
             product="llm_gateway",
             runtime_status=400,
             runtime_error_type="ClientError",
@@ -562,9 +572,46 @@ class TestBedrockCountTokensViaProvider:
         )
         mock_logger.info.assert_any_call(
             "Attempting bedrock-mantle count_tokens fallback",
-            model="us.anthropic.claude-sonnet-4-6",
+            model="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
             product="llm_gateway",
         )
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            pytest.param("claude-fable-5", id="fable_5"),
+            pytest.param("us.anthropic.claude-sonnet-4-6", id="sonnet_4_6_cris_id"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
+    def test_skips_runtime_count_tokens_for_cris_only_models(
+        self,
+        mock_count_tokens: MagicMock,
+        mock_mantle_count_tokens: AsyncMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        model: str,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_mantle_count_tokens.return_value = 55
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["input_tokens"] == 55
+        # CRIS-only models must not pay the guaranteed-failing runtime round-trip.
+        mock_count_tokens.assert_not_called()
+        assert mock_mantle_count_tokens.await_count == 1
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
@@ -607,7 +654,7 @@ class TestBedrockCountTokensViaProvider:
 
         mock_count_tokens.return_value = 42
         body = {
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-4-5",
             "messages": [{"role": "user", "content": "Hello"}],
             "max_tokens": 2048,
             "system": "Be brief.",
@@ -629,7 +676,7 @@ class TestBedrockCountTokensViaProvider:
 
         assert response.status_code == 200
         request_data = mock_count_tokens.call_args.args[0]
-        assert request_data["model"] == "claude-sonnet-4-6"
+        assert request_data["model"] == "claude-sonnet-4-5"
         assert request_data["messages"] == body["messages"]
         assert request_data["system"] == body["system"]
         assert request_data["tools"] == body["tools"]
@@ -947,6 +994,37 @@ class TestBedrockMantleCountTokens:
             dropped_items_total=2,
             dropped_paths_truncated=False,
         )
+
+    @pytest.mark.asyncio
+    @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")
+    @patch("llm_gateway.bedrock.httpx.AsyncClient")
+    async def test_aliases_fable_count_tokens_to_opus_tokenizer(
+        self,
+        mock_async_client_cls: MagicMock,
+        mock_sign: MagicMock,
+    ) -> None:
+        import httpx
+
+        from llm_gateway.bedrock import count_tokens_with_bedrock_mantle
+
+        mock_sign.return_value = {"anthropic-version": "2023-06-01"}
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=httpx.Response(status_code=200, json={"input_tokens": 88}))
+        mock_async_client_cls.return_value.__aenter__.return_value = mock_client
+
+        result = await count_tokens_with_bedrock_mantle(
+            {"messages": [{"role": "user", "content": "Hello"}]},
+            "us.anthropic.claude-fable-5",
+            "us-east-1",
+            300.0,
+            product="llm_gateway",
+        )
+
+        assert result == 88
+        # fable-5 is retention-gated on mantle even for counting; the same-tokenizer opus-4-8
+        # id must go over the wire or the request 400s on the data-retention gate.
+        signed_body = json.loads(mock_sign.call_args.args[1])
+        assert signed_body["model"] == "anthropic.claude-opus-4-8"
 
     @pytest.mark.asyncio
     @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")
