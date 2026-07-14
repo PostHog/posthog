@@ -603,12 +603,17 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to home, or quickstart when the flag is on', () => {
+        it('experiments falls through to home, or quickstart in the test variant', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
 
             featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: true,
+                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'control',
+            })
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
+                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
             })
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
 

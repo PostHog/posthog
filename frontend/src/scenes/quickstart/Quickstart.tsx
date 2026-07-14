@@ -817,7 +817,7 @@ export function Quickstart(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
 
-    if (!featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]) {
+    if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] !== 'test') {
         return <NotFound object="page" />
     }
 

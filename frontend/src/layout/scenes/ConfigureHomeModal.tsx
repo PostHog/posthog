@@ -30,7 +30,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const { setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const quickstartEnabled = !!featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
+    const quickstartEnabled = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
 
     const isUsingProjectDefault = !homepage
     const isUsingQuickstart = homepage?.sceneId === Scene.Quickstart

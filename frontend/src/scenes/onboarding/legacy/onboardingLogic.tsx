@@ -437,7 +437,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
                 // Without a product-specific destination, land on Quickstart rather than the
                 // AI home: fresh teams have no events yet, so the home input is a dead end.
-                const fallbackUrl = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] ? urls.quickstart() : urls.default()
+                const fallbackUrl =
+                    featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' ? urls.quickstart() : urls.default()
                 if (!productKey) {
                     return fallbackUrl
                 }
@@ -634,7 +635,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
                 router.actions.push(
                     getRelativeNextPath(router.values.searchParams['next'], window.location) ??
-                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] ? urls.quickstart() : urls.default())
+                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
+                            ? urls.quickstart()
+                            : urls.default())
                 )
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")

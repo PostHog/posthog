@@ -29,7 +29,7 @@ export function quickstartHomepageTab(): SceneTab {
 export function setQuickstartAsDefaultHomepageOnce(
     hasCompletedOnboardingFor: Record<string, boolean> | undefined
 ): void {
-    if (!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]) {
+    if (featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] !== 'test') {
         return
     }
     const scene = sceneLogic.findMounted()
