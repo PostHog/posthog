@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
     IconApps,
+    IconArrowLeft,
     IconBook,
-    IconCheckCircle,
     IconGear,
     IconGraduationCap,
     IconPeople,
@@ -15,27 +15,38 @@ import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
-import { productSetupLogic } from 'lib/components/ProductSetup'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import {
+    AIObservabilitySDKInstructions,
+    AIObservabilitySDKTagOverrides,
+} from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
+import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
+import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/legacy/sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
+import { LogsSDKInstructions } from 'scenes/onboarding/legacy/sdks/logs/LogsSDKInstructions'
+import { SDKGrid } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKGrid'
+import { AdblockWarning } from 'scenes/onboarding/legacy/sdks/RealtimeCheckIndicator'
+import { sdksLogic } from 'scenes/onboarding/legacy/sdks/sdksLogic'
+import { SDKSnippet } from 'scenes/onboarding/legacy/sdks/SDKSnippet'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, SDK, SDKInstructionsMap, SDKKey, SDKTagOverrides } from '~/types'
 
 import {
     PublicationFeedKey,
@@ -267,9 +278,12 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
+                        to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
                         onClick={() => {
                             captureQuickstartAction('set_up_product', product.key)
-                            openToolSetupModal(product.key)
+                            if (PRODUCT_SDK_SETUP[product.key]) {
+                                openToolSetupModal(product.key)
+                            }
                         }}
                         data-attr={`quickstart-setup-${product.key}`}
                     >
@@ -292,65 +306,92 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
     )
 }
 
-function ToolSetupModalContent({ product }: { product: QuickstartProduct }): JSX.Element {
-    const setupLogic = productSetupLogic({ productKey: product.key })
-    const { tasksWithState } = useValues(setupLogic)
-    const { runTask } = useActions(setupLogic)
-    const { closeToolSetupModal } = useActions(quickstartLogic)
+const PRODUCT_SDK_SETUP: Partial<
+    Record<ProductKey, { instructionsMap: SDKInstructionsMap; tagOverrides?: SDKTagOverrides; verifyingName?: string }>
+> = {
+    [ProductKey.FEATURE_FLAGS]: { instructionsMap: FeatureFlagsSDKInstructions },
+    [ProductKey.EXPERIMENTS]: { instructionsMap: ExperimentsSDKInstructions },
+    [ProductKey.AI_OBSERVABILITY]: {
+        instructionsMap: AIObservabilitySDKInstructions,
+        tagOverrides: AIObservabilitySDKTagOverrides,
+        verifyingName: 'LLM generation',
+    },
+    [ProductKey.LOGS]: { instructionsMap: LogsSDKInstructions },
+}
+
+function ToolSetupModalContent({
+    product,
+    installationComplete,
+}: {
+    product: QuickstartProduct
+    installationComplete: boolean
+}): JSX.Element {
+    const setup = PRODUCT_SDK_SETUP[product.key]
+    const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
+    const {
+        setAvailableSDKInstructionsMap,
+        setSDKTagOverrides,
+        selectSDK,
+        setSelectedSDK,
+        setSearchTerm,
+        setSelectedTag,
+    } = useActions(sdksLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const adblockResult = useAdblockDetection()
+
+    useEffect(() => {
+        setSDKTagOverrides(setup?.tagOverrides ?? {})
+        setAvailableSDKInstructionsMap(setup?.instructionsMap ?? {})
+        setSelectedSDK(null)
+    }, [setup, setAvailableSDKInstructionsMap, setSDKTagOverrides, setSelectedSDK])
+
+    if (!setup) {
+        return <p className="text-secondary mb-0">Follow the setup guide to get {product.name} running.</p>
+    }
+
+    if (!selectedSDK) {
+        return (
+            <SDKGrid
+                filteredSDKs={filteredSDKs ?? []}
+                searchTerm={searchTerm}
+                selectedTag={selectedTag}
+                tags={tags}
+                onSDKClick={(sdk: SDK) => selectSDK(sdk)}
+                onSearchChange={setSearchTerm}
+                onTagChange={setSelectedTag}
+                currentTeam={currentTeam}
+                showTopControls
+                installationComplete={installationComplete}
+                showTopSkipButton={false}
+            />
+        )
+    }
+
+    const instructions = setup.instructionsMap[selectedSDK.key as SDKKey] as (() => JSX.Element) | undefined
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-                <span className="text-3xl leading-none">
-                    {getProductIcon(product.icon, { iconColor: product.iconColor })}
-                </span>
-                <div className="min-w-0">
-                    <p className="mb-0">{product.description}</p>
-                    <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
-                </div>
+        <div className="flex flex-col gap-3">
+            <div>
+                <LemonButton
+                    icon={<IconArrowLeft />}
+                    size="xsmall"
+                    onClick={() => setSelectedSDK(null)}
+                    data-attr="quickstart-sdk-back"
+                >
+                    All SDKs
+                </LemonButton>
             </div>
-            {tasksWithState.length > 0 ? (
-                <ul className="flex flex-col gap-1 mb-0">
-                    {tasksWithState.map((task) => (
-                        <li key={task.id} className="flex items-center justify-between gap-3 rounded border p-2">
-                            <div className="min-w-0">
-                                <div
-                                    className={cn(
-                                        'font-medium text-sm',
-                                        (task.completed || task.skipped) && 'line-through text-secondary'
-                                    )}
-                                >
-                                    {task.title}
-                                </div>
-                                <div className="text-xs text-secondary">{task.description}</div>
-                            </div>
-                            {task.completed ? (
-                                <IconCheckCircle className="text-success text-xl shrink-0" />
-                            ) : (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    disabledReason={task.lockedReason}
-                                    onClick={() => {
-                                        closeToolSetupModal()
-                                        runTask(task.id)
-                                    }}
-                                    data-attr={`quickstart-setup-task-${task.id}`}
-                                >
-                                    Go
-                                </LemonButton>
-                            )}
-                        </li>
-                    ))}
-                </ul>
+            {instructions ? (
+                <SDKSnippet sdk={selectedSDK} sdkInstructions={instructions} />
             ) : (
-                <p className="text-secondary mb-0">Follow the setup guide to get {product.name} running.</p>
+                <p className="text-secondary mb-0">Instructions for this SDK live in the full setup guide.</p>
             )}
+            <AdblockWarning adblockResult={adblockResult} />
         </div>
     )
 }
 
-function ToolSetupModal(): JSX.Element {
+function ToolSetupModal({ installationComplete }: { installationComplete: boolean }): JSX.Element {
     const { setupModalProduct } = useValues(quickstartLogic)
     const { closeToolSetupModal } = useActions(quickstartLogic)
 
@@ -359,7 +400,7 @@ function ToolSetupModal(): JSX.Element {
             isOpen={!!setupModalProduct}
             onClose={closeToolSetupModal}
             title={setupModalProduct ? `Set up ${setupModalProduct.name}` : ''}
-            width="32rem"
+            width="52rem"
             footer={
                 setupModalProduct && (
                     <div className="flex items-center justify-end gap-2">
@@ -388,7 +429,9 @@ function ToolSetupModal(): JSX.Element {
                 )
             }
         >
-            {setupModalProduct && <ToolSetupModalContent product={setupModalProduct} />}
+            {setupModalProduct && (
+                <ToolSetupModalContent product={setupModalProduct} installationComplete={installationComplete} />
+            )}
         </LemonModal>
     )
 }
@@ -770,7 +813,7 @@ export function Quickstart(): JSX.Element {
 
             <PublicationsSection />
 
-            <ToolSetupModal />
+            <ToolSetupModal installationComplete={installationComplete} />
         </div>
     )
 }
