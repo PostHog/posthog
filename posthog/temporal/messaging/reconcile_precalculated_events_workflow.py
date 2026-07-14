@@ -294,9 +294,9 @@ async def reconcile_team_precalculated_events_activity(inputs: ReconcileTeamInpu
 class ReconcilePrecalculatedEventsWorkflow(PostHogWorkflow):
     """Scheduled workflow that repairs precalculated_events rows made stale by person merges."""
 
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> ReconcilePrecalculatedEventsWorkflowInputs:
-        return ReconcilePrecalculatedEventsWorkflowInputs()
+    # Default JSON parse_inputs, so manual runs can pass {"team_ids": [...], "full_scan": true}.
+    inputs_cls = ReconcilePrecalculatedEventsWorkflowInputs
+    inputs_optional = True
 
     @temporalio.workflow.run
     async def run(self, inputs: ReconcilePrecalculatedEventsWorkflowInputs) -> None:
