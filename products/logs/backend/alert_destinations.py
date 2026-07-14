@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Literal, NotRequired, TypedDict
+
+from django.db import models
 
 from products.alerts.backend.destination_configs import (
     AlertDestinationConfig,
@@ -15,6 +19,40 @@ from products.alerts.backend.destination_configs import (
 from products.logs.backend.models import LogsAlertConfiguration
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
+
+
+class DestinationType(models.TextChoices):
+    SLACK = "slack"
+    DISCORD = "discord"
+    WEBHOOK = "webhook"
+    TEAMS = "teams"
+
+
+class AlertDestinationData(TypedDict):
+    type: DestinationType
+    slack_workspace_id: NotRequired[int]
+    slack_channel_id: NotRequired[str]
+    slack_channel_name: NotRequired[str]
+    webhook_url: NotRequired[str]
+
+
+class AlertDestinationValidationError(Exception):
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        self.message = message
+        self.field = field
+        super().__init__(message)
+
+
+DestinationConfigBuilder = Callable[[LogsAlertConfiguration, EventKind, AlertDestinationData], AlertDestinationConfig]
+
+
+@dataclass(frozen=True)
+class AlertDestinationStrategy:
+    builder: DestinationConfigBuilder
+    required_fields: tuple[str, ...]
+    missing_fields_message: str
+    webhook_url_prefix: str | None = None
+
 
 _PRODUCT_LABEL = "logs alert"
 
@@ -218,3 +256,82 @@ def build_teams_config(
         name=f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams",
         webhook_url=webhook_url,
     )
+
+
+def _build_slack_strategy(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    data: AlertDestinationData,
+) -> AlertDestinationConfig:
+    return build_slack_config(
+        alert,
+        kind,
+        slack_workspace_id=data["slack_workspace_id"],
+        slack_channel_id=data["slack_channel_id"],
+        slack_channel_name=data.get("slack_channel_name"),
+    )
+
+
+def _build_webhook_strategy(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    data: AlertDestinationData,
+) -> AlertDestinationConfig:
+    return build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
+
+
+def _build_discord_strategy(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    data: AlertDestinationData,
+) -> AlertDestinationConfig:
+    return build_discord_config(alert, kind, webhook_url=data["webhook_url"])
+
+
+def _build_teams_strategy(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    data: AlertDestinationData,
+) -> AlertDestinationConfig:
+    return build_teams_config(alert, kind, webhook_url=data["webhook_url"])
+
+
+DESTINATION_STRATEGIES: dict[DestinationType, AlertDestinationStrategy] = {
+    DestinationType.SLACK: AlertDestinationStrategy(
+        builder=_build_slack_strategy,
+        required_fields=("slack_workspace_id", "slack_channel_id"),
+        missing_fields_message="slack_workspace_id and slack_channel_id are required for slack destinations.",
+    ),
+    DestinationType.WEBHOOK: AlertDestinationStrategy(
+        builder=_build_webhook_strategy,
+        required_fields=("webhook_url",),
+        missing_fields_message="webhook_url is required for webhook destinations.",
+    ),
+    DestinationType.DISCORD: AlertDestinationStrategy(
+        builder=_build_discord_strategy,
+        required_fields=("webhook_url",),
+        missing_fields_message="webhook_url is required for discord destinations.",
+        webhook_url_prefix="https://discord.com/api/webhooks/",
+    ),
+    DestinationType.TEAMS: AlertDestinationStrategy(
+        builder=_build_teams_strategy,
+        required_fields=("webhook_url",),
+        missing_fields_message="webhook_url is required for teams destinations.",
+    ),
+}
+
+
+def validate_destination_data(data: AlertDestinationData) -> None:
+    strategy = DESTINATION_STRATEGIES[data["type"]]
+    if any(not data.get(field) for field in strategy.required_fields):
+        raise AlertDestinationValidationError(strategy.missing_fields_message)
+    if strategy.webhook_url_prefix and not data["webhook_url"].startswith(strategy.webhook_url_prefix):
+        raise AlertDestinationValidationError("Enter a valid Discord webhook URL.", field="webhook_url")
+
+
+def build_destination_config(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    data: AlertDestinationData,
+) -> AlertDestinationConfig:
+    return DESTINATION_STRATEGIES[data["type"]].builder(alert, kind, data)

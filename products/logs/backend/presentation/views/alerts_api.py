@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Final, TypedDict, cast
 from zoneinfo import ZoneInfo
 
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -29,7 +29,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.analytics import AlertAction, report_alert_action
-from products.alerts.backend.destination_configs import AlertDestinationConfig, AlertDestinationTemplate
+from products.alerts.backend.destination_configs import AlertDestinationTemplate
 from products.alerts.backend.destinations import (
     AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
@@ -40,11 +40,11 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KINDS,
-    EventKind,
-    build_discord_config,
-    build_slack_config,
-    build_teams_config,
-    build_webhook_config,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    build_destination_config,
+    validate_destination_data,
 )
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
@@ -87,13 +87,6 @@ _NOT_ANNOTATED: Final = object()
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
-
-
-class DestinationType(models.TextChoices):
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
 
 
 class LogsAlertStateIntervalSerializer(serializers.Serializer):
@@ -686,17 +679,14 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        destination_type = attrs["type"]
-        if destination_type == "slack":
-            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
-                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-        elif destination_type in ("discord", "webhook", "teams"):
-            if not attrs.get("webhook_url"):
-                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
-            if destination_type == "discord" and not attrs["webhook_url"].startswith(
-                "https://discord.com/api/webhooks/"
-            ):
-                raise ValidationError({"webhook_url": "Enter a valid Discord webhook URL."})
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data)
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: error.message})
+            raise ValidationError(error.message)
         return attrs
 
 
@@ -876,9 +866,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         alert = self.get_object()
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        data = cast(AlertDestinationData, serializer.validated_data)
 
-        configs = [self._build_destination_config(alert, data, kind) for kind in EVENT_KINDS]
+        configs = [build_destination_config(alert, kind, data) for kind in EVENT_KINDS]
         hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
@@ -923,26 +913,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"alert_id": str(alert.id), "count": len(hog_function_ids)},
         )
         return Response(status=204)
-
-    def _build_destination_config(
-        self,
-        alert: LogsAlertConfiguration,
-        data: dict,
-        kind: EventKind,
-    ) -> AlertDestinationConfig:
-        if data["type"] == "slack":
-            return build_slack_config(
-                alert,
-                kind,
-                slack_workspace_id=data["slack_workspace_id"],
-                slack_channel_id=data["slack_channel_id"],
-                slack_channel_name=data.get("slack_channel_name"),
-            )
-        if data["type"] == "teams":
-            return build_teams_config(alert, kind, webhook_url=data["webhook_url"])
-        if data["type"] == "discord":
-            return build_discord_config(alert, kind, webhook_url=data["webhook_url"])
-        return build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
 
     @extend_schema(
         request=None,
