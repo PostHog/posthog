@@ -9,7 +9,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -51,7 +50,7 @@ export function SAMLSettings(): JSX.Element {
                     {samlReady ? 'Ready' : samlConfig.id ? 'Needs attention' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5" hoverEffect={false}>
+            <div>
                 {!isSAMLAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure SAML.
@@ -115,7 +114,7 @@ export function SAMLSettings(): JSX.Element {
                         </LemonButton>
                     </Form>
                 )}
-            </LemonCard>
+            </div>
         </section>
     )
 }

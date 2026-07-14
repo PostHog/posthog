@@ -7,7 +7,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -48,7 +47,7 @@ export function IdJagSettings(): JSX.Element | null {
                     {idJagConfig.id_jag_issuer_url ? 'Ready' : idJagConfig.id ? 'Needs attention' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5" hoverEffect={false}>
+            <div>
                 {!isXAAAuthenticationAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure XAA.
@@ -116,7 +115,7 @@ export function IdJagSettings(): JSX.Element | null {
                         </LemonButton>
                     </Form>
                 )}
-            </LemonCard>
+            </div>
         </section>
     )
 }

@@ -9,7 +9,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -56,7 +55,7 @@ export function SCIMSettings(): JSX.Element {
                     {scimConfig.scim_enabled ? 'Provisioning enabled' : scimConfig.id ? 'Disabled' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5" hoverEffect={false}>
+            <div>
                 {!isSCIMAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure SCIM.
@@ -143,7 +142,7 @@ export function SCIMSettings(): JSX.Element {
                         </div>
                     </Form>
                 )}
-            </LemonCard>
+            </div>
         </section>
     )
 }
