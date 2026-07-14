@@ -3,13 +3,14 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import ChannelDetail, Status
+from products.conversations.backend.models import EmailChannel, Ticket
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
 
 
@@ -232,6 +233,96 @@ class TestWidgetAPI(BaseTest):
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.anonymous_traits["name"], "John")
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
+
+    def _create_email_channel(self, verified=True, from_email="support@help.example.com", is_default=False):
+        return EmailChannel.objects.create(
+            team=self.team,
+            inbound_token=from_email,
+            from_email=from_email,
+            from_name="Support",
+            domain=from_email.split("@")[1],
+            domain_verified=verified,
+            is_default=is_default,
+        )
+
+    def test_anonymous_email_ticket_uses_the_default_channel(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "email_enabled": True}
+        self.team.save()
+        # Oldest channel is not the default; the newer one is
+        self._create_email_channel(from_email="old@help.example.com")
+        default = self._create_email_channel(from_email="chosen@help.example.com", is_default=True)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Help",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "traits": {"email": "jane@example.com"},
+            },
+            **self._get_headers(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.email_config_id, default.id)
+
+    def test_anonymous_email_trait_creates_email_channel_ticket(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "email_enabled": True}
+        self.team.save()
+        email_config = self._create_email_channel()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "My data is missing\nIt disappeared yesterday",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "traits": {"name": "Jane", "email": "jane@example.com"},
+            },
+            **self._get_headers(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.channel_source, Channel.EMAIL)
+        self.assertEqual(ticket.email_from, "jane@example.com")
+        self.assertEqual(ticket.email_config_id, email_config.id)
+        self.assertEqual(ticket.email_subject, "My data is missing")
+        # Still tied to the widget session, so the requester can also see replies in the widget
+        self.assertEqual(ticket.widget_session_id, self.widget_session_id)
+        self.assertEqual(ticket.anonymous_traits["email"], "jane@example.com")
+
+    @parameterized.expand(
+        [
+            ("no_email_trait", {"name": "Jane"}, True, True),
+            ("email_channel_disabled", {"email": "jane@example.com"}, False, True),
+            ("no_verified_email_channel", {"email": "jane@example.com"}, True, False),
+            ("invalid_email_trait", {"email": "not-an-email"}, True, True),
+        ]
+    )
+    def test_ticket_stays_on_widget_channel(self, _name, traits, email_enabled, channel_verified):
+        if email_enabled:
+            self.team.conversations_settings = {**self.team.conversations_settings, "email_enabled": True}
+            self.team.save()
+        self._create_email_channel(verified=channel_verified)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "traits": traits,
+            },
+            **self._get_headers(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.channel_source, "widget")
+        self.assertFalse(ticket.email_from)
+        self.assertIsNone(ticket.email_config_id)
 
     def test_get_messages(self):
         ticket = Ticket.objects.create_with_number(
@@ -695,6 +786,34 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertTrue(ticket.identity_verified)
+
+    def test_verified_identity_ticket_stays_on_widget_channel_despite_email_trait(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "email_enabled": True}
+        self.team.save()
+        EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="widget_iv_inbound_token",
+            from_email="support@iv.example.com",
+            from_name="Support",
+            domain="iv.example.com",
+            domain_verified=True,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "message": "Hello from identity mode",
+                "traits": {"email": "jane@example.com"},
+            },
+            **self._get_headers(),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.channel_source, "widget")
+        self.assertFalse(ticket.email_from)
 
     def test_anonymous_message_creates_unverified_ticket(self):
         # A widget_session_id-only (no HMAC) request is not server-attested.

@@ -13,7 +13,10 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
+from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db.models import F, Q
 
 from rest_framework import serializers, status
@@ -47,11 +50,47 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import ChannelDetail
+from products.conversations.backend.models import EmailChannel, Ticket
+from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
+
+
+def _email_ticket_overrides(team: Team, traits: dict, identity_verified: bool, message: str) -> dict[str, Any]:
+    """Anonymous requesters who leave an email address get an email-channel ticket, so team
+    replies always reach them by email (they may never reopen the widget). Identified users
+    see replies in the widget, so their tickets stay on the widget channel. Requires the team
+    to have email enabled and a verified channel to send from; otherwise no overrides.
+    """
+    if identity_verified:
+        return {}
+    email = (traits or {}).get("email")
+    # 254 = the max length of Ticket.email_from (EmailField); a longer-but-syntactically-valid
+    # address would pass validate_email and then 500 on insert
+    if not email or not isinstance(email, str) or len(email) > 254:
+        return {}
+    try:
+        validate_email(email)
+    except DjangoValidationError:
+        return {}
+    if not (team.conversations_settings or {}).get("email_enabled"):
+        return {}
+    # Prefer the team's default channel; fall back to the oldest verified one
+    email_config = (
+        EmailChannel.objects.filter(team=team, domain_verified=True).order_by("-is_default", "created_at").first()
+    )
+    if not email_config:
+        return {}
+    # Strip control chars — the subject becomes an email header; splitlines() already drops newlines
+    first_line = next((line for line in message.splitlines() if line.strip()), "")
+    subject = "".join(ch for ch in first_line if ch.isprintable())[:200]
+    return {
+        "channel_source": Channel.EMAIL,
+        "email_config": email_config,
+        "email_from": email,
+        "email_subject": subject or "Support request",
+    }
 
 
 class IdentityVerificationFailed(Exception):
@@ -202,19 +241,23 @@ class WidgetMessageView(APIView):
                 if conversations_settings.get("widget_enabled")
                 else ChannelDetail.WIDGET_API
             )
-            ticket = Ticket.objects.create_with_number(
-                team=team,
-                widget_session_id=widget_session_id,
-                distinct_id=distinct_id,
-                channel_source="widget",
-                channel_detail=widget_channel_detail,
-                status="new",
-                anonymous_traits=traits,
-                unread_team_count=1,
-                session_id=session_id,
-                session_context=session_context,
-                identity_verified=verified_distinct_id is not None,
+            create_kwargs: dict[str, Any] = {
+                "team": team,
+                "widget_session_id": widget_session_id,
+                "distinct_id": distinct_id,
+                "channel_source": "widget",
+                "channel_detail": widget_channel_detail,
+                "status": "new",
+                "anonymous_traits": traits,
+                "unread_team_count": 1,
+                "session_id": session_id,
+                "session_context": session_context,
+                "identity_verified": verified_distinct_id is not None,
+            }
+            create_kwargs.update(
+                _email_ticket_overrides(team, traits, verified_distinct_id is not None, message_content)
             )
+            ticket = Ticket.objects.create_with_number(**create_kwargs)
 
             try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
