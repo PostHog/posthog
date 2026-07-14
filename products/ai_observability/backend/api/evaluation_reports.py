@@ -464,14 +464,14 @@ class EvaluationReportRunContentSerializer(serializers.Serializer):
 @extend_schema_field(EvaluationReportRunContentSerializer)
 class _EvaluationReportRunContentField(serializers.JSONField):
     def to_representation(self, value: Any) -> Any:
-        representation = super().to_representation(value)
+        representation = cast(Any, super().to_representation(value))
         return normalize_report_content_payload(representation) if isinstance(representation, dict) else representation
 
 
 @extend_schema_field(EvaluationReportMetricsSerializer)
 class _EvaluationReportMetricsField(serializers.JSONField):
     def to_representation(self, value: Any) -> Any:
-        representation = super().to_representation(value)
+        representation = cast(Any, super().to_representation(value))
         return normalize_metrics_payload(representation) if isinstance(representation, dict) else representation
 
 

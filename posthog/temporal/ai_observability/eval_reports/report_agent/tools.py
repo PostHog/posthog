@@ -80,12 +80,16 @@ def _parse_summary_row(
 ) -> tuple[dict[str, int], int]:
     values = row or ()
     counts = {
-        outcome: int(values[index]) if index < len(values) and values[index] is not None else 0
+        outcome: _summary_value_as_int(values[index]) if index < len(values) else 0
         for index, outcome in enumerate(definition.outcomes)
     }
     total_index = len(definition.outcomes)
-    total = int(values[total_index]) if total_index < len(values) and values[total_index] is not None else 0
+    total = _summary_value_as_int(values[total_index]) if total_index < len(values) else 0
     return counts, total
+
+
+def _summary_value_as_int(value: int | float | str | None) -> int:
+    return int(value) if value is not None else 0
 
 
 def _outcome_for_result(output_type: str, result: object, applicable: object = None) -> str | None:
@@ -93,8 +97,9 @@ def _outcome_for_result(output_type: str, result: object, applicable: object = N
         return result if isinstance(result, str) and result in ("positive", "neutral", "negative") else None
     if applicable is False:
         return "na"
+    outcomes_by_result: dict[object, str] = {True: "pass", False: "fail"}
     try:
-        return {True: "pass", False: "fail"}.get(result)
+        return outcomes_by_result.get(result)
     except TypeError:
         return None
 

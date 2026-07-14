@@ -63,6 +63,7 @@ async def test_run_agent_activity_forwards_sentiment_output_type() -> None:
 @pytest.mark.asyncio
 async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
     report_run = MagicMock(id="run-id", report_id="report-id")
+    expected_result_counts = {"positive": 2, "neutral": 3, "negative": 5}
     content = {
         "title": "Sentiment shifted negative",
         "sections": [],
@@ -70,7 +71,7 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
         "metrics": {
             "output_type": "sentiment",
             "total_runs": 10,
-            "result_counts": {"positive": 2, "neutral": 3, "negative": 5},
+            "result_counts": expected_result_counts,
             "result_rates": {"positive": 20.0, "neutral": 30.0, "negative": 50.0},
         },
     }
@@ -96,7 +97,7 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
     properties = create_event.call_args.kwargs["properties"]
     assert result.report_run_id == "run-id"
     assert properties["$ai_report_output_type"] == "sentiment"
-    assert properties["$ai_report_result_counts"] == content["metrics"]["result_counts"]
+    assert properties["$ai_report_result_counts"] == expected_result_counts
     assert "$ai_report_pass_rate" not in properties
 
 
