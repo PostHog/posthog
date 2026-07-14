@@ -2608,7 +2608,7 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenRouterSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
