@@ -779,6 +779,7 @@ def compute_sdk_health(
         if not latest_version_str or not usage_raw:
             continue
 
+        assessment: Optional[SdkAssessment]
         if sdk_type == LEGACY_JAVA_SDK:
             assessment = _assess_legacy_java_sdk(latest_version_str, usage_raw, project_id=project_id)
         else:
