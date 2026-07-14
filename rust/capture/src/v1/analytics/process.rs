@@ -102,11 +102,23 @@ pub async fn process_batch(
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
     if let Some(ref limiter) = state.overflow_limiter {
-        apply_overflow_stamping(limiter, context, &mut events);
+        let pipeline = CapturePipeline::builder()
+            .step(ApplyOverflowStamping::new(
+                limiter.clone(),
+                Arc::new(RequestContext::clone(context)),
+            ))
+            .build();
+        super::pipeline::run_in_place(&pipeline, &mut events).await;
     }
 
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        apply_token_distinct_id_limits(limiter, context, &mut events).await;
+        let pipeline = CapturePipeline::builder()
+            .chunk_step(ApplyTokenDistinctIdLimits::new(
+                limiter.clone(),
+                Arc::new(RequestContext::clone(context)),
+            ))
+            .build();
+        super::pipeline::run_in_place(&pipeline, &mut events).await;
     }
 
     histogram!(
@@ -551,6 +563,39 @@ fn apply_historical_rerouting(
     }
 }
 
+/// Framework step wrapping [`apply_overflow_stamping`]. Sync and per-event.
+/// Holds `Arc<OverflowLimiter>` and an `Arc<RequestContext>` snapshot (needed
+/// for `partition_key`), applying the unchanged slice-based function to one
+/// event via [`std::slice::from_mut`].
+pub struct ApplyOverflowStamping {
+    limiter: Arc<OverflowLimiter>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyOverflowStamping {
+    pub fn new(limiter: Arc<OverflowLimiter>, ctx: Arc<RequestContext>) -> Self {
+        Self { limiter, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyOverflowStamping {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_overflow_stamping(&self.limiter, &self.ctx, std::slice::from_mut(&mut event));
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_overflow_stamping"
+    }
+}
+
 fn apply_overflow_stamping(
     limiter: &OverflowLimiter,
     ctx: &RequestContext,
@@ -694,6 +739,39 @@ async fn apply_restrictions(
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
                 .increment(1);
         }
+    }
+}
+
+/// Framework step wrapping [`apply_token_distinct_id_limits`]. Async (the global
+/// rate limiter is awaited) and carries cross-event aggregate logging, so it is
+/// a whole-chunk [`ChunkStep`].
+pub struct ApplyTokenDistinctIdLimits {
+    limiter: Arc<GlobalRateLimiter>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyTokenDistinctIdLimits {
+    pub fn new(limiter: Arc<GlobalRateLimiter>, ctx: Arc<RequestContext>) -> Self {
+        Self { limiter, ctx }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyTokenDistinctIdLimits {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        apply_token_distinct_id_limits(&self.limiter, &self.ctx, &mut events).await;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_token_distinct_id_limits"
     }
 }
 
