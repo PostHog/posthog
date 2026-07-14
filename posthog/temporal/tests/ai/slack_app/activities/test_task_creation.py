@@ -14,6 +14,7 @@ to wording in the wrapper text show up as a diff in
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _SLACK_DELIVERY_CONSTRAINTS,
+    _SLACK_DELIVERY_CONSTRAINTS_DISABLED,
     _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
@@ -88,6 +89,22 @@ def test_build_description_omits_canvas_and_file_adapters_when_flag_off():
     assert "choose adapter" not in out
     assert "do not use the `slack_canvas` or `slack_file` adapters" in out
     assert "using adapter `slack_message`" in out
+
+
+def test_build_description_omits_living_artifact_api_when_artifact_flag_off():
+    out = _build_posthog_code_task_description(
+        "do something",
+        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        "1234.5678",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
+        living_artifacts_enabled=False,
+    )
+
+    assert _SLACK_DELIVERY_CONSTRAINTS_DISABLED in out
+    assert "/living_artifacts/" not in out
+    assert "Do not use the living-artifacts API" in out
+    assert "Respond directly in Slack" in out
 
 
 def test_build_description_renders_labeled_mention_for_each_author():

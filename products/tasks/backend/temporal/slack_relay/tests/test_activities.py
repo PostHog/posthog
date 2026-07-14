@@ -212,6 +212,10 @@ class TestRelaySlackMessage(TestCase):
         assert "Artifacts available in Slack" not in posted
         assert ".index" not in posted
 
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
+        return_value=True,
+    )
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
@@ -227,7 +231,8 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         mock_requests_post,
-        _mock_flag,
+        _mock_canvas_file_flag,
+        _mock_living_artifacts_flag,
     ):
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
         location = {
