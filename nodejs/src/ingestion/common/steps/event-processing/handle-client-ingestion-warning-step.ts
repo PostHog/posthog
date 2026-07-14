@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import {
-    INGESTION_WARNING_TYPES,
+    CAPTURE_PRODUCED_WARNING_TYPES,
     IngestionWarning,
     IngestionWarningType,
     emitIngestionWarning,
@@ -59,15 +59,24 @@ export function createHandleClientIngestionWarningStep<TInput extends HandleClie
  *
  * Backend producers that can't resolve token->team (capture) emit a synthetic
  * `$$client_ingestion_warning` event carrying a structured warning type,
- * details, and source in its properties. When present and recognized we
- * preserve them and let the per-(team,type) limiter throttle the warning.
+ * details, and source in its properties. When present and one of the types a
+ * trusted backend producer actually emits (`CAPTURE_PRODUCED_WARNING_TYPES`)
+ * we preserve them and let the per-(team,type) limiter throttle the warning.
  * Otherwise we fall back to the original client-emitted warning shape.
+ *
+ * These properties ride on a publicly-ingestible event, so they are
+ * attacker-controlled — the allowlist (rather than the full ingestion-warning
+ * registry) stops a client from impersonating another producer or forging
+ * details for a renderer-only type it was never meant to set.
  */
 function buildWarning(event: PluginEvent): IngestionWarning {
     const props = event.properties ?? {}
     const structuredType = props.$$client_ingestion_warning_type
 
-    if (typeof structuredType === 'string' && structuredType in INGESTION_WARNING_TYPES) {
+    if (
+        typeof structuredType === 'string' &&
+        CAPTURE_PRODUCED_WARNING_TYPES.has(structuredType as IngestionWarningType)
+    ) {
         const detailsIn = (props.$$client_ingestion_warning_details ?? {}) as Record<string, any>
         const { pipelineStep, ...restDetails } = detailsIn
         const source = props.$$client_ingestion_warning_source

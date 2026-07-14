@@ -188,6 +188,35 @@ describe('handleClientIngestionWarningStep', () => {
             expect((warning as any).source).toBe('plugin-server')
             expect(warning.details.message).toBe('legacy')
         })
+
+        it('falls back to the client warning shape for a registered but non-capture type, even with forged details', async () => {
+            // $$client_ingestion_warning arrives over the public capture path, so a
+            // client could try to impersonate a plugin-server-only type (registered,
+            // but never emitted by capture) to reach a renderer that assumes a
+            // validated shape (e.g. schema_validation_failed's `details.errors`).
+            // The allowlist must reject this even though the type itself is
+            // registered in INGESTION_WARNING_TYPES.
+            const step = createHandleClientIngestionWarningStep(mockOutputs)
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'schema_validation_failed',
+                        $$client_ingestion_warning_source: 'capture',
+                        $$client_ingestion_warning_details: {},
+                    },
+                },
+            }
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            const warning = producedWarning()
+            expect(warning.type).toBe('client_ingestion_warning')
+            expect((warning as any).source).toBe('plugin-server')
+        })
     })
 
     describe('non-client ingestion warning events', () => {

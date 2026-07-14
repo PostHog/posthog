@@ -93,6 +93,34 @@ export const INGESTION_WARNING_TYPES = {
 export type IngestionWarningType = keyof typeof INGESTION_WARNING_TYPES
 
 /**
+ * The subset of `INGESTION_WARNING_TYPES` that trusted Rust backend producers
+ * (capture; see `rust/common/ingestion_warnings/src/registry.rs::WarningType::ALL`)
+ * are allowed to set via the structured `$$client_ingestion_warning_type`
+ * property. `$$client_ingestion_warning` events arrive over the public
+ * capture path, so that property is attacker-controlled — promoting it to an
+ * arbitrary registered type would let a client impersonate any producer and
+ * forge details for renderer-only types (e.g. `schema_validation_failed`,
+ * whose UI assumes a validated `errors` array shape). Keep this in sync with
+ * the Rust registry; the cross-language test there only checks the Rust set
+ * is a *subset* of `INGESTION_WARNING_TYPES`, not of this allowlist, so a new
+ * Rust type must be added here too before the consumer will honor it.
+ */
+export const CAPTURE_PRODUCED_WARNING_TYPES: ReadonlySet<IngestionWarningType> = new Set([
+    'missing_event_name',
+    'event_name_too_long',
+    'missing_distinct_id',
+    'distinct_id_too_large',
+    'invalid_event_timestamp',
+    'malformed_event_properties',
+    'invalid_options',
+    'empty_batch',
+    'invalid_batch',
+    'missing_event_uuid',
+    'invalid_event_uuid',
+    'duplicate_event_uuid',
+])
+
+/**
  * Unified ingestion warning structure used across pipeline warnings and direct producer calls.
  * Category and severity come from INGESTION_WARNING_TYPES; only the per-occurrence
  * fields (pipelineStep, details) are set by callsites.

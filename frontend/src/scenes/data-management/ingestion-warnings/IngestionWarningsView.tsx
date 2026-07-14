@@ -302,7 +302,7 @@ export const WARNING_TYPE_RENDERER = {
                 distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
                 uuid: <code>{details.eventUuid}</code>):
                 <ul>
-                    {details.errors.map((error, index) => (
+                    {(details.errors ?? []).map((error, index) => (
                         <li key={index}>
                             {error.reason === 'missing_required' ? (
                                 <>
