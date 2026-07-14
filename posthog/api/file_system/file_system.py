@@ -48,6 +48,7 @@ from posthog.api.file_system.folder_instructions_service import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -62,6 +63,7 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -1169,15 +1171,19 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         """Announce a canvas's first publish in the generating task's thread.
 
         The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
-        a publish is attributable to the task that made it. The sandbox authenticates
-        with the task creator's credentials, so the facade only accepts a task created
-        by the requesting user — the header can't point the announcement at someone
-        else's task thread. No header (a human or app save) means no announcement.
+        a publish is attributable to the task that made it. The header alone is
+        forgeable, so two checks bind the announcement to a real sandbox run: the
+        request must carry an OAuth token minted under a sandbox app (those tokens
+        are only created server-side), and the facade only accepts a task created
+        by the requesting user (the sandbox authenticates with the task creator's
+        credentials). No header (a human or app save) means no announcement.
         """
         raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
         try:
             task_id = UUID(raw_task_id)
         except ValueError:
+            return
+        if not self._is_sandbox_authenticated(request):
             return
         user = request.user if isinstance(request.user, User) else None
         segments = split_path(dashboard.path)
@@ -1188,6 +1194,16 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             canvas_name=segments[-1] if segments else "Canvas",
             canvas_url=self._canvas_share_url(dashboard),
         )
+
+    @staticmethod
+    def _is_sandbox_authenticated(request: Request) -> bool:
+        """True when the request bears an OAuth token minted under a sandbox app —
+        the credential a task sandbox (via the MCP server) calls this API with."""
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        application = authenticator.access_token.application
+        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
 
     def _canvas_share_url(self, dashboard: FileSystem) -> str | None:
         """The web interstitial link that deep-links into the desktop app's canvas view:

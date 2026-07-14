@@ -4789,6 +4789,11 @@ def delete_channel(channel_id: str | UUID, team_id: int) -> str:
     return "ok"
 
 
+# Per-channel ceiling on feed rows — the feed holds rare lifecycle announcements, so the
+# cap exists to stop one member making the feed unboundedly expensive to store and read.
+CHANNEL_FEED_MAX_MESSAGES = 500
+
+
 def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.ChannelFeedMessageDTO:
     return contracts.ChannelFeedMessageDTO(
         id=message.id,
@@ -4817,16 +4822,17 @@ def list_channel_feed_messages(
     channel_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.ChannelFeedMessageDTO] | None:
     """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible.
-    Unpaginated: the feed holds rare lifecycle events. Add pagination before any
-    per-task or per-thread event lands here."""
+    Bounded to the newest ``CHANNEL_FEED_MAX_MESSAGES``: the feed holds rare lifecycle
+    events, and the write path caps a channel at the same count. Add real pagination
+    before any per-task or per-thread event lands here."""
     if _visible_channel(channel_id, team_id, user_id) is None:
         return None
     messages = (
         ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
         .select_related("author")
-        .order_by("created_at", "id")
+        .order_by("-created_at", "-id")[:CHANNEL_FEED_MAX_MESSAGES]
     )
-    return [_channel_feed_message_to_dto(message) for message in messages]
+    return [_channel_feed_message_to_dto(message) for message in reversed(messages)]
 
 
 def create_channel_feed_message(
@@ -4837,18 +4843,26 @@ def create_channel_feed_message(
     event: str,
     payload: dict,
     created_at: datetime | None = None,
-) -> contracts.ChannelFeedMessageDTO | None:
-    """Post a system announcement into a channel's feed as the requester. ``None`` when
-    the channel isn't visible. The row is authored by the system; ``author`` records the
-    acting user so the client can render "Adam …". ``created_at`` lets a client order a
-    burst of announcements deterministically (else the server stamps ``now``)."""
+) -> contracts.ChannelFeedMessageDTO | None | str:
+    """Post an announcement into a channel's feed as the requester. ``None`` when the
+    channel isn't visible; ``"full"`` when the channel's feed is at capacity. The row is
+    marked human-authored — ``system``/``agent`` kinds are reserved for server-side
+    writers, so a client can't forge rows other clients render as trusted. ``author``
+    records the acting user so the client can render "Adam …". ``created_at`` lets a
+    client order a burst of announcements deterministically (else the server stamps
+    ``now``)."""
     if _visible_channel(channel_id, team_id, user_id) is None:
         return None
+    if (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
+        >= CHANNEL_FEED_MAX_MESSAGES
+    ):
+        return "full"
     fields: dict = {
         "team_id": team_id,
         "channel_id": channel_id,
         "author_id": user_id,
-        "author_kind": ChannelFeedMessage.AuthorKind.SYSTEM,
+        "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
         "event": event,
         "payload": payload or {},
     }
@@ -4917,7 +4931,7 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
-    TaskThreadMessageMention.objects.bulk_create(
+    TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
         [
             TaskThreadMessageMention(
                 team_id=message.team_id,
@@ -5040,7 +5054,9 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
     ``payload`` are the structured record, mirroring ChannelFeedMessage, that
     lets clients render agent rows natively and dedupe them against live views.
     """
-    message = TaskThreadMessage.objects.create(
+    # for_team: callers include non-request contexts (temporal relay) where the
+    # fail-closed manager has no team scope.
+    message = TaskThreadMessage.objects.for_team(task.team_id).create(
         team_id=task.team_id,
         task_id=task.id,
         author_id=None,

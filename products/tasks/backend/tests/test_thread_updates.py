@@ -23,7 +23,10 @@ class TestAgentThreadUpdates(TestCase):
             email="creator@example.com", first_name="Casey", last_name="Creator", password="password"
         )
         OrganizationMembership.objects.create(user=self.user, organization=self.organization)
-        self.channel = Channel.objects.create(team=self.team, name="general")
+        # Direct instantiation sidesteps the fail-closed TeamScopedManager so
+        # setUp doesn't need a team_scope wrapper (see test_channels_api.py).
+        self.channel = Channel(team=self.team, name="general")
+        self.channel.save()
         self.task = Task.objects.create(
             team=self.team,
             title="Build canvas",

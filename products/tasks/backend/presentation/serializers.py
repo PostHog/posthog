@@ -1,3 +1,4 @@
+import json
 import base64
 import logging
 import binascii
@@ -1313,13 +1314,19 @@ class ChannelFeedMessageSerializer(DataclassSerializer):
 # in quick succession; anything beyond this window is backdating, not ordering.
 CHANNEL_FEED_CREATED_AT_WINDOW = timedelta(minutes=10)
 
+# Feed payloads carry a couple of short strings (e.g. a context name); the cap stops one
+# member storing megabytes of JSON every reader must then load and serialize.
+CHANNEL_FEED_PAYLOAD_MAX_BYTES = 8 * 1024
+
 
 class ChannelFeedMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a system announcement into a channel's feed."""
 
     event = serializers.ChoiceField(choices=CHANNEL_FEED_EVENTS, help_text="Lifecycle event key.")
     payload = serializers.JSONField(
-        required=False, default=dict, help_text='Structured event data, e.g. {"context_name": "mobile"}.'
+        required=False,
+        default=dict,
+        help_text='Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON.',
     )
     created_at = serializers.DateTimeField(
         required=False,
@@ -1329,6 +1336,13 @@ class ChannelFeedMessageWriteSerializer(serializers.Serializer):
     def validate_created_at(self, value: datetime) -> datetime:
         if abs(django_timezone.now() - value) > CHANNEL_FEED_CREATED_AT_WINDOW:
             raise serializers.ValidationError("created_at must be within 10 minutes of the current time.")
+        return value
+
+    def validate_payload(self, value: dict) -> dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("payload must be a JSON object.")
+        if len(json.dumps(value)) > CHANNEL_FEED_PAYLOAD_MAX_BYTES:
+            raise serializers.ValidationError("payload must be at most 8 KB of JSON.")
         return value
 
 

@@ -4,7 +4,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -160,6 +160,8 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         )
         if message is None:
             raise NotFound("Channel not found")
+        if message == "full":
+            raise ValidationError("This channel's feed is full.")
         return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 

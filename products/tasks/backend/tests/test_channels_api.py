@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
 
 
 class ChannelsAPITestCase(TestCase):
@@ -370,7 +370,9 @@ class ChannelFeedMessageAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         body = response.json()
         self.assertEqual(body["event"], "context_created")
-        self.assertEqual(body["author_kind"], "system")
+        # Client posts are marked human-authored; system/agent kinds are reserved
+        # for server-side writers so a member can't forge trusted rows.
+        self.assertEqual(body["author_kind"], "human")
         self.assertEqual(body["author"]["id"], self.user.id)
         self.assertEqual(body["payload"], {"context_name": "mobile"})
 
@@ -459,6 +461,36 @@ class ChannelFeedMessageAPITestCase(TestCase):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, stamp)
+
+    def test_oversized_payload_is_rejected(self):
+        channel_id = self._public_channel()
+        response = self.client.post(
+            self._feed_url(channel_id),
+            {"event": "context_created", "payload": {"context_name": "x" * 9000}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_to_full_feed_is_rejected(self):
+        channel_id = self._public_channel()
+        # channel_created already occupies one slot; a cap of 2 leaves room for one post.
+        with patch("products.tasks.backend.facade.api.CHANNEL_FEED_MAX_MESSAGES", 2):
+            ok = self.client.post(self._feed_url(channel_id), {"event": "context_created"}, format="json")
+            self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+            full = self.client.post(self._feed_url(channel_id), {"event": "context_md_building"}, format="json")
+            self.assertEqual(full.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_returns_newest_rows_ascending_when_over_cap(self):
+        channel_id = self._public_channel()
+        now = django_timezone.now()
+        for i, event in enumerate(["context_created", "context_md_building"]):
+            ChannelFeedMessage(
+                team=self.team, channel_id=channel_id, event=event, created_at=now + timedelta(seconds=i + 1)
+            ).save()
+        with patch("products.tasks.backend.facade.api.CHANNEL_FEED_MAX_MESSAGES", 2):
+            events = [m["event"] for m in self.client.get(self._feed_url(channel_id)).json()]
+        # Three rows, cap 2: the oldest (channel_created) drops, newest two stay ascending.
+        self.assertEqual(events, ["context_created", "context_md_building"])
 
     def test_feed_is_team_scoped(self):
         channel_id = self._public_channel()

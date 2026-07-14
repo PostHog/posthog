@@ -9,7 +9,14 @@ from django.conf import settings
 from rest_framework import status
 
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
@@ -120,10 +127,31 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         TaskThreadMessage = apps.get_model("tasks", "TaskThreadMessage")
         return TaskThreadMessage.objects.for_team(self.team.id).filter(task=task)
 
+    def _authenticate_as_sandbox(self) -> None:
+        """Swap session auth for a sandbox-app OAuth token — announcements only fire for
+        requests bearing one. The app is created for every region client id because
+        `create_oauth_access_token_for_user` resolves it by `get_instance_region()`."""
+        for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+            OAuthApplication.objects.get_or_create(
+                client_id=client_id,
+                defaults={
+                    "name": "Array Test App",
+                    "client_type": OAuthApplication.CLIENT_PUBLIC,
+                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    "redirect_uris": "https://app.posthog.com/callback",
+                    # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
+                    "algorithm": "RS256",
+                },
+            )
+        token = create_oauth_access_token_for_user(self.user, self.team.id, scopes="full")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     def test_first_publish_from_task_announces_in_thread_once(self, _flag):
         task = self._create_task()
         item_id = self._create_dashboard(meta={"channelId": "chan-1"})
+        self._authenticate_as_sandbox()
 
         self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
@@ -144,6 +172,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     def test_announcement_links_via_parent_folder_when_meta_has_no_channel(self, _flag):
         task = self._create_task()
         item_id = self._create_dashboard()  # no channelId stamp — rows created before the app stamped it
+        self._authenticate_as_sandbox()
 
         self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
@@ -165,9 +194,23 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
             created_by=other,
         )
         item_id = self._create_dashboard()
+        self._authenticate_as_sandbox()
 
         self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
+        self.assertFalse(self._thread_messages(task).exists())
+
+    @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
+    def test_session_authenticated_publish_with_header_stays_silent(self, _flag):
+        # The header alone must not produce an agent announcement: a member setting it on
+        # an ordinary (session-authenticated) publish of their own task would otherwise
+        # forge a trusted-looking agent message. Only sandbox OAuth tokens qualify.
+        task = self._create_task()
+        item_id = self._create_dashboard()
+
+        response = self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(self._thread_messages(task).exists())
 
     def test_publish_without_task_attribution_stays_silent(self):
