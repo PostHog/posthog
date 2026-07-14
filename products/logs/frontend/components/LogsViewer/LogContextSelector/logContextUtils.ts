@@ -25,9 +25,14 @@ function getServiceName(log: ParsedLogMessage): string | null {
 }
 
 function getSessionMatch(
-    log: ParsedLogMessage
+    log: ParsedLogMessage,
+    configuredSessionKeys?: string[]
 ): { key: string; value: string; source: 'attribute' | 'resource_attribute' } | null {
-    return getSessionIdWithKey(log.attributes, log.resource_attributes as Record<string, unknown> | undefined)
+    return getSessionIdWithKey(
+        log.attributes,
+        log.resource_attributes as Record<string, unknown> | undefined,
+        configuredSessionKeys
+    )
 }
 
 function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
@@ -57,7 +62,7 @@ function buildFilterGroup(key: string, value: string, propertyType: PropertyFilt
     }
 }
 
-export function getAvailableContexts(log: ParsedLogMessage): LogContextOption[] {
+export function getAvailableContexts(log: ParsedLogMessage, configuredSessionKeys?: string[]): LogContextOption[] {
     const contexts: LogContextOption[] = []
     const serviceName = getServiceName(log)
 
@@ -83,7 +88,7 @@ export function getAvailableContexts(log: ParsedLogMessage): LogContextOption[] 
         })
     }
 
-    if (getSessionMatch(log)) {
+    if (getSessionMatch(log, configuredSessionKeys)) {
         contexts.push({
             type: 'session',
             label: 'View session logs',
@@ -94,7 +99,11 @@ export function getAvailableContexts(log: ParsedLogMessage): LogContextOption[] 
     return contexts
 }
 
-export function buildContextFilters(log: ParsedLogMessage, contextType: LogContextType): Partial<LogsViewerFilters> {
+export function buildContextFilters(
+    log: ParsedLogMessage,
+    contextType: LogContextType,
+    configuredSessionKeys?: string[]
+): Partial<LogsViewerFilters> {
     const base: Pick<LogsViewerFilters, 'searchTerm' | 'severityLevels'> = {
         searchTerm: '',
         severityLevels: [],
@@ -124,7 +133,7 @@ export function buildContextFilters(log: ParsedLogMessage, contextType: LogConte
             }
         }
         case 'session': {
-            const session = getSessionMatch(log)
+            const session = getSessionMatch(log, configuredSessionKeys)
             return {
                 ...base,
                 dateRange: buildDateRangeAround(log.timestamp, SESSION_WINDOW_MINUTES),
