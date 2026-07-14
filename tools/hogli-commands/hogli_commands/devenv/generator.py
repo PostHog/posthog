@@ -47,12 +47,10 @@ class DevenvConfig(BaseModel):
 
 
 def _get_docker_compose_base() -> str:
-    # Pin the project name explicitly so the shared dev stack (db, clickhouse,
-    # kafka, etc.) is reused across worktrees even when the invoking shell
-    # hasn't sourced .envrc (COMPOSE_PROJECT_NAME would otherwise default to
-    # the current directory name, creating a conflicting duplicate stack).
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "posthog")
-    return f"docker compose -p {project_name} -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+    # Pin the project name so worktrees share one dev stack instead of each
+    # defaulting to its own directory name.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    return f"docker compose -p {shlex.quote(project_name)} -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
