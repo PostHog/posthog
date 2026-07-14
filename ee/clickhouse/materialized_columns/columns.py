@@ -54,9 +54,16 @@ SHORT_TABLE_COLUMN_NAME = {
 
 
 def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
-    """Clear the cache for materialized columns after mutations."""
+    """Clear the cached materialized columns after a mutation (materialize / drop / enable-disable).
+
+    Drops both the shared Redis cache and this process's in-process caches, so the schema view HogQL resolves
+    against tracks reality right after a change instead of serving a just-added or just-dropped column until the
+    TTL lapses. Other processes still expire on their own TTL; the query-time JSON fallback covers that window.
+    """
     cache_key = get_materialized_columns_cache_key(table)
     cache.delete(cache_key)
+    get_materialized_columns.clear_cache()
+    get_enabled_materialized_columns.clear_cache()
 
 
 def get_materialized_columns_cache_key(table: TablesWithMaterializedColumns) -> str:
