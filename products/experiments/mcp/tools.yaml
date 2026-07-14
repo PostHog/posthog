@@ -1050,6 +1050,9 @@ tools:
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
+    experiments-session-context-retrieve:
+        operation: experiments_session_context_retrieve
+        enabled: false
     experiments-unfreeze-exposure-create:
         operation: experiments_unfreeze_exposure_create
         enabled: false

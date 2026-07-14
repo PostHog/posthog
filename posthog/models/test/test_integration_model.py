@@ -2381,8 +2381,8 @@ class TestAwsS3IntegrationModel(BaseTest):
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
         }
-        # display_name surfaces auth type and AWS account so users can tell integrations apart.
-        assert integration.display_name == "prod-aws (access key, AWS account 123456789012)"
+        # display_name surfaces AWS account so users can tell integrations apart.
+        assert integration.display_name == "prod-aws (AWS account 123456789012)"
         assert AwsS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
