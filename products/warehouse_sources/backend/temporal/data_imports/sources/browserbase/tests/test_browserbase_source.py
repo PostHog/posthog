@@ -1,8 +1,11 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import (
     browserbase,
@@ -35,10 +38,12 @@ class TestBrowserbaseSourceConfig:
         fields = BrowserbaseSource().get_source_config.fields
 
         assert len(fields) == 1
-        assert fields[0].name == "api_key"
-        assert fields[0].required is True
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.name == "api_key"
+        assert field.required is True
         # API keys are secrets - must never be echoed back to the client.
-        assert fields[0].secret is True
+        assert field.secret is True
 
 
 class TestBrowserbaseSchemas:
@@ -112,6 +117,6 @@ class TestBrowserbasePipelineHandoff:
         assert source_response.primary_keys == ["id"]
 
         # The items thunk should actually pull rows using the configured key/endpoint.
-        rows = list(source_response.items())
+        rows = list(cast(Iterable[Any], source_response.items()))
         assert rows == [[{"id": "sess_1", "createdAt": "2026-01-01T00:00:00Z"}]]
         assert session.get.call_args.kwargs["headers"]["X-BB-API-Key"] == "bb_test_key"

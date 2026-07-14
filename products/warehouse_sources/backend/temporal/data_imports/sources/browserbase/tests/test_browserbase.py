@@ -37,7 +37,7 @@ def _response(status_code: int, json_body: Any = None) -> MagicMock:
 class TestFetch:
     def setup_method(self) -> None:
         # Drop the exponential backoff so retryable-status tests don't actually sleep.
-        _fetch.retry.wait = wait_none()
+        _fetch.retry.wait = wait_none()  # type: ignore[attr-defined]
 
     def test_returns_parsed_json_on_success(self) -> None:
         session = MagicMock()
@@ -97,11 +97,13 @@ class TestGetRows:
         assert list(get_rows("bb_key", "sessions", MagicMock())) == []
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    def test_non_list_response_yields_nothing(self, mock_fetch: MagicMock) -> None:
-        # Browserbase list endpoints return arrays; a dict means an unexpected/error shape.
+    def test_non_list_response_raises(self, mock_fetch: MagicMock) -> None:
+        # Browserbase list endpoints return arrays; a dict means an unexpected/error shape. Raise so the
+        # sync fails loudly instead of finishing "successfully" with zero rows.
         mock_fetch.return_value = {"statusCode": 500}
 
-        assert list(get_rows("bb_key", "sessions", MagicMock())) == []
+        with pytest.raises(ValueError):
+            list(get_rows("bb_key", "sessions", MagicMock()))
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
     def test_requests_the_endpoint_path(self, mock_fetch: MagicMock) -> None:
@@ -111,6 +113,29 @@ class TestGetRows:
 
         called_url = mock_fetch.call_args.args[1]
         assert called_url == f"{BROWSERBASE_BASE_URL}/projects"
+
+
+class TestKeyRedaction:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
+    @patch.object(browserbase, "make_tracked_session")
+    def test_get_rows_redacts_key(self, mock_session_factory: MagicMock, mock_fetch: MagicMock) -> None:
+        # The API key must be masked in tracked HTTP logs/samples, not left recoverable from a bucket.
+        mock_fetch.return_value = []
+        mock_session_factory.return_value = MagicMock()
+
+        list(get_rows("bb_secret", "sessions", MagicMock()))
+
+        assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
+
+    @patch.object(browserbase, "make_tracked_session")
+    def test_validate_credentials_redacts_key(self, mock_session_factory: MagicMock) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(200)
+        mock_session_factory.return_value = session
+
+        validate_credentials("bb_secret")
+
+        assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
 
 
 class TestValidateCredentials:
@@ -126,12 +151,14 @@ class TestValidateCredentials:
         assert validate_credentials("bb_key") is expected
 
     @patch.object(browserbase, "make_tracked_session")
-    def test_network_error_is_invalid(self, mock_session_factory: MagicMock) -> None:
+    def test_network_error_propagates(self, mock_session_factory: MagicMock) -> None:
+        # A transport failure is transient - it must surface, not be reported as an invalid key.
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         mock_session_factory.return_value = session
 
-        assert validate_credentials("bb_key") is False
+        with pytest.raises(requests.ConnectionError):
+            validate_credentials("bb_key")
 
 
 class TestBrowserbaseSource:

@@ -45,7 +45,8 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
         raise BrowserbaseRetryableError(f"Browserbase API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Browserbase API error: status={response.status_code}, body={response.text}, url={url}")
+        # Log only status and url — the response body can echo imported third-party data.
+        logger.error(f"Browserbase API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -54,26 +55,26 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
 def validate_credentials(api_key: str) -> bool:
     # `/projects` is the cheapest authenticated probe: a project-scoped key can always list at least
     # its own project, so a 200 confirms the key is genuine without needing any session data.
+    # `redact_values` masks the key in tracked logs/samples. Transport errors (timeout, DNS, reset)
+    # propagate rather than being swallowed as False, so a temporary outage isn't reported as a bad key.
     url = f"{BROWSERBASE_BASE_URL}/projects"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
+    return response.status_code == 200
 
 
 def get_rows(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
     config = BROWSERBASE_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     headers = _get_headers(api_key)
 
     # Browserbase list endpoints return a plain JSON array with no pagination, page, or cursor params,
     # so a single request yields the whole collection. The pipeline batches the yielded rows for us.
     data = _fetch(session, f"{BROWSERBASE_BASE_URL}{config.path}", headers, logger)
 
+    # A non-list success body is an unexpected/error shape. Raise so the sync fails loudly instead of
+    # finishing "successfully" with zero rows and silently hiding the bad response.
     if not isinstance(data, list):
-        logger.warning(f"Browserbase: expected a list for endpoint {endpoint}, got {type(data).__name__}; skipping")
-        return
+        raise ValueError(f"Browserbase: expected a list for endpoint {endpoint}, got {type(data).__name__}")
 
     if data:
         yield data
