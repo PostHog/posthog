@@ -2,23 +2,17 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
-import {
-    IconApps,
-    IconBook,
-    IconCheckCircle,
-    IconGear,
-    IconGraduationCap,
-    IconPeople,
-    IconSparkles,
-} from '@posthog/icons'
+import { IconApps, IconBook, IconGear, IconGraduationCap, IconPeople, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LiveUserCount } from 'lib/components/LiveUserCount'
+import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
@@ -30,7 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey } from '~/types'
 
 import {
     PublicationFeedKey,
@@ -80,15 +74,39 @@ function WaitingForEventsIndicator(): JSX.Element {
     )
 }
 
-function EventsWaitingStatus(): JSX.Element {
+function LiveUsersRightNow(): JSX.Element | null {
+    const logicProps = { pollIntervalMs: 30000 }
+    const { liveUserCount } = useValues(liveUserCountLogic(logicProps))
+    const { pauseStream, resumeStream } = useActions(liveUserCountLogic(logicProps))
+    const { isVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (isVisible) {
+            resumeStream()
+        } else {
+            pauseStream()
+        }
+    }, [isVisible, resumeStream, pauseStream])
+
+    if (liveUserCount === null) {
+        return null
+    }
+
     return (
-        <div className="flex items-center gap-2 text-sm text-secondary">
-            <div className="relative flex items-center justify-center shrink-0">
-                <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
-                <div className="w-2 h-2 bg-accent rounded-full" />
-            </div>
-            <span>Waiting for your first event…</span>
-        </div>
+        <Link
+            to={urls.webAnalyticsLive()}
+            onClick={() => captureQuickstartAction('view_live_users')}
+            className="ml-auto flex items-center gap-2 text-sm text-secondary hover:text-primary"
+            data-attr="quickstart-live-users"
+        >
+            <span className="relative flex items-center justify-center shrink-0">
+                <span className="absolute w-3 h-3 bg-success rounded-full animate-ping opacity-75" />
+                <span className="relative w-2 h-2 bg-success rounded-full" />
+            </span>
+            <span>
+                {humanFriendlyLargeNumber(liveUserCount)} {liveUserCount === 1 ? 'user' : 'users'} live right now
+            </span>
+        </Link>
     )
 }
 
@@ -118,22 +136,6 @@ function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.Rea
         <div className="flex items-center gap-1.5 text-sm text-secondary">
             <span className="text-base leading-none">{icon}</span>
             {children}
-        </div>
-    )
-}
-
-function EventsFlowingStatus(): JSX.Element {
-    return (
-        <div className="flex items-center gap-1.5 text-sm text-secondary">
-            <IconCheckCircle className="text-success text-base shrink-0" />
-            <span>Receiving events</span>
-            <Link
-                to={urls.activity(ActivityTab.LiveEvents)}
-                onClick={() => captureQuickstartAction('view_events')}
-                data-attr="quickstart-view-events"
-            >
-                View live
-            </Link>
         </div>
     )
 }
@@ -543,14 +545,6 @@ export function Quickstart(): JSX.Element {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        {installationComplete ? <EventsFlowingStatus /> : <EventsWaitingStatus />}
-                        <Link
-                            to={urls.webAnalyticsLive()}
-                            onClick={() => captureQuickstartAction('view_live_users')}
-                            data-attr="quickstart-live-users"
-                        >
-                            <LiveUserCount />
-                        </Link>
                         <HeaderStat icon={<IconApps />}>
                             {activeProductCount} of {totalProductCount} tools active
                         </HeaderStat>
@@ -597,6 +591,7 @@ export function Quickstart(): JSX.Element {
                         >
                             Change homepage
                         </LemonButton>
+                        <LiveUsersRightNow />
                     </div>
                 </div>
             </section>
