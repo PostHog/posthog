@@ -104,7 +104,10 @@ async def _generate_and_execute(client: AsyncAnthropic, case: BaseEvalCase, ctx:
 
 
 async def eval_mcp_sql(ctx: EvalContext) -> None:
-    client = AsyncAnthropic(api_key=os.environ["LLM_GATEWAY_ANTHROPIC_API_KEY"])
+    # Generous retry budget: a transient 429/5xx would otherwise escape the task and
+    # mark the case as an infra error, silently shrinking the scored case set. The
+    # per-case timeout still bounds total time spent retrying.
+    client = AsyncAnthropic(api_key=os.environ["LLM_GATEWAY_ANTHROPIC_API_KEY"], max_retries=5)
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict[str, Any]:
         return await _generate_and_execute(client, case, task_ctx)
