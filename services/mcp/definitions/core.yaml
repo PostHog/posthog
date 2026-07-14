@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+        render_ui:
+            component_import: ../components/Component
+            view_component: Component
+            view_prop: data
     render-ui:
         type: custom
         app_name: PostHog Render UI
@@ -256,9 +260,6 @@ tools:
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
         enabled: false
-    domains-scim-token-create:
-        operation: domains_scim_token_create
-        enabled: false
     domains-update:
         operation: domains_update
         enabled: false
@@ -456,10 +457,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:

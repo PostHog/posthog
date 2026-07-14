@@ -163,18 +163,18 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for billable products) AI credits quota in parallel.
+    """Fetch plan info and (for bucket-billed products) the bucket's quota in parallel.
 
-    Both calls are independent Django roundtrips on cache miss, so for billable
-    products we overlap them. For non-billable products the throttle stack
-    short-circuits regardless of quota state, so we skip the resolver entirely
+    Both calls are independent Django roundtrips on cache miss, so for products
+    billing into a credit bucket we overlap them. Unbilled products short-circuit
+    the throttle stack regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
     """
     product_config = get_product_config(product)
-    if product_config and product_config.billable:
+    if product_config and product_config.credit_bucket is not None:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id),
+            resolve_quota_status(request, team_id, product_config.credit_bucket.value),
         )
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)
@@ -210,7 +210,7 @@ async def enforce_throttles(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
-        ai_credits_exhausted=quota_status.limited,
+        credits_exhausted=quota_status.limited,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

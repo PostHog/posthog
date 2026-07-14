@@ -90,6 +90,8 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.LOGS, ['install:logs', 'invite_teammates:logs']],
             // Data Warehouse has no install step — the link_data step is the entry point.
             [ProductKey.DATA_WAREHOUSE, ['link_data:data_warehouse', 'invite_teammates:data_warehouse']],
+            // Support has no product-specific step; it's enabled on completion, so only the shared step shows.
+            [ProductKey.CONVERSATIONS, ['invite_teammates:conversations']],
         ]
 
         it.each(cases)('builds the expected flow when only %s is selected', (product, expected) => {
@@ -537,6 +539,35 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('authorized_domains:web_analytics')
         })
 
+        it('keeps passthrough params separate from ?step= when navigating (GitHub-callback params)', async () => {
+            // The GitHub App install callback returns to onboarding with extra query params
+            // (integration_id, installation_id). Advancing a step must keep them as separate
+            // params — a naive path+search concat fused them into the step value
+            // (step=configure:x?integration_id=14), which no flow step resolves, leaving the
+            // host on a spinner forever.
+            router.actions.push('/onboarding/product_analytics?step=install:product_analytics&integration_id=14')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await expectLogic(logic, () => {
+                logic.actions.goToNextStep()
+            }).toDispatchActions(['setStepId'])
+            expect(router.values.searchParams).toMatchObject({
+                step: 'configure:product_analytics',
+                integration_id: 14,
+            })
+            expect(logic.values.currentFlowStep?.id).toBe('configure:product_analytics')
+        })
+
+        it('self-corrects a step id with fused query params instead of treating it as namespaced', async () => {
+            router.actions.push(
+                `/onboarding/product_analytics?step=${encodeURIComponent('configure:product_analytics?integration_id=14')}`
+            )
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            // The mangled id contains ':' but must not count as a known step key — it resolves
+            // to '' (flow[0]) rather than leaving currentFlowStep null and the host spinning.
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:product_analytics')
+        })
+
         it('sets subscribedDuringOnboarding when ?success=true is present', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/onboarding/web_analytics?success=true')
@@ -565,6 +596,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],
             [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
+            [ProductKey.CONVERSATIONS, /support/i],
         ]
 
         it.each(cases)('%s lands on a product-specific page', (product, pattern) => {
@@ -609,9 +641,9 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onboardingFlowVariant).toBe('legacy')
         })
 
-        it('returns redesign when the flag selects it', () => {
-            setVariant('redesign')
-            expect(logic.values.onboardingFlowVariant).toBe('redesign')
+        it('returns self-driving when the flag selects it', () => {
+            setVariant('self-driving')
+            expect(logic.values.onboardingFlowVariant).toBe('self-driving')
         })
 
         it('falls back to legacy for an unregistered variant', () => {

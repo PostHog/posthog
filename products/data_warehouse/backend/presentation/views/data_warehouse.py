@@ -31,7 +31,11 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
+from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
+    ManagedWarehouseDataStatusResponseSerializer,
+)
 from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -916,6 +920,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         responses={
             200: inline_serializer(
+                "DeleteWarehouseOrgResponse",
+                fields={
+                    "status": serializers.CharField(
+                        required=False, help_text="Deletion lifecycle message from the provisioner"
+                    ),
+                    "org": serializers.CharField(
+                        required=False,
+                        help_text="duckgres org identifier (the PostHog organization id)",
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["DELETE"], detail=False, url_path="delete-org", required_scopes=["warehouse_view:write"])
+    def delete_org(self, request: Request, **kwargs) -> Response:
+        """Remove the organization's provisioning record after teardown, freeing its warehouse name.
+
+        Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+        down, this removes the now-empty org row so the database_name can be reused. Restricted
+        to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "delete the provisioning record for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.delete_org(self.team.organization_id)
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
                     "org_id": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
@@ -967,6 +1000,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
         return resp
+
+    @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-data-status",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
+        """Get events, persons, and imported source readiness for the managed warehouse."""
+        return Response(get_managed_warehouse_data_status(self.team_id))
 
     @extend_schema(
         responses={

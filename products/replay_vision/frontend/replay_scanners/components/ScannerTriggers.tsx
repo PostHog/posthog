@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -26,6 +26,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { DurationType, RecordingDurationFilter, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
@@ -41,8 +42,7 @@ const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SessionProperties,
 ]
 
-// Vision only analyzes recordings within these duration bounds (server-enforced; see backend constants.py:
-// MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S, MIN/MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S), so the filter clamps to them.
+// Vision only analyzes recordings within these server-enforced duration bounds (see backend constants.py).
 const DURATION_BOUNDS: Partial<Record<DurationType, { min?: number; max?: number }>> = {
     duration: { min: 15 },
     active_seconds: { min: 10, max: 3600 },
@@ -102,6 +102,27 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
+            <LemonField
+                name="sampling_mode"
+                label="Session coverage"
+                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
+            >
+                {({ value, onChange }) => {
+                    const mode = (value ?? 'comprehensive') as SamplingMode
+                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
+                    return (
+                        <div className="space-y-1">
+                            <LemonSegmentedButton
+                                value={mode}
+                                onChange={onChange}
+                                options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                            />
+                            <div className="text-xs text-muted">{option?.description}</div>
+                        </div>
+                    )
+                }}
+            </LemonField>
+
             <LemonField name="sampling_rate">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0
@@ -128,12 +149,12 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     <LemonInput
                                         type="number"
                                         value={samplingPercent}
-                                        onChange={(v) => onChange((Number(v) || 0) / 100)}
+                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
                                         min={0.1}
                                         max={100}
                                         step={0.1}
                                         suffix={<span>%</span>}
-                                        status={samplingPercent === 0 ? 'danger' : undefined}
+                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
                                     />
                                 </div>
                             </div>
@@ -148,8 +169,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     const universal = recordingsQueryToUniversalFilters(query)
                     const applyUniversal = (next: RecordingUniversalFilters): void => {
                         const converted = convertUniversalFiltersToRecordingsQuery(next)
-                        // Overlay only the dimensions this editor controls, so query fields it doesn't
-                        // render (e.g. session_ids, person_uuid set via API/MCP) survive an edit.
+                        // Overlay only the dimensions this editor renders so other query fields survive an edit.
                         onChange({
                             ...query,
                             kind: converted.kind,

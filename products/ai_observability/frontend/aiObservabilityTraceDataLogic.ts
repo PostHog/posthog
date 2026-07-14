@@ -29,7 +29,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, operationStartMs } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -394,6 +394,10 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 return undefined
             },
         ],
+        highlightedEventId: [
+            (s) => [s.event],
+            (event: LLMTrace | LLMTraceEvent | null): string | null => getHighlightedEventId(event),
+        ],
         selectedNode: [
             (s) => [s.event, s.enrichedTree],
             (
@@ -681,6 +685,10 @@ export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effective
     )
 }
 
+export function getHighlightedEventId(event: LLMTrace | LLMTraceEvent | null): string | null {
+    return event && isLLMEvent(event) ? event.id : null
+}
+
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
     const orphanedRoots: string[] = []
     for (const [eventId, event] of idMap) {
@@ -717,6 +725,21 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         }
     }
 
+    // Order siblings by when their operation began (longer first on ties),
+    // matching the timeline — events are captured at completion, so raw
+    // timestamp order can differ.
+    const byOperationStart = (a: string, b: string): number => {
+        const eventA = idMap.get(a)
+        const eventB = idMap.get(b)
+        if (!eventA || !eventB) {
+            return 0
+        }
+        return (
+            operationStartMs(eventA) - operationStartMs(eventB) ||
+            (Number(eventB.properties.$ai_latency) || 0) - (Number(eventA.properties.$ai_latency) || 0)
+        )
+    }
+
     function traverse(spanId: any): TraceTreeNode | null {
         if (visitedNodes.has(spanId)) {
             console.warn('Circular reference detected in trace tree:', spanId)
@@ -732,7 +755,11 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         const children = childrenMap.get(spanId)
         const result: TraceTreeNode = {
             event,
-            children: children?.map((child) => traverse(child)).filter((node): node is TraceTreeNode => node !== null),
+            children: children
+                ?.slice()
+                .sort(byOperationStart)
+                .map((child) => traverse(child))
+                .filter((node): node is TraceTreeNode => node !== null),
         }
 
         if (result.children && result.children.length > 0 && event.event !== '$ai_generation') {
@@ -744,6 +771,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     }
 
     const directChildren = childrenMap.get(traceId) || []
-    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)]
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)].sort(byOperationStart)
     return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }

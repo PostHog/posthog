@@ -40,9 +40,14 @@ export const AlertsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const alertsCreateBodyNameMax = 255
+
+export const alertsCreateBodyThresholdOneNameMax = 255
+
 export const alertsCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -73,7 +78,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsCreateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .describe('User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.'),
@@ -81,7 +86,11 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .object({
             id: zod.string().optional(),
             created_at: zod.iso.datetime({ offset: true }).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            name: zod
+                .string()
+                .max(alertsCreateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod
@@ -169,6 +178,15 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
                         metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
                         type: zod.enum(['FunnelsAlertConfig']).default(alertsCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod.enum(['MetricsAlertConfig']).default(alertsCreateBodyConfigOneFourTypeDefault),
                     }),
                 ])
                 .describe(
@@ -1220,13 +1238,13 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     calculation_interval: zod
-        .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
-            '* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            '* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         )
         .optional()
         .describe(
-            'How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -1328,9 +1346,14 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const alertsPartialUpdateBodyNameMax = 255
+
+export const alertsPartialUpdateBodyThresholdOneNameMax = 255
+
 export const alertsPartialUpdateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsPartialUpdateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsPartialUpdateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsPartialUpdateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -1362,7 +1385,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
-    name: zod.string().optional().describe('Human-readable name for the alert.'),
+    name: zod.string().max(alertsPartialUpdateBodyNameMax).optional().describe('Human-readable name for the alert.'),
     subscribed_users: zod
         .array(zod.number())
         .optional()
@@ -1371,7 +1394,11 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             id: zod.string().optional(),
             created_at: zod.iso.datetime({ offset: true }).optional(),
-            name: zod.string().optional().describe('Optional name for the threshold.'),
+            name: zod
+                .string()
+                .max(alertsPartialUpdateBodyThresholdOneNameMax)
+                .optional()
+                .describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
                     bounds: zod
@@ -1462,6 +1489,15 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['FunnelsAlertConfig'])
                             .default(alertsPartialUpdateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod.enum(['MetricsAlertConfig']).default(alertsPartialUpdateBodyConfigOneFourTypeDefault),
                     }),
                 ])
                 .describe(
@@ -2531,13 +2567,13 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     calculation_interval: zod
-        .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
-            '* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            '* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         )
         .optional()
         .describe(
-            'How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -2647,6 +2683,7 @@ export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
 export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the detector on.'),
@@ -3715,6 +3752,17 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['FunnelsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            ),
+                        type: zod
+                            .enum(['MetricsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
                     }),
                 ])
                 .describe(

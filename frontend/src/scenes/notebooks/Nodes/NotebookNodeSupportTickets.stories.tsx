@@ -43,6 +43,7 @@ function makeTicket(overrides: Partial<Ticket> & { id: string; ticket_number: nu
         status: 'open',
         channel_source: 'widget',
         anonymous_traits: {},
+        identity_verified: false,
         ai_resolved: false,
         created_at: '2024-01-10T14:30:00Z',
         updated_at: '2024-01-11T09:15:00Z',

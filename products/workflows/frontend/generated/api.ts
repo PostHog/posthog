@@ -20,6 +20,8 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsAssetContentRetrieveParams,
+    HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
@@ -30,6 +32,7 @@ import type {
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
+    MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
@@ -315,6 +318,66 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsAssetsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/`
+}
+
+export const hogFlowsAssetsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsAssetsRetrieveParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getHogFlowsAssetsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsAssetContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/content/`
+}
+
+export const hogFlowsAssetContentRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

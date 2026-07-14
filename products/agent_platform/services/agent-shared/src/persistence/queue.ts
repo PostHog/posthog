@@ -181,10 +181,12 @@ export interface SessionQueue extends SessionInputsStore {
      */
     clearStaleIdempotencyKeys(cutoff: Date): Promise<number>
     /**
-     * List sessions for one application, newest first. `limit` defaults to 100
-     * so a buggy caller can't accidentally page through every session in the
-     * project; supply an explicit larger value if needed (capped at 500
-     * server-side). Filters compose with AND semantics.
+     * List sessions for one application, most recently active first
+     * (`updated_at DESC` — the runner stamps `updated_at` on every
+     * conversation write). `limit` defaults to 100 so a buggy caller can't
+     * accidentally page through every session in the project; supply an
+     * explicit larger value if needed (capped at 500 server-side). Filters
+     * compose with AND semantics.
      */
     listByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<AgentSession[]>
     /**

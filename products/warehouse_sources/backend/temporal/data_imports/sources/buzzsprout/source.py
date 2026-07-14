@@ -47,7 +47,6 @@ class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buzzsprout",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Buzzsprout API token and podcast ID to sync your podcast data into the PostHog Data warehouse.
 
 You can find both your API token and podcast ID in your [Buzzsprout API settings](https://www.buzzsprout.com/my/profile/api).""",

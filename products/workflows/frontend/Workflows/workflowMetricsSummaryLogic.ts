@@ -39,6 +39,7 @@ export type EmailMetric =
     | 'email_opened'
     | 'email_link_clicked'
     | 'email_bounced'
+    | 'email_bounce_prevented'
     | 'email_blocked'
     | 'email_spam'
 
@@ -50,6 +51,7 @@ export type EmailMetricRow = {
     opened: number
     linkClicked: number
     bounced: number
+    bouncePrevented: number
     blocked: number
 }
 
@@ -138,6 +140,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: getColorVar('orange'),
         metricNames: ['email_bounced'],
     },
+    email_bounce_prevented: {
+        name: 'Bounce prevented',
+        description:
+            'Total number of emails that were not sent because pre-send validation predicted a hard bounce: the address was malformed or its domain has no mail servers. These sends are skipped before they can hurt deliverability and are not billed.',
+        color: getColorVar('purple'),
+        metricNames: ['email_bounce_prevented'],
+    },
     email_blocked: {
         name: 'Blocked',
         description: 'Total number of emails that were blocked by the recipient server',
@@ -158,6 +167,8 @@ export const WORKFLOW_EMAIL_METRICS: Record<
 // bounce to …"), so it surfaces every invocation that logged that failure in the timeframe.
 export const EMAIL_METRIC_LOG_FILTERS: Partial<Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>> = {
     email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
+    // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
+    email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
     // email_failed (RenderingFailure + Reject) is intentionally omitted: its two SES events emit
     // differently-worded messages ("Rendering failure …" vs "Message rejected by SES …") with no
@@ -195,6 +206,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_failed',
     'email_link_clicked',
     'email_bounced',
+    'email_bounce_prevented',
     'email_blocked',
     'email_spam',
 ]
@@ -471,6 +483,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
                         bounced,
+                        bouncePrevented: totals.email_bounce_prevented ?? 0,
                         blocked,
                     }
                 }),

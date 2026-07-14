@@ -48,19 +48,27 @@ pub struct Cohort {
     pub cohort_type: Option<CohortType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_backfill_events_at: Option<DateTime<Utc>>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires both a realtime/behavioral cohort type AND a populated backfill
-    /// timestamp, which indicates that the membership table has been written to.
-    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
+    /// Requires both a realtime/behavioral cohort type AND at least one populated
+    /// backfill timestamp, which indicates that the membership table has been written to.
+    /// Without any timestamp, the cohort falls through to dynamic filter evaluation.
+    ///
+    /// Note: Python's `Cohort.is_flag_compatible` gates on filter composition (person vs
+    /// behavioral) and requires the matching timestamp(s) before a flag can reference the
+    /// cohort at all. Here we only need to know that the membership table has been
+    /// populated, so accepting either timestamp is sufficient.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        ) && self.last_backfill_person_properties_at.is_some()
+        ) && (self.last_backfill_person_properties_at.is_some()
+            || self.last_backfill_events_at.is_some())
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -184,6 +192,7 @@ mod tests {
             created_by_id: Some(1),
             cohort_type: None,
             last_backfill_person_properties_at: None,
+            last_backfill_events_at: None,
         }
     }
 
@@ -309,33 +318,49 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn test_uses_realtime_membership() {
         let backfill_ts = Some(Utc::now());
 
-        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
-            (None, None, false),
-            (None, backfill_ts, false),
-            (Some(CohortType::Static), None, false),
-            (Some(CohortType::Static), backfill_ts, false),
-            (Some(CohortType::PersonProperty), None, false),
-            (Some(CohortType::PersonProperty), backfill_ts, false),
-            (Some(CohortType::Analytical), None, false),
-            (Some(CohortType::Analytical), backfill_ts, false),
-            (Some(CohortType::Realtime), None, false),
-            (Some(CohortType::Realtime), backfill_ts, true),
-            (Some(CohortType::Behavioral), None, false),
-            (Some(CohortType::Behavioral), backfill_ts, true),
+        // (cohort_type, person_props_ts, events_ts, expected)
+        let cases: Vec<(
+            Option<CohortType>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            bool,
+        )> = vec![
+            (None, None, None, false),
+            (None, backfill_ts, None, false),
+            (None, None, backfill_ts, false),
+            (Some(CohortType::Static), None, None, false),
+            (Some(CohortType::Static), backfill_ts, None, false),
+            (Some(CohortType::PersonProperty), None, None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, None, false),
+            (Some(CohortType::Analytical), None, None, false),
+            (Some(CohortType::Analytical), backfill_ts, None, false),
+            // Realtime: either timestamp enables realtime membership
+            (Some(CohortType::Realtime), None, None, false),
+            (Some(CohortType::Realtime), backfill_ts, None, true),
+            (Some(CohortType::Realtime), None, backfill_ts, true),
+            (Some(CohortType::Realtime), backfill_ts, backfill_ts, true),
+            // Behavioral: either timestamp enables realtime membership
+            (Some(CohortType::Behavioral), None, None, false),
+            (Some(CohortType::Behavioral), backfill_ts, None, true),
+            (Some(CohortType::Behavioral), None, backfill_ts, true),
+            (Some(CohortType::Behavioral), backfill_ts, backfill_ts, true),
         ];
 
-        for (cohort_type, ts, expected) in cases {
+        for (cohort_type, pp_ts, events_ts, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
-            cohort.last_backfill_person_properties_at = ts;
+            cohort.last_backfill_person_properties_at = pp_ts;
+            cohort.last_backfill_events_at = events_ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
-                ts.is_some()
+                "cohort_type={cohort_type:?}, pp_ts={}, events_ts={} should return {expected}",
+                pp_ts.is_some(),
+                events_ts.is_some()
             );
         }
     }

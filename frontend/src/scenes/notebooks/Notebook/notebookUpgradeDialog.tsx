@@ -1,3 +1,7 @@
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -12,6 +16,7 @@ import {
 } from './markdownNotebookV2'
 
 type OpenUpgradeToMarkdownNotebookDialogProps = {
+    shortId?: string
     content: JSONContent | null | undefined
     /** The notebook's discussion comments — inline threads are embedded into the markdown. */
     comments?: CommentType[] | null
@@ -73,6 +78,7 @@ function getMentionLabel(memberId: number): string | null {
 }
 
 export function openUpgradeToMarkdownNotebookDialog({
+    shortId,
     content,
     comments,
     setLocalContent,
@@ -96,15 +102,26 @@ export function openUpgradeToMarkdownNotebookDialog({
         primaryButton: {
             children: 'Convert to Markdown notebooks',
             type: 'primary',
-            onClick: () =>
-                setLocalContent(
-                    buildMarkdownNotebookContent(
-                        convertNotebookContentToMarkdown(content, {
-                            commentRepliesByMarkId: buildCommentRepliesByMarkId(comments),
-                            getMentionLabel,
-                        })
-                    )
-                ),
+            onClick: () => {
+                const startedAt = performance.now()
+                try {
+                    const markdown = convertNotebookContentToMarkdown(content, {
+                        commentRepliesByMarkId: buildCommentRepliesByMarkId(comments),
+                        getMentionLabel,
+                    })
+                    setLocalContent(buildMarkdownNotebookContent(markdown))
+                    posthog.capture('notebook converted to markdown', {
+                        short_id: shortId,
+                        source_node_count: content?.content?.length ?? 0,
+                        markdown_length: markdown.length,
+                        duration_ms: Math.round(performance.now() - startedAt),
+                    })
+                } catch (error) {
+                    posthog.capture('notebook markdown conversion failed', { short_id: shortId })
+                    posthog.captureException(error as Error, { action: 'notebook markdown conversion' })
+                    lemonToast.error('Could not convert this notebook to Markdown notebooks.')
+                }
+            },
             size: 'small',
         },
         secondaryButton: {

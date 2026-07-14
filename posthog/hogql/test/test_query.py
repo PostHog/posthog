@@ -297,15 +297,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
-    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
+    @parameterized.expand(
+        [
+            # No direct engine exists for the type at all.
+            ("no_engine_for_type", ExternalDataSourceType.STRIPE, True),
+            # Engine exists, but the per-source direct-query toggle is off.
+            ("direct_query_disabled", ExternalDataSourceType.POSTGRES, False),
+        ]
+    )
+    def test_execute_hogql_query_rejects_non_capable_connection_id(
+        self, _name: str, source_type: str, direct_query_enabled: bool
+    ):
         selected_source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
             connection_id="selected-connection",
             destination_id="destination-1",
             team=self.team,
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
             prefix="stripe",
         )
         with self.assertRaises(ExposedHogQLError) as error:

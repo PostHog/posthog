@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.approvals.backend.actions.feature_flags import UpdateFeatureFlagAction
+from products.approvals.backend.actions.feature_flags import (
+    DisableFeatureFlagAction,
+    EnableFeatureFlagAction,
+    UpdateFeatureFlagAction,
+)
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -95,6 +99,96 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         view = self._mock_view(flag)
 
         result = UpdateFeatureFlagAction.detect(request, view)
+
+        assert result is False
+
+
+class TestDetectFromValidatedData(APIBaseTest):
+    """The gate decorates FeatureFlagSerializer.update(self, instance, validated_data), so the
+    actual change lives in validated_data — NOT the raw HTTP request body. Internal callers
+    (experiment toggles, ship_variant) drive update() from a POST whose body has no flag delta,
+    so detection must read validated_data."""
+
+    def _create_flag(self, *, active: bool = True, filters: dict[str, Any] | None = None) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key="vd-flag",
+            active=active,
+            filters=filters or {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+    def _serializer_view(self) -> MagicMock:
+        # Serializer-style view: _get_instance reads args[0] when "request" is in context.
+        view = MagicMock()
+        view.context = {"request": MagicMock(), "get_team": lambda: self.team}
+        return view
+
+    def _post_request(self) -> MagicMock:
+        # A POST whose body carries no flag delta — the failure mode the fix addresses.
+        request = MagicMock()
+        request.method = "POST"
+        request.data = {}
+        return request
+
+    def test_enable_detects_from_validated_data_when_request_body_empty(self):
+        flag = self._create_flag(active=False)
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": True})
+
+        assert result is True
+
+    def test_disable_detects_from_validated_data_when_request_body_empty(self):
+        flag = self._create_flag(active=True)
+        view = self._serializer_view()
+
+        result = DisableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": False})
+
+        assert result is True
+
+    def test_enable_does_not_fire_when_already_active(self):
+        flag = self._create_flag(active=True)
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, flag, {"active": True})
+
+        assert result is False
+
+    def test_update_detects_rollout_change_from_validated_data(self):
+        flag = self._create_flag(filters={"groups": [{"properties": [], "rollout_percentage": 50}]})
+        view = self._serializer_view()
+        # FeatureFlagSerializer puts the filters change under `get_filters` in validated_data.
+        validated_data = {"get_filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}}
+
+        result = UpdateFeatureFlagAction.detect(self._post_request(), view, flag, validated_data)
+
+        assert result is True
+
+    def test_update_extract_intent_reads_get_filters_from_validated_data(self):
+        flag = self._create_flag(filters={"groups": [{"properties": [], "rollout_percentage": 50}]})
+        view = self._serializer_view()
+        validated_data = {"get_filters": {"groups": [{"properties": [], "rollout_percentage": 90}]}}
+
+        intent = UpdateFeatureFlagAction.extract_intent(self._post_request(), view, flag, validated_data)
+
+        assert intent["gated_changes"]["rollout_percentage"][0]["value"] == 90
+        # full_request_data is re-applied verbatim, so it must carry the input field name.
+        assert intent["full_request_data"]["filters"]["groups"][0]["rollout_percentage"] == 90
+        assert "get_filters" not in intent["full_request_data"]
+
+    def test_enable_fires_on_create_born_active(self):
+        # A brand-new flag born active is gated (create-as-single-arg, the production shape).
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, {"key": "f", "active": True})
+
+        assert result is True
+
+    def test_enable_does_not_fire_on_create_born_disabled(self):
+        view = self._serializer_view()
+
+        result = EnableFeatureFlagAction.detect(self._post_request(), view, {"key": "f", "active": False})
 
         assert result is False
 

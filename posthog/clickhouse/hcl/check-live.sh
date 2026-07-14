@@ -26,7 +26,13 @@ ENV="${VERIFY_LIVE_ENV:-local}"
 WARN="${VERIFY_LIVE_WARN:-0}"
 DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_DIR); run dump-live.sh first}}"
 
-ROLES=(ops logs ai_events)
+# shellcheck source=posthog/clickhouse/hcl/lib.sh
+. "$HCL/lib.sh"
+
+# Hoisted into an assignment (not inline in the herestring) so set -e aborts on a
+# failed load instead of silently producing zero roles — see lib.sh.
+roles_lines="$(manifest_roles "$ENV")"
+read -r -a ROLES <<< "${roles_lines//$'\n'/ }"
 
 # Object-name globs the gate ignores, parsed from exclude.hcl (the quoted glob
 # strings) — the same list dump-live.sh feeds hclexp -exclude, applied here to
@@ -52,7 +58,10 @@ drift = [o for o in ops if not ignored(o)]
 for o in drift:
     db = o.get("database") or ""
     obj = (db + "." + o["object"]) if db else o["object"]
-    print("  " + o["kind"] + " " + o["object_type"] + " " + obj)
+    flag = " [UNSAFE]" if o.get("unsafe") else ""
+    print("  " + o["kind"] + " " + o["object_type"] + " " + obj + flag)
+    for line in (o.get("sql") or "").strip().splitlines():
+        print("      " + line)
 sys.exit(1 if drift else 0)
 ' "$@"
 }

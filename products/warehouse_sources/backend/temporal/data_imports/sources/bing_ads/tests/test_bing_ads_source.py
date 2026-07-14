@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
@@ -36,16 +36,18 @@ class TestBingAdsSource:
         assert config.iconPath == "/static/services/bing-ads.svg"
         assert len(config.fields) == 2
 
-        account_id_field = config.fields[0]
-        assert isinstance(account_id_field, SourceFieldInputConfig)
-        assert account_id_field.name == "account_id"
-        assert account_id_field.required is True
-
-        oauth_field = config.fields[1]
+        oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "bing_ads_integration_id"
         assert oauth_field.required is True
         assert oauth_field.kind == "bing-ads"
+
+        account_id_field = config.fields[1]
+        assert isinstance(account_id_field, SourceFieldOauthAccountSelectConfig)
+        assert account_id_field.name == "account_id"
+        assert account_id_field.required is True
+        assert account_id_field.integrationField == "bing_ads_integration_id"
+        assert account_id_field.integrationKind == "bing-ads"
 
     @pytest.mark.parametrize(
         "account_id,integration_id,expected_error_fragment",

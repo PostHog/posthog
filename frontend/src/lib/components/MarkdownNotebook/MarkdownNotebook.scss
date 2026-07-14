@@ -437,8 +437,8 @@
 
 .MarkdownNotebook__blockquote-group .MarkdownNotebook__block-comment-button {
     left: calc(
-        var(--markdown-notebook-content-offset) * -1 -
-            1rem - var(--markdown-notebook-quote-indent) - var(--markdown-notebook-inline-control-width)
+        var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-quote-indent) -
+            var(--markdown-notebook-inline-control-width)
     );
 }
 
@@ -870,6 +870,18 @@
 .MarkdownNotebook__list-block[contenteditable='true'] .MarkdownNotebook__list-item-content a,
 .MarkdownNotebook__table-cell-content[contenteditable='true'] a {
     pointer-events: none;
+}
+
+// Holding Cmd/Ctrl (MarkdownNotebook--link-modifier-held, toggled in MarkdownNotebook.tsx)
+// makes links clickable again so modifier-click can open them while editing
+.MarkdownNotebook--link-modifier-held .MarkdownNotebook__text-block[contenteditable='true'] a,
+.MarkdownNotebook--link-modifier-held
+    .MarkdownNotebook__list-block[contenteditable='true']
+    .MarkdownNotebook__list-item-content
+    a,
+.MarkdownNotebook--link-modifier-held .MarkdownNotebook__table-cell-content[contenteditable='true'] a {
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .MarkdownNotebook__text-block--invalid-insert-filter {
@@ -1502,6 +1514,16 @@ h3.MarkdownNotebook__text-block--heading {
     opacity: 1;
 }
 
+.MarkdownNotebook__mermaid-block {
+    // Diagrams render at natural width (see MermaidDiagram's naturalWidth prop), so wide ones
+    // scroll here instead of shrinking to fit. Don't cap the svg width, that would re-shrink them.
+    overflow-x: auto;
+
+    // Mermaid measures node label widths against the document font, but the surrounding
+    // code group is monospace; without this reset labels render wider than their boxes and clip.
+    font-family: var(--font-sans);
+}
+
 .MarkdownNotebook__divider-block {
     position: relative;
     padding: 0.625rem 0;
@@ -1875,7 +1897,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node {
     display: flex;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
 }
 
@@ -1891,7 +1913,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // overrides the inline `height` and the resize drag has no visible effect.
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     overflow: hidden;
 }
 
@@ -1924,6 +1946,21 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__ref--active,
 .MarkdownNotebook__ref:hover {
     background: var(--color-bg-fill-highlight-200, rgb(235 145 0 / 30%));
+}
+
+/* Code comment anchors: code carries no inline marks, so highlights are measured from each
+   anchor's text range and painted as positioned boxes behind the text. */
+.MarkdownNotebook__code-ref-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.MarkdownNotebook__code-ref-highlight {
+    position: absolute;
+    background: var(--color-bg-fill-highlight-100, rgb(235 145 0 / 15%));
+    border-bottom: 2px solid var(--color-border-warning, rgb(235 145 0 / 60%));
+    border-radius: 2px;
 }
 
 /* Inline mentions keep their person id in the markdown; the text is the display label. */
