@@ -75,8 +75,14 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, scannerValidationErrors, showScannerErrors } =
-        useValues(scannerLogic)
+    const {
+        scanner,
+        scannerLoading,
+        isScannerSubmitting,
+        scannerEstimateLoading,
+        scannerValidationErrors,
+        showScannerErrors,
+    } = useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -180,6 +186,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     visibleSteps={visibleSteps}
                                     isNew={isNew}
                                     isSubmitting={isScannerSubmitting}
+                                    estimatePending={scannerEstimateLoading}
                                     onAdvance={advance}
                                     onSave={() => {
                                         setSubmitIntent('save')
@@ -322,6 +329,7 @@ function EditorFooter({
     visibleSteps,
     isNew,
     isSubmitting,
+    estimatePending,
     onAdvance,
     onSave,
 }: {
@@ -330,6 +338,7 @@ function EditorFooter({
     visibleSteps: readonly ScannerEditorStep[]
     isNew: boolean
     isSubmitting: boolean
+    estimatePending: boolean
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
@@ -337,6 +346,11 @@ function EditorFooter({
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
     const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
+
+    // Advancing off the triggers step is otherwise near-instant, so the button never reflects the scan
+    // estimate still recomputing after a sampling/filter tweak. Surface that pending work so "Next" gives
+    // honest feedback and can't be click-spammed while the forecast catches up.
+    const awaitingEstimate = step === 'triggers' && estimatePending
 
     return (
         <div className="flex items-center justify-between">
@@ -354,7 +368,8 @@ function EditorFooter({
             {nextStep ? (
                 <LemonButton
                     type="primary"
-                    loading={isSubmitting}
+                    loading={isSubmitting || awaitingEstimate}
+                    disabledReason={awaitingEstimate ? 'Finishing your scan estimate' : undefined}
                     onClick={onAdvance}
                     className="ml-auto"
                     data-attr="vision-editor-next"
