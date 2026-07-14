@@ -31675,6 +31675,22 @@
             "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
             "type": "string"
         },
+        "MetricsAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches.",
+            "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "MetricsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "MetricsAttributeScope": {
             "description": "Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes.",
             "enum": ["resource", "attribute", "auto"],

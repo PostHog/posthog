@@ -6,7 +6,6 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 """
 
 import re
-import uuid
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
@@ -22,13 +21,12 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
+from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.types import (
@@ -41,7 +39,7 @@ from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 if TYPE_CHECKING:
-    from posthog.models.user import User
+    pass
 
 logger = structlog.get_logger(__name__)
 
@@ -254,36 +252,6 @@ class _ObservationBatch(NamedTuple):
     window_total: int
 
 
-def _is_uuid(value: str) -> bool:
-    try:
-        uuid.UUID(str(value))
-    except (ValueError, TypeError):
-        return False
-    return True
-
-
-def _readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> list[str]:
-    """Restrict an action's bound scanner ids to the ones its creator may actually read.
-
-    A vision action's scanner binding is user-supplied, so without this a creator could point an action
-    at a same-team scanner they lack `replay_scanner` viewer access to and receive its recording-derived
-    reasoning and outcome in the synthesized summary. Filtering through the creator's RBAC keeps synthesis
-    from surfacing a scanner the creator can't see, mirroring the scanner-access gate `max_tools` applies
-    on interactive reads (object-level access control; note the underlying queryset filter is a no-op for
-    orgs without the access-control feature, where no per-scanner restriction exists anyway).
-    """
-    # Drop non-UUID ids before querying: `selection.scanner_ids` is a user-supplied CharField list, and a
-    # malformed value would raise ValidationError inside the Temporal activity on every run (a permanent
-    # retry loop). Mirrors the UUID pre-validation in `max_tools._resolve_scanner_scope`.
-    valid_ids = [scanner_id for scanner_id in scanner_ids if _is_uuid(scanner_id)]
-    if not valid_ids:
-        return []
-    readable = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
-        ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
-    )
-    return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
-
-
 def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
     """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
 
@@ -296,7 +264,7 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     # same-team scanner's recording-derived reasoning/outcome that its creator can't access. Mirrors the
     # scanner-access gate `max_tools` applies when reading observations. Upstream guarantees a creator.
     creator = action.created_by
-    scanner_ids = _readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
+    scanner_ids = readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
     if len(scanner_ids) < len(requested_scanner_ids):
         # RBAC (or a malformed id) dropped some bound scanners. Log it so a silently shrinking summary is
         # diagnosable rather than reading like "no observations this period".
@@ -467,10 +435,18 @@ def _citations_to_slack_links(markdown: str, team_id: int, observation_ids: list
     return _OBS_CITATION_RE.sub(_link, markdown)
 
 
+def _escape_slack_specials(text: str) -> str:
+    """Slack mrkdwn treats &, < and > as control characters (`<!channel>`, `<@user>`, `<url|label>`).
+    The report body carries untrusted scanner/observation-derived text, so escape it BEFORE our own
+    `<url|[N]>` citation links are injected — a hostile tag or title must render as text, never ping
+    a channel or smuggle a link. Slack renders the entities back as the literal characters."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str]) -> str:
     """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, and `[obs N]` citations become
     `[N]` links to each observation. Truncates long reports."""
-    text = _citations_to_slack_links(markdown, team_id, observation_ids)
+    text = _citations_to_slack_links(_escape_slack_specials(markdown), team_id, observation_ids)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:

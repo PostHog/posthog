@@ -571,15 +571,23 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
+        "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
+        # Pin the subscriptions target enum to its existing name so adding customer_analytics'
+        # `target_type` (below, inline-list category) doesn't auto-rename this shared-basename enum
+        # and churn subscriptions' generated types.
+        "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
+        # Pin the customer_analytics custom-property target so it doesn't auto-collide with the
+        # subscriptions `target_type` enum (which would rename subscriptions' generated type).
+        "CustomPropertyDefinitionTargetType": ["account", "person"],
         # The metrics query's OTel metric-type filter; without a pinned name it
         # collides with the experiments MetricTypeEnum (funnel/ratio/...).
         "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
@@ -590,6 +598,15 @@ SPECTACULAR_SETTINGS = {
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        "ManagedWarehouseReadinessStateEnum": [
+            "not_configured",
+            "waiting",
+            "backfilling",
+            "catching_up",
+            "up_to_date",
+            "needs_attention",
+            "unknown",
+        ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
@@ -1124,4 +1141,16 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
     for team_id in get_list(
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
     )
+]
+
+# Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
+# when nothing in the query (property filters, conversion goal, test-account filters,
+# sampling) constrains which sessions qualify. In that shape the join only multiplies
+# cost: the sessions-side subquery is re-executed per shard of the events cluster. Trial
+# rollout is per-team via comma-separated env var; defaults to the Cloud dogfooding team
+# (project 2, same default as the lazy precompute lists) so the fast paths activate there
+# on deploy, and to empty on self-hosted where project id 2 is an arbitrary customer.
+WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]

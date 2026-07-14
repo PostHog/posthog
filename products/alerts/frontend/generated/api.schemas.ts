@@ -238,11 +238,27 @@ export interface FunnelsAlertConfigApi {
     type: FunnelsAlertConfigApiType
 }
 
+export type MetricsAlertConfigApiType = (typeof MetricsAlertConfigApiType)[keyof typeof MetricsAlertConfigApiType]
+
+export const MetricsAlertConfigApiType = {
+    MetricsAlertConfig: 'MetricsAlertConfig',
+} as const
+
+export interface MetricsAlertConfigApi {
+    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
+    check_ongoing_interval?: boolean | null
+    type: MetricsAlertConfigApiType
+}
+
 /**
  * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
  * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
  */
-export type AlertConfigUnionApi = TrendsAlertConfigApi | HogQLAlertConfigApi | FunnelsAlertConfigApi
+export type AlertConfigUnionApi =
+    | TrendsAlertConfigApi
+    | HogQLAlertConfigApi
+    | FunnelsAlertConfigApi
+    | MetricsAlertConfigApi
 
 export interface PreprocessingConfigApi {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
