@@ -5,18 +5,14 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts.backend.destination_configs import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
     DestinationType,
     slack_body as _slack_body,
     teams_text as _teams_text,
-)
-from products.logs.backend.alert_destinations import (
-    EVENT_KIND_CONFIG,
-    EVENT_KINDS,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    EventKind,
     validate_destination_data,
 )
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, LOGS_DESTINATION_TYPES, EventKind
 
 
 class TestDestinationValidation(SimpleTestCase):
@@ -44,7 +40,7 @@ class TestDestinationValidation(SimpleTestCase):
         expected_message: str,
     ) -> None:
         with self.assertRaises(AlertDestinationValidationError) as error:
-            validate_destination_data(data)
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
 
         assert error.exception.field == expected_field
         assert error.exception.message == expected_message
@@ -53,7 +49,7 @@ class TestDestinationValidation(SimpleTestCase):
         data = cast(AlertDestinationData, {"type": "email"})
 
         with self.assertRaises(AlertDestinationValidationError) as error:
-            validate_destination_data(data)
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
 
         assert error.exception.field == "type"
         assert error.exception.message == (

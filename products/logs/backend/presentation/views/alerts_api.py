@@ -29,7 +29,14 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, DestinationType
+from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    build_alert_destination_config,
+    validate_destination_data,
+)
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
@@ -40,11 +47,8 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCou
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    build_destination_config,
-    validate_destination_data,
 )
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
@@ -689,7 +693,7 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         data = cast(AlertDestinationData, attrs)
         data["type"] = DestinationType(attrs["type"])
         try:
-            validate_destination_data(data)
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
             if error.field:
                 raise ValidationError({error.field: error.message})
@@ -884,7 +888,17 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            configs = [build_destination_config(alert, kind, data) for kind in EVENT_KINDS]
+            configs = [
+                build_alert_destination_config(
+                    team=alert.team,
+                    spec=EVENT_KIND_CONFIG[kind],
+                    alert_id=str(alert.id),
+                    alert_name=alert.name,
+                    data=data,
+                    slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+                )
+                for kind in EVENT_KINDS
+            ]
             hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
