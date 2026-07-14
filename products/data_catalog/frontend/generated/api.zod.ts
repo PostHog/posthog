@@ -10,6 +10,19 @@
 import * as zod from 'zod'
 
 /**
+ * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
+ */
+export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
+        saved_query_id: zod.uuid().optional().describe('Warehouse view (saved query) id to certify.'),
+        table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
+        view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
+        notes: zod.string().optional().describe('Why this mark exists.'),
+    })
+    .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
+
+/**
  * Create a metric, or refine the one already holding this name for the team.
  */
 export const dataCatalogMetricsCreateBodyNameMax = 128

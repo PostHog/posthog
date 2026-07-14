@@ -283,9 +283,13 @@ class OAuthMixin:
                 close_old_connections()
                 _integration_fetch_backoff_sleep(attempt)
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
         # The account picker lives in the source: each OAuth source maps its provider's accounts onto
-        # the shared IntegrationAccount contract, served by one generic endpoint.
+        # the shared IntegrationAccount contract, served by one generic endpoint. `search` is an optional
+        # query for sources whose account/resource list is large enough to filter server-side (e.g. GitHub
+        # repositories); small-list sources may ignore it and let the endpoint filter the result.
         raise NotImplementedError(f"{type(self).__name__} does not support listing OAuth accounts")
 
 
