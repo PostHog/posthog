@@ -22,7 +22,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
@@ -184,11 +184,16 @@ def _probe_join(
             raise ValidationError(
                 {"field_name": f"'{proposal.field_name}' is already a field on '{proposal.source_table_name}'."}
             )
+        # Mirror the resolver selection Database uses when it materializes the real join, so the
+        # probe exercises the same code path -- otherwise an experiments-optimized join is probed with
+        # the plain equality resolver and an invalid experiments_timestamp_key survives review.
+        configuration = proposal.configuration if isinstance(proposal.configuration, dict) else {}
+        use_experiments = bool(proposal.joining_table_name == "events" and configuration.get("experiments_optimized"))
         source_table.fields["_catalog_probe"] = LazyJoin(
             from_field=from_field,
             to_field=to_field,
             join_table=joining_table,
-            resolver=DATA_WAREHOUSE,
+            resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
             resolver_params=data_warehouse_resolver_params(
                 source_table_key=proposal.source_table_key,
                 joining_table_key=proposal.joining_table_key,

@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE_EXPERIMENTS
 from posthog.hogql.errors import QueryError
 
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -122,6 +123,31 @@ class TestAcceptProposal(BaseTest):
         with patch.object(relationships, "execute_hogql_query"):
             with self.assertRaises(ValidationError):
                 accept_proposal(proposal, self.user)
+
+    def test_experiments_optimized_probe_uses_experiments_resolver(self) -> None:
+        # An experiments-optimized events join resolves through DATA_WAREHOUSE_EXPERIMENTS at query
+        # time; the probe must build it the same way so an invalid experiments_timestamp_key is caught
+        # during review instead of the plain equality resolver silently passing it.
+        proposal = propose_relationship(
+            team=self.team,
+            user=self.user,
+            source_table_name="persons",
+            source_table_key="id",
+            joining_table_name="events",
+            joining_table_key="person_id",
+            field_name="linked_events",
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
+        )
+        captured: dict[str, str] = {}
+
+        def _capture(**kwargs: Any) -> None:
+            database = kwargs["context"].database
+            captured["resolver"] = database.get_table("persons").fields["_catalog_probe"].resolver
+
+        with patch.object(relationships, "execute_hogql_query", side_effect=_capture):
+            accept_proposal(proposal, self.user)
+
+        assert captured["resolver"] == DATA_WAREHOUSE_EXPERIMENTS
 
     @parameterized.expand([("empty_dict", {}), ("null", None)])
     def test_exact_existing_join_is_reused(self, _name: str, configuration: dict[str, Any] | None) -> None:
