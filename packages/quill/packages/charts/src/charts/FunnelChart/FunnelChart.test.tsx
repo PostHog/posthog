@@ -1,7 +1,7 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
-import { renderHogChart } from '../../testing'
+import { createDefaultTooltipAccessor, renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { funnelFromCounts } from './funnel-data'
 import { FunnelChart, type FunnelStepClickData } from './FunnelChart'
@@ -38,6 +38,29 @@ describe('FunnelChart', () => {
         const ticks = chart.yTicks()
         expect(ticks.length).toBeGreaterThan(0)
         expect(ticks.every((tick) => tick.endsWith('%'))).toBe(true)
+    })
+
+    it('tooltip header shows the step name and value is formatted as X.XX%', async () => {
+        // nativeTooltip preserves config-level formatters (valueFormatter / labelFormatter);
+        // the default renderHogChart path intercepts the tooltip prop and bypasses them.
+        const { chart } = renderHogChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />, {
+            nativeTooltip: true,
+        })
+        const step = dimensions.plotWidth / STEPS.length
+        // Hover at step-index 1 band center — same x as the onStepClick test, lands in control's sub-band.
+        const hoverX = dimensions.plotLeft + step * 1.3
+        const hoverY = dimensions.plotTop + dimensions.plotHeight / 2
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, { clientX: hoverX, clientY: hoverY })
+            const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
+            expect(tooltipEl?.querySelector('[data-attr="hog-chart-tooltip-label"]')?.textContent?.trim()).toBeTruthy()
+        })
+        const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement
+        const tooltip = createDefaultTooltipAccessor(tooltipEl)
+        // labelFormatter maps band index "2" → steps[1] = "Purchase"
+        expect(tooltip.label()).toBe('Purchase')
+        // formatPercent: 22 → "22%" (parseFloat(22.toFixed(2)) = 22)
+        expect(tooltip.value('control')).toBe('22%')
     })
 
     it.each([

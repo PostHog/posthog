@@ -224,7 +224,7 @@ export function FunnelChart<Meta = unknown>({
         () =>
             onStepClick
                 ? (data: PointClickData<Meta>): void =>
-                      onStepClick({ ...data, stepIndex: data.dataIndex, converted: data.inTrackArea !== true })
+                      onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
                 : undefined,
         [onStepClick]
     )
