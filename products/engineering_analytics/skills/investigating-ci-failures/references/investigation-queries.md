@@ -4,6 +4,23 @@ Copy-ready HogQL for each step of the investigation workflow. All of these run v
 (or `posthog:execute-sql` through MCP). The two views are non-materialized — results are always
 current. Adjust windows to the question; 14 days covers almost every investigation.
 
+## 0. Prerequisites probe (run before anything else)
+
+Confirms the two views exist for this team before you build on them. If this errors with
+`Unknown table engineering_analytics_ci_failures` (or `…_ci_job_history`), the CI views aren't
+provisioned — the team needs a GitHub source with both `workflow_runs` and `workflow_jobs` synced
+(all three engineering-analytics views share that gate). Stop and route the user to setup rather
+than running the workflow against tables that don't exist.
+
+```sql
+SELECT
+    (SELECT count() FROM engineering_analytics_ci_failures    WHERE timestamp  >= now() - INTERVAL 1 DAY) AS failure_rows,
+    (SELECT count() FROM engineering_analytics_ci_job_history WHERE created_at >= now() - INTERVAL 1 DAY) AS job_rows
+```
+
+Both counts returning (even `0`) means the substrate is present and you can proceed. `0` on a busy
+repo just means a quiet last 24h — widen the window; it is not a provisioning problem.
+
 ## 1. Fingerprint a failure (the index query)
 
 Start here whenever the input is a failing test name or an error string. Loose `ILIKE` beats an

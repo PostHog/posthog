@@ -30,6 +30,23 @@ Two warehouse views are the substrate (both non-materialized — always current,
 
 Copy-ready SQL for every step is in [references/investigation-queries.md](./references/investigation-queries.md).
 
+## Before you start: confirm the substrate exists
+
+Everything here runs over data that only exists once the team has Engineering analytics configured
+— a connected GitHub source whose `workflow_runs` **and** `workflow_jobs` endpoints are both synced.
+Without it the two views don't exist and every query below fails with
+`Unknown table engineering_analytics_ci_failures`. Check first, so you don't dead-end mid-investigation:
+
+1. Call the `engineering-analytics-sources` MCP tool. No source → the team hasn't connected a GitHub
+   repo, so CI investigations aren't available yet. Point them at Engineering analytics setup (connect
+   a GitHub source and sync its `workflow_runs` + `workflow_jobs` endpoints) and stop.
+2. Probe the views (query 0 in the references). If it errors with `Unknown table …`, a source is
+   connected but the CI views aren't provisioned — almost always because `workflow_jobs` isn't synced
+   (all three views share that one gate). Say that and stop rather than running the workflow against
+   tables that don't exist.
+
+Only once both pass do you have the substrate the rest of this skill assumes.
+
 ## The three failure shapes
 
 Fingerprint the failure first (query 1 in the references), then read its shape — the classification
@@ -79,8 +96,10 @@ threshold aren't recorded, so there is no honest denominator.
   fingerprint is weak evidence (the job may simply not have run). Greens come from
   `ci_job_history` only.
 - **Fingerprints are pytest-only (v1).** Jest / playwright / cargo failures appear in the raw
-  failure logs but are not in `ci_failures`. For those, fall back to grouped triage via the
-  `engineering-analytics-master-failures` / `engineering-analytics-ci-failure-logs` MCP tools.
+  failure logs but are not in `ci_failures`. For a specific PR, read them with the
+  `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped by job); across master, query
+  the Logs product directly (`service.name = 'github-ci-logs'`, branch `master`) — there is no grouped
+  pre-fingerprinted feed for non-pytest runners yet.
 - **Freshness differs per source.** Logs stream in near-real-time; the warehouse jobs/runs tables
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
@@ -105,7 +124,7 @@ threshold aren't recorded, so there is no honest denominator.
 | "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
 | "Who broke master / when did X start?" | The two views, workflow above                                          |
 | "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
-| "What's failing on master right now?"  | `engineering-analytics-master-failures` MCP tool (grouped triage feed) |
+| "What's failing on master right now?"  | The novelty scan (query 4) over `ci_failures`; `workflow-health` (branch `master`) for non-pytest |
 | "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
 | "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |
 
