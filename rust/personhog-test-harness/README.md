@@ -89,19 +89,18 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
 
 ### Known defects these scenarios reproduce
 
-Four real leader-path bugs surface under specific gate configurations.
+Four real leader-path bugs surfaced under specific gate configurations; one is fixed and gated, three remain open.
 They are documented here so red or noisy runs read as signal, not harness flakiness.
 
-**Cache eviction under writer lag loses acked writes — the gate goes RED.**
+**Cache eviction under writer lag loses acked writes — FIXED, now a CI regression gate.**
 `--cache-capacity` sets the leader cache size in entries; below `--persons` it forces eviction of dirty entries whose writes the writer has not yet flushed.
-The next operation reloads the stale Postgres row, later merges build on the stale base, and acked writes disappear — exactly what the journal catches:
+Every operation used to reload the stale Postgres row on the next miss, later merges built on the stale base, and acked writes disappeared (this exact configuration once produced 4,886 violations).
+The leader now marks every acked produce in a dirty index and recovers evicted marked persons from their changelog record instead of trusting PG; the scenario runs in CI (with a writer pause to guarantee the lag) and must stay green:
 
 ```bash
-# Expect thousands of violations until the eviction hazard is fixed
-target/debug/personhog-test-harness gate --persons 50 --cache-capacity 10 --duration 10s
+target/debug/personhog-test-harness gate --leaders 3 --partitions 8 --persons 50 \
+  --cache-capacity 10 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 ```
-
-Fix direction: pin dirty entries until the writer's committed offset passes their produce offset (see the TODO in `personhog-leader/src/cache/persons.rs`).
 
 **Graceful shutdown black-holes the leader's partitions — elevated Failed count, gate stays green.**
 The leader's lifecycle manager signals every component at SIGTERM simultaneously, so the gRPC server and Kafka producer finish shutting down (~160ms) long before the coordination drain hands partitions off (~2s: Draining status → 1s coordinator rebalance debounce → freeze → stash → fence → release).
