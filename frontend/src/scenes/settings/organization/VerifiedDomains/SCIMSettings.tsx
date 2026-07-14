@@ -11,7 +11,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { urls } from 'scenes/urls'
@@ -62,12 +61,7 @@ export function SCIMSettings(): JSX.Element {
                     </Link>
                 ) : (
                     <Form logic={verifiedDomainsLogic} formKey="scimConfig" enableFormOnSubmit className="space-y-4">
-                        <div className="grid gap-4 lg:grid-cols-2">
-                            <LemonField name="name" label="Configuration name">
-                                <LemonInput placeholder="Okta provisioning" />
-                            </LemonField>
-                            <IdentityProviderDomainPicker />
-                        </div>
+                        <IdentityProviderDomainPicker />
                         <LemonField name="scim_enabled" label="Provisioning status">
                             {({ value, onChange }) => (
                                 <LemonSwitch

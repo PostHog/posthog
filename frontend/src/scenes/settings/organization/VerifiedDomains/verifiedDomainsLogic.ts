@@ -54,6 +54,12 @@ export type SCIMConfigType = IdentityProviderConfigFormBase &
 export type IdJagConfigType = IdentityProviderConfigFormBase &
     Pick<IdentityProviderConfigApi, 'id_jag_issuer_url' | 'id_jag_jwks_url' | 'id_jag_allowed_clients'>
 
+const DEFAULT_IDENTITY_PROVIDER_NAMES = {
+    saml: 'SAML configuration',
+    scim: 'SCIM configuration',
+    idJag: 'XAA configuration',
+} as const
+
 async function saveIdentityProviderConfig(
     organizationId: string,
     id: string | undefined,
@@ -235,7 +241,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             const idJagConfig = getIdJagConfig(identityProviderConfigs)
             actions.resetSamlConfig({
                 id: samlConfig?.id,
-                name: samlConfig?.name || '',
+                name: samlConfig?.name || DEFAULT_IDENTITY_PROVIDER_NAMES.saml,
                 domain_ids: [...(samlConfig?.saml_domain_ids || [])],
                 saml_acs_url: samlConfig?.saml_acs_url || '',
                 saml_entity_id: samlConfig?.saml_entity_id || '',
@@ -243,13 +249,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             })
             actions.resetScimConfig({
                 id: scimConfig?.id,
-                name: scimConfig?.name || '',
+                name: scimConfig?.name || DEFAULT_IDENTITY_PROVIDER_NAMES.scim,
                 domain_ids: [...(scimConfig?.scim_domain_ids || [])],
                 scim_enabled: scimConfig?.scim_enabled || false,
             })
             actions.resetIdJagConfig({
                 id: idJagConfig?.id,
-                name: idJagConfig?.name || '',
+                name: idJagConfig?.name || DEFAULT_IDENTITY_PROVIDER_NAMES.idJag,
                 domain_ids: [...(idJagConfig?.id_jag_domain_ids || [])],
                 id_jag_issuer_url: idJagConfig?.id_jag_issuer_url || '',
                 id_jag_jwks_url: idJagConfig?.id_jag_jwks_url || '',
@@ -336,9 +342,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     }),
     forms(({ actions }) => ({
         samlConfig: {
-            defaults: { name: '', domain_ids: [] } as SAMLConfigType,
+            defaults: { name: DEFAULT_IDENTITY_PROVIDER_NAMES.saml, domain_ids: [] } as SAMLConfigType,
             errors: (payload) => ({
-                name: !payload.name.trim() ? 'Enter a name for this SAML configuration.' : undefined,
                 domain_ids: payload.domain_ids.length === 0 ? ['Select at least one domain.'] : undefined,
                 saml_acs_url:
                     payload.saml_acs_url && !payload.saml_acs_url.match(SECURE_URL_REGEX)
@@ -372,9 +377,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             },
         },
         scimConfig: {
-            defaults: { name: '', domain_ids: [], scim_enabled: false } as SCIMConfigType,
+            defaults: {
+                name: DEFAULT_IDENTITY_PROVIDER_NAMES.scim,
+                domain_ids: [],
+                scim_enabled: false,
+            } as SCIMConfigType,
             errors: (payload) => ({
-                name: !payload.name.trim() ? 'Enter a name for this SCIM configuration.' : undefined,
                 domain_ids: payload.domain_ids.length === 0 ? ['Select at least one domain.'] : undefined,
             }),
             submit: async (payload, breakpoint) => {
@@ -398,9 +406,8 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             },
         },
         idJagConfig: {
-            defaults: { name: '', domain_ids: [] } as IdJagConfigType,
+            defaults: { name: DEFAULT_IDENTITY_PROVIDER_NAMES.idJag, domain_ids: [] } as IdJagConfigType,
             errors: (payload) => ({
-                name: !payload.name.trim() ? 'Enter a name for this XAA configuration.' : undefined,
                 domain_ids: payload.domain_ids.length === 0 ? ['Select at least one domain.'] : undefined,
                 id_jag_issuer_url:
                     payload.id_jag_issuer_url && !payload.id_jag_issuer_url.match(SECURE_URL_REGEX)

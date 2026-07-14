@@ -57,15 +57,10 @@ export function SAMLSettings(): JSX.Element {
                     </Link>
                 ) : (
                     <Form logic={verifiedDomainsLogic} formKey="samlConfig" enableFormOnSubmit className="space-y-4">
-                        <div className="grid gap-4 lg:grid-cols-2">
-                            <LemonField name="name" label="Configuration name">
-                                <LemonInput placeholder="Okta production" />
-                            </LemonField>
-                            <IdentityProviderDomainPicker />
-                        </div>
+                        <IdentityProviderDomainPicker />
                         <div className="rounded border p-4 space-y-3">
                             <h3>PostHog service provider details</h3>
-                            <div className="grid gap-4 lg:grid-cols-2">
+                            <div className="space-y-4">
                                 <LemonField label="ACS consumer URL" name="_ACSConsumerUrl">
                                     <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
                                 </LemonField>
@@ -83,7 +78,7 @@ export function SAMLSettings(): JSX.Element {
                                 </LemonField>
                             ))}
                         </div>
-                        <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="space-y-4">
                             <LemonField name="saml_acs_url" label="Identity provider sign-on URL">
                                 <LemonInput className="ph-ignore-input" placeholder="https://idp.example.com/sso" />
                             </LemonField>

@@ -10,7 +10,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "id_jag_allowed_clients": [],
     "id_jag_issuer_url": "",
     "id_jag_jwks_url": "",
-    "name": "",
+    "name": "XAA configuration",
   },
   "idJagConfigAllErrors": {
     "domain_ids": [
@@ -18,7 +18,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     ],
     "id_jag_issuer_url": undefined,
     "id_jag_jwks_url": undefined,
-    "name": "Enter a name for this XAA configuration.",
   },
   "idJagConfigChanged": false,
   "idJagConfigErrors": {},
@@ -32,7 +31,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     ],
     "id_jag_issuer_url": undefined,
     "id_jag_jwks_url": undefined,
-    "name": "Enter a name for this XAA configuration.",
   },
   "identityProviderConfigs": [
     {
@@ -80,7 +78,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   },
   "samlConfigAllErrors": {
     "domain_ids": undefined,
-    "name": undefined,
     "saml_acs_url": undefined,
   },
   "samlConfigChanged": false,
@@ -91,20 +88,18 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "samlConfigTouches": {},
   "samlConfigValidationErrors": {
     "domain_ids": undefined,
-    "name": undefined,
     "saml_acs_url": undefined,
   },
   "scimConfig": {
     "domain_ids": [],
     "id": undefined,
-    "name": "",
+    "name": "SCIM configuration",
     "scim_enabled": false,
   },
   "scimConfigAllErrors": {
     "domain_ids": [
       "Select at least one domain.",
     ],
-    "name": "Enter a name for this SCIM configuration.",
   },
   "scimConfigChanged": false,
   "scimConfigErrors": {},
@@ -116,7 +111,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "domain_ids": [
       "Select at least one domain.",
     ],
-    "name": "Enter a name for this SCIM configuration.",
   },
   "scimLogs": null,
   "scimLogsLoading": false,

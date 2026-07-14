@@ -54,13 +54,8 @@ export function IdJagSettings(): JSX.Element | null {
                     </Link>
                 ) : (
                     <Form logic={verifiedDomainsLogic} formKey="idJagConfig" enableFormOnSubmit className="space-y-4">
-                        <div className="grid gap-4 lg:grid-cols-2">
-                            <LemonField name="name" label="Configuration name">
-                                <LemonInput placeholder="WorkOS production" />
-                            </LemonField>
-                            <IdentityProviderDomainPicker />
-                        </div>
-                        <div className="grid gap-4 lg:grid-cols-2">
+                        <IdentityProviderDomainPicker />
+                        <div className="space-y-4">
                             <LemonField
                                 name="id_jag_issuer_url"
                                 label="Identity provider issuer URL"
