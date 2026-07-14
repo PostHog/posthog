@@ -541,7 +541,7 @@ function TraceSceneWrapper(): JSX.Element {
                     </div>
                     <TraceTimeline
                         events={trace.events}
-                        selectedEventId={effectiveEventId ?? null}
+                        selectedEventId={highlightedEventId}
                         onSelectEvent={setEventId}
                     />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
