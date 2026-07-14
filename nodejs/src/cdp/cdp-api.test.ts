@@ -914,6 +914,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1000,6 +1001,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1060,6 +1062,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
