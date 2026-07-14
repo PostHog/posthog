@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
 import shutil
+import hashlib
 import logging
+import zipfile
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -14,12 +17,14 @@ from django.db import connections
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
 from products.tasks.backend.facade.agents import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 
-from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT
+from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT, SKILL_ARCHIVE_PORT
 from .providers import PreflightError
 
 logger = logging.getLogger(__name__)
 
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
+MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
+_ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
 
 def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
@@ -83,7 +88,12 @@ def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
     return stop
 
 
-def start_mcp_server(live_server_url: str) -> Callable[[], None]:
+def start_mcp_server(
+    live_server_url: str,
+    skill_archive_url: str | None,
+    *,
+    exec_skills_enabled: bool,
+) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
     Pointed at the in-process Django live server (which uses the test DB).
@@ -93,6 +103,9 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
     Cloudflare Worker is now a proxy that forwards to a regional Hono
     deployment, so Hono is what real users hit.
     """
+    if exec_skills_enabled and skill_archive_url is None:
+        raise ValueError("skill_archive_url is required when exec skills are enabled")
+
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
         logger.info("Installing MCP server dependencies")
@@ -113,13 +126,22 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         "HOST": "0.0.0.0",
         # The MCP server evaluates feature flags via posthog-node, which is disabled
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
-        # Force flag-gated behavior on for evals via the dev/test-only override seam
+        # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # No flags currently need forcing on.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({}),
+        "FEATURE_FLAG_OVERRIDES": json.dumps({MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}),
     }
 
-    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
+    # Never let a shell-level archive URL contaminate the bundled-skills baseline.
+    env.pop("POSTHOG_MCP_SKILLS_URL", None)
+    if exec_skills_enabled and skill_archive_url is not None:
+        env["POSTHOG_MCP_SKILLS_URL"] = skill_archive_url
+
+    logger.info(
+        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s)",
+        MCP_PORT,
+        api_url,
+        exec_skills_enabled,
+    )
     _, stop = LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
@@ -267,6 +289,50 @@ def build_local_skills(*, set_bind_mount_env: bool) -> Path:
         # there would be inert.
         os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = str(dist_dir)
     return dist_dir
+
+
+def package_local_skills_archive(skills_dir: Path, archive_path: Path | None = None) -> Path:
+    """Create a deterministic MCP archive from the rendered working-tree skills."""
+    destination = archive_path or skills_dir.parent / "skills.zip"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file_path in sorted(skills_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            relative_path = file_path.relative_to(skills_dir)
+            if any(part.startswith(".") or part == "__pycache__" for part in relative_path.parts):
+                continue
+            info = zipfile.ZipInfo(relative_path.as_posix(), date_time=_ZIP_FIXED_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, file_path.read_bytes())
+
+    return destination
+
+
+def start_skill_archive_server(archive_path: Path) -> tuple[str, Callable[[], None]]:
+    """Serve the local skill archive to MCP under a content-addressed URL."""
+    archive_digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()[:16]
+    archive_url = f"http://127.0.0.1:{SKILL_ARCHIVE_PORT}/{archive_path.name}?v={archive_digest}"
+    logger.info("Starting skill archive server on port %d", SKILL_ARCHIVE_PORT)
+    _, stop = LONG_LIVED_SUBPROCESSES.start(
+        name="skill archive server",
+        port=SKILL_ARCHIVE_PORT,
+        cmd=[
+            sys.executable,
+            "-m",
+            "http.server",
+            str(SKILL_ARCHIVE_PORT),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            str(archive_path.parent),
+        ],
+        cwd=archive_path.parent,
+        env={**os.environ},
+        log_prefix="skill-archive",
+    )
+    return archive_url, stop
 
 
 def stop_all_subprocesses() -> None:

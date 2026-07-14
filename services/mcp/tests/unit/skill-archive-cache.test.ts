@@ -49,6 +49,18 @@ describe('SkillArchiveCache', () => {
         expect(fetchArchive).toHaveBeenCalledTimes(1)
     })
 
+    it('isolates custom archive URLs from the published bundle cache', async () => {
+        const redis = makeRedis()
+        const fetchArchive = vi.fn(async () => makeArchive())
+        const first = new SkillArchiveCache(redis, { archiveUrl: 'http://localhost/skills.zip?v=one', fetchArchive })
+        const second = new SkillArchiveCache(redis, { archiveUrl: 'http://localhost/skills.zip?v=two', fetchArchive })
+
+        await expect(first.loadOrRefresh()).resolves.toMatchObject({ result: 'cold_refresh' })
+        await expect(second.loadOrRefresh()).resolves.toMatchObject({ result: 'cold_refresh' })
+        expect(first.cacheKey).not.toBe(second.cacheKey)
+        expect(fetchArchive).toHaveBeenCalledTimes(2)
+    })
+
     it('serves stale bytes immediately while one writer refreshes in the background', async () => {
         const redis = makeRedis()
         const fetchArchive = vi.fn(async () => makeArchive())

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
-from typing import cast, get_args
+from typing import Literal, cast, get_args
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
 
@@ -17,6 +17,8 @@ DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
 # Django-free (see harness/AGENTS.md), so it cannot import the enum.
 AGENT_RUNTIMES = ("claude", "codex")
 DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAULT_CODEX_AGENT_MODEL}
+SkillDelivery = Literal["bundled", "exec"]
+DEFAULT_SKILL_DELIVERY: SkillDelivery = "bundled"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
@@ -40,6 +42,7 @@ class HarnessOptions:
     case_filter: str | None
     agent_model: str
     agent_runtime: str
+    skill_delivery: SkillDelivery
     reasoning_effort: str | None
     max_sandboxes: int
     team_setup_concurrency: int
@@ -105,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Agent runtime serving the model (default: claude). 'codex' additionally requires LLM_GATEWAY_OPENAI_API_KEY.",
     )
     parser.add_argument(
+        "--skill-delivery",
+        choices=get_args(SkillDelivery),
+        default=None,
+        help=(
+            "How product skills reach the agent. 'bundled' uses the harness's normal native skills; "
+            "'exec' enables MCP skill distribution and removes native skills from every sandbox."
+        ),
+    )
+    parser.add_argument(
         "--reasoning-effort",
         default=None,
         help="Agent reasoning effort (e.g. 'low'…'xhigh'); valid values depend on runtime+model.",
@@ -167,6 +179,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         for flag, is_set in (
             ("--provider", args.provider is not None),
             ("--agent-runtime", args.agent_runtime is not None),
+            ("--skill-delivery", args.skill_delivery is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
@@ -176,6 +189,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     )
     provider = cast(SandboxProvider, args.provider or "docker")
     agent_runtime = args.agent_runtime or "claude"
+    skill_delivery = cast(SkillDelivery, args.skill_delivery or DEFAULT_SKILL_DELIVERY)
 
     if args.max_sandboxes is not None and args.max_sandboxes < 1:
         parser.error("--max-sandboxes must be at least 1")
@@ -211,6 +225,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         case_filter=args.case_filter,
         agent_model=agent_model,
         agent_runtime=agent_runtime,
+        skill_delivery=skill_delivery,
         reasoning_effort=args.reasoning_effort,
         max_sandboxes=max_sandboxes,
         team_setup_concurrency=_default_team_setup_concurrency(),

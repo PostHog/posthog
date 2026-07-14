@@ -44,7 +44,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache, bundled_skills_disabled
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -427,7 +427,11 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if local_skills_host and os.path.isdir(local_skills_host):
+            if (
+                not bundled_skills_disabled(config.environment_variables)
+                and local_skills_host
+                and os.path.isdir(local_skills_host)
+            ):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -884,6 +888,8 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
+
+        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:

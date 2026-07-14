@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -426,6 +427,46 @@ class TestDockerSandboxUnit:
         docker_args = docker_run_call[0][0]
         args_str = " ".join(docker_args)
         assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    def test_create_skips_local_skill_mounts_when_bundled_skills_disabled(self, mock_run, tmp_path) -> None:
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+        skill_dir = tmp_path / "sample-skill"
+        skill_dir.mkdir()
+        config = SandboxConfig(
+            name="test-sandbox",
+            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        )
+
+        with (
+            patch.dict(os.environ, {ENV_LOCAL_SKILLS_HOST_PATH: str(tmp_path)}),
+            patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"),
+        ):
+            DockerSandbox.create(config)
+
+        docker_args = mock_run.call_args_list[-1][0][0]
+        assert str(skill_dir) not in " ".join(docker_args)
+
+    def test_start_agent_server_clears_bundled_skills_before_launch(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(
+            name="test",
+            environment_variables={ENV_DISABLE_BUNDLED_SKILLS: "1"},
+        )
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True), patch.object(sandbox, "execute") as mock_execute:
+            mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+            sandbox.start_agent_server("posthog/posthog", "task-123", "run-456", wait_for_health=False)
+
+        commands = [call.args[0] for call in mock_execute.call_args_list]
+        clear_index = next(
+            index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
+        )
+        launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
+        assert clear_index < launch_index
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)

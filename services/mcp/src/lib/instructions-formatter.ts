@@ -131,9 +131,6 @@ export class InstructionsFormatter {
         const learnSection = learnEnabled
             ? formatPrompt(EXEC_LEARN, {
                   help_topics: learnGuideList,
-                  skills_help: skillsEnabled
-                      ? 'Skills: `learn skills`; `learn -s <query>`; `learn posthog:<skill> [path]` or `learn project:<skill> [path]`; with a path: `-s <query>` or `--lines <start>:<end>`.'
-                      : '',
               })
             : undefined
         const renderCtx: InstructionsContext = {
@@ -146,6 +143,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 CLI_SYNTAX,
+                ...(skillsEnabled ? [CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,

@@ -83,10 +83,11 @@ async def eval_my_generation(ctx: EvalContext) -> None:
 
 ## Case anatomy
 
-`SandboxedEvalCase` (`products/posthog_ai/eval_harness/config.py`) has five author-facing fields: `name`, `prompt`, `expected`, `metadata`, `setup`.
+`SandboxedEvalCase` (`products/posthog_ai/eval_harness/config.py`) has seven author-facing fields: `name`, `prompt`, `repo_fixture`, `expected`, `metadata`, `disable_bundled_skills`, `setup`.
 
 - `name` doubles as the `--eval <substr>` filter target and the per-case log filename — keep it unique within the suite.
 - `expected` is keyed by each scorer's `_name()`. A scorer reads only its own sub-dict and self-skips (or falls back to default behavior) when its key is absent — that is what lets one scorer list span a suite's cases. Judges take payloads like `{"warehouse_answer_correctness": {"expected_answer": "..."}}`.
+- `--skill-delivery exec` enables MCP skill distribution and removes native skills for every case in the run. `disable_bundled_skills=True` is an additional per-case override for other delivery-path evals.
 - Every sandboxed case runs in a fresh isolated org/team/user copied from the master Hedgebox team, so cases never see each other's state. One-shot cases share the master team read-only.
 
 ## Seeding data: seeders and synthesizers
@@ -151,6 +152,7 @@ It runs agent sandboxes in parallel without the local Docker memory ceiling, so 
 hogli evals --list                      # suite ids, no infra
 hogli evals eval_my_thing --eval my_case  # one case, docker
 hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
+hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed skills only
 ```
 
 `hogli evals:sandboxed` is a back-compat alias of `hogli evals`.
@@ -160,6 +162,7 @@ hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
 - `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
 - Team cloning and case seeding use one setup slot on ordinary local machines and four when `CODER` or `CI` is set.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
+- `--skill-delivery bundled` is the default native-skill path. `--skill-delivery exec` enables the MCP skill prompt and clears all native skill directories; compare the modes in separate runs because MCP configuration is process-wide.
 - `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-5.5`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the Braintrust experiment metadata, so compare scores within one runtime.
 - Every real eval invocation mirrors its complete stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`. The ending label identifies it as the full run transcript, the last terminal line is its absolute path, and `logs/harness/latest.log` points to the newest transcript. `--list` and argument errors do not create one.
 - The plain-text summary is stable for people and agents: only the overall run says `PASS` or `FAIL`; completed suites, experiments, and cases say `DONE`; experiment blocks label scores, URLs, and agent-log directories.
