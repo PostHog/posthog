@@ -241,14 +241,7 @@ class KernelSession:
         )
 
     def _missed_save_note(self, output_name: str, ns_ids_before: dict[str, int]) -> str:
-        """A stderr note when the run made dataframes but none reached `output_name`.
-
-        This is the silent miss where a cell assigns `top50` while its output name says
-        `top50_people`: the run looks successful and only a downstream node fails. A run
-        that creates no frames at all (print-only, side effects) stays quiet — every cell
-        carries a default output name, so warning unconditionally would flag all of them.
-        Unchanged bindings keep their object identity, so they never count as created.
-        """
+        """A stderr note when the run made dataframes but none reached `output_name`."""
         created = sorted(
             name
             for name, value in self.shell.user_ns.items()
