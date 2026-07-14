@@ -69,7 +69,6 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

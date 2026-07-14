@@ -31,7 +31,6 @@ class TestVapiSource:
         assert config.name.value == "Vapi"
         assert config.label == "Vapi"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/vapi.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/vapi"
 
