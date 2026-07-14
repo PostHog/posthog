@@ -586,6 +586,8 @@ describe('Hogflow Executor', () => {
                     startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
                 }
                 mutateFlow(hogFlow)
+                // The flow was edited after the run arrived at the step - the live-edit case
+                hogFlow.updated_at = DateTime.now().toMillis()
 
                 const result = await executor.execute(invocation)
 
@@ -596,6 +598,25 @@ describe('Hogflow Executor', () => {
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
                 expect(result.logs.filter((l) => l.level === 'error')).toEqual([])
                 expect(result.logs.map((l) => l.message).join('\n')).toContain('Workflow exited')
+            })
+
+            it('still fails the run when the graph was malformed all along (no edit since the step started)', async () => {
+                const hogFlow = buildFlow()
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = {
+                    id: 'delay',
+                    startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                }
+                hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                // No edit since the run arrived: the missing edge is a bad definition, not a live edit
+                hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBe('No next action found for action delay')
+                expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
             })
         })
 

@@ -494,9 +494,11 @@ export class HogFlowExecutorService {
                     this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
-                // A WorkflowChangedError is not this action failing — the graph moved underneath the
-                // run — so it skips the failure log/metric and is classified by the outer catch.
-                if (!(err instanceof WorkflowChangedError)) {
+                // A live-edit WorkflowChangedError is not this action failing - the graph moved
+                // underneath the run - so it skips the failure log/metric and is classified by the
+                // outer catch. The same error from an untouched flow is a malformed definition and
+                // keeps the failure treatment.
+                if (!this.isLiveEditWorkflowChange(err, invocation)) {
                     // Add logs and metric specifically for this action
                     this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
                     this.trackActionMetric(result, currentAction, 'failed')
@@ -507,9 +509,9 @@ export class HogFlowExecutorService {
         } catch (err) {
             // The workflow was edited underneath this run and its current step (or that step's next
             // edge) no longer exists. That's a user action, not a defect: finish the run as a
-            // deliberate exit — no result.error, so it doesn't count towards the workflow's failure
-            // rate — with its own metric so exits are attributable per workflow.
-            if (err instanceof WorkflowChangedError) {
+            // deliberate exit - no result.error, so it doesn't count towards the workflow's failure
+            // rate - with its own metric so exits are attributable per workflow.
+            if (this.isLiveEditWorkflowChange(err, invocation)) {
                 result.finished = true
                 this.log(
                     result,
@@ -531,6 +533,8 @@ export class HogFlowExecutorService {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // (a WorkflowChangedError from an untouched flow lands here too: the graph was malformed
+            // all along, so it stays a failure the author can see rather than a quiet exit)
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -542,6 +546,17 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    // A structural lookup miss only counts as a live edit when the flow was actually updated after
+    // the run arrived at its current step. Otherwise the graph was malformed from the start (a bad
+    // save, a lenient draft in a test run) and hiding it as a deliberate exit would bury the defect.
+    private isLiveEditWorkflowChange(err: unknown, invocation: CyclotronJobInvocationHogFlow): boolean {
+        if (!(err instanceof WorkflowChangedError)) {
+            return false
+        }
+        const stepStartedAt = invocation.state.currentAction?.startedAtTimestamp
+        return Boolean(stepStartedAt && invocation.hogFlow.updated_at > stepStartedAt)
     }
 
     private goToNextAction(
