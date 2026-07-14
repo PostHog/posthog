@@ -17,7 +17,7 @@ blocking, not polish:
 1. A handful of concrete correctness gaps (overlap TOCTOU, dedup scoping,
    retention vs. active runs, `LoopTrigger` team-scoping) that will misbehave
    on day one, not under adversarial load.
-2. One mechanism the doc *asserts* exists but doesn't design: bounding
+2. One mechanism the doc _asserts_ exists but doesn't design: bounding
    phase-2 "PR babysitting" follow-up runs across workflow boundaries. As
    written, `max_fix_iterations` only lives inside a single Temporal
    workflow; nothing in the schema carries that counter across the
@@ -51,7 +51,7 @@ re-triggered again → repeats indefinitely. Each hop is an individual
 "success," so `consecutive_failures`/auto-pause never engages.
 **Fix:** persist iteration count on the run chain explicitly (e.g.
 `TaskRun.loop_chain_iteration` seeded from parent run + 1), checked against
-`max_fix_iterations` *before* spawning a phase-2 follow-up, not asserted in
+`max_fix_iterations` _before_ spawning a phase-2 follow-up, not asserted in
 prose.
 
 ### 2. Self-feeding `push`-trigger + auto-fix loop is a mechanical consequence, not a hypothetical
@@ -268,7 +268,7 @@ once at the dispatcher level, explicit fail-open decision stated.
 scoped only after "resolve installation id to teams" — no promoted indexed
 columns stated. Separately: a mass PR-sync burst (many distinct legitimate
 deliveries on one repo) isn't bounded by `overlap_policy` at all, since that
-policy only governs the *same loop* being asked to fire while its own prior
+policy only governs the _same loop_ being asked to fire while its own prior
 run is still active — it does nothing for N different loops (or the same
 loop matching N different PRs) firing concurrently in a tight window. The
 100-runs/day cap bounds volume, not concurrency or rate.
@@ -317,58 +317,58 @@ unconditionally on; push/email/Slack are opt-in).
   likely conflicts with a per-channel `run_completed` subscription (a
   blanket per-(loop, kind) cooldown would silently drop most "wanted"
   per-run notifications unless scoped to failure/attention kinds only).
-  *Notifications.*
+  _Notifications._
 - **`needs_attention` event kind is referenced but never defined anywhere**
-  — no stated condition produces it. *Loop / Notifications.*
+  — no stated condition produces it. _Loop / Notifications._
 - **Retention default (200) and GitHub App v1 event list are each stated as
   decided prose in the body, then re-asked as unresolved in Open
-  questions** — self-contradictory, pick one location. *Run + Open questions;
-  GitHub triggers + Open questions.*
+  questions** — self-contradictory, pick one location. _Run + Open questions;
+  GitHub triggers + Open questions._
 - **`Task.loop` FK pattern unspecified** (`db_constraint=False`/NOT VALID vs.
   plain FK, `on_delete` behavior, indexing) despite `posthog_task` being a
-  hot, high-write table. *Data model.*
-- **`Task.repositories` nullability/default/backfill unstated.** *Data model.*
+  hot, high-write table. _Data model._
+- **`Task.repositories` nullability/default/backfill unstated.** _Data model._
 - **Auto-pause only catches failures, not expensive-but-technically-successful
   loops** (e.g. a loop that legitimately burns max iterations every run and
-  reports success each time). *Security and guardrails.*
+  reports success each time). _Security and guardrails._
 - **`max_fix_iterations` has no server-side ceiling** — unlike the existing
-  `MAX_CI_REPETITIONS` constant it's meant to generalize. *Loop primitives.*
+  `MAX_CI_REPETITIONS` constant it's meant to generalize. _Loop primitives._
 - **Multi-repo workspace cost not bounded per trigger scope** — a single-repo
   push still processes the full N-repo workspace, no cap on `repositories`
-  list length. *Workspace (multi-repo).*
+  list length. _Workspace (multi-repo)._
 - **No stated behavior for cancellation mid-multi-repo-push under
   `cancel_previous`** — could produce the same partial-PR state as finding 13,
-  triggered by policy instead of error. *Behaviors / Workspace.*
+  triggered by policy instead of error. _Behaviors / Workspace._
 - **Creator-deactivation guardrail reads as next-fire-only** — unclear
   whether an already-running sandbox/its minted credentials are killed
   immediately on deactivation, which matters because deactivation is often
-  itself the security response. *Security and guardrails.*
+  itself the security response. _Security and guardrails._
 - **Mobile client version skew** on TaskAutomation API removal — no
   deprecation window or graceful-degradation story for un-updated builds.
-  *Takeover of TaskAutomation / Frontend.*
+  _Takeover of TaskAutomation / Frontend._
 - **Phase 1 ships zero failure-visibility** for unattended cron loops —
   auto-pause and notifications are Phase 2, meaning a Phase-1 cron loop that
-  fails every run is silent until someone manually checks. *Phasing.*
+  fails every run is silent until someone manually checks. _Phasing._
 - **Phase 1's net-new user value over already-Production TaskAutomation is
   thin** (model pinning + rename) — worth being explicit this phase isn't
-  externally pitchable as "Loops v1." *Phasing.*
+  externally pitchable as "Loops v1." _Phasing._
 - **`repositories` is multi-valued in the schema from Phase 1, but multi-repo
   execution doesn't land until Phase 5** — undefined validation behavior for
-  a 2+-repo list submitted before Phase 5 ships. *Loop / Workspace.*
+  a 2+-repo list submitted before Phase 5 ships. _Loop / Workspace._
 - **Multi-repo CI-watch/fix scoping**: unclear whether a fix session that
   needs to touch repo B also re-touches an already-green repo A in the same
-  shared sandbox session. *Workspace (multi-repo).*
+  shared sandbox session. _Workspace (multi-repo)._
 - **Branch-protection drift not distinguished from a real CI failure** —
   `watch_ci`/`fix_review_comments` would keep attempting fixes against a
-  policy gate (missing required review) the same as a code bug. *Behaviors.*
+  policy gate (missing required review) the same as a code bug. _Behaviors._
 - **Phase 6 run-chaining is in tension with the "not a DAG" non-goal** —
   conditional, event-triggered spawning of follow-up runs off prior runs'
   output is a small implicit state machine; not a violation of the letter
-  of the non-goal, but the doc doesn't acknowledge the drift. *Behaviors /
-  Non-goals.*
+  of the non-goal, but the doc doesn't acknowledge the drift. _Behaviors /
+  Non-goals._
 - **JSON config fields have no schema-version story** for evolving
   `behaviors`/`connectors`/`notifications`/trigger `config` shape on
-  already-stored rows. *Data model.*
+  already-stored rows. _Data model._
 
 ---
 
