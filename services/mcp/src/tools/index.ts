@@ -1,4 +1,5 @@
 import { hasScopes } from '@/lib/api'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
 import resolveResource from './agentPlatform/resolveResource'
@@ -150,5 +151,7 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+
+    return filterStaffOnlyTools(candidates, scopes, () => context.stateManager.getUser())
 }

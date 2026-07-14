@@ -242,7 +242,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
     })
 })
 
-const createMockContext = (scopes: string[]): Context => ({
+const createMockContext = (scopes: string[], getUser?: () => Promise<{ is_staff?: boolean }>): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
@@ -257,6 +257,11 @@ const createMockContext = (scopes: string[]): Context => ({
     stateManager: {
         getApiKey: async () => ({ scopes }),
         getAiConsentGiven: async () => undefined,
+        getUser:
+            getUser ??
+            (async () => {
+                throw new Error('users/@me not available')
+            }),
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
@@ -344,6 +349,50 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(toolNames).toContain('agent-feedback')
         expectAllToolsHaveNoRequiredScopes(toolNames)
+    })
+})
+
+describe('Tool Filtering - Staff-only (OAuth-hidden scope) tools', () => {
+    const STAFF_TOOLS = ['managed-migrations-support-list', 'managed-migrations-support-get']
+
+    it.each([
+        {
+            description: 'hidden from a full-access `*` key even for a staff user',
+            scopes: ['*'],
+            getUser: async () => ({ is_staff: true }),
+            visible: false,
+        },
+        {
+            description: 'visible for a staff user whose key explicitly carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            visible: true,
+        },
+        {
+            description: 'hidden from a non-staff user even when the key carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: false }),
+            visible: false,
+        },
+        {
+            // Default mock getUser rejects, like a key minted without `user:read`.
+            description: 'hidden (fail closed) when staffness cannot be determined',
+            scopes: ['batch_import_support:read'],
+            getUser: undefined,
+            visible: false,
+        },
+    ])('$description', async ({ scopes, getUser, visible }) => {
+        const context = createMockContext(scopes, getUser)
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of STAFF_TOOLS) {
+            if (visible) {
+                expect(toolNames).toContain(tool)
+            } else {
+                expect(toolNames).not.toContain(tool)
+            }
+        }
     })
 })
 

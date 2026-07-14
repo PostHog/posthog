@@ -226,9 +226,11 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
       minted key works. Browser sessions bypass the scope layer and rely on `is_staff`.
 
     To mint a key (the scope is hidden from the PAT UI picker), while logged in as staff:
-    `POST /api/personal_api_keys/ {"label": "migrations support", "scopes": ["batch_import_support:read"]}`.
-    The key must be unscoped - keys with scoped_teams/scoped_organizations are rejected on
-    root-level endpoints.
+    `POST /api/personal_api_keys/ {"label": "migrations support", "scopes": ["batch_import_support:read", "user:read"]}`.
+    `user:read` is required for MCP use: tool discovery verifies staffness via
+    `/api/users/@me/` and hides these tools (fail-closed) when it cannot. The key must be
+    unscoped - keys with scoped_teams/scoped_organizations are rejected on root-level
+    endpoints.
     """
 
     scope_object = "INTERNAL"
