@@ -18,6 +18,7 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { parseCitedSegments } from '../utils/citations'
 import { ObservationProgressBar } from './ObservationProgressBar'
 
 export function ObservationStatusTag({
@@ -72,24 +73,6 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// `uuid` is legacy — only old event-uuid citations carry it; timestamp citations use `timestamp_ms` alone.
-type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
-
-function isSegment(value: unknown): value is Segment {
-    if (!value || typeof value !== 'object') {
-        return false
-    }
-    const candidate = value as Partial<Segment>
-    if (candidate.kind === 'text') {
-        return typeof (candidate as { value?: unknown }).value === 'string'
-    }
-    if (candidate.kind === 'chip') {
-        const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
-        return typeof chip.timestamp_ms === 'number'
-    }
-    return false
-}
-
 /** Dumb renderer for parsed citation segments. Pass `onSeek` to make citation chips interactive; omit for plain-text timestamps. */
 export function CitedText({
     text,
@@ -100,7 +83,7 @@ export function CitedText({
     segments: unknown
     onSeek?: (timestampMs: number) => void
 }): JSX.Element {
-    const list = Array.isArray(segments) ? (segments.filter(isSegment) as Segment[]) : []
+    const list = parseCitedSegments(text, segments)
     if (list.length === 0) {
         return <>{text}</>
     }
