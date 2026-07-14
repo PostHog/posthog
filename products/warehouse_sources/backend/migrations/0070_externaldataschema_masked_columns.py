@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0068_backfill_direct_query_enabled_false")]
+    dependencies = [("warehouse_sources", "0069_alter_externaldatasource_created_via")]
 
     operations = [
         migrations.AddField(

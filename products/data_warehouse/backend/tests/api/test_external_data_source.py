@@ -363,19 +363,34 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The MCP tool injects `mcp`; a wizard user agent upgrades it to `wizard`.
-            (ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
-            # Explicit non-MCP values are never rewritten, even with a wizard user agent.
-            (ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
-            (ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+            # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The MCP server appends the originating client to its own UA when proxying.
+            (
+                "posthog/mcp-server; version: 1.0.0; for posthog/code",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # Plain MCP clients keep the machine-injected value.
+            (
+                "posthog/mcp-server; version: 1.0.0",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.MCP,
+            ),
+            # Explicit non-MCP values are never rewritten, even with an upgrading user agent.
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
         ]
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_wizard_user_agent_upgrades_mcp_created_via(
-        self, sent_created_via, expected_created_via, _mock_validate
+    def test_create_external_data_source_transport_user_agent_upgrades_mcp_created_via(
+        self, user_agent, sent_created_via, expected_created_via, _mock_validate
     ):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -389,7 +404,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                 },
             },
-            headers={"user-agent": "posthog/wizard/1.0.0"},
+            headers={"user-agent": user_agent},
         )
 
         assert response.status_code == 201, response.json()
@@ -421,8 +436,10 @@ class TestExternalDataSource(APIBaseTest):
     @parameterized.expand(
         [
             ("garbage_value", "hacker"),
-            # `wizard` is derived server-side; a caller must not be able to self-label as wizard-created.
+            # `wizard` and `self_driving` are derived server-side; a caller must not be able to
+            # self-label as wizard- or PostHog Code-created.
             ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+            ("self_driving_is_not_caller_settable", ExternalDataSource.CreatedVia.SELF_DRIVING),
         ]
     )
     def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
