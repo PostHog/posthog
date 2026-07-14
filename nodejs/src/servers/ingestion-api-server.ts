@@ -61,6 +61,7 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
+import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
@@ -180,6 +181,8 @@ export class IngestionApiServer implements NodeServer {
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
+    // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
+    private feedOrderSentinel?: FeedOrderSentinel
 
     // Latched on the first unexpected pipeline error. The joinedPipeline is a
     // single long-lived instance shared across all requests; a throw can leave
@@ -418,6 +421,9 @@ export class IngestionApiServer implements NodeServer {
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
         // 8. Register the ingest endpoint and service
+        if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
+            this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
+        }
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
             await this.handleIngestRequest(req, res)
         })
@@ -441,7 +447,7 @@ export class IngestionApiServer implements NodeServer {
             status: (code: number) => { json: (body: IngestBatchResponse) => void }
         }
     ): Promise<void> {
-        const { batch_id, messages: serializedMessages } = req.body
+        const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
 
         if (!serializedMessages || serializedMessages.length === 0) {
             res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
@@ -458,6 +464,11 @@ export class IngestionApiServer implements NodeServer {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
             const batch = messages.map((message) => createOkContext({ message }, { message }))
+            // Per-key order check, synchronously adjacent to feed() so check
+            // order equals feed order across concurrent requests. The grouping
+            // stage processes each key in feed order, so this measures the
+            // "processed in order per distinct_id" invariant.
+            this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
