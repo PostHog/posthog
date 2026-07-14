@@ -35,6 +35,9 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
+from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -202,6 +205,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_error_at = models.DateTimeField(blank=True, null=True)
     last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
     last_backfill_events_at = models.DateTimeField(blank=True, null=True)
+    filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
@@ -244,6 +248,42 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def __str__(self):
         return self.name or "Untitled cohort"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = self._maintain_behavioral_shape(kwargs.get("update_fields"))
+        if update_fields is not None:
+            kwargs["update_fields"] = update_fields
+        super().save(*args, **kwargs)
+
+    def _maintain_behavioral_shape(self, update_fields: Any) -> Any:
+        self._leaf_shape_changed = False
+        try:
+            if not self.team_id or not is_realtime_cohort_team(self.team_id):
+                return update_fields
+            if self.cohort_type != CohortType.REALTIME or self.is_static or self.deleted:
+                return update_fields
+            if update_fields is not None and "filters" not in update_fields:
+                return update_fields
+
+            new_shape_hash = extract_leaf_shape_hash(self.filters)
+            previous_shape_hash = self.__dict__.get("filters_shape_hash")
+            if new_shape_hash == previous_shape_hash:
+                return update_fields
+
+            self.filters_shape_hash = new_shape_hash
+            self.last_backfill_events_at = None
+            self._leaf_shape_changed = True
+            if update_fields is None:
+                return None
+            return {*update_fields, "filters_shape_hash", "last_backfill_events_at"}
+        except Exception as error:
+            logger.exception(
+                "failed_to_maintain_cohort_behavioral_shape",
+                cohort_id=self.pk,
+                team_id=self.team_id,
+                error=str(error),
+            )
+            return update_fields
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:

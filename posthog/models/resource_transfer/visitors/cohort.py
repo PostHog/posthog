@@ -21,6 +21,7 @@ class CohortVisitor(
         "last_calculation",
         "errors_calculating",
         "last_error_at",
+        "filters_shape_hash",
         "count",
         "version",
         "pending_version",
