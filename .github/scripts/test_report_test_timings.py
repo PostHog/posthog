@@ -441,6 +441,7 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
     assert attrs["ci.base_ref"] == "master"
     assert attrs["ci.branch"] == "worktree-per-test-telemetry-junit"
     assert attrs["ci.pr_number"] == 57216
+    assert attrs["ci.repository"] == "PostHog/posthog"
     assert attrs["ci.run_url"] == "https://github.com/PostHog/posthog/actions/runs/25218527467"
 
 
