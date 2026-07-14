@@ -13,6 +13,7 @@ export interface FeatureFlagFiltersConfig {
     status?: boolean
     createdBy?: boolean
     runtime?: boolean
+    payloads?: boolean
     tags?: boolean
 }
 
@@ -37,10 +38,12 @@ export function FeatureFlagFiltersSection({
         status: false,
         createdBy: false,
         runtime: false,
+        payloads: false,
         tags: false,
         ...filtersConfig,
     }
-    const hasNonSearchFilters = config.type || config.status || config.createdBy || config.runtime || config.tags
+    const hasNonSearchFilters =
+        config.type || config.status || config.createdBy || config.runtime || config.payloads || config.tags
 
     return (
         <div className="flex justify-between gap-2 flex-wrap">
@@ -213,6 +216,35 @@ export function FeatureFlagFiltersSection({
                                 ]}
                                 value={filters.evaluation_runtime ?? 'any'}
                                 data-attr="feature-flag-select-runtime"
+                            />
+                        </>
+                    )}
+                    {config.payloads && (
+                        <>
+                            <span className="ml-1">
+                                <b>Payload</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                onChange={(hasPayloads) => {
+                                    const { has_payloads, ...restFilters } = filters || {}
+                                    setFeatureFlagsFilters(
+                                        {
+                                            ...restFilters,
+                                            ...(hasPayloads !== 'any' ? { has_payloads: hasPayloads } : {}),
+                                            page: 1,
+                                        },
+                                        true
+                                    )
+                                }}
+                                options={[
+                                    { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-payloads-any' },
+                                    { label: 'Has payload', value: 'true' },
+                                    { label: 'No payload', value: 'false' },
+                                ]}
+                                value={filters.has_payloads ?? 'any'}
+                                data-attr="feature-flag-select-payloads"
                             />
                         </>
                     )}

@@ -6268,6 +6268,38 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == feature_flag.key
 
+    def test_get_flags_with_has_payloads_filter(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="with_payload",
+            filters={"groups": [], "payloads": {"true": '"blue"'}},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="with_variant_payload",
+            filters={"multivariate": {"variants": [{"key": "control"}]}, "payloads": {"control": '"on"'}},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_payload",
+            filters={"groups": [], "payloads": {}},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="no_payload_key",
+            filters={"groups": []},
+        )
+
+        with_payloads = self.client.get("/api/projects/@current/feature_flags?has_payloads=true").json()
+        assert sorted(flag["key"] for flag in with_payloads["results"]) == ["with_payload", "with_variant_payload"]
+
+        without_payloads = self.client.get("/api/projects/@current/feature_flags?has_payloads=false").json()
+        assert sorted(flag["key"] for flag in without_payloads["results"]) == ["empty_payload", "no_payload_key"]
+
     def test_get_flags_with_search(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
         FeatureFlag.objects.create(

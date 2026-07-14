@@ -70141,6 +70141,10 @@ export namespace Schemas {
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts;
     /**
+     * Filter feature flags by whether they carry a JSON payload. 'true' returns only flags with at least one payload value, 'false' returns only flags without. Distinct from the 'remote_config' type: an ordinary boolean or multivariant flag can also carry payloads.
+     */
+    has_payloads?: FeatureFlagsListHasPayloads;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -70189,6 +70193,14 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListHasEvaluationContexts = {
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListHasPayloads = typeof FeatureFlagsListHasPayloads[keyof typeof FeatureFlagsListHasPayloads];
+
+
+    export const FeatureFlagsListHasPayloads = {
       False: 'false',
       True: 'true',
     } as const;

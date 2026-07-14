@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
@@ -273,6 +273,22 @@ describe('the feature flags logic', () => {
             router.actions.push(urls.featureFlags(), { tab: 'history' })
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
+        })
+    })
+
+    it('reads has_payloads from the URL as a string when the router coerces it to a boolean', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { has_payloads: true })
+        }).toMatchValues({
+            filters: partial({ has_payloads: 'true' }),
+        })
+    })
+
+    it('drops an unrecognized has_payloads url value instead of applying it as a filter', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { has_payloads: 'any' })
+        }).toMatchValues({
+            filters: partial({ has_payloads: undefined }),
         })
     })
 

@@ -83,6 +83,12 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
+    has_payloads: zod
+        .enum(['false', 'true'])
+        .optional()
+        .describe(
+            "Filter feature flags by whether they carry a JSON payload. 'true' returns only flags with at least one payload value, 'false' returns only flags without. Distinct from the 'remote_config' type: an ordinary boolean or multivariant flag can also carry payloads."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Search by feature flag key or name. Case insensitive.'),

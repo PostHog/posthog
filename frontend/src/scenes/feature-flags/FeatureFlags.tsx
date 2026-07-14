@@ -574,6 +574,7 @@ export function OverviewTab({
                 createdBy: true,
                 tags: true,
                 runtime: true,
+                payloads: true,
             }}
             countText={countTextNode}
         />

@@ -2901,6 +2901,14 @@ class FeatureFlagViewSet(
                 enum=["true", "false"],
                 description="Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
             ),
+            OpenApiParameter(
+                "has_payloads",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description="Filter feature flags by whether they carry a JSON payload. 'true' returns only flags with at least one payload value, 'false' returns only flags without. Distinct from the 'remote_config' type: an ordinary boolean or multivariant flag can also carry payloads.",
+            ),
         ]
     )
     def list(self, request, *args, **kwargs):
@@ -3635,6 +3643,17 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
                     queryset = queryset.filter(eval_tag_count=0)
+            elif key == "has_payloads":
+                if isinstance(value, bool):
+                    filter_value = value
+                else:
+                    filter_value = str(value).lower() in ("true", "1", "yes")
+
+                empty_payloads = Q(filters__payloads__isnull=True) | Q(filters__payloads={})
+                if filter_value:
+                    queryset = queryset.exclude(empty_payloads)
+                else:
+                    queryset = queryset.filter(empty_payloads)
 
         return queryset
 

@@ -117,6 +117,22 @@ describe('FeatureFlagFiltersSection', () => {
         expect(container.querySelector('[data-attr="feature-flag-select-runtime"]')).not.toBeInTheDocument()
     })
 
+    it('shows only payloads filter when payloads is enabled', () => {
+        const { container } = render(
+            <FeatureFlagFiltersSection
+                filters={mockFilters}
+                setFeatureFlagsFilters={mockSetFilters}
+                searchPlaceholder="Search"
+                filtersConfig={{ payloads: true }}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="feature-flag-select-payloads"]')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="feature-flag-search"]')).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="feature-flag-select-type"]')).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="feature-flag-select-runtime"]')).not.toBeInTheDocument()
+    })
+
     it('shows multiple filters when multiple are configured', () => {
         const { container } = render(
             <FeatureFlagFiltersSection
@@ -146,6 +162,7 @@ describe('FeatureFlagFiltersSection', () => {
                     status: true,
                     createdBy: true,
                     runtime: true,
+                    payloads: true,
                 }}
             />
         )
@@ -155,6 +172,7 @@ describe('FeatureFlagFiltersSection', () => {
         expect(container.querySelector('[data-attr="feature-flag-select-status"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-created-by"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-runtime"]')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="feature-flag-select-payloads"]')).toBeInTheDocument()
     })
 
     it('ignores false values in config', () => {

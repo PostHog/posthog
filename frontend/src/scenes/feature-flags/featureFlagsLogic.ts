@@ -90,11 +90,20 @@ export function flagMatchesType(flag: FeatureFlagType, type?: string): boolean {
     return true
 }
 
+export function flagMatchesPayloads(flag: FeatureFlagType, hasPayloads?: string): boolean {
+    if (!hasPayloads) {
+        return true
+    }
+    const hasAnyPayload = Object.keys(flag.filters.payloads ?? {}).length > 0
+    return hasPayloads === 'true' ? hasAnyPayload : !hasAnyPayload
+}
+
 export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsFilters): boolean {
     return (
         flagMatchesSearch(flag, filters.search) &&
         flagMatchesStatus(flag, filters.active) &&
         flagMatchesType(flag, filters.type) &&
+        flagMatchesPayloads(flag, filters.has_payloads) &&
         // Archived flags are hidden unless explicitly filtered for, mirroring the API default
         (filters.archived === 'true' ? !!flag.archived : !flag.archived) &&
         (!filters.created_by_id?.length ||
@@ -137,6 +146,7 @@ export interface FeatureFlagsFilters {
     order?: string
     page?: number
     evaluation_runtime?: string
+    has_payloads?: string
     tags?: string[]
     excluded_tags?: string[]
 }
@@ -150,6 +160,7 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     order: undefined,
     page: 1,
     evaluation_runtime: undefined,
+    has_payloads: undefined,
     tags: undefined,
     excluded_tags: undefined,
 }
@@ -424,8 +435,18 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
-                searchParams
+            const {
+                page,
+                created_by_id,
+                active,
+                archived,
+                type,
+                search,
+                order,
+                evaluation_runtime,
+                has_payloads,
+                tags,
+            } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id: parseNumericArrayFilter(created_by_id),
                 type,
@@ -437,6 +458,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
             pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
+            // Only 'true'/'false' are meaningful; drop anything else so a hand-edited URL value
+            // doesn't apply a filter while the dropdown still reads "Any"
+            pageFiltersFromUrl.has_payloads =
+                has_payloads === true || has_payloads === 'true'
+                    ? 'true'
+                    : has_payloads === false || has_payloads === 'false'
+                      ? 'false'
+                      : undefined
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
             pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
 
