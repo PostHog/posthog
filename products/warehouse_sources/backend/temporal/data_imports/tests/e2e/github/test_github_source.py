@@ -579,7 +579,7 @@ class TestGithubWebhookActivationGate:
             db_incremental_field_last_value=None,
             webhook_source_manager=manager,
         )
-        manager.webhook_enabled.assert_called_once_with(expected_skip)
+        manager.webhook_enabled.assert_called_once_with(webhook_only=expected_skip)
 
     def test_webhook_path_drains_manager_when_enabled(self) -> None:
         # Gate skipped + webhook_enabled True: items() reads the webhook manager (S3
