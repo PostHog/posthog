@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,43 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check error reporting', () => {
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        // http_error (a non-2xx from a uiHost that doesn't route the check to PostHog),
+        // network_or_cors, and timeout are the expected "misconfigured / reverse-proxied
+        // uiHost or browser noise" path — already handled by surfacing the config modal —
+        // so they must flip authStatus to error WITHOUT being promoted into an
+        // error-tracking issue. Only genuinely unexpected (unknown) failures are captured.
+        it.each([
+            ['http_error', () => Promise.resolve({ ok: false, status: 404 } as Response), false],
+            ['network_or_cors', () => Promise.reject(new TypeError('Failed to fetch')), false],
+            ['timeout', () => Promise.reject(new DOMException('aborted', 'AbortError')), false],
+            ['unknown', () => Promise.reject(new Error('something odd')), true],
+        ])('%s failure captured as exception: %s', async (errorType, fetchImpl, shouldCapture) => {
+            ;(global.fetch as jest.Mock).mockImplementation(fetchImpl as any)
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            // Assert the captured error_types unconditionally: [errorType] when it should be
+            // captured, [] when it must be suppressed.
+            const capturedErrorTypes = captureExceptionSpy.mock.calls
+                .filter((c) => (c[1] as any)?.toolbar_context === 'ui_host_check')
+                .map((c) => (c[1] as any).error_type)
+            expect(capturedErrorTypes).toEqual(shouldCapture ? [errorType] : [])
         })
     })
 

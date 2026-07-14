@@ -15,6 +15,7 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
+    safeFetch,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -635,7 +636,10 @@ function verifyUiHostReachability(
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+    // Route through safeFetch (not raw fetch) so a customer-page `window.fetch` shim that
+    // throws synchronously surfaces as a rejected promise this .catch can handle, rather
+    // than escaping afterMount as an unhandled exception.
+    void safeFetch(`${values.uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
         signal: AbortSignal.timeout(5000),
@@ -657,13 +661,30 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // http_error, network_or_cors, and timeout are all expected outcomes for a
+            // misconfigured or reverse-proxied uiHost that doesn't route
+            // /toolbar_oauth/check to PostHog (the resolved uiHost fell back to the
+            // customer's own origin), or for ordinary browser-level noise (offline, ad
+            // blocker, strict CSP, CORS-blocked HEAD). That path is already handled by
+            // surfacing the config modal, so it must not spam error tracking. The
+            // `toolbar ui host check` analytics event below still records every failure
+            // for measuring reachability. Only genuinely unexpected failures (unknown)
+            // are promoted to exceptions.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            } else {
+                toolbarLogger.warn('config', 'uiHost reachability check failed', {
+                    ui_host: values.uiHost,
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
