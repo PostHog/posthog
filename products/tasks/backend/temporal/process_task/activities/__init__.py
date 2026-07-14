@@ -40,6 +40,7 @@ from .relay_sandbox_events import (
     relay_sandbox_events_deferred_completion,
 )
 from .run_wizard import RunWizardInput, run_wizard
+from .run_wizard_audit import RunWizardAuditInput, run_wizard_audit
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
 from .send_permission_response_to_sandbox import (
     PostPermissionDeliveryFailureInput,
@@ -85,6 +86,7 @@ __all__ = [
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
     "RunWizardInput",
+    "RunWizardAuditInput",
     "RefreshSandboxCredentialsInput",
     "RefreshSandboxCredentialsOutput",
     "MarkRepoReadyInput",
@@ -122,6 +124,7 @@ __all__ = [
     "read_sandbox_logs",
     "refresh_sandbox_credentials",
     "run_wizard",
+    "run_wizard_audit",
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",

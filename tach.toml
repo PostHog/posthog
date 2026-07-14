@@ -616,7 +616,6 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
-    "products.wizard",
     "products.workflows", "products.business_knowledge",
 ]
 layer = "modules"

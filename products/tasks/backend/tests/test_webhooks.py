@@ -230,24 +230,26 @@ class TestGitHubPRWebhook(TestCase):
 
     @parameterized.expand(
         [
-            ("wizard_run_with_repo", {"wizard_config": {}}, True, 1),
-            ("non_wizard_run", {}, True, 0),
-            ("wizard_run_without_repo", {"wizard_config": {}}, False, 0),
+            ("wizard_run_with_repo_and_checks", {"wizard_config": {}}, True, True, 1),
+            ("wizard_run_without_audit_checks", {"wizard_config": {}}, True, False, 0),
+            ("non_wizard_run", {}, True, True, 0),
+            ("wizard_run_without_repo", {"wizard_config": {}}, False, True, 0),
         ]
     )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_dispatches_setup_review_only_for_wizard_runs(
-        self, _name, state, include_repository, expected_dispatches, _mock_capture, mock_get_secret
+        self, _name, state, include_repository, include_checks, expected_dispatches, _mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/780"
+        checks = [{"id": "identify-stable-distinct-id", "label": "Stable distinct id", "status": "error"}]
         TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             state=state,
-            output={"pr_url": pr_url},
+            output={"pr_url": pr_url, **({"wizard_audit_checks": checks} if include_checks else {})},
         )
         payload = {
             "action": "closed",
@@ -262,7 +264,9 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.mock_start_setup_review.call_count, expected_dispatches)
         if expected_dispatches:
-            self.mock_start_setup_review.assert_called_once_with(team_id=self.team.id, repository="posthog/posthog")
+            self.mock_start_setup_review.assert_called_once_with(
+                team_id=self.team.id, repository="posthog/posthog", checks=checks
+            )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

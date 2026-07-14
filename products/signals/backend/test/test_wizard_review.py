@@ -7,20 +7,16 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import EventDefinition, Organization, Team
+from posthog.models import Organization, Team
 
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.wizard_review import (
     MAX_REVIEW_SIGNALS,
-    ComposeSignalsInputs,
+    AuditCheck,
     EmitSignalsInputs,
     ReviewSignalDraft,
-    SetupGap,
-    SetupReviewIntel,
     WizardReviewInputs,
-    collect_setup_review_intel_activity,
     compose_review_signals_activity,
     emit_review_signals_activity,
 )
@@ -47,86 +43,70 @@ async def ateam(aorganization):
     await sync_to_async(team.delete)()
 
 
-def _fully_set_up(team: Team) -> None:
-    EventDefinition.objects.create(team=team, name="user signed up")
-    EventDefinition.objects.create(team=team, name="$exception")
-    FeatureFlag.objects.create(team=team, key="rollout", active=True, deleted=False)
-    team.has_completed_onboarding_for = {"logs": True}
-    team.save()
+def _check(check_id: str, status: str, label: str | None = None) -> AuditCheck:
+    return AuditCheck(id=check_id, label=label or f"Label for {check_id}", status=status, details="d")
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_collect_intel_finds_all_gaps_on_bare_team(ateam):
-    await sync_to_async(EventDefinition.objects.create)(team=ateam, name="$pageview")
-
-    intel: SetupReviewIntel = await ActivityEnvironment().run(
-        collect_setup_review_intel_activity, WizardReviewInputs(team_id=ateam.id, repository=REPO)
-    )
-
-    assert sorted(gap.category for gap in intel.gaps) == sorted(["events", "feature_flags", "error_tracking", "logs"])
-    assert intel.event_names == ["$pageview"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_collect_intel_empty_on_fully_set_up_team(ateam):
-    await sync_to_async(_fully_set_up)(ateam)
-
-    intel: SetupReviewIntel = await ActivityEnvironment().run(
-        collect_setup_review_intel_activity, WizardReviewInputs(team_id=ateam.id, repository=REPO)
-    )
-
-    assert intel.gaps == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_collect_intel_skips_already_reviewed_team(ateam):
-    await sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=SignalReport.Status.POTENTIAL, billing_exempt=True
-    )
-
-    intel: SetupReviewIntel = await ActivityEnvironment().run(
-        collect_setup_review_intel_activity, WizardReviewInputs(team_id=ateam.id, repository=REPO)
-    )
-
-    assert intel.gaps == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_compose_falls_back_and_caps_on_llm_failure(ateam):
-    intel = SetupReviewIntel(
-        gaps=[
-            SetupGap(category="logs", evidence="e"),
-            SetupGap(category="events", evidence="e"),
-            SetupGap(category="feature_flags", evidence="e"),
-            SetupGap(category="error_tracking", evidence="e"),
-        ],
-        team_name="acme",
-        event_names=[],
-        planned_events=[],
-    )
+async def test_compose_falls_back_to_verbatim_drafts_by_severity(ateam):
+    checks = [
+        _check("capture-uses-proxy", "suggestion"),
+        _check("sdk-up-to-date", "pass"),
+        _check("identify-stable-distinct-id", "error"),
+        _check("init-correct", "pending"),
+        _check("capture-growth-events", "warning"),
+        _check("identify-not-late", "error"),
+    ]
 
     with patch("products.signals.backend.temporal.llm.call_llm", side_effect=RuntimeError("llm down")):
         drafts = await ActivityEnvironment().run(
             compose_review_signals_activity,
-            ComposeSignalsInputs(team_id=ateam.id, repository=REPO, intel=intel),
+            WizardReviewInputs(team_id=ateam.id, repository=REPO, checks=checks),
         )
 
-    # Fallback keeps the priority order and never exceeds the cap, so a detected gap still ships.
-    assert [d.category for d in drafts] == ["events", "error_tracking", "feature_flags"]
+    # pass/pending rows are not findings; the fallback ranks errors first and caps the count.
     assert len(drafts) == MAX_REVIEW_SIGNALS
+    assert [d.category for d in drafts] == ["identify-stable-distinct-id", "identify-not-late", "capture-growth-events"]
     assert all(REPO in d.description for d in drafts)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_compose_empty_when_all_checks_pass(ateam):
+    drafts = await ActivityEnvironment().run(
+        compose_review_signals_activity,
+        WizardReviewInputs(team_id=ateam.id, repository=REPO, checks=[_check("init-correct", "pass")]),
+    )
+
+    assert drafts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_compose_skips_already_reviewed_team(ateam):
+    await sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.POTENTIAL, billing_exempt=True
+    )
+
+    drafts = await ActivityEnvironment().run(
+        compose_review_signals_activity,
+        WizardReviewInputs(team_id=ateam.id, repository=REPO, checks=[_check("init-correct", "error")]),
+    )
+
+    assert drafts == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_sends_each_draft_through_emit_signal(ateam):
     drafts = [
-        ReviewSignalDraft(category="events", description="d1", remediation_human="h1", remediation_agent="a1"),
-        ReviewSignalDraft(category="logs", description="d2", remediation_human="h2", remediation_agent="a2"),
+        ReviewSignalDraft(
+            category="identify-stable-distinct-id", description="d1", remediation_human="h1", remediation_agent="a1"
+        ),
+        ReviewSignalDraft(
+            category="capture-growth-events", description="d2", remediation_human="h2", remediation_agent="a2"
+        ),
     ]
 
     with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
@@ -156,9 +136,9 @@ def test_wizard_signal_payload_validates_against_contract():
         {
             "source_product": "wizard",
             "source_type": "setup_review",
-            "source_id": "wizard-setup-review:1:events",
+            "source_id": "wizard-setup-review:1:identify-stable-distinct-id",
             "description": "d",
             "weight": 1.0,
-            "extra": {"repository": REPO, "category": "events"},
+            "extra": {"repository": REPO, "category": "identify-stable-distinct-id"},
         }
     )

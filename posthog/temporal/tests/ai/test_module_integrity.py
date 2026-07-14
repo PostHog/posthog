@@ -286,7 +286,6 @@ class TestSignalsProductModuleIntegrity:
             "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
             "run_custom_signal_agent_activity",
-            "collect_setup_review_intel_activity",
             "compose_review_signals_activity",
             "emit_review_signals_activity",
         ]

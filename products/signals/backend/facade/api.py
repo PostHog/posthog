@@ -387,28 +387,46 @@ async def emit_signal(
         )
 
 
-def start_wizard_setup_review(team_id: int, repository: str) -> None:
+def start_wizard_setup_review(team_id: int, repository: str, checks: list[dict]) -> None:
     """Kick the post-onboarding wizard setup review for a team (idempotent per team).
 
     Called by the tasks product when the setup wizard's instrumentation PR merges — the moment
-    the repository is known and data is about to flow. The workflow emits at most a handful of
-    wizard signals that ride the regular pipeline into complimentary implementation PRs.
+    the repository is known and data is about to flow. `checks` is the wizard audit's check
+    ledger captured during the cloud run (see the tasks run_wizard_audit activity); the workflow
+    turns the failing ones into at most a handful of wizard signals that ride the regular
+    pipeline into complimentary implementation PRs. No checks, no review.
     """
     import asyncio  # noqa: PLC0415
 
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
 
     from products.signals.backend.temporal.wizard_review import (  # noqa: PLC0415
+        AuditCheck,
         WizardReviewInputs,
         WizardSetupReviewWorkflow,
     )
+
+    audit_checks = [
+        AuditCheck(
+            id=check["id"],
+            label=check["label"],
+            status=check["status"],
+            area=check.get("area"),
+            file=check.get("file"),
+            details=check.get("details"),
+        )
+        for check in checks
+        if isinstance(check, dict) and all(isinstance(check.get(key), str) for key in ("id", "label", "status"))
+    ]
+    if not audit_checks:
+        return
 
     async def _start() -> None:
         client = await async_connect()
         try:
             await client.start_workflow(
                 WizardSetupReviewWorkflow.run,
-                WizardReviewInputs(team_id=team_id, repository=repository),
+                WizardReviewInputs(team_id=team_id, repository=repository, checks=audit_checks),
                 id=WizardSetupReviewWorkflow.workflow_id_for(team_id),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 run_timeout=timedelta(minutes=30),

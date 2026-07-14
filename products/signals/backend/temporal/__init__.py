@@ -73,7 +73,6 @@ from products.signals.backend.temporal.summary import (
 )
 from products.signals.backend.temporal.wizard_review import (
     WizardSetupReviewWorkflow,
-    collect_setup_review_intel_activity,
     compose_review_signals_activity,
     emit_review_signals_activity,
 )
@@ -141,7 +140,6 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
-    collect_setup_review_intel_activity,
     compose_review_signals_activity,
     emit_review_signals_activity,
 ]

@@ -285,10 +285,18 @@ def _start_wizard_setup_review_on_merge(task_run: TaskRun, repository: str | Non
         return
     if not repository:
         return
+    # The check ledger the wizard audit captured during the cloud run (run_wizard_audit
+    # activity). No ledger means the audit didn't complete — nothing to review.
+    output = task_run.output if isinstance(task_run.output, dict) else {}
+    checks = output.get("wizard_audit_checks")
+    if not isinstance(checks, list) or not checks:
+        return
 
     def _dispatch() -> None:
         try:
-            signals_facade.start_wizard_setup_review(team_id=task_run.task.team_id, repository=repository)
+            signals_facade.start_wizard_setup_review(
+                team_id=task_run.task.team_id, repository=repository, checks=checks
+            )
         except Exception:
             logger.warning("github_pr_webhook_setup_review_dispatch_failed", run_id=str(task_run.id), exc_info=True)
 

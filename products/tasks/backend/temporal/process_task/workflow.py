@@ -64,6 +64,7 @@ from .activities.relay_sandbox_events import (
     relay_sandbox_events_deferred_completion,
 )
 from .activities.run_wizard import RunWizardInput, run_wizard
+from .activities.run_wizard_audit import RunWizardAuditInput, run_wizard_audit
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
@@ -1094,6 +1095,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Above WIZARD_RUN_TIMEOUT_SECONDS (45 min) so the wizard's own timeout bounds the run;
             # the headroom covers the sandbox lookup and writing the output log.
             start_to_close_timeout=timedelta(minutes=50),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+        # Audit the fresh integration in the same sandbox; the check ledger lands on
+        # TaskRun.output and feeds the signals setup review when the PR merges. The activity
+        # swallows its own errors (best-effort), so this can't fail the run.
+        await workflow.execute_activity(
+            run_wizard_audit,
+            RunWizardAuditInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                repository=repository,
+            ),
+            start_to_close_timeout=timedelta(minutes=25),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
