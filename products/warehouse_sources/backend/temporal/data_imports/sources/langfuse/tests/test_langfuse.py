@@ -157,6 +157,9 @@ class TestValidateCredentials:
             kwargs = patched.return_value.get.call_args.kwargs
             assert kwargs["auth"] == ("pk-lf-x", "sk-lf-x")
             assert kwargs["allow_redirects"] is False
+            # Adapter-level retries must stay disabled: urllib3 honors Retry-After uncapped, so a
+            # hostile host could park the worker before the bounded tenacity policy runs.
+            assert patched.call_args.kwargs["retry"].total == 0
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)):
@@ -393,6 +396,26 @@ class TestGetRows:
         with pytest.raises(langfuse_module.LangfuseHostNotAllowedError) as exc:
             self._run(manager, [_response(status_code=302)])
         assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+
+    def test_disables_adapter_retries(self):
+        # urllib3 honors Retry-After uncapped, so a hostile host could park the worker before the
+        # bounded tenacity policy runs. The sync session must opt out of adapter-level retries.
+        manager = self._manager()
+        session = mock.MagicMock()
+        session.get.side_effect = [_page([], page=1, total_pages=1)]
+        with mock.patch.object(langfuse_module, "make_tracked_session", return_value=session) as mts:
+            list(
+                get_rows(
+                    host="https://cloud.langfuse.com",
+                    public_key="pk-lf-x",
+                    secret_key="sk-lf-x",
+                    endpoint="traces",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        assert mts.call_args.kwargs["retry"].total == 0
 
 
 class TestRetryBehavior:

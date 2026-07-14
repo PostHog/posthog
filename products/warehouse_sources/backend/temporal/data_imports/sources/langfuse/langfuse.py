@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -174,7 +175,9 @@ def validate_credentials(
     url = f"{normalize_host(host)}/api/public/projects"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address (SSRF).
-        response = make_tracked_session().get(
+        # `retry=Retry(total=0)` disables adapter-level retries, whose Retry-After handling is
+        # uncapped — a hostile host could park the worker with a huge Retry-After on a 429.
+        response = make_tracked_session(retry=Retry(total=0)).get(
             url, auth=(public_key.strip(), secret_key.strip()), timeout=10, allow_redirects=False
         )
     except requests.exceptions.RequestException as e:
@@ -239,8 +242,11 @@ def get_rows(
     url = f"{normalize_host(host)}{config.path}"
     auth = (public_key.strip(), secret_key.strip())
     # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session()
+    # re-handshaking per request. `retry=Retry(total=0)` disables adapter-level retries, whose
+    # Retry-After handling is uncapped — a hostile host could park the worker with a huge
+    # Retry-After on a 429. The tenacity policy on fetch_page (which caps Retry-After at
+    # MAX_RETRY_AFTER_SECONDS) is the only retry layer.
+    session = make_tracked_session(retry=Retry(total=0))
 
     @retry(
         retry=retry_if_exception_type((LangfuseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
