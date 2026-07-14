@@ -12,7 +12,6 @@ import { JSONContent, TTEditor } from './types'
 type RichContentEditorProps = {
     initialContent?: JSONContent
     onCreate?: (editor: TTEditor) => void
-    onDestroy?: () => void
     onUpdate?: (content: JSONContent) => void
     onSelectionUpdate?: () => void
     extensions: Extensions
@@ -61,7 +60,6 @@ export const useRichContentEditor = ({
     disabled,
     initialContent,
     onCreate = () => {},
-    onDestroy = () => {},
     onUpdate = () => {},
     onSelectionUpdate = () => {},
 }: RichContentEditorProps): TTEditor => {
@@ -73,7 +71,6 @@ export const useRichContentEditor = ({
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),
-        onDestroy,
     })
 
     useEffect(() => {
