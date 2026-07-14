@@ -72,6 +72,12 @@ tools:
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
+    task-channels-feed-create:
+        operation: task_channels_feed_create
+        enabled: false
+    task-channels-feed-list:
+        operation: task_channels_feed_list
+        enabled: false
     task-channels-list:
         operation: task_channels_list
         enabled: false
