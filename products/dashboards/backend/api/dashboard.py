@@ -2000,6 +2000,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 queryset=AlertConfiguration.objects.select_related("created_by"),
                 to_attr="_prefetched_alerts",
             ),
+            # Needed so the insight serializer's `dashboards`/`dashboard_tiles` fields don't N+1 per
+            # tile. This is the single tile fetch for retrieve — get_queryset no longer prefetches
+            # tiles for that action (it would just be re-fetched and discarded here).
+            Prefetch(
+                "insight__dashboards",
+                # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
+                queryset=Dashboard.objects.filter(
+                    id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
+                ),
+            ),
+            "insight__dashboard_tiles__dashboard",
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
@@ -2218,7 +2229,10 @@ class DashboardsViewSet(
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
 
-        if self.action != "list":
+        # `retrieve` is excluded: DashboardSerializer.get_tiles issues its own complete tile fetch
+        # (with these same insight prefetches), so prefetching tiles here would just be re-fetched
+        # and discarded — a wasted duplicate tile/caching_states query on every dashboard load.
+        if self.action not in ("list", "retrieve"):
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
                     Prefetch(

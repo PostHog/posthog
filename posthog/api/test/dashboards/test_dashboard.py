@@ -665,23 +665,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 6):
+            with self.assertNumQueries(baseline + 5):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 6 + 8 once at least one insight materializes
+            # baseline + 5 + 4 once at least one insight materializes
             # (dropped from +11/+9: a dashboard GET no longer re-syncs the FileSystem
-            # entry or writes last_accessed_at on every read, and skips the InsightVariable lookup
-            # when the dashboard has no variables)
+            # entry or writes last_accessed_at on every read, skips the InsightVariable lookup
+            # when the dashboard has no variables, and prefetches tiles in a single fetch)
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 6 + 8):
+            with self.assertNumQueries(baseline + 5 + 4):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 6 + 8):
+            with self.assertNumQueries(baseline + 5 + 4):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 6 + 8):
+        with self.assertNumQueries(baseline + 5 + 4):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
