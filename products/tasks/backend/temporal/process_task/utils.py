@@ -370,7 +370,7 @@ def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
 
 
 def _mcp_token_issued_cache_key(scope: str, user_id: int) -> str:
-    return f"posthog_ai:sandbox-mcp-token-issued:{scope}:{user_id}"
+    return f"tasks:sandbox-mcp-token-issued:{scope}:{user_id}"
 
 
 def mark_mcp_token_issued(scope: str, user_id: int) -> None:
@@ -398,7 +398,7 @@ SandboxIdentityKind = Literal["mcp"]
 
 
 def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
-    return f"posthog_ai:sandbox-{kind}-identity:{scope}"
+    return f"tasks:sandbox-{kind}-identity:{scope}"
 
 
 def mark_sandbox_identity(scope: str, kind: SandboxIdentityKind, value: int | str) -> None:
