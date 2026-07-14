@@ -1,18 +1,19 @@
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 from temporalio import activity
 
+from posthog.models.integration import Integration, SlackIntegration
+from posthog.temporal.ai.slack_app.helpers import safe_react, swap_reaction
 from posthog.temporal.ai.slack_app.types import (
+    SLACK_APP_PROCESSING_REACTION,
+    SLACK_APP_QUEUED_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMessageReactionInput,
     coerce_mention_workflow_inputs,
 )
 from posthog.temporal.common.utils import close_db_connections
-
-if TYPE_CHECKING:
-    from posthog.models.integration import SlackIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -30,8 +31,6 @@ POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this r
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     inputs = coerce_mention_workflow_inputs(inputs)
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -72,8 +71,6 @@ def post_posthog_code_repo_picker_activity(
     downstream external-select handler. New workflows go through the patched call
     site at the workflow body and pass ``user_id`` as the final positional arg.
     """
-    from posthog.models.integration import Integration, SlackIntegration
-
     inputs = coerce_mention_workflow_inputs(inputs)
     if user_id is None:
         logger.warning(
@@ -171,7 +168,6 @@ def block_posthog_code_task_if_no_personal_github_activity(
     """
     from django.conf import settings
 
-    from posthog.models.integration import Integration, SlackIntegration
     from posthog.models.user_integration import UserIntegration
 
     from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
@@ -223,7 +219,6 @@ def resolve_posthog_code_authorship_activity(
     """Gate PR authorship for a repo-bound task: returns "proceed", "awaiting_confirmation", or "blocked"."""
     from django.conf import settings
 
-    from posthog.models.integration import Integration, SlackIntegration
     from posthog.models.user_integration import UserIntegration
 
     from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
@@ -333,8 +328,6 @@ def resolve_posthog_code_authorship_activity(
 def post_posthog_code_authorship_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
     inputs = coerce_mention_workflow_inputs(inputs)
@@ -364,8 +357,6 @@ def post_posthog_code_authorship_timeout_activity(
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -407,8 +398,6 @@ def post_posthog_code_picker_timeout_activity(
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
 
     inputs = coerce_mention_workflow_inputs(inputs)
@@ -443,10 +432,6 @@ def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInp
     Purely cosmetic UX feedback: never raises, so a Slack hiccup can't stall
     the conversation queue behind retries of a reaction.
     """
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.temporal.ai.slack_app.helpers import swap_reaction
-    from posthog.temporal.ai.slack_app.types import SLACK_APP_PROCESSING_REACTION, SLACK_APP_QUEUED_REACTION
-
     try:
         integration = Integration.objects.get(
             id=input.integration_id,
@@ -474,10 +459,6 @@ def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) 
 
     Best-effort like the processing swap above: never raises.
     """
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.temporal.ai.slack_app.helpers import safe_react
-    from posthog.temporal.ai.slack_app.types import SLACK_APP_QUEUED_REACTION
-
     try:
         integration = Integration.objects.get(
             id=input.integration_id,
