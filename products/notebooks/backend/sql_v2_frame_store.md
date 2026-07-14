@@ -133,8 +133,11 @@ Layered levers:
 - **Per-query SETTINGS (batch-exports recipe).** The staging query carries hard caps, as `internal_stage.py`
   does. Phase 1 ships `max_execution_time` 600s (via the `NOTEBOOK_MATERIALIZE` limit context — modestly
   above the insight ceiling, frame pulls are legitimately heavier), `max_bytes_to_read` 50GB (refuse
-  oversized scans up front), and `max_threads` 16; memory stays on the cluster profile default for tier 1
-  (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
+  oversized scans up front), `max_threads` 16, and `max_result_bytes` 2GB with `result_overflow_mode=throw`
+  (row/scan caps don't bound the _output_ — `repeat('x', 10000)` over 500k rows would make a ~5GB object
+  from a near-zero scan; the output cap bounds object size, storage abuse, and what the kernel later decodes
+  into pandas, and it throws rather than silently truncating); memory stays on the cluster profile default
+  for tier 1 (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
   `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
   to throttle the S3 write rate.
 - **Scheduler priority, not pool exile.** CH's `priority` setting could let materialization run ONLINE while

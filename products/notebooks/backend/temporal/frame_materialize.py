@@ -50,6 +50,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseMemoryLimitExceededError,
     ClickHouseTooManyBytesError,
+    ClickHouseTooManyRowsOrBytesError,
 )
 
 from products.notebooks.backend import frame_store
@@ -69,6 +70,11 @@ _SLOT_TTL_SECONDS = 15 * 60
 # raised to HOGQL_INCREASED_MAX_EXECUTION_TIME by the NOTEBOOK_MATERIALIZE limit context.
 _MAX_BYTES_TO_READ = 50_000_000_000  # 50GB scan budget, the logs-queries precedent
 _MAX_THREADS = 16  # below interactive traffic (the API query-service cap is 60)
+# Output-side cap (applied as a query setting on the HTTP request): row/scan caps don't
+# bound the result — `repeat('x', 10000)` over 500k rows makes a ~5GB object from a
+# near-zero scan. This bounds object size, storage/bandwidth abuse, and what the kernel
+# later decodes into pandas. Overflow throws (never silently truncates).
+_MAX_RESULT_BYTES = 2_000_000_000  # 2GB, tier 1
 
 # Client-side timeouts on the ClickHouse stream. Temporal cannot interrupt a sync activity
 # thread, so without a read timeout a half-open connection would pin the thread (and its
@@ -96,16 +102,21 @@ _RESOURCE_BUDGET_MESSAGE = (
     "This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run."
 )
 _TIME_BUDGET_MESSAGE = "The query hit the frame materialization time limit. Narrow it and re-run."
+_RESULT_SIZE_MESSAGE = (
+    "The materialized result is too large (over the frame size budget). "
+    "Select fewer columns or aggregate before materializing."
+)
 _MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
 # ClickHouse exception codes worth a specific user-facing message when a query dies
 # mid-stream: 158 TOO_MANY_ROWS, 241 MEMORY_LIMIT_EXCEEDED, 307 TOO_MANY_BYTES,
-# 159 TIMEOUT_EXCEEDED, 160 TOO_SLOW.
+# 159 TIMEOUT_EXCEEDED, 160 TOO_SLOW, 396 TOO_MANY_ROWS_OR_BYTES (the result-bytes cap).
 _MID_STREAM_MESSAGES_BY_CODE = {
     158: _RESOURCE_BUDGET_MESSAGE,
     241: _RESOURCE_BUDGET_MESSAGE,
     307: _RESOURCE_BUDGET_MESSAGE,
     159: _TIME_BUDGET_MESSAGE,
     160: _TIME_BUDGET_MESSAGE,
+    396: _RESULT_SIZE_MESSAGE,
 }
 # Codes that do NOT mean the query itself is doomed: 209 SOCKET_TIMEOUT and 210
 # NETWORK_ERROR are transport failures, and 394 QUERY_WAS_CANCELLED is what our own
@@ -369,6 +380,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     database=settings.CLICKHOUSE_DATABASE,
                     output_format_arrow_string_as_string="true",
                     cancel_http_readonly_queries_on_client_close=1,
+                    max_result_bytes=_MAX_RESULT_BYTES,
+                    result_overflow_mode="throw",
                 )
                 query_started = time.perf_counter()
                 with client.post_query(
@@ -396,13 +409,20 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
-        except (ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as exc:
-            # Deterministic resource-budget failures ClickHouse rejects before streaming.
+        except (
+            ClickHouseMemoryLimitExceededError,
+            ClickHouseTooManyBytesError,
+            ClickHouseTooManyRowsOrBytesError,
+        ) as exc:
+            # Deterministic budget failures ClickHouse rejects before streaming.
             # Re-executing the same heavy query just burns ClickHouse and ends on the same
             # wall: terminal, with a user-facing message.
-            _finalize_status(manager, inputs, error_message=_RESOURCE_BUDGET_MESSAGE)
+            message = (
+                _RESULT_SIZE_MESSAGE if isinstance(exc, ClickHouseTooManyRowsOrBytesError) else _RESOURCE_BUDGET_MESSAGE
+            )
+            _finalize_status(manager, inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
-            raise exceptions.ApplicationError(_RESOURCE_BUDGET_MESSAGE, non_retryable=True) from exc
+            raise exceptions.ApplicationError(message, non_retryable=True) from exc
         except (MidStreamQueryError, ObjectStorageError) as exc:
             # The stream failed after ClickHouse already sent its 200 — either the chunked
             # read tore (multipart aborted, no object; the read error is opaque) or the body

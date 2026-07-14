@@ -13,7 +13,7 @@ from posthog.schema import QueryStatus
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, ClickHouseTooManyRowsOrBytesError
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
@@ -78,20 +78,33 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         manager.register_cache_key_mapping(inputs.cache_key)
         return inputs, manager
 
-    def test_resource_budget_error_is_terminal_with_a_clear_message(self):
-        # A deterministic ClickHouse resource-budget failure (rejected up front) must be
-        # non-retryable and carry a user-facing message — not retried to the schedule bound
-        # and finalized with the generic 'try re-running' fallback.
+    @parameterized.expand(
+        [
+            # Scan/memory budget: MEMORY_LIMIT_EXCEEDED rejected up front.
+            (
+                "memory_budget",
+                ClickHouseMemoryLimitExceededError("MEMORY_LIMIT_EXCEEDED", query="SELECT 1"),
+                "materialization limits",
+            ),
+            # Output budget: max_result_bytes trips (a huge result from a tiny scan must not
+            # persist a multi-GB object nor be retried).
+            (
+                "result_size_budget",
+                ClickHouseTooManyRowsOrBytesError("TOO_MANY_ROWS_OR_BYTES", query="SELECT 1"),
+                "too large",
+            ),
+        ]
+    )
+    def test_budget_error_is_terminal_with_a_clear_message(self, _name, clickhouse_error, expected_message):
+        # A deterministic ClickHouse budget failure must be non-retryable and carry a
+        # user-facing message — not retried to the schedule bound and finalized with the
+        # generic 'try re-running' fallback.
         inputs, manager = self._registered_inputs()
 
         with (
             patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
             patch.object(frame_materialize, "_materialize_slots"),
-            patch.object(
-                frame_materialize.ClickHouseClient,
-                "post_query",
-                side_effect=ClickHouseMemoryLimitExceededError("MEMORY_LIMIT_EXCEEDED", query="SELECT 1"),
-            ),
+            patch.object(frame_materialize.ClickHouseClient, "post_query", side_effect=clickhouse_error),
         ):
             with self.assertRaises(exceptions.ApplicationError) as caught:
                 frame_materialize.materialize_frame(inputs)
@@ -99,7 +112,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         self.assertTrue(caught.exception.non_retryable)
         status = manager.get_query_status()
         self.assertTrue(status.complete and status.error)
-        self.assertIn("materialization limits", status.error_message or "")
+        self.assertIn(expected_message, status.error_message or "")
 
     def test_mid_stream_failure_removes_the_corrupt_object_and_surfaces_the_real_error(self):
         # ClickHouse streams 200 before execution finishes; a mid-stream failure can close

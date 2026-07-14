@@ -186,6 +186,13 @@ class ClickHouseTooManyBytesError(ClickHouseError):
         super().__init__(error_message, query, query_id)
 
 
+class ClickHouseTooManyRowsOrBytesError(ClickHouseError):
+    """Exception raised when a query's result exceeds max_result_rows/max_result_bytes."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
 class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
     """Exception raised when ClickHouse has too many simultaneous queries running."""
 
@@ -379,6 +386,7 @@ class ClickHouseClient:
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
             "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_ROWS_OR_BYTES": ClickHouseTooManyRowsOrBytesError,
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
