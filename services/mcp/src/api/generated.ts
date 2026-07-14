@@ -33061,6 +33061,7 @@ export namespace Schemas {
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
      * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
      * * `posthog-elixir` - posthog-elixir
      */
@@ -33080,6 +33081,7 @@ export namespace Schemas {
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
       PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
       PosthogDotnet: 'posthog-dotnet',
       PosthogElixir: 'posthog-elixir',
     } as const;
@@ -54757,6 +54759,7 @@ export namespace Schemas {
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
        * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
        * * `posthog-dotnet` - posthog-dotnet
        * * `posthog-elixir` - posthog-elixir */
       lib: LibEnum;
