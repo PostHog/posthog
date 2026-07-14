@@ -18,15 +18,26 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
 
-// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
-// site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
-// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
-// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
-// callers can treat it as an ordinary request failure rather than crashing.
+// Body marker on the synthetic response `safeFetch` returns when the underlying fetch rejects.
+// `toolbarApi` keys off it to reclassify the failure as a network error rather than a genuine 502.
+export const SAFE_FETCH_NETWORK_ERROR_MARKER = 'safe_fetch_network_error'
+
+// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. Two things
+// can go wrong on an embedded toolbar running on an arbitrary customer page: a site-level
+// `window.fetch` wrapper can resolve to `undefined`/`null` (or another non-object), and the request
+// itself can reject (offline, CORS, ad blocker, connection refused, navigation away) with
+// `TypeError: Failed to fetch`. Both make downstream `.status` access throw or leave the rejection
+// uncaught. Normalize either case into a synthetic failed response so the toolbar's OAuth chain and
+// its callers can treat it as an ordinary request failure rather than crashing.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const response = await fetch(input, init)
+    let response: unknown
+    try {
+        response = await fetch(input, init)
+    } catch {
+        return new Response(JSON.stringify({ results: [], [SAFE_FETCH_NETWORK_ERROR_MARKER]: true }), { status: 502 })
+    }
     if (response && typeof response === 'object') {
-        return response
+        return response as Response
     }
     return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
 }
