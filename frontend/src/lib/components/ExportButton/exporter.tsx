@@ -29,9 +29,16 @@ export function downloadExportedAsset(asset: ExportedAssetType): void {
     const anchor = document.createElement('a')
     anchor.style.display = 'none'
     anchor.href = downloadUrl
+    // Signal download intent so the browser treats this as a download rather than a navigation
+    // (the server's Content-Disposition still supplies the filename). The click can land well
+    // after the user's gesture on slow, blocking exports, so make the intent explicit.
+    anchor.download = ''
     document.body.appendChild(anchor)
     anchor.click()
-    document.body.removeChild(anchor)
+    // Defer removal so Firefox doesn't cancel the download, matching downloadBlob above.
+    setTimeout(() => {
+        document.body.removeChild(anchor)
+    }, 0)
 }
 
 export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>

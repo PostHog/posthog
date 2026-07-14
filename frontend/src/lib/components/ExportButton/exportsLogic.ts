@@ -207,6 +207,12 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: ({ exportData }) => {
+                    // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
+                    // request can block for a while. Show feedback immediately so the user isn't
+                    // left staring at a menu that looks like it did nothing.
+                    const preparingToastId = 'export-preparing-' + Math.random()
+                    lemonToast.info('Preparing export…', { toastId: preparingToastId, autoClose: false })
+
                     void (async () => {
                         try {
                             const response = await api.exports.create({
@@ -220,6 +226,8 @@ export const exportsLogic = kea<exportsLogicType>([
                             const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                             actions.loadExportsSuccess(updatedExports)
+
+                            lemonToast.dismiss(preparingToastId)
 
                             if (response && response.has_content) {
                                 // Blocking export already finished in the request — download and confirm.
@@ -239,6 +247,7 @@ export const exportsLogic = kea<exportsLogicType>([
                                 actions.addFresh(response)
                             }
                         } catch (error) {
+                            lemonToast.dismiss(preparingToastId)
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
