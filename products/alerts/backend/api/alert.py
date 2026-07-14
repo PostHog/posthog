@@ -23,6 +23,7 @@ from posthog.schema import (
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    MetricsAlertConfig,
     NodeKind,
     TrendsAlertConfig,
 )
@@ -91,7 +92,10 @@ class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
 
-    root: Annotated[TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig, PydanticField(discriminator="type")]
+    root: Annotated[
+        TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig,
+        PydanticField(discriminator="type"),
+    ]
 
 
 @extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
@@ -561,12 +565,18 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError("SQL insight alerts are not enabled for your account.")
         if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
             raise ValidationError("Funnel insight alerts are not enabled for your account.")
+        if kind == NodeKind.METRICS_QUERY and not self._metrics_alerts_enabled():
+            raise ValidationError("Metrics insight alerts are not enabled for your account.")
 
     def _hogql_alerts_enabled(self) -> bool:
         return self._insight_alert_flag_enabled("hogql-insight-alerts")
 
     def _funnel_alerts_enabled(self) -> bool:
         return self._insight_alert_flag_enabled("funnel-insight-alerts")
+
+    def _metrics_alerts_enabled(self) -> bool:
+        # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
+        return self._insight_alert_flag_enabled("metrics")
 
     def _insight_alert_flag_enabled(self, flag: str) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current

@@ -120,7 +120,7 @@ export function ongoingIntervalField(config: AlertConfig | null | undefined, can
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
-export type InsightAlertKind = 'trends' | 'hogql' | 'funnels'
+export type InsightAlertKind = 'trends' | 'hogql' | 'funnels' | 'metrics'
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
@@ -146,6 +146,9 @@ const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']):
     }
     if (kind === 'funnels') {
         return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
+    }
+    if (kind === 'metrics') {
+        return { type: 'MetricsAlertConfig', check_ongoing_interval: false }
     }
     return {
         type: 'TrendsAlertConfig',

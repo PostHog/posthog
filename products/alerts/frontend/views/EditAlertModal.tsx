@@ -19,7 +19,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -92,11 +92,13 @@ export function EditAlertModal({
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
-    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
+    const insightAlertKind: 'hogql' | 'funnels' | 'trends' | 'metrics' = containsHogQLQuery(query)
         ? 'hogql'
         : isFunnelInsight
           ? 'funnels'
-          : 'trends'
+          : isMetricsQuery(query)
+            ? 'metrics'
+            : 'trends'
 
     const formLogicProps = {
         alert,

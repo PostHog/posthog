@@ -13,6 +13,7 @@ import {
     hasBreakdownFilter,
     isFunnelsQuery,
     isInsightVizNode,
+    isMetricsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps } from '~/types'
@@ -33,7 +34,7 @@ export interface InsightAlertsLogicProps {
 
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean; metricsAlertsEnabled?: boolean } = {}
 ): boolean => {
     if (!query) {
         return false
@@ -46,6 +47,10 @@ export const areAlertsSupportedForInsight = (
         // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
         const vizType = query.source.funnelsFilter?.funnelVizType
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
+    }
+    // Metrics insights persist a bare MetricsQuery node (no InsightVizNode wrapper).
+    if (options.metricsAlertsEnabled && isMetricsQuery(query)) {
+        return true
     }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
@@ -66,13 +71,25 @@ export const areAnomalyAlertsSupportedForInsight = (
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
-    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+const alertableInsightTypesLabel = (options: {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+    metricsAlertsEnabled?: boolean
+}): string =>
+    [
+        'trends',
+        options.hogqlAlertsEnabled && 'SQL',
+        options.funnelAlertsEnabled && 'funnel',
+        options.metricsAlertsEnabled && 'metrics',
+    ]
+        .filter(Boolean)
+        .join(', ')
 
 export const alertsUnsupportedReason = (
     options: {
         hogqlAlertsEnabled?: boolean
         funnelAlertsEnabled?: boolean
+        metricsAlertsEnabled?: boolean
     },
     query?: Record<string, any> | null
 ): string => {
