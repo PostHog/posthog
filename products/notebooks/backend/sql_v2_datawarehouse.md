@@ -46,9 +46,11 @@ The frame-store materialize activity (`sql_v2_frame_store.md`) is the path a Pyt
 
 The requirement: reconstruct `User.objects.filter(id=user_id).first()` from the data-plane token's `user_id` and pass `user=` into `HogQLQueryExecutor`. Do not set `bypass_warehouse_access_control`. Do not pass a synthetic principal. Fail closed and loud if `user_id` is null. Without this, every DW-backed frame materialization fails closed exactly where DW matters most, and the failure is silent (a Stripe query looks like a missing table).
 
-## Seam 2: the run-as principal for agent/MCP notebooks
+## Seam 2: agent/MCP notebooks run as the MCP-authenticated user
 
-The data-plane token mint sets `user_id = user.id if isinstance(user, User) else None`, so token-user / MCP-created notebooks currently mint a null `user_id`. Combined with the fail-closed rule above, that makes warehouse tables invisible to agent-run notebooks by construction. Resolving this means baking a real run-as `User` id into the data-plane token at dispatch. An org-admin service user would see all DW tables, which is almost certainly too broad, so the notebook creator or an explicit run-as user is the safer default.
+An agent drives a notebook through the same `sql_v2/run` DRF action (`products/notebooks/backend/presentation/views/notebook.py`) a browser uses. `user = self._current_user()` returns `request.user if isinstance(request.user, User) else None`, and the MCP authenticates as a real `User` (the human behind the personal API key / OAuth token that authorized the agent). So `user_id` threads into the data-plane token exactly as it does for a session, and warehouse access control reflects that person's permissions, identical to what they would see running the same query in the SQL editor. That is the decision: an agent run executes as the user driving it, not a default or service identity. No new run-as machinery is needed, the existing `request.user` threading already delivers it as long as the MCP call carries a user credential.
+
+The only case where `user_id` is null is a genuinely user-less credential, a project secret API key / service token (`ProjectSecretAPIKeyUser`) with no human behind it. Do not substitute a default or admin user there, that would silently over- or under-share someone else's warehouse. Fail closed for warehouse tables (the current behavior), ideally with a clear "run as a user to query warehouse data" message rather than a silent missing-table.
 
 ## Browsing DW schemas
 
