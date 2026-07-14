@@ -1,12 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
-
-import { DashboardLayoutCompactType } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'
 
@@ -16,28 +14,14 @@ interface DashboardZoomControlProps {
 }
 
 export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoomControlProps): JSX.Element | null {
-    const { dashboard, currentLayoutSize, layoutCompactType } = useValues(dashboardLogic)
-    const { setLayoutCompactType } = useActions(dashboardLogic)
+    const { dashboard, currentLayoutSize } = useValues(dashboardLogic)
 
     if (currentLayoutSize === 'xs') {
         return null
     }
 
     return (
-        <div className="flex items-center gap-2 text-sm text-muted hidden md:flex">
-            <span>Compaction</span>
-            <LemonSelect<DashboardLayoutCompactType>
-                size="small"
-                value={layoutCompactType}
-                onChange={setLayoutCompactType}
-                options={[
-                    { value: 'vertical', label: 'Vertical' },
-                    { value: 'horizontal', label: 'Horizontal' },
-                    { value: 'wrap', label: 'Wrap' },
-                    { value: 'none', label: 'None' },
-                ]}
-                tooltip="Choose how tiles close gaps in the dashboard layout"
-            />
+        <div className="hidden md:flex">
             <Shortcut
                 name="DashboardLayoutZoomToggle"
                 keybind={[['z']]}

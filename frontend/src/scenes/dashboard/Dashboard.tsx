@@ -22,6 +22,7 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsig
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardCompactionControl } from './DashboardCompactionControl'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -140,7 +141,10 @@ function DashboardScene({
                                 DashboardPlacement.ProjectHomepage,
                                 DashboardPlacement.Builtin,
                             ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
+                                <>
+                                    <DashboardCompactionControl />
+                                    <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
+                                </>
                             )}
                     </SceneStickyBar>
 
