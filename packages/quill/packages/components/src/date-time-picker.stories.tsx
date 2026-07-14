@@ -15,8 +15,9 @@ import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
-import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
+import { dateRangeSelectionLabel, type DateRangeSelection } from './date-range-presets-panel'
 import { DateTimePicker, type DateTimeValue } from './date-time-picker'
+import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'
 
@@ -62,6 +63,91 @@ export const THIS_COMPONENT_IS_EXPERIMENTAL: Story = {
     args: baseArgs,
     render: () => {
         return <>Just a small note this is experimental and likely not ready for use.</>
+    },
+}
+
+export const WithPresetsPanel: Story = {
+    args: baseArgs,
+    render: () => {
+        const [selection, setSelection] = React.useState<DateRangeSelection>({
+            kind: 'rolling',
+            count: 7,
+            unit: 'days',
+        })
+        return (
+            <DateTimePicker
+                selection={selection}
+                onSelectionChange={setSelection}
+                onApply={({ start, end, includesTime }) => setSelection({ kind: 'custom', start, end, includesTime })}
+                showHeader={false}
+                showTime={false}
+                showTimeToggle
+            />
+        )
+    },
+}
+
+export const PresetsPanelInPopover: Story = {
+    args: baseArgs,
+    render: () => {
+        const [selection, setSelection] = React.useState<DateRangeSelection>({
+            kind: 'rolling',
+            count: 7,
+            unit: 'days',
+        })
+        const [open, setOpen] = React.useState(false)
+        return (
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger
+                    render={
+                        <Button variant="outline" size="sm">
+                            <Clock />
+                            {dateRangeSelectionLabel(selection)}
+                        </Button>
+                    }
+                />
+                <PopoverContent
+                    align="start"
+                    collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}
+                    className="w-auto p-0"
+                >
+                    <DateTimePicker
+                        selection={selection}
+                        onSelectionChange={(next) => {
+                            setSelection(next)
+                            if (next.kind !== 'rolling') {
+                                setOpen(false)
+                            }
+                        }}
+                        onApply={({ start, end }) => {
+                            setSelection({ kind: 'custom', start, end })
+                            setOpen(false)
+                        }}
+                        showHeader={false}
+                    />
+                </PopoverContent>
+            </Popover>
+        )
+    },
+}
+
+export const PresetsPanelRight: Story = {
+    args: baseArgs,
+    render: () => {
+        const [selection, setSelection] = React.useState<DateRangeSelection>({
+            kind: 'rolling',
+            count: 7,
+            unit: 'days',
+        })
+        return (
+            <DateTimePicker
+                selection={selection}
+                onSelectionChange={setSelection}
+                onApply={({ start, end }) => setSelection({ kind: 'custom', start, end })}
+                presetsSide="right"
+                collapsibleCalendar={false}
+            />
+        )
     },
 }
 
@@ -162,9 +248,19 @@ export const WithSettingsLink: Story = {
 
 const calendarRanges: DateTimeRange[] = [
     { id: 1, name: 'This month', rangeSetter: (d) => startOfMonth(d) },
-    { id: 2, name: 'Last month', rangeSetter: (d) => startOfMonth(subMonths(d, 1)), endSetter: (d) => endOfMonth(subMonths(d, 1)) },
+    {
+        id: 2,
+        name: 'Last month',
+        rangeSetter: (d) => startOfMonth(subMonths(d, 1)),
+        endSetter: (d) => endOfMonth(subMonths(d, 1)),
+    },
     { id: 3, name: 'This quarter', rangeSetter: (d) => startOfQuarter(d) },
-    { id: 4, name: 'Last quarter', rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)), endSetter: (d) => endOfQuarter(subQuarters(d, 1)) },
+    {
+        id: 4,
+        name: 'Last quarter',
+        rangeSetter: (d) => startOfQuarter(subQuarters(d, 1)),
+        endSetter: (d) => endOfQuarter(subQuarters(d, 1)),
+    },
     { id: 5, name: 'Year to date', rangeSetter: (d) => startOfYear(d) },
 ]
 

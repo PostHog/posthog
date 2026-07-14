@@ -2,9 +2,17 @@ import { endOfDay, format, getMonth, getYear, startOfDay, subMonths } from 'date
 import { ArrowRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, ScrollArea, Separator, cn } from '@posthog/quill-primitives'
+import { Badge, Button, ScrollArea, Separator, Switch, cn } from '@posthog/quill-primitives'
 
 import { Calendar } from './calendar-grid'
+import {
+    DateRangePresetsPanel,
+    selectionKeyOf,
+    valueForSelection,
+    type DataAttributeProps,
+    type DateRangeChip,
+    type DateRangeSelection,
+} from './date-range-presets-panel'
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
 import { Day } from './use-calendar'
@@ -45,9 +53,15 @@ export interface DateTimeValue {
     range: DateTimeRange
 }
 
+export interface DateTimeApplyValue extends DateTimeValue {
+    /** Set only when the "Include time" toggle is rendered (`showTimeToggle`). */
+    includesTime?: boolean
+}
+
 export interface DateTimePickerProps {
-    value: DateTimeValue
-    onApply: (value: DateTimeValue) => void
+    /** Staged range seed; not needed when `selection` drives the picker. */
+    value?: DateTimeValue
+    onApply: (value: DateTimeApplyValue) => void
     onCancel?: () => void
     minDate?: Date
     maxDate?: Date
@@ -57,16 +71,31 @@ export interface DateTimePickerProps {
     compact?: boolean
     /** Quick-range presets to offer. Defaults to `quickRanges`; `CUSTOM_RANGE` entries are filtered out. */
     ranges?: DateTimeRange[]
+    /** Presets panel: chips + "In the last" stepper + named periods beside the calendar, replacing
+     *  the quick-range list. Chip and stepper picks fire `onSelectionChange` immediately; calendar
+     *  picks stay staged until Apply. */
+    selection?: DateRangeSelection
+    onSelectionChange?: (selection: DateRangeSelection) => void
+    shortChips?: DateRangeChip[]
+    namedChips?: string[]
+    presetsSide?: 'left' | 'right'
+    /** When true (default) the calendar hides behind the panel's "Custom range…" row. */
+    collapsibleCalendar?: boolean
+    /** Extra host rows at the bottom of the presets panel (under "Custom range…"). */
+    presetsFooter?: React.ReactNode
+    portalProps?: DataAttributeProps
     /** Hide the "Choose date range / Quick ranges" header band when embedding in a host surface. */
     showHeader?: boolean
     /** Day-granular mode: hides the time segments and "Now", and drops time from the footer readout. */
     showTime?: boolean
+    /** Render the "Include time" toggle (mirrors `DatePicker`); `showTime` seeds it. */
+    showTimeToggle?: boolean
+    onIncludeTimeChange?: (includeTime: boolean) => void
     className?: string
 }
 
-
 export function DateTimePicker({
-    value,
+    value: valueProp,
     onApply,
     onCancel,
     minDate,
@@ -76,11 +105,22 @@ export function DateTimePicker({
     onDateTimeSettings,
     compact = false,
     ranges = quickRanges,
+    selection,
+    onSelectionChange,
+    shortChips,
+    namedChips,
+    presetsSide = 'left',
+    collapsibleCalendar = true,
+    presetsFooter,
+    portalProps,
     showHeader = true,
-    showTime = true,
+    showTime: showTimeProp = true,
+    showTimeToggle = false,
+    onIncludeTimeChange,
     className,
 }: DateTimePickerProps): React.ReactElement {
-    const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
+    const panelMode = selection !== undefined
+    const presetRanges = panelMode ? [] : ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
     const hasPresets = presetRanges.length > 0
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
@@ -88,12 +128,39 @@ export function DateTimePicker({
     // a single calendar, so the "can't pick the sibling's month" constraint shouldn't apply.
     const isLargeScreen = useMediaQuery(LG_QUERY)
     const twoCalendars = !compact && isLargeScreen
+    // In collapsible panel mode the calendar starts hidden behind the panel's "Custom range…" row.
+    const [calendarOpen, setCalendarOpen] = React.useState(!panelMode || !collapsibleCalendar)
+    const [includeTime, setIncludeTime] = React.useState<boolean>(showTimeProp)
+    const includeTimeId = React.useId()
+    const showTime = showTimeToggle ? includeTime : showTimeProp
+    const weekStart01: 0 | 1 = weekStartsOn === Day.SUNDAY ? 0 : 1
+    // `now` is frozen per selection so the derived seed stays time-stable across re-renders.
+    const selectionKey = selection ? selectionKeyOf(selection) : ''
+    const panelNow = React.useMemo(() => new Date(), [selectionKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    const value = selection ? valueForSelection(selection, panelNow, weekStart01) : (valueProp as DateTimeValue)
     const [start, setStart] = React.useState<Date>(value.start)
     const [end, setEnd] = React.useState<Date>(value.end)
     const [range, setRange] = React.useState<DateTimeRange>(value.range)
     const [lastSet, setLastSet] = React.useState<'start' | 'end' | null>(null)
     const [rightViewing, setRightViewing] = React.useState<Date>(value.end)
     const [leftViewing, setLeftViewing] = React.useState<Date>(subMonths(value.end, 1))
+
+    // Preset picks commit through the host and come back as a changed `selection`;
+    // re-seed the staged range (compared by time) so the calendar preview follows.
+    const seedKey = `${value.start.getTime()}-${value.end.getTime()}-${value.range.id}`
+    const seededKey = React.useRef(seedKey)
+    React.useEffect(() => {
+        if (!panelMode || seededKey.current === seedKey) {
+            return
+        }
+        seededKey.current = seedKey
+        setStart(value.start)
+        setEnd(value.end)
+        setRange(value.range)
+        setLastSet(null)
+        setRightViewing(value.end)
+        setLeftViewing(subMonths(value.end, 1))
+    }, [panelMode, seedKey, value])
 
     const handleSelect = (date: Date): void => {
         const newStart = startOfDay(date)
@@ -180,6 +247,11 @@ export function DateTimePicker({
         revealEnd(now)
     }
 
+    const handleIncludeTimeChange = (next: boolean): void => {
+        setIncludeTime(next)
+        onIncludeTimeChange?.(next)
+    }
+
     const handleQuickRange = (next: DateTimeRange): void => {
         const now = new Date()
         const nextStart = next.rangeSetter(now)
@@ -192,46 +264,112 @@ export function DateTimePicker({
         setLeftViewing(subMonths(nextEnd, 1))
     }
 
+    const handleApply = (): void => {
+        onApply({ start, end, range, ...(showTimeToggle ? { includesTime: includeTime } : {}) })
+        if (panelMode && collapsibleCalendar) {
+            setCalendarOpen(false)
+        }
+    }
+
+    const handleCancel = (): void => {
+        if (panelMode && collapsibleCalendar) {
+            setCalendarOpen(false)
+        }
+        onCancel?.()
+    }
+
     const dateTimeFormat = showTime ? DATE_TIME_FORMATS[dateFormat] : DATE_FORMATS[dateFormat]
     const presentationalStart = format(start, dateTimeFormat)
     const presentationalEnd = format(end, dateTimeFormat)
+
+    const presetsPanel = selection && (
+        <DateRangePresetsPanel
+            selection={selection}
+            onSelectionChange={onSelectionChange}
+            shortChips={shortChips}
+            namedChips={namedChips}
+            now={panelNow}
+            weekStartsOn={weekStart01}
+            calendarOpen={calendarOpen}
+            onCalendarOpenChange={collapsibleCalendar ? setCalendarOpen : undefined}
+            footer={presetsFooter}
+            portalProps={portalProps}
+        />
+    )
 
     return (
         <div
             className={cn(
                 'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10 overflow-hidden',
-                compact ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
+                compact ? 'w-[15rem]' : panelMode ? 'w-max' : 'w-[15rem] lg:w-full max-w-[42rem]',
                 className
             )}
+            data-attr="date-time-picker"
         >
             {/* Headers */}
-            {!compact && showHeader && (
+            {!compact && showHeader && calendarOpen && (
                 <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                            Choose date range
+                        </span>
                         {(minDate || hasExplicitMaxDate) && (
                             <div className="flex items-center gap-1 ml-auto">
-                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
-                                {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {minDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Min: {format(minDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
+                                {minDate && hasExplicitMaxDate && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        <ArrowRight className="size-3" />
+                                    </span>
+                                )}
+                                {hasExplicitMaxDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Max: {format(maxDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
                             </div>
                         )}
                     </div>
                     {hasPresets && (
                         <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                Quick ranges
+                            </span>
                         </div>
                     )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={compact || !hasPresets
-                ? 'flex flex-col'
-                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
-            }>
+            <div
+                className={
+                    panelMode
+                        ? calendarOpen
+                            ? presetsSide === 'left'
+                                ? 'flex flex-col lg:grid lg:grid-cols-[auto_minmax(0,1fr)]'
+                                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_auto]'
+                            : 'flex flex-col'
+                        : compact || !hasPresets
+                          ? 'flex flex-col'
+                          : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
+                }
+            >
+                {/* Presets panel — DOM-first so it stacks on top below lg; `order` places it at lg */}
+                {presetsPanel && (
+                    <div
+                        className={cn(
+                            calendarOpen && 'border-b border-border lg:border-b-0',
+                            calendarOpen && (presetsSide === 'left' ? 'lg:border-r' : 'lg:order-1 lg:border-l')
+                        )}
+                    >
+                        {presetsPanel}
+                    </div>
+                )}
                 {/* Calendars column */}
-                <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
+                <div className={cn(compact ? 'order-1' : 'order-1 lg:order-none', !calendarOpen && 'hidden')}>
                     {/* Inputs */}
                     {!compact && (
                         <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
@@ -247,9 +385,21 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={start}
+                                    maxDate={maxDate}
+                                    onChange={handleStartChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={end}
+                                    maxDate={maxDate}
+                                    onChange={handleEndChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 {showTime && (
                                     <Button
                                         variant="link"
@@ -266,10 +416,11 @@ export function DateTimePicker({
                     )}
 
                     {/* Calendars */}
-                    <div className={compact
-                        ? 'flex flex-col justify-between'
-                        : 'flex flex-col lg:flex-row justify-between'
-                    }>
+                    <div
+                        className={
+                            compact ? 'flex flex-col justify-between' : 'flex flex-col lg:flex-row justify-between'
+                        }
+                    >
                         {!compact && (
                             <div className="p-2 hidden lg:block">
                                 <Calendar
@@ -303,50 +454,84 @@ export function DateTimePicker({
 
                 {/* Quick ranges column */}
                 {hasPresets && (
-                <div className={compact
-                    ? 'order-0 border-b border-border'
-                    : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
-                }>
-                    <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                        <ul className={compact
-                            ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                            : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
-                        }>
-                            {presetRanges.map((quick) => (
-                                <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        left
-                                        className={compact
-                                            ? 'whitespace-nowrap'
-                                            : 'whitespace-nowrap lg:w-full lg:justify-start'
-                                        }
-                                        aria-selected={range.id === quick.id}
-                                        aria-label={`Choose ${quick.name.toLowerCase()}`}
-                                        title={quick.name}
-                                        onClick={() => handleQuickRange(quick)}
-                                        data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                    >
-                                        {quick.name}
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
-                    </ScrollArea>
-                </div>
+                    <div
+                        className={
+                            compact
+                                ? 'order-0 border-b border-border'
+                                : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                        }
+                    >
+                        <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                            <ul
+                                className={
+                                    compact
+                                        ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                        : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                                }
+                            >
+                                {presetRanges.map((quick) => (
+                                    <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            left
+                                            className={
+                                                compact
+                                                    ? 'whitespace-nowrap'
+                                                    : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                            }
+                                            aria-selected={range.id === quick.id}
+                                            aria-label={`Choose ${quick.name.toLowerCase()}`}
+                                            title={quick.name}
+                                            onClick={() => handleQuickRange(quick)}
+                                            data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                        >
+                                            {quick.name}
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </ScrollArea>
+                    </div>
                 )}
             </div>
 
-            <Separator />
+            {showTimeToggle && calendarOpen && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-t border-border">
+                    <Switch
+                        checked={includeTime}
+                        onCheckedChange={handleIncludeTimeChange}
+                        aria-label="Include time"
+                        id={includeTimeId}
+                        data-attr="date-time-picker-include-time"
+                    />
+                    <label htmlFor={includeTimeId} className="text-xs text-muted-foreground select-none">
+                        Include time
+                    </label>
+                </div>
+            )}
+
+            {calendarOpen && <Separator />}
 
             {/* Actions */}
-            <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
+            <div className={cn('flex justify-end px-3 py-2 items-center gap-2 bg-muted/30', !calendarOpen && 'hidden')}>
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
+                    {range.id === CUSTOM_RANGE.id ? (
+                        <>
+                            {presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}
+                        </>
+                    ) : (
+                        range.name
+                    )}
                 </span>
-                {onCancel ? (
-                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
+                {panelMode || onCancel ? (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancel}
+                        aria-label="Cancel"
+                        data-attr="date-time-picker-cancel"
+                    >
                         Cancel
                     </Button>
                 ) : null}
@@ -355,7 +540,7 @@ export function DateTimePicker({
                     size="sm"
                     aria-label="Apply date range"
                     title="Apply date range"
-                    onClick={() => onApply({ start, end, range })}
+                    onClick={handleApply}
                     data-attr="date-time-picker-apply-date-range"
                 >
                     Apply

@@ -5,9 +5,10 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 ## Exports
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
-- `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
+- `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`) or the chips presets panel (`selection`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
+- `RelativeRangeInput` — "N units" duration control (count stepper + unit dropdown)
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
@@ -66,6 +67,30 @@ Rules:
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
 - Embedding in a host surface (e.g. inside a popover with the host's own sections): `showHeader={false}` drops the caps header band, `showTime={false}` switches to day-granular mode (no time segments, no "Now", date-only footer readout) — pair with a `className` that strips the card chrome (`shadow-none ring-0`).
+- `showTimeToggle` renders the "Include time" row (mirrors `DatePicker`: `showTime` seeds it, `onIncludeTimeChange` reports flips). Unlike `DatePicker` it defaults to false — time is this picker's point, so opt in only when the host's value model treats time as optional. When on, `onApply` reports the toggle state as `includesTime`.
+
+### Presets-panel mode
+
+Passing `selection` (a `DateRangeSelection`: rolling / fixed / custom) replaces the quick-ranges list with the chips panel — a 3×3 grid of rolling shortcuts (`1h 24h 7d / 14d 30d 90d / 1w 1m 1y`), a "Last …" `RelativeRangeInput` row, a 2-column grid of calendar-anchored periods (`Today … All time`), and a "Custom range…" row that expands the calendar half beside the panel (collapsed by default; Apply or Cancel collapse it back).
+
+```tsx
+<DateTimePicker
+  selection={selection}
+  onSelectionChange={(next) => commit(next)} // chips + stepper commit immediately
+  onApply={({ start, end, includesTime }) => commit({ kind: 'custom', start, end, includesTime })}
+  showHeader={false}
+  showTimeToggle
+  presetsFooter={<HostRows />} // extra rows under "Custom range…" (e.g. Exclude, Exact time)
+/>
+```
+
+- The picker previews the selection on the calendar (the open calendar follows chip clicks live) but never interprets it — map selections to your own range vocabulary in the host. The reference host is `InsightQuillDateFilter` in the app (PostHog date-strings mapping); its Exclude flyout lives in `frontend/src/lib/components/DateFilter/DateFilterExclusionsControl.tsx`.
+- Two commit paths: `onSelectionChange` fires immediately for chips and the stepper; calendar picks stage until Apply, which fires `onApply` (with `includesTime` when the toggle is on).
+- `value` is not needed in panel mode (the staged range derives from `selection`); `ranges` is ignored.
+- `shortChips` / `namedChips` override the default chip vocabularies; `portalProps` spreads onto the stepper's portaled unit dropdown (skin opt-in attributes).
+- `presetsSide` places the panel `'left'` (default) or `'right'` of the calendars; `collapsibleCalendar={false}` keeps the calendar always visible and drops the "Custom range…" row — the drop-in replacement shape for the old quick-ranges list.
+- `weekStartsOn` drives the calendar grid and the This/Last week chip math — pass the team setting or the chips drift from the query.
+- When hosting in a quill `Popover`, use `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`: the panel sits left so expanding grows rightward without moving the chips, and `align: 'shift'` steps in only when the widened surface would overflow the viewport.
 
 ## DatePicker
 
@@ -97,6 +122,25 @@ Rules:
 ## useCalendar
 
 Headless month-grid state for building custom calendar UIs: returns `calendar` (months > weeks > days), view navigation (`viewNextMonth`, `viewToday`, ...), and selection helpers (`select`, `selectRange`, `isSelected`, `toggle`). Selected dates are normalized to midnight. Reach for this only when DateTimePicker doesn't fit.
+
+## RelativeRangeInput
+
+A "N units" duration control: count stepper (type or ±) plus a unit `Select`.
+Controlled via `value: { count, unit }` / `onChange`; `units` narrows the dropdown (default hours→years), `min`/`max` clamp the count.
+The component is vocabulary-free: the host renders surrounding words ("In the last …") and maps the value to its own range model.
+Unit labels singularize when count is 1. `selectContentProps` spreads onto the portaled unit dropdown (e.g. skin opt-in data attributes).
+
+```tsx
+import { RelativeRangeInput, type RelativeRangeValue } from '@posthog/quill-components'
+
+const [value, setValue] = useState<RelativeRangeValue>({ count: 30, unit: 'days' })
+;<div className="flex items-center gap-2">
+  <Text size="sm" render={<span />}>
+    In the last
+  </Text>
+  <RelativeRangeInput value={value} onChange={setValue} />
+</div>
+```
 
 ## Metric
 
