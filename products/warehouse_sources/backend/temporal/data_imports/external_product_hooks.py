@@ -103,11 +103,24 @@ def run_engineering_analytics_view_sync(schema: "ExternalDataSchema", source: "E
 # --- Person-property staging projection -----------------------------------------------
 # Person-target Customer analytics sources stage a projection of each synced chunk to S3 so a
 # post-sync job can upsert warehouse columns onto person properties. The pipeline asks this hook
-# which columns to stage for a schema (the union of key + mapped columns across the schema's
-# enabled person sources), or None when nothing needs staging. customer_analytics registers the
-# resolver at app-ready; when nothing is registered this returns None and the pipeline stages
-# nothing, so warehouse_sources stays importable on its own.
-PersonPropertyProjectionResolver = Callable[[int, "uuid.UUID"], Optional[list[str]]]
+# which columns to stage for a schema; each enabled person source contributes its key (the person
+# identifier) plus its mapped property columns. Key columns are tracked separately from mapped
+# columns so the sink never stages property values with no person identifier to attach them to.
+# The hook returns None when nothing needs staging. customer_analytics registers the resolver at
+# app-ready; when nothing is registered this returns None and the pipeline stages nothing, so
+# warehouse_sources stays importable on its own.
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySourceProjection:
+    """One person-target source's staging projection: its key column (the person identifier) and
+    the warehouse columns to stage for it (the key plus its mapped property columns)."""
+
+    key_column: str
+    columns: frozenset[str]
+
+
+PersonPropertyProjectionResolver = Callable[[int, "uuid.UUID"], Optional[list[PersonPropertySourceProjection]]]
 _person_property_projection_resolver: Optional[PersonPropertyProjectionResolver] = None
 
 
@@ -116,7 +129,9 @@ def register_person_property_projection(fn: PersonPropertyProjectionResolver) ->
     _person_property_projection_resolver = fn
 
 
-def person_property_projection_for(team_id: int, schema_id: "uuid.UUID") -> Optional[list[str]]:
+def person_property_projection_for(
+    team_id: int, schema_id: "uuid.UUID"
+) -> Optional[list[PersonPropertySourceProjection]]:
     if _person_property_projection_resolver is None:
         return None
     return _person_property_projection_resolver(team_id, schema_id)

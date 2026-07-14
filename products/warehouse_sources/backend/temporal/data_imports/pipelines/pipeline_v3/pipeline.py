@@ -28,32 +28,32 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cdp_producer_clear_chunks,
-    person_property_sink_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
+    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
+    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
-    stage_chunk_for_person_property_sink,
     write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,

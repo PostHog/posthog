@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from products.customer_analytics.backend.logic.person_property_projection import person_property_projection_columns
+from products.customer_analytics.backend.logic.person_property_projection import person_property_projection
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
@@ -29,16 +29,27 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             is_enabled=is_enabled,
         )
 
-    def test_returns_none_when_no_person_sources(self):
-        assert person_property_projection_columns(self.team.id, self.schema.id) is None
+    def _projected(self):
+        projection = person_property_projection(self.team.id, self.schema.id)
+        return {source.key_column: sorted(source.columns) for source in (projection or [])}
 
-    def test_unions_key_and_mapped_columns_across_enabled_person_sources(self):
+    def test_returns_none_when_no_person_sources(self):
+        assert person_property_projection(self.team.id, self.schema.id) is None
+
+    def test_projects_key_and_mapped_columns_per_enabled_person_source(self):
         self._person_source("A", "distinct_id", {"plan": "plan_tier"})
         self._person_source("B", "user_id", {"seats": "seat_count", "region": "region"})
 
-        columns = person_property_projection_columns(self.team.id, self.schema.id)
+        assert self._projected() == {
+            "distinct_id": ["distinct_id", "plan"],
+            "user_id": ["region", "seats", "user_id"],
+        }
 
-        assert columns == ["distinct_id", "plan", "region", "seats", "user_id"]
+    def test_skips_source_without_key_column(self):
+        # A source with no key column has no person identifier to attach properties to.
+        self._person_source("keyless", "", {"plan": "plan_tier"})
+
+        assert person_property_projection(self.team.id, self.schema.id) is None
 
     def test_ignores_disabled_account_and_other_schema_sources(self):
         self._person_source("enabled", "distinct_id", {"plan": "plan_tier"})
@@ -56,6 +67,4 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             column_property_map={"mrr": "mrr"},
         )
 
-        columns = person_property_projection_columns(self.team.id, self.schema.id)
-
-        assert columns == ["distinct_id", "plan"]
+        assert self._projected() == {"distinct_id": ["distinct_id", "plan"]}

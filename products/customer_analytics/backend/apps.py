@@ -14,13 +14,16 @@ class CustomerAnalyticsConfig(AppConfig):
         sources, without warehouse_sources importing this product. The impl is imported lazily so
         the models stay off the django.setup() path.
         """
-        from products.warehouse_sources.backend.facade.hooks import register_person_property_projection
+        from products.warehouse_sources.backend.facade.hooks import (
+            PersonPropertySourceProjection,
+            register_person_property_projection,
+        )
 
-        def _resolver(team_id: int, schema_id) -> list[str] | None:
+        def _resolver(team_id: int, schema_id) -> list[PersonPropertySourceProjection] | None:
             from products.customer_analytics.backend.logic.person_property_projection import (  # noqa: PLC0415
-                person_property_projection_columns,
+                person_property_projection,
             )
 
-            return person_property_projection_columns(team_id, schema_id)
+            return person_property_projection(team_id, schema_id)
 
         register_person_property_projection(_resolver)
