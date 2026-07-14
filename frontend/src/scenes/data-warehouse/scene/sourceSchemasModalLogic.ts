@@ -13,25 +13,47 @@ export interface ActiveSource {
     sourceName: string
 }
 
+// A response (success or failure) is stale once the user has clicked a different source before it
+// settled — an in-flight request for the previous source can still resolve after a faster later
+// one, and must not be allowed to overwrite what's now on screen.
+function isStale(sourceId: string, activeSource: ActiveSource | null): boolean {
+    return activeSource?.sourceId !== sourceId
+}
+
 export const sourceSchemasModalLogic = kea<sourceSchemasModalLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'sourceSchemasModalLogic']),
     actions({
         closeSourceSchemasModal: true,
+        setSourceSchemasError: (hasError: boolean) => ({ hasError }),
     }),
-    loaders({
+    loaders(({ values, actions }) => ({
         sourceSchemas: [
             [] as ManagedWarehouseSourceTableStatusApi[],
             {
                 loadSourceSchemas: async ({ sourceId }: ActiveSource) => {
-                    const response = await dataWarehouseManagedWarehouseSourceSchemasRetrieve(
-                        String(teamLogic.values.currentTeamId),
-                        { source_id: sourceId }
-                    )
-                    return response.schemas
+                    try {
+                        const response = await dataWarehouseManagedWarehouseSourceSchemasRetrieve(
+                            String(teamLogic.values.currentTeamId),
+                            { source_id: sourceId }
+                        )
+                        if (isStale(sourceId, values.activeSource)) {
+                            return values.sourceSchemas
+                        }
+                        actions.setSourceSchemasError(false)
+                        return response.schemas
+                    } catch {
+                        if (isStale(sourceId, values.activeSource)) {
+                            // A stale failure must not clear or error out whatever the currently
+                            // active source is showing.
+                            return values.sourceSchemas
+                        }
+                        actions.setSourceSchemasError(true)
+                        return []
+                    }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         // Doubles as the modal's open/closed state: isOpen={!!activeSource}. Set by the same
         // action that triggers the fetch, so there's no separate "open" step to keep in sync.
@@ -40,6 +62,13 @@ export const sourceSchemasModalLogic = kea<sourceSchemasModalLogicType>([
             {
                 loadSourceSchemas: (_, source) => source,
                 closeSourceSchemasModal: () => null,
+            },
+        ],
+        sourceSchemasError: [
+            false,
+            {
+                loadSourceSchemas: () => false,
+                setSourceSchemasError: (_, { hasError }) => hasError,
             },
         ],
     }),
