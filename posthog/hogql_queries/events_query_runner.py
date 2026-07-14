@@ -21,6 +21,7 @@ from posthog.hogql.property import (
     steps_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -129,6 +130,71 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     return False
 
         return True
+
+    def _build_presorted_uuid_subquery(self, order_by: list[ast.OrderExpr], where: ast.Expr | None) -> ast.SelectQuery:
+        """Narrow uuid subquery feeding the presorted optimization's ``uuid IN (...)`` filter.
+
+        Ordering by a materialized property (e.g. ``properties.$session_id``) resolves to a bare
+        materialized column such as ``$session_id``. On a sharded events table that sort key crosses
+        the coordinator↔shard boundary as an auto-named intermediate column, and ClickHouse quotes a
+        ``$``-containing name inconsistently on the two sides — the shard block names the column
+        ``$session_id`` while the coordinator looks for `` `$session_id` `` — raising
+        "Not found column ... in block" (CHQueryErrorNotFoundColumnInBlock). Projecting each sort key
+        under a plain alias and ordering by that alias keeps the raw column reference shard-local and
+        gives the boundary a stably-named column; the outer wrapper drops the sort keys so the
+        ``uuid IN (...)`` set stays single-column.
+        """
+        limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
+
+        if not self._order_by_references_dollar_identifier(order_by):
+            # Sort keys that print as safe identifiers (timestamp, event, properties.priority, ...)
+            # cross the distributed boundary unambiguously — keep the simpler single-level subquery.
+            inner_query = parse_select("SELECT uuid FROM events")
+            assert isinstance(inner_query, ast.SelectQuery)
+            inner_query.where = where
+            inner_query.order_by = order_by
+            inner_query.limit = limit
+            return inner_query
+
+        sort_select: list[ast.Expr] = [ast.Field(chain=["uuid"])]
+        aliased_order_by: list[ast.OrderExpr] = []
+        for index, order_expr in enumerate(order_by):
+            alias_name = f"__presort_key_{index}"
+            sort_select.append(ast.Alias(alias=alias_name, expr=clone_expr(order_expr.expr)))
+            aliased_order_by.append(ast.OrderExpr(expr=ast.Field(chain=[alias_name]), order=order_expr.order))
+
+        sorted_query = ast.SelectQuery(
+            select=sort_select,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+            order_by=aliased_order_by,
+            limit=limit,
+        )
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["uuid"])],
+            select_from=ast.JoinExpr(table=sorted_query),
+        )
+
+    @staticmethod
+    def _order_by_references_dollar_identifier(order_by: list[ast.OrderExpr]) -> bool:
+        """True if any ORDER BY expression reads a property whose key contains ``$``.
+
+        Such a key materializes to a ``$``-containing column name (``$session_id``, ``mat_$pathname``,
+        ...). ClickHouse quotes those inconsistently across a Distributed boundary, so only these sort
+        keys need the alias wrapper; everything else prints as a plain identifier and is left alone.
+        """
+        found = False
+
+        class _DollarFieldFinder(TraversingVisitor):
+            def visit_field(self, node: ast.Field) -> None:
+                nonlocal found
+                if any(isinstance(segment, str) and "$" in segment for segment in node.chain):
+                    found = True
+
+        finder = _DollarFieldFinder()
+        for order_expr in order_by:
+            finder.visit(order_expr.expr)
+        return found
 
     def apply_pagination_cursor(self, cursor: str) -> None:
         # NB: This uses the last row's timestamp as the cursor, so events sharing
@@ -397,11 +463,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         "events_query_runner_presorted_optimization",
                         team_id=self.team.pk,
                     )
-                    inner_query = parse_select("SELECT uuid FROM events")
-                    assert isinstance(inner_query, ast.SelectQuery)
-                    inner_query.where = where
-                    inner_query.order_by = order_by
-                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
+                    inner_query = self._build_presorted_uuid_subquery(order_by, where)
 
                     prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 

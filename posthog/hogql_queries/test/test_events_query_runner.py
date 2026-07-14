@@ -594,6 +594,31 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1][0]["distinct_id"] == "p2"
         assert response.results[2][0]["distinct_id"] == "p1"
 
+    def _presorted_uuid_subquery(self, order_by: list[str]) -> ast.SelectQuery:
+        query = EventsQuery(after="-7d", event="$pageview", kind="EventsQuery", orderBy=order_by, select=["*"])
+        stmt = EventsQueryRunner(query=query, team=self.team).to_query()
+        where = stmt.where.exprs[0] if isinstance(stmt.where, ast.And) else stmt.where
+        assert isinstance(where, ast.CompareOperation) and where.op == CompareOperationOp.In
+        assert isinstance(where.right, ast.SelectQuery)
+        return where.right
+
+    def test_presorted_subquery_aliases_dollar_property_sort_key(self):
+        # Ordering by a `$`-key property (e.g. $session_id) resolves to a `$`-containing
+        # materialized column that ClickHouse quotes inconsistently across a sharded/Remote
+        # boundary. The presorted uuid subquery must project the sort key under a plain alias
+        # and order by that alias, keeping the raw column reference shard-local — otherwise the
+        # query fails with CHQueryErrorNotFoundColumnInBlock. Plain-column sorts must stay on the
+        # simpler single-level path (no wrapper), so we don't churn every events query.
+        wrapped = self._presorted_uuid_subquery(["properties.$session_id", "timestamp ASC"])
+        inner = wrapped.select_from.table
+        assert isinstance(inner, ast.SelectQuery)  # wrapped: SELECT uuid FROM (SELECT uuid, <expr> AS __presort_key_n)
+        sort_key_aliases = [c.alias for c in inner.select if isinstance(c, ast.Alias)]
+        assert sort_key_aliases == ["__presort_key_0", "__presort_key_1"]
+        assert [o.expr.chain for o in inner.order_by] == [["__presort_key_0"], ["__presort_key_1"]]
+
+        plain = self._presorted_uuid_subquery(["timestamp DESC"])
+        assert isinstance(plain.select_from.table, ast.Field)  # unchanged: SELECT uuid FROM events
+
     def test_select_person_column(self):
         self._create_events(
             [
