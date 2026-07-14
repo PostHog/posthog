@@ -29,7 +29,7 @@ testWithWorkspace.describe('OAuth MCP consent', () => {
             })
 
             await test.step('assert server-preloaded MCP scopes', async () => {
-                await expect(page.getByText('Showing all permissions supported by this resource')).toBeVisible()
+                await expect(page.getByText('Showing all permissions the PostHog MCP server supports')).toBeVisible()
                 // notebook scopes are absent from the old static fallback, so their
                 // presence proves the server derived the full catalog.
                 await expect(page.getByText(/access to notebooks/i)).toBeVisible()

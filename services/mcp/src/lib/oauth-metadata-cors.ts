@@ -2,7 +2,6 @@
 export const OAUTH_CONSENT_PAGE_ORIGINS = [
     'https://us.posthog.com',
     'https://eu.posthog.com',
-    'https://app.posthog.com',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'http://localhost:8010',
