@@ -199,6 +199,14 @@ class TestTelemetryCommands:
         assert "anonymous_id" not in config
 
 
+class TestOutputTally:
+    def test_telemetry_props_omit_counts_when_counting_was_bypassed(self):
+        tally = telemetry.OutputTally(is_tty=False)
+        assert tally.telemetry_props() == {"is_tty": False}
+        tally.chars, tally.lines = 5, 1
+        assert tally.telemetry_props() == {"is_tty": False, "output_chars": 5, "output_lines": 1}
+
+
 class TestInvokeTelemetry:
     def test_invoke_fires_started_and_completed_events(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
         telemetry_config.write_text(

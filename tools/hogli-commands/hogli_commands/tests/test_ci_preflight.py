@@ -5,11 +5,10 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-import click
 from click.testing import CliRunner
+from hogli import telemetry
 from hogli.cli import cli
-from hogli.telemetry import OutputTally
-from hogli_commands.ci_preflight import _emit_telemetry, _staleness_risks, _stamp_output_props
+from hogli_commands.ci_preflight import _staleness_risks
 
 runner = CliRunner()
 
@@ -92,7 +91,8 @@ class TestOutputTelemetry:
             (["--json"], {"HOGLI_PREFLIGHT_DISABLED": "1"}),
         ],
     )
-    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight.telemetry_property_hooks", [])
+    @patch("hogli_commands.ci_preflight.telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
@@ -101,50 +101,21 @@ class TestOutputTelemetry:
         mock_changed: MagicMock,
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
-        mock_emit: MagicMock,
+        mock_telemetry: MagicMock,
         args: list[str],
         env: dict[str, str],
     ) -> None:
+        mock_telemetry.is_active.return_value = True
+        mock_telemetry.current_output_tally.side_effect = telemetry.current_output_tally
         # CI=1 silences the hogli lifecycle's stderr (first-run notice, hints) —
         # CliRunner merges stderr into output, and hints mutate real ~/.config state.
         result = runner.invoke(cli, ["ci:preflight", *args], env={"CI": "1", **env})
-        summary = mock_emit.call_args[0][0]
-        assert summary["output_chars"] == len(result.output)
-        assert summary["output_lines"] == result.output.count("\n")
-        assert summary["json_output"] is ("--json" in args)
-        assert summary["is_tty"] is False
-        assert summary["run_id"] in result.output
-
-    @patch("hogli_commands.ci_preflight.telemetry_property_hooks", [])
-    @patch("hogli_commands.ci_preflight.telemetry")
-    def test_output_props_survive_the_emit_allow_list(self, mock_telemetry: MagicMock) -> None:
-        mock_telemetry.is_active.return_value = True
-        _emit_telemetry(
-            {
-                "mode": "advisory",
-                "results": [],
-                "run_id": "abc123def456",
-                "output_chars": 42,
-                "output_lines": 7,
-                "json_output": False,
-                "is_tty": True,
-            }
-        )
         props = mock_telemetry.track.call_args[0][1]
-        assert props["run_id"] == "abc123def456"
-        assert props["output_chars"] == 42
-        assert props["output_lines"] == 7
-        assert props["json_output"] is False
-        assert props["is_tty"] is True
-
-    def test_stamp_omits_counts_when_counting_was_bypassed(self) -> None:
-        ctx = click.Context(click.Command("ci:preflight"))
-        ctx.meta["hogli.output_tally"] = OutputTally(is_tty=False)
-        summary: dict[str, object] = {}
-        with ctx:
-            _stamp_output_props(summary)
-        assert summary["is_tty"] is False
-        assert "output_chars" not in summary
+        assert props["output_chars"] == len(result.output)
+        assert props["output_lines"] == result.output.count("\n")
+        assert props["json_output"] is ("--json" in args)
+        assert props["is_tty"] is False
+        assert props["run_id"] in result.output
 
 
 class TestStalenessRisks:

@@ -83,7 +83,7 @@ class CategorizedGroup(click.Group):
         except Exception:
             is_tty = False
         tally = telemetry.OutputTally(is_tty=is_tty)
-        ctx.meta["hogli.output_tally"] = tally
+        ctx.meta[telemetry.OUTPUT_TALLY_META_KEY] = tally
         exit_code = 0
         # Tee stdout+stderr through the tally for the whole run, post-command
         # hooks included -- in an agent session this output is the tool_result
@@ -700,14 +700,9 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             **_env_properties(command),
         }
-        tally = ctx.meta.get("hogli.output_tally")
+        tally = ctx.meta.get(telemetry.OUTPUT_TALLY_META_KEY)
         if tally is not None:
-            props["is_tty"] = tally.is_tty
-            # A zero tally means click bypassed the counting proxies
-            # (misconfigured-locale rewrap): omit rather than record corrupt zeros.
-            if tally.chars:
-                props["output_chars"] = tally.chars
-                props["output_lines"] = tally.lines
+            props.update(tally.telemetry_props())
         # Merge devenv-specific properties (set by dev:generate)
         devenv = ctx.meta.get("hogli.devenv")
         if devenv:

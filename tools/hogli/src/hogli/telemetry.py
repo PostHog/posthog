@@ -56,20 +56,39 @@ def is_ci() -> bool:
 # ---------------------------------------------------------------------------
 
 
+# ctx.meta key under which the command lifecycle installs the invocation's
+# OutputTally; consumers read it via current_output_tally().
+OUTPUT_TALLY_META_KEY = "hogli.output_tally"
+
+
 class OutputTally:
     """Running count of chars/lines a command run writes to stdout+stderr.
 
     In an AI agent session this output is the tool_result injected into the
     model context, i.e. the run's context cost. Python-level writes only:
-    subprocess output goes to the real fd and is not counted, and click
-    bypasses the counting proxies entirely on misconfigured (ASCII-locale)
-    streams -- a zero tally means "not measured", never "printed nothing".
+    subprocess output goes to the real fd and is not counted.
     """
 
     def __init__(self, is_tty: bool = False) -> None:
         self.is_tty = is_tty
         self.chars = 0
         self.lines = 0
+
+    def telemetry_props(self) -> dict[str, Any]:
+        """Output props for a telemetry event. A zero tally means click bypassed
+        the counting proxies (misconfigured ASCII-locale streams get rewrapped
+        around the raw buffer): omit the counts rather than record corrupt zeros."""
+        props: dict[str, Any] = {"is_tty": self.is_tty}
+        if self.chars:
+            props["output_chars"] = self.chars
+            props["output_lines"] = self.lines
+        return props
+
+
+def current_output_tally() -> OutputTally | None:
+    """The current invocation's OutputTally, or None outside a command lifecycle."""
+    ctx = click.get_current_context(silent=True)
+    return ctx.meta.get(OUTPUT_TALLY_META_KEY) if ctx else None
 
 
 class CountingStream:

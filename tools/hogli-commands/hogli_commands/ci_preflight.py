@@ -365,21 +365,6 @@ _ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "sk
 _COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
 
 
-def _stamp_output_props(summary: dict[str, Any]) -> None:
-    """Late-sample the lifecycle output tally (see ``hogli.telemetry.OutputTally``)
-    after the last echo — the chars an agent's context pays for this run. A zero
-    tally means click bypassed the counting proxies (misconfigured-locale rewrap):
-    omit the counts rather than record corrupt zeros."""
-    ctx = click.get_current_context(silent=True)
-    tally = ctx.meta.get("hogli.output_tally") if ctx else None
-    if tally is None:
-        return
-    summary["is_tty"] = tally.is_tty
-    if tally.chars:
-        summary["output_chars"] = tally.chars
-        summary["output_lines"] = tally.lines
-
-
 def _emit_telemetry(summary: dict[str, Any]) -> None:
     """Emit ``ci_preflight_run`` to measure failures intercepted locally vs. what
     would reach CI. Gated on ``is_active()`` first so an opt-out/CI run doesn't fork
@@ -398,13 +383,15 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
         "merge_conflict_files",
         "staleness_risks",
         "run_id",
-        "output_chars",
-        "output_lines",
         "json_output",
-        "is_tty",
     )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
+    # Emit runs after the last echo at both call sites, so the tally is the full
+    # agent-visible output of this run (see hogli.telemetry.OutputTally).
+    tally = telemetry.current_output_tally()
+    if tally is not None:
+        props.update(tally.telemetry_props())
     # Registries are read directly by design (see hogli.hooks). Merge the same
     # dev-context props the command lifecycle attaches to command_completed
     # (incl. git_branch, so a run ties back to its PR).
@@ -448,7 +435,6 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
                 f"do not unset. Nothing to check, CI remains the gate. run_id={run_id}",
                 fg="yellow",
             )
-        _stamp_output_props(disabled_summary)
         _emit_telemetry(disabled_summary)
         return
 
@@ -521,7 +507,6 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             )
         click.echo()
 
-    _stamp_output_props(summary)
     _emit_telemetry(summary)
 
     # Advisory by default — --strict turns verified *failures* into a non-zero exit
