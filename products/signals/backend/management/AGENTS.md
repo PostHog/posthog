@@ -76,10 +76,12 @@ report will be saved but no `Task` will be created.
 
 ## Seeding billable reports (refund testing)
 
-`seed_refund_test_data` drops four minimal reports covering the refund/exemption matrix:
-PR-run-today (refund takes the `excluded` path), PR-run-yesterday (`credited` path — calls the
-billing dispute endpoint), billing-exempt with a PR ("Free" badge, refund 400s), and no-PR
-(target for `exempt_signal_report_billing`). Re-run freely — a report can only be refunded once.
+`seed_refund_test_data` drops five minimal reports covering the refund/exemption matrix:
+PR-run-today (refund takes the `excluded` path), PR-run-4-days-ago (`credited` path — calls the
+billing dispute endpoint), PR-run-last-month (out of the billing period — the Refund button
+renders disabled with the reason), billing-exempt with a PR ("Free" badge with health-check
+tooltip; refund hidden), and no-PR (target for `exempt_signal_report_billing`). Re-run freely —
+a report can only be refunded once.
 
 ```bash
 python manage.py seed_refund_test_data --team-id 1

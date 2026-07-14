@@ -414,7 +414,8 @@ export function InboxDetailFrame({
                                     size="small"
                                     icon={action.icon}
                                     loading={action.loading}
-                                    tooltip={action.tooltip}
+                                    // A disabled action explains only why it's unavailable — not what it would do.
+                                    tooltip={action.disabledReason ? undefined : action.tooltip}
                                     disabledReason={action.disabledReason}
                                     onClick={action.onClick}
                                 >

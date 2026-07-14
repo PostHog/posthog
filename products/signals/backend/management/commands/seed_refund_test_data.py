@@ -4,12 +4,13 @@
 reports whose implementation run carries a GitHub PR URL plus the `SignalReportTask` bridge row
 the billing query is rooted on, with run timestamps chosen to reach each refund path.
 
-Creates four reports per invocation (a report can only ever be refunded once, so re-run freely):
+Creates five reports per invocation (a report can only ever be refunded once, so re-run freely):
 
 1. PR run today             → refund takes the `excluded` path (usage query skips the report)
-2. PR run yesterday         → refund takes the `credited` path (Celery → billing dispute endpoint)
-3. billing-exempt, with PR  → "Free" badge in the inbox; refund returns 400
-4. no PR run yet            → valid target for `manage.py exempt_signal_report_billing`
+2. PR run 4 days ago        → refund takes the `credited` path (Celery → billing dispute endpoint)
+3. PR run last month        → out of the billing period: Refund renders disabled with the reason
+4. billing-exempt, with PR  → "Free" badge (health-check tooltip); refund hidden
+5. no PR run yet            → valid target for `manage.py exempt_signal_report_billing`
 
 The refund endpoints are gated on the `signals-pr-refunds` feature flag; the full local setup
 (flag, local billing service, verification queries) is in the "Testing refunds locally" section
@@ -77,28 +78,37 @@ class Command(BaseCommand):
         credited = self._seed_billable_report(
             team,
             user_id,
-            title=f"[{stamp}] Refund test: credited path (PR yesterday)",
+            title=f"[{stamp}] Refund test: credited path (PR 4 days ago)",
             repository=repository,
             pr_number=pr_base + 2,
-            run_created_at=now - timedelta(days=1),
+            run_created_at=now - timedelta(days=4),
+        )
+        out_of_period = self._seed_billable_report(
+            team,
+            user_id,
+            title=f"[{stamp}] Refund test: out of period (PR last month, Refund disabled)",
+            repository=repository,
+            pr_number=pr_base + 3,
+            run_created_at=now - timedelta(days=35),
         )
         exempt = self._seed_billable_report(
             team,
             user_id,
-            title=f"[{stamp}] Refund test: billing-exempt (Free badge)",
+            title=f"[{stamp}] Refund test: billing-exempt (Free badge, health check)",
             repository=repository,
-            pr_number=pr_base + 3,
-            exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
+            pr_number=pr_base + 4,
+            exempt_reason=SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
         )
         no_pr = self._make_report(team, title=f"[{stamp}] Refund test: no PR yet (exemption target)")
 
-        self.stdout.write(f"1. excluded-path report: {excluded.id}")
-        self.stdout.write(f"2. credited-path report: {credited.id}")
-        self.stdout.write(f"3. exempt report:        {exempt.id}")
-        self.stdout.write(f"4. no-PR report:         {no_pr.id}")
+        self.stdout.write(f"1. excluded-path report:  {excluded.id}")
+        self.stdout.write(f"2. credited-path report:  {credited.id}")
+        self.stdout.write(f"3. out-of-period report:  {out_of_period.id}")
+        self.stdout.write(f"4. exempt report:         {exempt.id}")
+        self.stdout.write(f"5. no-PR report:          {no_pr.id}")
         self.stdout.write(f"   try: python manage.py exempt_signal_report_billing {team.id} {no_pr.id} posthog_system")
         self.stdout.write(
-            self.style.SUCCESS(f"Seeded 4 refund-test reports for team {team.id} — open the inbox's Ready list.")
+            self.style.SUCCESS(f"Seeded 5 refund-test reports for team {team.id} — open the inbox's Ready list.")
         )
 
     def _seed_billable_report(
