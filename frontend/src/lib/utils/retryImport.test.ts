@@ -1,5 +1,5 @@
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryImport } from './retryImport'
+import { retryBootImport, retryImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -47,16 +47,12 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(3)
     })
 
-    it('marks and retries a minified module-evaluation TypeError', async () => {
+    it('marks a minified boot module-evaluation TypeError without retrying', async () => {
         const error = new TypeError('g is not a function')
         const factory = jest.fn().mockRejectedValue(error)
 
-        const promise = retryImport(factory)
-        void promise.catch(() => {})
-        await jest.runAllTimersAsync()
-
-        await expect(promise).rejects.toBe(error)
-        expect(factory).toHaveBeenCalledTimes(3)
+        await expect(retryBootImport(factory)).rejects.toBe(error)
+        expect(factory).toHaveBeenCalledTimes(1)
         expect(isChunkLoadError(error)).toBe(true)
     })
 

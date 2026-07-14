@@ -2,16 +2,12 @@ import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
 import { isChunkLoadError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
-function isMinifiedModuleEvaluationError(error: unknown): boolean {
+function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
         return false
     }
     const { name, message } = error as { name?: string; message?: string }
-    return (
-        name === 'TypeError' &&
-        typeof message === 'string' &&
-        /^[A-Za-z_$] is not a function$/.test(message)
-    )
+    return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
 }
 
 /**
@@ -31,14 +27,22 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
-        if (isMinifiedModuleEvaluationError(error)) {
-            markAsChunkLoadError(error)
-        }
         if (retries <= 0 || !isChunkLoadError(error)) {
             throw error
         }
         await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))
         return retryImport(factory, retries - 1, baseDelayMs * 2)
+    }
+}
+
+export async function retryBootImport<T>(factory: () => T): Promise<Awaited<T>> {
+    try {
+        return await retryImport(factory)
+    } catch (error) {
+        if (isMinifiedBootModuleEvaluationError(error)) {
+            markAsChunkLoadError(error)
+        }
+        throw error
     }
 }
 
