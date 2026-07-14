@@ -2225,7 +2225,7 @@ class DashboardsViewSet(
 
         # `retrieve` is excluded: DashboardSerializer.get_tiles issues its own complete tile fetch
         # (with these same insight prefetches), so prefetching tiles here would just be re-fetched
-        # and discarded — a wasted duplicate tile/caching_states query on every dashboard load.
+        # and discarded — a wasted duplicate tile query on every dashboard load.
         if self.action not in ("list", "retrieve"):
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
