@@ -49,10 +49,22 @@ pub async fn proxy_debug(
         .ok_or_else(|| ApiError::not_found(format!("no matching pod '{name}'")))?;
 
     let url = build_upstream_url(&target, &rest, query.as_deref());
-    let upstream =
-        state.http.get(&url).send().await.map_err(|e| {
-            ApiError::upstream(format!("debug API request to '{name}' failed: {e}"))
-        })?;
+    let mut request = state.http.get(&url);
+    // The consumer's debug API fails closed: every request must carry the
+    // shared per-hop secret. Attached here — never forwarded from the browser —
+    // so the control plane is the trust boundary for its clients.
+    if let Some(secret) = state
+        .config
+        .debug_api_secret
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        request = request.header("X-Debug-Api-Secret", secret);
+    }
+    let upstream = request
+        .send()
+        .await
+        .map_err(|e| ApiError::upstream(format!("debug API request to '{name}' failed: {e}")))?;
 
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
