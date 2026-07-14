@@ -160,9 +160,6 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.full_refresh_append !== undefined) {
-            body['full_refresh_append'] = params.full_refresh_append
-        }
         if (params.snapshot_retention_mode !== undefined) {
             body['snapshot_retention_mode'] = params.snapshot_retention_mode
         }
@@ -238,9 +235,6 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
-        }
-        if (params.full_refresh_append !== undefined) {
-            body['full_refresh_append'] = params.full_refresh_append
         }
         if (params.snapshot_retention_mode !== undefined) {
             body['snapshot_retention_mode'] = params.snapshot_retention_mode
@@ -332,9 +326,6 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.full_refresh_append !== undefined) {
-            body['full_refresh_append'] = params.full_refresh_append
-        }
         if (params.snapshot_retention_mode !== undefined) {
             body['snapshot_retention_mode'] = params.snapshot_retention_mode
         }
@@ -393,9 +384,6 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.full_refresh_append !== undefined) {
-            body['full_refresh_append'] = params.full_refresh_append
-        }
         if (params.snapshot_retention_mode !== undefined) {
             body['snapshot_retention_mode'] = params.snapshot_retention_mode
         }
@@ -453,9 +441,6 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
-        }
-        if (params.full_refresh_append !== undefined) {
-            body['full_refresh_append'] = params.full_refresh_append
         }
         if (params.snapshot_retention_mode !== undefined) {
             body['snapshot_retention_mode'] = params.snapshot_retention_mode

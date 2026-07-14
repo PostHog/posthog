@@ -24669,19 +24669,14 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
-      /**
-         * Full refresh sub-mode. When true, each sync appends a full snapshot of the source instead of overwriting, retaining point-in-time history. Rows carry a `_ph_snapshot_at` timestamp marking their sync. Only valid when sync_type is full_refresh. Snapshots outside the retention window are pruned at sync time, so expired snapshots can remain queryable between syncs. Toggling this rebuilds the table from scratch on the next sync.
-         * @nullable
-         */
-      full_refresh_append?: boolean | null;
-      /** How full-refresh-append snapshot retention is measured: 'count' keeps the newest N snapshots, 'days' keeps snapshots synced within the last N days. Paired with snapshot_retention_value.
+      /** How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.
        *
        * * `count` - count
        * * `days` - days */
       snapshot_retention_mode?: SnapshotRetentionModeEnum | null;
       /**
-         * Full-refresh-append retention size: the number of snapshots to keep (mode 'count') or the number of days of snapshots to keep (mode 'days'). Minimum 1. The newest snapshot is always kept even if older than the day window.
-         * @minimum 1
+         * Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table.
+         * @minimum 0
          * @maximum 365
          * @nullable
          */
@@ -42171,19 +42166,14 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
-      /**
-         * Full refresh sub-mode. When true, each sync appends a full snapshot of the source instead of overwriting, retaining point-in-time history. Rows carry a `_ph_snapshot_at` timestamp marking their sync. Only valid when sync_type is full_refresh. Snapshots outside the retention window are pruned at sync time, so expired snapshots can remain queryable between syncs. Toggling this rebuilds the table from scratch on the next sync.
-         * @nullable
-         */
-      full_refresh_append?: boolean | null;
-      /** How full-refresh-append snapshot retention is measured: 'count' keeps the newest N snapshots, 'days' keeps snapshots synced within the last N days. Paired with snapshot_retention_value.
+      /** How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.
        *
        * * `count` - count
        * * `days` - days */
       snapshot_retention_mode?: SnapshotRetentionModeEnum | null;
       /**
-         * Full-refresh-append retention size: the number of snapshots to keep (mode 'count') or the number of days of snapshots to keep (mode 'days'). Minimum 1. The newest snapshot is always kept even if older than the day window.
-         * @minimum 1
+         * Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table.
+         * @minimum 0
          * @maximum 365
          * @nullable
          */
