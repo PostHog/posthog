@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.alerting.analytics import AlertAction, report_alert_action
 from posthog.alerting.destinations import (
     AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
@@ -1169,13 +1170,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response_serializer = LogsAlertSimulateResponseSerializer(response_data)
         return Response(response_serializer.data)
 
-    def _track(self, event: str, instance: LogsAlertConfiguration) -> None:
-        report_user_action(
-            self.request.user,
-            event,
-            {
-                "id": str(instance.id),
-                "name": instance.name,
+    def _track(self, action: AlertAction, instance: LogsAlertConfiguration) -> None:
+        report_alert_action(
+            user=self.request.user,
+            action=action,
+            config_type="LogsAlertConfig",
+            alert_id=str(instance.id),
+            alert_name=instance.name,
+            properties={
                 "enabled": instance.enabled,
                 "threshold_count": instance.threshold_count,
                 "threshold_operator": instance.threshold_operator,
@@ -1186,13 +1188,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer) -> None:
-        self._track("logs alert created", serializer.save())
+        self._track("created", serializer.save())
 
     def perform_update(self, serializer) -> None:
-        self._track("logs alert updated", serializer.save())
+        self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        self._track("logs alert deleted", instance)
+        self._track("deleted", instance)
         with transaction.atomic():
             soft_delete_all_alert_destinations(team_id=instance.team_id, alert_id=str(instance.id))
             super().perform_destroy(instance)

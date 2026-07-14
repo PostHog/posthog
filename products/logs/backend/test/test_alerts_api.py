@@ -66,7 +66,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_alert_action")
     def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
@@ -78,9 +78,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["filters"] == {"severityLevels": ["error"]}
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert created"
-        assert mock_report.call_args[0][2]["name"] == "High error rate"
-        assert mock_report.call_args[0][2]["threshold_count"] == 10
+        assert mock_report.call_args.kwargs["action"] == "created"
+        assert mock_report.call_args.kwargs["config_type"] == "LogsAlertConfig"
+        assert mock_report.call_args.kwargs["alert_name"] == "High error rate"
+        assert mock_report.call_args.kwargs["properties"]["threshold_count"] == 10
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -178,7 +179,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_alert_action")
     def test_partial_update(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -192,10 +193,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["name"] == "Patched"
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert updated"
-        assert mock_report.call_args[0][2]["name"] == "Patched"
+        assert mock_report.call_args.kwargs["action"] == "updated"
+        assert mock_report.call_args.kwargs["alert_name"] == "Patched"
 
-    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_alert_action")
     def test_delete(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -205,8 +206,8 @@ class TestLogsAlertAPI(APIBaseTest):
         assert not LogsAlertConfiguration.objects.filter(pk=created["id"]).exists()
 
         mock_report.assert_called_once()
-        assert mock_report.call_args[0][1] == "logs alert deleted"
-        assert mock_report.call_args[0][2]["name"] == "High error rate"
+        assert mock_report.call_args.kwargs["action"] == "deleted"
+        assert mock_report.call_args.kwargs["alert_name"] == "High error rate"
 
     # --- Team isolation ---
 
