@@ -83,7 +83,7 @@ function InstallHeroCard(): JSX.Element {
     const { showInviteModal } = useActions(inviteLogic)
 
     return (
-        <LemonCard hoverEffect={false}>
+        <LemonCard hoverEffect={false} className="rounded-lg border-transparent shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <SectionHeader
                     title="Get your data flowing"
@@ -157,7 +157,7 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
     const { enableProduct } = useActions(quickstartLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4">
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
             <div className="flex items-start justify-between gap-2">
                 <span className="text-2xl leading-none">
                     {getProductIcon(product.icon, { iconColor: product.iconColor })}
@@ -235,7 +235,7 @@ function LearnCard({
     action: string
 }): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4">
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
             <span className="text-xl text-secondary">{icon}</span>
             <h3 className="font-semibold text-base mb-0">{title}</h3>
             <p className="text-secondary text-sm mb-0 flex-1">{description}</p>
@@ -263,7 +263,7 @@ function PublicationCard({
     feed: PublicationFeedKey
 }): JSX.Element {
     return (
-        <LemonCard hoverEffect className="p-0 overflow-hidden h-full">
+        <LemonCard hoverEffect className="p-0 overflow-hidden h-full rounded-lg border-transparent shadow-sm">
             <Link
                 to={publication.url}
                 target="_blank"
@@ -326,7 +326,10 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }): JSX.Element
 
 function PublicationSkeletonCard(): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3 h-full">
+        <LemonCard
+            hoverEffect={false}
+            className="flex flex-col gap-2 p-3 h-full rounded-lg border-transparent shadow-sm"
+        >
             <LemonSkeleton className="w-full h-24 rounded" />
             <LemonSkeleton className="w-3/4 h-4" />
             <LemonSkeleton className="w-full h-3" />
