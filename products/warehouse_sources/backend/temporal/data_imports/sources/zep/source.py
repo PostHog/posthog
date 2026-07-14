@@ -64,7 +64,6 @@ You can create an API key in the [Zep dashboard](https://app.getzep.com/) under 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

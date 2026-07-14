@@ -32,8 +32,6 @@ class TestZepSource:
         config = self.source.get_source_config
         assert config.label == "Zep"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept hidden until the source is promoted out of scaffolding.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zep"
 
         assert len(config.fields) == 1
