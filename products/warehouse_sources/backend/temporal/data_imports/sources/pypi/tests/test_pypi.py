@@ -67,6 +67,10 @@ class TestParsePackages:
             # De-duplicated while preserving order so the primary key never sees the same package twice.
             ("requests\nrequests\ndjango", ["requests", "django"]),
             ("requests\n\n  \ndjango", ["requests", "django"]),
+            # PEP 503 aliases collapse to one entry; both would resolve to the same canonical name
+            # and emit rows with a colliding primary key otherwise.
+            ("Requests\nrequests", ["Requests"]),
+            ("zope.interface\nzope-interface", ["zope.interface"]),
         ],
     )
     def test_valid(self, raw, expected):
@@ -131,6 +135,24 @@ class TestReleaseRows:
 
     def test_handles_missing_releases(self):
         assert _release_rows("requests", {"info": {"name": "requests"}}) == []
+
+    def test_skips_files_without_filename(self):
+        # `filename` is part of the releases primary key, so a file object missing it can't upsert
+        # cleanly and must be dropped rather than emitted with a null key component.
+        document = {
+            "info": {"name": "requests"},
+            "releases": {
+                "1.0.0": [
+                    {"filename": "requests-1.0.0.tar.gz"},
+                    {"upload_time_iso_8601": "2020-01-01T00:00:00Z"},
+                    {"filename": ""},
+                ],
+            },
+        }
+
+        rows = _release_rows("requests", document)
+
+        assert [r["filename"] for r in rows] == ["requests-1.0.0.tar.gz"]
 
 
 class TestVulnerabilityRows:
@@ -249,6 +271,18 @@ class TestGetRows:
 
         assert len(batches) == 1
         assert len(batches[0]) == 3
+
+    def test_chunks_large_release_history(self, monkeypatch):
+        # A package with a large release history must not be yielded as one oversized list; it's
+        # split into bounded chunks so downstream Arrow conversion stays capped.
+        monkeypatch.setattr(f"{MODULE}.MAX_ROWS_PER_BATCH", 2)
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, _document(name="requests"))
+
+            batches = list(get_rows("releases", ["requests"], structlog.get_logger()))
+
+        # The document has 3 release files; at 2 rows per chunk that's [2, 1].
+        assert [len(b) for b in batches] == [2, 1]
 
 
 class TestPyPISource:

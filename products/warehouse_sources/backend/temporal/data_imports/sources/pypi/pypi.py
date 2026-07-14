@@ -27,9 +27,24 @@ MAX_PACKAGES = 500
 # which returns HTML without it.
 _HEADERS = {"Accept": "application/json"}
 
+# Rows for a single package are yielded in bounded chunks so a package with a huge release history
+# never forces one oversized in-memory Arrow conversion downstream. The pipeline batches on top of
+# this, so the exact value only caps the per-yield list size.
+MAX_ROWS_PER_BATCH = 5000
+
 
 class PyPIRetryableError(Exception):
     pass
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize a project name per PEP 503 so aliases collapse to one key.
+
+    PyPI treats ``Requests``, ``requests``, ``zope.interface`` and ``zope-interface`` as the same
+    project, so we de-duplicate on this form. Otherwise two aliases both resolve to the same
+    canonical name and emit rows with a colliding primary key.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def parse_packages(raw: str | None) -> list[str]:
@@ -37,7 +52,7 @@ def parse_packages(raw: str | None) -> list[str]:
 
     Accepts one package per line and/or comma-separated names. Raises ``ValueError`` with an
     actionable message on empty input so the user fixes the config rather than getting a silently
-    empty sync. Names are de-duplicated while preserving order.
+    empty sync. Names are de-duplicated (on their PEP 503 normalized form) while preserving order.
     """
     if not raw:
         raise ValueError("At least one package name is required.")
@@ -48,8 +63,9 @@ def parse_packages(raw: str | None) -> list[str]:
         name = token.strip()
         if not name:
             continue
-        if name not in seen:
-            seen.add(name)
+        normalized = _normalize_name(name)
+        if normalized not in seen:
+            seen.add(normalized)
             packages.append(name)
 
         if len(packages) > MAX_PACKAGES:
@@ -132,6 +148,11 @@ def _release_rows(package: str, document: dict[str, Any]) -> list[dict[str, Any]
         for file_obj in files:
             if not isinstance(file_obj, dict):
                 continue
+            # `filename` completes the `[package, version, filename]` primary key; a file object
+            # missing it would merge with a null key component, so skip it rather than emit a row
+            # that can't upsert cleanly.
+            if not file_obj.get("filename"):
+                continue
             row = dict(file_obj)
             row["package"] = canonical
             row["version"] = version
@@ -198,8 +219,11 @@ def get_rows(
         if document is None:
             continue
         rows = build_rows(package, document)
-        if rows:
-            yield rows
+        # Yield in bounded chunks: a package with a very large release history would otherwise be a
+        # single oversized list, forcing one big Arrow conversion downstream. The pipeline batches
+        # on top of this, so we only cap the per-yield size rather than buffering ourselves.
+        for start in range(0, len(rows), MAX_ROWS_PER_BATCH):
+            yield rows[start : start + MAX_ROWS_PER_BATCH]
 
 
 def pypi_source(
