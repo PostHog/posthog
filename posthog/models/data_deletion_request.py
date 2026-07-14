@@ -370,7 +370,10 @@ class DataDeletionRequest(UUIDModel):
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
     last_dagster_run_id = models.CharField(
-        max_length=64,
+        # Dagster run ids are UUIDs, but keep headroom: this is written by the same save() that marks
+        # the request IN_PROGRESS, so an over-long id would fail the whole deletion job over a field
+        # that only exists to make debugging easier.
+        max_length=255,
         null=True,
         blank=True,
         help_text="Dagster run ID of the most recent execution attempt (set on every APPROVED → IN_PROGRESS "
