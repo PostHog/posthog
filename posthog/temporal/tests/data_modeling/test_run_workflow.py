@@ -334,6 +334,59 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
 
 
+async def test_materialize_model_survives_concurrent_rename(
+    ateam, bucket_name, minio_client, pageview_events, monkeypatch
+):
+    # Materialization can take minutes; the saved query may be renamed in that window (and another
+    # row may grab the freed-up name). The post-materialization saves must only write the columns
+    # they change, or a full-row save rewrites the stale in-memory `name` and trips the
+    # (team, name) unique constraint.
+    original_name = "cac_payback_timeseries_weekly"
+    query = "select event as event, timestamp as timestamp from events where event = '$pageview'"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name=original_name,
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    real_prepare = run_workflow_module.prepare_s3_files_for_querying
+
+    async def rename_then_prepare(*args, **kwargs):
+        # Fired just before the `is_materialized` save: rename the row and let a new row take the
+        # old name, reproducing the collision the stale in-memory object would cause.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update)(
+            name=f"{original_name}_v2"
+        )
+        await DataWarehouseSavedQuery.objects.acreate(
+            team=ateam,
+            name=original_name,
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        return await real_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(run_workflow_module, "prepare_s3_files_for_querying", rename_then_prepare)
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+        DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # Would raise IntegrityError on the unique constraint if the save rewrote the whole row.
+        await materialize_model(saved_query.id.hex, ateam, saved_query, job, unittest.mock.AsyncMock())
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    assert saved_query.name == f"{original_name}_v2"
+    assert saved_query.is_materialized is True
+
+
 async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pageview_events):
     query = """\
     select toDateTime64(toDateTime('2025-01-01T00:00:00.000'), 3, 'Asia/Istanbul') as now_converted, toDateTime('2025-01-01T00:00:00.000') as now
