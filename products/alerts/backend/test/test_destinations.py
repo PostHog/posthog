@@ -1,11 +1,10 @@
 from posthog.test.base import APIBaseTest
 
-from posthog.alerting.destinations import (
+from products.alerts.backend.destinations import (
     AlertDestinationOwnershipError,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -33,9 +32,6 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
         assert destination.enabled is False
 
     def test_raises_and_does_not_delete_non_destination_hog_function_with_matching_alert_id(self) -> None:
-        # A same-team automation that happens to filter on a property named
-        # "alert_id" for unrelated reasons — not one of the alert destination
-        # templates. Must not be soft-deletable via the alert's delete path.
         other = self._make_hog_function(template_id="template-webhook-custom", alert_id="alert-1")
 
         with self.assertRaises(AlertDestinationOwnershipError):

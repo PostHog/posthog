@@ -20,13 +20,13 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
-from posthog.alerting.destinations import produce_alert_internal_event
 from posthog.cdp.internal_events import flush_internal_events_producer
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 
+from products.alerts.backend.destinations import produce_alert_internal_event
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,

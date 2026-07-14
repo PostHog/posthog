@@ -18,13 +18,6 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
-from posthog.alerting.analytics import AlertAction, report_alert_action
-from posthog.alerting.destinations import (
-    AlertDestinationOwnershipError,
-    create_alert_destination_hog_functions,
-    soft_delete_alert_destinations,
-    soft_delete_all_alert_destinations,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -35,6 +28,14 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.alerts.backend.analytics import AlertAction, report_alert_action
+from products.alerts.backend.destination_configs import AlertDestinationConfig, AlertDestinationTemplate
+from products.alerts.backend.destinations import (
+    AlertDestinationOwnershipError,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+    soft_delete_all_alert_destinations,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -62,8 +63,6 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-
-from common.alerting.destinations import AlertDestinationConfig, AlertDestinationTemplate
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20

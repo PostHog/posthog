@@ -1,3 +1,5 @@
+"""Shared analytics for alert lifecycle actions."""
+
 from typing import TYPE_CHECKING, Literal
 
 from django.contrib.auth.models import AnonymousUser

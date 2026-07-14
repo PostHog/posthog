@@ -1,4 +1,4 @@
-from common.alerting.destinations import Button, EventKindSpec, slack_blocks, teams_text
+from products.alerts.backend.destination_configs import Button, EventKindSpec, slack_blocks, teams_text
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",

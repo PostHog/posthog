@@ -1,14 +1,4 @@
-"""Shared persistence and dispatch mechanics for alert notification destinations.
-
-The pure config builders live in common/alerting/destinations.py; this module owns
-the Django/CDP side every alerting product otherwise duplicates: creating the
-HogFunctions through HogFunctionSerializer (so template lookup and bytecode
-compilation run), ownership-checked soft deletion, and producing the internal
-event that CDP destinations consume.
-
-CDP exposes no facade today, so this is deliberately the one place that hand-drives
-HogFunctionSerializer for alerts — when a CDP facade lands, only this module moves.
-"""
+"""Django persistence and dispatch for alert notification destinations."""
 
 from __future__ import annotations
 
@@ -21,18 +11,16 @@ from django.db import transaction
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.kafka_client.client import ProduceResult
 
+from products.alerts.backend.destination_configs import AlertDestinationConfig, AlertDestinationTemplate
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
-from common.alerting.destinations import AlertDestinationConfig, AlertDestinationTemplate
-
 
 class AlertDestinationOwnershipError(Exception):
-    """Raised when deleting destinations that do not all belong to an alert."""
+    pass
 
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
-    """Create one HogFunction per config, atomically."""
     created: list[HogFunction] = []
     with transaction.atomic():
         for config in configs:
@@ -52,10 +40,6 @@ def soft_delete_alert_destinations(
     alert_id: str,
     hog_function_ids: list[UUID],
 ) -> None:
-    """Soft-delete destinations after verifying every ID belongs to the alert.
-
-    Already-deleted destinations count as owned so retries remain idempotent.
-    """
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         updated = HogFunction.objects.filter(
@@ -69,7 +53,6 @@ def soft_delete_alert_destinations(
 
 
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:
-    """Soft-delete every destination HogFunction linked to an alert (alert deletion path)."""
     return HogFunction.objects.filter(
         team_id=team_id,
         deleted=False,
@@ -86,11 +69,6 @@ def produce_alert_internal_event(
     timestamp: datetime | None = None,
     uuid: str | None = None,
 ) -> ProduceResult:
-    """Produce the internal event CDP destinations consume. Callers own error handling.
-
-    Returns the pending Kafka delivery so callers can confirm it (``.get()``) or
-    treat a raised exception as an enqueue failure.
-    """
     return produce_internal_event(
         team_id=team_id,
         event=InternalEventEvent(

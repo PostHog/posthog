@@ -2,13 +2,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.alerting.analytics import report_alert_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.alerts.backend.analytics import report_alert_action
+
 
 class TestReportAlertAction(SimpleTestCase):
-    @patch("posthog.alerting.analytics.report_user_action")
+    @patch("products.alerts.backend.analytics.report_user_action")
     def test_reports_generic_event_with_config_type(self, mock_report_user_action: MagicMock) -> None:
         user = MagicMock(spec=User)
         team = MagicMock(spec=Team)

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from products.logs.backend.models import LogsAlertConfiguration
-
-from common.alerting.destinations import (
+from products.alerts.backend.destination_configs import (
     AlertDestinationConfig,
     EventKindSpec,
     build_discord_destination_config,
@@ -14,6 +12,7 @@ from common.alerting.destinations import (
     build_teams_destination_config,
     build_webhook_destination_config,
 )
+from products.logs.backend.models import LogsAlertConfiguration
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
 

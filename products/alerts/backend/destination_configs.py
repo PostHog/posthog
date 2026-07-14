@@ -1,18 +1,4 @@
-"""Shared builders for alert notification destinations (CDP internal_destination HogFunctions).
-
-Every alerting product delivers notifications the same way: an internal event per
-alert-event kind (firing, resolved, errored, auto-disabled), consumed by one
-HogFunction per destination per kind, linked to the alert via an `alert_id`
-property filter. This module owns that wiring — the filter shape, the template
-input structure per destination type, and the message scaffolding — so dispatch
-and destinations can never drift apart per product.
-
-Products own the content: their `EventKindSpec` table (event names, headers,
-detail rows, payload data) and the display name of each HogFunction.
-
-Pure Python — the `team` value is carried opaquely on `AlertDestinationConfig`,
-never inside the serializer payload.
-"""
+"""Shared configuration builders for alert destinations."""
 
 from __future__ import annotations
 
@@ -30,14 +16,11 @@ class AlertDestinationTemplate(StrEnum):
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 
-# HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
 _HOG_FUNCTION_NAME_MAX_LEN = 400
 
 
 @dataclass(frozen=True)
 class AlertDestinationConfig:
-    """Keeps the team outside the serializer payload."""
-
     team: Any
     payload: dict[str, Any]
 
@@ -50,21 +33,15 @@ class Button:
 
 @dataclass(frozen=True)
 class EventKindSpec:
-    """Keeps product content within the shared destination rendering vocabulary."""
-
     event_id: str
     display_kind: str
     header: str
-    # Plain-text (label, value) pairs; each destination renders these in its own markup.
     details: tuple[tuple[str, str], ...]
     button_url: str
     button_label: str
     webhook_body: dict[str, Any]
-    # e.g. "logs alert", "billing alert" — used in the HogFunction description.
     product_label: str = "alert"
-    # Free-form prose lines rendered above the detail rows (one line each).
     body_lines: tuple[str, ...] = ()
-    # Action buttons rendered after the primary button_url/button_label one.
     extra_buttons: tuple[Button, ...] = ()
 
     def destination_description(self, alert_name: str) -> str:
@@ -78,7 +55,6 @@ def clip_hog_function_name(name: str) -> str:
 
 
 def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
-    """The linkage contract: dispatch finds destinations by this exact filter shape."""
     return {
         "events": [{"id": event_id, "type": "events"}],
         "properties": [
@@ -93,8 +69,6 @@ def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
 
 
 def slack_body(spec: EventKindSpec) -> str:
-    # Slack mrkdwn: *single asterisks* for bold, one line per detail. Prose lines
-    # come first, separated from the detail rows by a blank line.
     parts = []
     if spec.body_lines:
         parts.append("\n".join(spec.body_lines))
@@ -127,9 +101,6 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
 
 
 def teams_text(spec: EventKindSpec) -> str:
-    # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
-    # the header, prose, details, and actions into one markdown string (buttons become inline links).
-    # Adaptive Card markdown: **double asterisks** for bold, blank lines between paragraphs.
     parts = [f"**{spec.header}**"]
     parts.extend(spec.body_lines)
     if spec.details:
