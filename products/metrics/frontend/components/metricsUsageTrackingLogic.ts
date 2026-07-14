@@ -1,6 +1,8 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import type { MetricsQuery } from '~/queries/schema/schema-general'
+
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
@@ -30,6 +32,8 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'setLiveRefresh',
                 'setGroupByKeys',
                 'setFilterGroup',
+                'addToDashboard',
+                'saveAsInsightSuccess',
                 'fetchQueryResults',
                 'fetchQueryResultsSuccess',
                 'fetchQueryResultsFailure',
@@ -76,6 +80,21 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         setFilterGroup: () => {
             // queryFilters counts only complete, backend-valid chips (reducers ran before us).
             posthog.capture('metrics viewer attribute filter changed', { filter_count: values.queryFilters.length })
+        },
+        addToDashboard: () => {
+            posthog.capture('metrics add to dashboard clicked', { aggregation: values.aggregation })
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (!savedInsight) {
+                return
+            }
+            // Read the aggregation off the insight itself — the viewer's current
+            // value can already differ if it changed while the save was in flight.
+            // The node's 'quantile' maps back to the viewer vocabulary's 'p95'.
+            const nodeAggregation = (savedInsight.query as MetricsQuery | undefined)?.clauses?.[0]?.aggregation
+            posthog.capture('metrics insight saved', {
+                aggregation: nodeAggregation === 'quantile' ? 'p95' : (nodeAggregation ?? null),
+            })
         },
         fetchQueryResults: () => {
             cache.queryStartedAt = performance.now()

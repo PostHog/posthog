@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     is_blocked_sandbox_env_key,
 )
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.logic.services.image_builder import (
@@ -880,7 +881,7 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
-def fail_task_run(run_id: str | UUID, error: str) -> bool:
+def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
     Refetches filtered on ``status=QUEUED`` so a run that left the queue between the
@@ -891,7 +892,7 @@ def fail_task_run(run_id: str | UUID, error: str) -> bool:
     ).first()  # nosemgrep: celery-task-team-scope-audit
     if run is None:
         return False
-    run.mark_failed(error)
+    run.mark_failed(error, error_type=error_type)
     return True
 
 
@@ -923,7 +924,7 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
+def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
@@ -939,7 +940,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
-        run.mark_failed(error)
+        run.mark_failed(error, error_type=error_type)
     return True
 
 
@@ -1827,6 +1828,17 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
+            # This PATCH performed the DB transition, so it owns the task_run_failed
+            # capture. The workflow's status-update activity sees the row already
+            # FAILED and skips its own capture, keeping the event single-emitted.
+            run.capture_event(
+                "task_run_failed",
+                {
+                    "error_message": truncate_error_message(run.error_message),
+                    "error_type": "agent_reported",
+                    "duration_seconds": run._duration_seconds(),
+                },
+            )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:

@@ -38,6 +38,7 @@ from products.replay_vision.backend.api.trigger import (
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -775,7 +776,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         session_id: str = body.validated_data["session_id"]
         user = cast(User, request.user)
 
-        workflow_id, outcome = start_apply_scanner_workflow(scanner, session_id, triggered_by_user_id=user.id)
+        workflow_id, outcome = start_apply_scanner_workflow(
+            scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
+        )
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},

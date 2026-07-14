@@ -1,7 +1,7 @@
 """Transform a Harmonic company response into the enrichment field registry.
 
-Prior art (and the source of the tag/YC/founding-date heuristics): the Salesforce
-enrichment transforms in ee/billing/salesforce_enrichment/enrichment.py.
+Tag/YC/safe-cast heuristics are shared with the Salesforce enrichment transforms in
+ee/billing/salesforce_enrichment/enrichment.py and imported from there rather than copied.
 """
 
 from typing import Any, Optional
@@ -9,42 +9,7 @@ from typing import Any, Optional
 from products.growth.backend.enrichment.countries import country_name_to_iso_code
 from products.growth.backend.enrichment.fields import EnrichmentFields
 
-from ee.billing.salesforce_enrichment.constants import YC_INVESTOR_NAME
-
-
-def _safe_dict(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _safe_list(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
-def _first_tag(tags: list[Any], type_filter: Optional[str] = None) -> Optional[str]:
-    for tag in tags:
-        if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
-            if value := tag.get("displayValue"):
-                return value
-    return None
-
-
-def _primary_industry(tags: list[Any], tags_v2: list[Any]) -> Optional[str]:
-    """Priority: isPrimaryTag in tags, then first tag, then MARKET_VERTICAL in tagsV2, then first tagsV2."""
-    for tag in tags:
-        if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
-            return value
-    if first := _first_tag(tags):
-        return first
-    return _first_tag(tags_v2, "MARKET_VERTICAL") or _first_tag(tags_v2)
-
-
-def _is_yc_company(investors: Any) -> bool:
-    for investor in _safe_list(investors):
-        if isinstance(investor, dict):
-            name = investor.get("name")
-            if name and YC_INVESTOR_NAME in name.lower():
-                return True
-    return False
+from ee.billing.salesforce_enrichment.enrichment import _extract_primary_tag, _is_yc_funded, _safe_dict, _safe_list
 
 
 def _latest_metric(traction: dict[str, Any], metric: str) -> Optional[int]:
@@ -59,6 +24,50 @@ def _founded_year(founding: dict[str, Any]) -> Optional[int]:
         if year.isdigit():
             return int(year)
     return None
+
+
+def _funding_amount(value: Any) -> Optional[int]:
+    # Harmonic reports funding as whole USD; store as int to keep it off floats.
+    return int(value) if isinstance(value, (int, float)) else None
+
+
+def _funding_date(value: Any) -> Optional[str]:
+    # Harmonic returns an ISO datetime (e.g. "2025-02-25T00:00:00Z"); keep the date.
+    if isinstance(value, str) and value:
+        return value.split("T", 1)[0]
+    return None
+
+
+# Bound the passthrough so the group property can't grow unboundedly for a heavily-funded company.
+MAX_INVESTORS = 25
+
+
+def _investor_names(investors: Any) -> Optional[list[str]]:
+    # Company entries carry `name`, Person (angel) entries carry `fullName`; keep both.
+    if not isinstance(investors, list):
+        return None
+    names = [
+        name
+        for investor in investors
+        if isinstance(investor, dict) and isinstance(name := investor.get("name") or investor.get("fullName"), str)
+    ]
+    return names[:MAX_INVESTORS] or None
+
+
+# Harmonic's own tagsV2 taxonomy spells these out; match conservatively on the phrases
+# rather than bare "AI"/"ML" tokens that collide with unrelated words.
+AI_NATIVE_TAG_MARKERS = ("artificial intelligence", "machine learning")
+
+
+def _is_ai_native(tags_v2: list[Any]) -> Optional[bool]:
+    # Empty tagsV2 is absence of tag data, not evidence the company isn't AI-native.
+    if not tags_v2:
+        return None
+    for tag in tags_v2:
+        display = _safe_dict(tag).get("displayValue")
+        if isinstance(display, str) and any(marker in display.lower() for marker in AI_NATIVE_TAG_MARKERS):
+            return True
+    return False
 
 
 def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[EnrichmentFields]:
@@ -78,14 +87,21 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
     if headcount is None and isinstance(company.get("headcount"), (int, float)):
         headcount = int(company["headcount"])
 
+    tags_v2 = _safe_list(company.get("tagsV2"))
+
     return EnrichmentFields(
         company_type=company.get("companyType"),
         headcount=headcount,
         headcount_engineering=_latest_metric(traction, "headcountEngineering"),
-        industry=_primary_industry(_safe_list(company.get("tags")), _safe_list(company.get("tagsV2"))),
+        industry=_extract_primary_tag(_safe_list(company.get("tags")), tags_v2),
         # ISO alpha-2 to match the format the icp_country group property already holds.
         country=country_name_to_iso_code(location.get("country")),
         founded_year=_founded_year(founding),
         funding_stage=funding.get("fundingStage"),
-        is_yc_company=_is_yc_company(funding.get("investors")),
+        total_raised=_funding_amount(funding.get("fundingTotal")),
+        last_round_size=_funding_amount(funding.get("lastFundingTotal")),
+        last_round_date=_funding_date(funding.get("lastFundingAt")),
+        investors=_investor_names(funding.get("investors")),
+        is_yc_company=_is_yc_funded(funding.get("investors")),
+        is_ai_native=_is_ai_native(tags_v2),
     )

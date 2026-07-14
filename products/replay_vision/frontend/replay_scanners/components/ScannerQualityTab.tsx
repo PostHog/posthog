@@ -37,7 +37,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
-import { fillLabelDays } from '../../utils/labelStats'
+import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
+import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
@@ -449,6 +450,7 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[]
 
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
@@ -484,6 +486,12 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         [labelStats, chart]
     )
     const totalRated = (labelStats?.up_total ?? 0) + (labelStats?.down_total ?? 0)
+    // Thumbs-up share per prompt version, from rated sessions only. The active version stays
+    // visible while unrated or unscanned, so a fresh prompt never implies the old one is live.
+    const versionAccuracy = useMemo(
+        () => versionAccuracyStrip(labelStats?.version_markers ?? [], scanner?.scanner_version),
+        [labelStats, scanner]
+    )
 
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
@@ -504,6 +512,30 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                     />
                 </div>
             </div>
+            {versionAccuracy.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
+                    {versionAccuracy.map((entry) => (
+                        <Tooltip
+                            key={entry.version}
+                            title={
+                                entry.pct !== null
+                                    ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
+                                      : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
+                            }
+                        >
+                            <LemonTag type={entry.isCurrent ? 'highlight' : 'muted'}>
+                                {entry.pct !== null
+                                    ? `v${entry.version} · ${entry.pct}% thumbs up (${entry.rated})`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} · no ratings yet`
+                                      : `v${entry.version} · no scans yet`}
+                            </LemonTag>
+                        </Tooltip>
+                    ))}
+                </div>
+            )}
             {labelStatsLoading && !labelStats ? (
                 <div className="flex items-center justify-center py-6 text-muted">
                     <Spinner />
@@ -603,6 +635,21 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                 </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
+        },
+        {
+            title: 'Confidence',
+            key: 'confidence',
+            width: 110,
+            tooltip:
+                'How sure the scanner was of this result. Rating low-confidence sessions first teaches the prompt the most.',
+            render: (_, obs) => {
+                const confidence = readConfidence(obs)
+                if (confidence === null) {
+                    return <span className="text-muted">—</span>
+                }
+                return <span className="tabular-nums">{Math.round(confidence * 100)}%</span>
+            },
+            sorter: true,
         },
         {
             title: 'Scanner got it right?',

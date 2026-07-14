@@ -12,7 +12,11 @@ from posthoganalytics.client import Client
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.providers import EnrichmentProvider
-from products.growth.backend.enrichment.writer import write_organization_enrichment
+from products.growth.backend.enrichment.writer import archive_provider_fetch, write_organization_enrichment
+
+# Placeholder archived for a not-found when the provider hands back no response body — records
+# the miss as a distinct observation, since absence at fetch time is evidence too.
+_MISS_PAYLOAD = {"companyFound": False}
 
 
 async def enrich_organization(
@@ -21,19 +25,29 @@ async def enrich_organization(
     domain: str,
     provider: EnrichmentProvider,
     pha_client: Client,
+    is_recheck: bool = False,
 ) -> Optional[EnrichmentFields]:
-    """Look up enrichment for a domain and persist it to the live stores.
+    """Look up enrichment for a domain, archive the raw response, and persist the live stores.
 
-    Returns the enrichment fields, or None when the provider has no match (nothing
-    written). The Postgres write runs via sync_to_async to bridge the async provider.
+    Every fetch is archived verbatim — including a not-found — before the live-store write.
+    Returns the enrichment fields, or None when the provider has no match (nothing written to
+    the live stores). The Postgres writes run via sync_to_async to bridge the async provider.
     """
-    fields = await provider.enrich_by_domain(domain)
-    if fields is None:
+    lookup = await provider.enrich_by_domain(domain)
+
+    await sync_to_async(archive_provider_fetch)(
+        organization_id=organization_id,
+        provider=provider.name,
+        payload=lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD,
+        is_recheck=is_recheck,
+    )
+
+    if lookup.fields is None:
         return None
 
     await sync_to_async(write_organization_enrichment)(
         organization_id=organization_id,
-        fields=fields,
+        fields=lookup.fields,
         pha_client=pha_client,
     )
-    return fields
+    return lookup.fields

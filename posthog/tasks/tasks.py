@@ -221,7 +221,7 @@ def kill_stale_queued_task_runs() -> None:
     )
     swept, errors = _sweep_each(
         stale_ids,
-        lambda run_id: tasks_facade.fail_task_run(run_id, REASON),
+        lambda run_id: tasks_facade.fail_task_run(run_id, REASON, error_type="stale_queued_cleanup"),
         STALE_QUEUED_TASK_RUN_SWEPT_COUNTER,
         STALE_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
@@ -241,7 +241,7 @@ def kill_stale_queued_task_runs() -> None:
     prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
     prewarmed_swept, prewarmed_errors = _sweep_each(
         prewarmed_ids,
-        lambda run_id: tasks_facade.fail_task_run(run_id, PREWARMED_REASON),
+        lambda run_id: tasks_facade.fail_task_run(run_id, PREWARMED_REASON, error_type="stale_queued_cleanup"),
         PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
         PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )

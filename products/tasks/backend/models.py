@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
@@ -1450,7 +1451,7 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str):
+    def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
@@ -1460,7 +1461,8 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_message": error[:500],
+                "error_message": truncate_error_message(error),
+                "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
             },
         )

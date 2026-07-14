@@ -9,14 +9,31 @@ One writer per field: this owns the provider-derived registry keys. It never tou
 `company_type_deterministic`, which the signup classifier owns.
 """
 
+from typing import Any
+
 from django.db import transaction
 
 from posthoganalytics.client import Client
 
+from posthog.exceptions_capture import capture_exception
+
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.models import OrganizationEnrichment
+from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
+
+
+def _merge_into_record(organization_id: str, values: dict[str, Any]) -> None:
+    """Row-locked read/merge/save into OrganizationEnrichment.data.
+
+    select_for_update serializes concurrent writers on the same org (the request-path
+    signup write and the fire-and-forget provider write). Without the lock they read the
+    same snapshot and the later save clobbers the other's keys, dropping enrichment data.
+    """
+    with transaction.atomic():
+        record, _ = OrganizationEnrichment.objects.select_for_update().get_or_create(organization_id=organization_id)
+        record.data = {**record.data, **values}
+        record.save(update_fields=["data", "updated_at"])
 
 
 def write_organization_enrichment(
@@ -37,10 +54,7 @@ def write_organization_enrichment(
     if not values:
         return
 
-    with transaction.atomic():
-        record, _ = OrganizationEnrichment.objects.get_or_create(organization_id=organization_id)
-        record.data = {**record.data, **values}
-        record.save(update_fields=["data", "updated_at"])
+    _merge_into_record(organization_id, values)
 
     pha_client.group_identify(
         ORGANIZATION_GROUP_TYPE,
@@ -49,14 +63,30 @@ def write_organization_enrichment(
     )
 
 
+def archive_provider_fetch(*, organization_id: str, provider: str, payload: dict[str, Any], is_recheck: bool) -> None:
+    """Append one raw provider-response row to the fetch archive.
+
+    Never raises: a raw-archive failure must not break enrichment — the live-store write and
+    the caller's return still happen. One row per fetch, so signup and recheck stay distinct.
+    """
+    try:
+        OrganizationEnrichmentFetch.objects.create(
+            organization_id=organization_id,
+            provider=provider,
+            is_recheck=is_recheck,
+            payload=payload,
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
 def record_signup_work_email(*, organization_id: str, work_email: bool) -> None:
     """Persist whether the signup used a work email (vs a generic personal domain).
 
     First-party data known synchronously at signup, so it is written from the request
     path for every signup — including personal-domain ones that never get a provider
-    lookup. Postgres only; the group projection happens with the provider write.
+    lookup. Postgres only for v0: work_email is never set by the provider transform, and
+    personal domains get no provider write, so there's no group projection here. Projecting
+    it onto the organization group is deferred until a consumer needs the group property.
     """
-    with transaction.atomic():
-        record, _ = OrganizationEnrichment.objects.get_or_create(organization_id=organization_id)
-        record.data = {**record.data, "work_email": work_email}
-        record.save(update_fields=["data", "updated_at"])
+    _merge_into_record(organization_id, {"work_email": work_email})

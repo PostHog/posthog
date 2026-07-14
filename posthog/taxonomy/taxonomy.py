@@ -297,6 +297,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_tool_call": {
             "label": "MCP tool call",
             "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
+            "primary_property": "$mcp_tool_name",
         },
         "$mcp_tools_list": {
             "label": "MCP tools listed",
@@ -3836,6 +3837,16 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         ),
         "ignored_in_assistant": True,
     }
+
+
+# The @posthog/mcp SDK captures a known property schema on its events. Mirror those properties
+# into their own group so MCP-scoped pickers can surface the expected schema as a dedicated
+# taxonomic filter category (the way autocapture separates element properties).
+# Keep this below every block that mutates "event_properties", or late additions would
+# silently miss the mirror.
+CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"] = {
+    key: value for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items() if key.startswith("$mcp_")
+}
 
 
 PROPERTY_NAME_ALIASES = {

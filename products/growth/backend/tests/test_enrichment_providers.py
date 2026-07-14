@@ -7,7 +7,7 @@ from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvi
 def _fake_harmonic_client(company):
     """Build a mock standing in for `async with AsyncHarmonicClient() as client`."""
     client = MagicMock()
-    client.enrich_company_by_domain = AsyncMock(return_value=company)
+    client.enrich_company_by_domain_strict = AsyncMock(return_value=company)
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=client)
     cm.__aexit__ = AsyncMock(return_value=False)
@@ -15,21 +15,25 @@ def _fake_harmonic_client(company):
 
 
 @pytest.mark.asyncio
-async def test_enrich_by_domain_transforms_response():
-    cm, client = _fake_harmonic_client({"companyType": "STARTUP", "funding": {"fundingStage": "SEED"}})
+async def test_enrich_by_domain_transforms_response_and_keeps_raw_payload():
+    company = {"companyType": "STARTUP", "funding": {"fundingStage": "SEED"}}
+    cm, client = _fake_harmonic_client(company)
     with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
-        fields = await HarmonicEnrichmentProvider().enrich_by_domain("posthog.com")
+        lookup = await HarmonicEnrichmentProvider().enrich_by_domain("posthog.com")
 
-    assert fields is not None
-    assert fields.company_type == "STARTUP"
-    assert fields.funding_stage == "SEED"
-    client.enrich_company_by_domain.assert_awaited_once_with("posthog.com")
+    assert lookup.fields is not None
+    assert lookup.fields.company_type == "STARTUP"
+    assert lookup.fields.funding_stage == "SEED"
+    # The raw provider response is preserved verbatim for the archive.
+    assert lookup.raw_payload == company
+    client.enrich_company_by_domain_strict.assert_awaited_once_with("posthog.com")
 
 
 @pytest.mark.asyncio
-async def test_enrich_by_domain_returns_none_when_company_not_found():
+async def test_enrich_by_domain_returns_no_fields_and_no_payload_when_company_not_found():
     cm, _ = _fake_harmonic_client(None)
     with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
-        fields = await HarmonicEnrichmentProvider().enrich_by_domain("unknown.example")
+        lookup = await HarmonicEnrichmentProvider().enrich_by_domain("unknown.example")
 
-    assert fields is None
+    assert lookup.fields is None
+    assert lookup.raw_payload is None
