@@ -188,6 +188,7 @@ export function FunnelChart<Meta = unknown>({
             maxCategoryLabelWidth,
             xTickFormatter: stepLabelFromBand,
             yTickFormatter: (value) => `${Math.round(value)}%`,
+            barCornerRadius,
             legend,
             tooltip: {
                 placement: 'top',
@@ -197,7 +198,6 @@ export function FunnelChart<Meta = unknown>({
             },
             bars: {
                 track: true,
-                cornerRadius: barCornerRadius,
                 shadow: FUNNEL_BAR_SHADOW,
                 bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
                 maxBandRange,
