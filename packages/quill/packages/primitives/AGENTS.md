@@ -91,12 +91,12 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 
 ### Status and labels
 
-| Component | Use when                                                              |
-| --------- | --------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/destructive      |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state   |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                   |
+| Component | Use when                                                                   |
+| --------- | -------------------------------------------------------------------------- |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
 
 ### Form controls
 
@@ -133,7 +133,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
 | ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
-| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                                                        |
+| Badge        | default, info, destructive, warning, success, completed  | —                                                    | Semantic status                                                                                                        |
 | Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
 | Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
 | Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
@@ -680,6 +680,8 @@ Vertical: `<ButtonGroup orientation="vertical">`
 
 Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
+`<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
+Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, designed to pair with `variant="pressable"` for colored clickable rows (e.g. `<Item variant="pressable" tone="success" render={<a href="…" />}>`)
 
 ### Avatar
 
@@ -1001,7 +1003,7 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 
 1. **Use Field for forms** — don't compose raw Label + Input, use Field > FieldLabel + Input + FieldDescription/FieldError
 2. **Wrap app with providers** — ThemeProvider at root, TooltipProvider if using tooltips, ToastProvider if using toasts
-3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), destructive (red), default (neutral)
+3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), completed (purple, terminal done state e.g. merged PRs), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
 5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
 6. **Prefer composition over props** — use CardHeader > CardTitle instead of `<Card title="...">`

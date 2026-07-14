@@ -1,20 +1,24 @@
+from __future__ import annotations
+
 import re
 from typing import TYPE_CHECKING, cast
 
 import sqlparse
-import snowflake.connector
 from opentelemetry import trace
-from snowflake.connector.constants import FIELD_ID_TO_NAME
 from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
 
 if TYPE_CHECKING:
+    import snowflake.connector
+    import snowflake.connector.cursor
+
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
@@ -81,6 +85,10 @@ def snowflake_field_type_to_clickhouse_type(type_code: object | None, scale: obj
     # every column as String.
     if not isinstance(type_code, int):
         return "String"
+    from snowflake.connector.constants import (
+        FIELD_ID_TO_NAME,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
     name = FIELD_ID_TO_NAME.get(type_code, "")
     if name == "FIXED":
         # NUMBER/DECIMAL/INT all report as FIXED; scale 0 (or absent) is an integer.
@@ -89,6 +97,8 @@ def snowflake_field_type_to_clickhouse_type(type_code: object | None, scale: obj
 
 
 def snowflake_error_to_message(error: Exception) -> str:
+    import snowflake.connector  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(error, snowflake.connector.errors.Error):
         args = error.args
         if len(args) >= 2 and isinstance(args[1], str) and args[1].strip():
@@ -148,12 +158,13 @@ class SnowflakeAdapter:
     dialect: HogQLDialect | None = "snowflake"
 
     def validate_source_config(
-        self, source: "ExternalDataSource", team: "Team"
-    ) -> tuple["SnowflakeImplementation", "SnowflakeSourceConfig"]:
+        self, source: ExternalDataSource, team: Team
+    ) -> tuple[SnowflakeImplementation, SnowflakeSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import SnowflakeSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-        if not source.is_direct_snowflake:
+        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+        if not (is_direct_capable(source) and source.direct_engine == self.engine):
             raise ExposedHogQLError("Invalid direct Snowflake connection.")
 
         snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
@@ -179,6 +190,8 @@ class SnowflakeAdapter:
         MULTI_STATEMENT_COUNT=1 so the server refuses any stacked statement. A least-privilege
         SELECT-only role is recommended as defense in depth, but is not the boundary we rely on.
         """
+        import snowflake.connector  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         source = request.source
         snowflake_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings

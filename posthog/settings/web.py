@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import structlog
 from corsheaders.defaults import default_headers
+from whitenoise.compress import Compressor
 
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
@@ -95,6 +96,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
 INSTALLED_APPS = [
@@ -404,13 +406,23 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
+        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
+        # already a dependency) so WhiteNoise serves compressed bytes from disk and
+        # the envoy edge — which otherwise gzips static per request (Contour's
+        # default compression filter) — skips recompression since Content-Encoding
+        # is already set. Same Manifest base class: hashed names unchanged.
         "BACKEND": (
             "django.contrib.staticfiles.storage.StaticFilesStorage"
             if TEST
-            else "whitenoise.storage.ManifestStaticFilesStorage"
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
         ),
     },
 }
+# Never emit .map.gz/.map.br: the production image deletes *.map after the
+# sourcemap upload, and compressed variants would survive that cleanup and
+# leak the maps under /static. Also skips pointless build-time compression
+# of files that get deleted anyway.
+WHITENOISE_SKIP_COMPRESS_EXTENSIONS = [*Compressor.SKIP_COMPRESS_EXTENSIONS, "map"]
 
 
 def static_varies_origin(headers, path, url):
@@ -418,6 +430,14 @@ def static_varies_origin(headers, path, url):
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
+
+# Non-hashed static files (notably the posthog-js SDK bundles served to
+# end-user browsers) otherwise fall back to whitenoise's 60s default and
+# generate constant 304 revalidation churn (~a third of /static traffic).
+# Hashed manifest assets are unaffected — whitenoise already serves those
+# with far-future caching. One hour bounds how long a client that does not
+# cache-bust can hold a stale SDK bundle after a release.
+WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
 # Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
 # non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
@@ -538,6 +558,7 @@ SPECTACULAR_SETTINGS = {
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
@@ -555,6 +576,9 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # The metrics query's OTel metric-type filter; without a pinned name it
+        # collides with the experiments MetricTypeEnum (funnel/ratio/...).
+        "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
@@ -736,6 +760,10 @@ SPECTACULAR_SETTINGS = {
         # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
         # to a hash name.
         "StaffCacheSourceEnum": ["redis", "miss"],
+        # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
+        # `caches` list item share the same evaluation/definitions choice set. Pin to a
+        # stable name so "cache" and "caches" don't collide into a hash name.
+        "StaffCacheKindEnum": ["evaluation", "definitions"],
     },
 }
 

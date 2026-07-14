@@ -15,6 +15,18 @@ class CheckCountTriggeredReportsWorkflowInputs:
 
 
 @dataclasses.dataclass
+class CheckCountTriggeredEvalReportInput:
+    report_id: str
+
+
+@dataclasses.dataclass
+class CheckCountTriggeredEvalReportOutput:
+    report_id: str
+    due: bool
+    skipped_reason: str | None = None
+
+
+@dataclasses.dataclass
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
 

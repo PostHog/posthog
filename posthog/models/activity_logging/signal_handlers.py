@@ -33,7 +33,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
 from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
@@ -41,6 +41,7 @@ from posthog.models.activity_logging.personal_api_key_utils import (
 from posthog.models.activity_logging.project_secret_api_key_utils import log_project_secret_api_key_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -328,6 +329,50 @@ def handle_organization_domain_change(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class IdentityProviderConfigContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+
+
+@mutable_receiver(model_activity_signal, sender=IdentityProviderConfig)
+def handle_identity_provider_config_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    config_instance = after_update or before_update
+
+    if not config_instance:
+        return
+
+    context = IdentityProviderConfigContext(
+        organization_id=str(config_instance.organization_id),
+        organization_name=config_instance.organization.name,
+    )
+
+    config_name = config_instance.name or str(config_instance.id)
+    if activity == "created":
+        detail_name = f"Identity provider config {config_name} added to {config_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Identity provider config {config_name} removed from {config_instance.organization.name}"
+    else:
+        detail_name = f"Identity provider config {config_name} updated in {config_instance.organization.name}"
+
+    log_activity(
+        organization_id=config_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=config_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
 @mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -598,6 +643,8 @@ def handle_tagged_item_change(
     team = tagged_item.tag.team
     organization_id = team.organization_id if team else None
     team_id = tagged_item.tag.team_id
+    # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
+    trigger = get_current_trigger()
 
     log_activity(
         organization_id=organization_id,
@@ -611,6 +658,7 @@ def handle_tagged_item_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=tagged_item.tag.name,
             context=context,
+            trigger=trigger,
         ),
     )
 
@@ -638,6 +686,7 @@ def handle_tagged_item_change(
                         before=tagged_item.tag.name if activity == "deleted" else None,
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

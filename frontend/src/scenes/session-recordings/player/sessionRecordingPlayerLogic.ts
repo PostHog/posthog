@@ -517,7 +517,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'snapshotStore', 'allSourcesLoaded'],
+            [
+                'snapshotsLoaded',
+                'snapshotsLoading',
+                'snapshotSources',
+                'snapshotStore',
+                'allSourcesLoaded',
+                'storeVersion',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -546,6 +553,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshots',
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
+                'snapshotSourceLoadExhausted',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -553,7 +561,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
@@ -1108,12 +1116,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // how playback can recover (e.g. when the initial full snapshot was lost at
         // capture time, the recording is only playable from a later FullSnapshot).
         seekRenderability: [
-            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData],
+            // storeVersion is what makes store mutations visible here (#53893): `snapshotStore` is a
+            // reference-stable mutable object and cannot drive re-evaluation on its own.
+            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData, s.storeVersion],
             (
                 segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
                 snapshotStore: SnapshotStore,
                 allSourcesLoaded: boolean,
-                sessionPlayerData: SessionPlayerData
+                sessionPlayerData: SessionPlayerData,
+                _storeVersion: number
             ) => {
                 // Whether any segment containing the FullSnapshot's timestamp belongs to its window; boundary timestamps are shared with the preceding (micro-)gap, whose inferred windowId must not veto a usable recovery point.
                 const rendersOwnSegment = (fs: { timestamp: number; windowId: number }): boolean => {
@@ -1524,74 +1535,86 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             cache.disposables.add(
                 () => {
-                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
-                    const iframeCleanups: (() => void)[] = []
+                    // rrweb throws synchronously on malformed events while building the initial DOM;
+                    // the config.onError callback only covers its async internal errors. Without this
+                    // catch the throw escapes the listener and the player buffers forever.
+                    try {
+                        const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                        const iframeCleanups: (() => void)[] = []
 
-                    replayer.on('fullsnapshot-rebuilded', () => {
-                        const iframeContentWindow = replayer.iframe.contentWindow
-                        const iframeFetch = iframeContentWindow?.fetch
+                        replayer.on('fullsnapshot-rebuilded', () => {
+                            const iframeContentWindow = replayer.iframe.contentWindow
+                            const iframeFetch = iframeContentWindow?.fetch
 
-                        const setupErrorHandlers = (): void => {
-                            if (
-                                iframeFetch &&
-                                !(iframeFetch as any).__isWrappedForErrorReporting &&
-                                iframeContentWindow
-                            ) {
-                                const originalFetch = iframeFetch
-                                const windowRef = new WeakRef(iframeContentWindow)
+                            const setupErrorHandlers = (): void => {
+                                if (
+                                    iframeFetch &&
+                                    !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                    iframeContentWindow
+                                ) {
+                                    const originalFetch = iframeFetch
+                                    const windowRef = new WeakRef(iframeContentWindow)
 
-                                iframeContentWindow.fetch = wrapFetchAndReport({
-                                    fetch: iframeFetch,
-                                    onError: (errorDetails: ResourceErrorDetails) => {
-                                        actions.caughtAssetErrorFromIframe(errorDetails)
-                                    },
-                                })
-                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
-
-                                iframeCleanups.push(() => {
-                                    const window = windowRef.deref()
-                                    if (window && window.fetch) {
-                                        window.fetch = originalFetch
-                                        delete (window.fetch as any).__isWrappedForErrorReporting
-                                    }
-                                })
-                            }
-
-                            if (iframeContentWindow) {
-                                iframeCleanups.push(
-                                    registerErrorListeners({
-                                        iframeWindow: iframeContentWindow,
-                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                    iframeContentWindow.fetch = wrapFetchAndReport({
+                                        fetch: iframeFetch,
+                                        onError: (errorDetails: ResourceErrorDetails) => {
+                                            actions.caughtAssetErrorFromIframe(errorDetails)
+                                        },
                                     })
-                                )
+                                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                    iframeCleanups.push(() => {
+                                        const window = windowRef.deref()
+                                        if (window && window.fetch) {
+                                            window.fetch = originalFetch
+                                            delete (window.fetch as any).__isWrappedForErrorReporting
+                                        }
+                                    })
+                                }
+
+                                if (iframeContentWindow) {
+                                    iframeCleanups.push(
+                                        registerErrorListeners({
+                                            iframeWindow: iframeContentWindow,
+                                            onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                        })
+                                    )
+                                }
+                            }
+
+                            setupErrorHandlers()
+                        })
+
+                        actions.setPlayer({ replayer, windowId })
+
+                        return () => {
+                            canvasPlugin.destroy()
+                            hlsPlugin.destroy()
+
+                            if (replayer) {
+                                for (const cleanup of iframeCleanups) {
+                                    cleanup()
+                                }
+                                iframeCleanups.length = 0
+
+                                const iframe = replayer.iframe
+                                replayer.destroy()
+
+                                if (iframe?.contentDocument?.body) {
+                                    iframe.contentDocument.body.innerHTML = ''
+                                }
+                                if (iframe?.contentDocument?.head) {
+                                    iframe.contentDocument.head.innerHTML = ''
+                                }
                             }
                         }
-
-                        setupErrorHandlers()
-                    })
-
-                    actions.setPlayer({ replayer, windowId })
-
-                    return () => {
-                        canvasPlugin.destroy()
-                        hlsPlugin.destroy()
-
-                        if (replayer) {
-                            for (const cleanup of iframeCleanups) {
-                                cleanup()
-                            }
-                            iframeCleanups.length = 0
-
-                            const iframe = replayer.iframe
-                            replayer.destroy()
-
-                            if (iframe?.contentDocument?.body) {
-                                iframe.contentDocument.body.innerHTML = ''
-                            }
-                            if (iframe?.contentDocument?.head) {
-                                iframe.contentDocument.head.innerHTML = ''
-                            }
-                        }
+                    } catch (error) {
+                        posthog.captureException(error, {
+                            feature: 'session-recording-replayer-init',
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+                        actions.setPlayerError('replayerInitFailure')
+                        return () => {}
                     }
                 },
                 `replayer-${props.mode}`,
@@ -1727,16 +1750,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
             actions.endBuffer()
             actions.stopAnimation()
-            if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
-                // NOTE: when we show a preview pane, this branch runs
-                // in very large recordings this call to pause
-                // can consume 100% CPU and freeze the entire page
-                values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
-                actions.clearPlayerError()
-            } else {
-                values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
-                actions.updateAnimation()
-                actions.clearPlayerError()
+            // rrweb throws synchronously on malformed events it replays through — surface an error
+            // state rather than letting the throw escape the listener and wedge the state machine.
+            try {
+                if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                    // NOTE: when we show a preview pane, this branch runs
+                    // in very large recordings this call to pause
+                    // can consume 100% CPU and freeze the entire page
+                    values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
+                    actions.clearPlayerError()
+                } else {
+                    values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
+                    actions.updateAnimation()
+                    actions.clearPlayerError()
+                }
+            } catch (error) {
+                posthog.captureException(error, {
+                    feature: 'session-recording-replayer-playback',
+                    sessionRecordingId: props.sessionRecordingId,
+                })
+                actions.setPlayerError('replayerPlaybackFailure')
             }
         },
         initializePlayerFromStart: () => {
@@ -1806,7 +1839,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const YIELD_AFTER_MS = 50
                 let lastYield = performance.now()
                 for (let i = 0; i < eventsToAdd.length; i++) {
-                    values.player?.replayer?.addEvent(eventsToAdd[i])
+                    try {
+                        values.player?.replayer?.addEvent(eventsToAdd[i])
+                    } catch (error) {
+                        // A single malformed event shouldn't kill the whole sync — skip it, keep the rest.
+                        posthog.captureException(error, {
+                            feature: 'session-recording-replayer-add-event',
+                            sessionRecordingId: props.sessionRecordingId,
+                        })
+                        continue
+                    }
                     if (performance.now() - lastYield > YIELD_AFTER_MS) {
                         await new Promise<void>((r) => setTimeout(r, 0))
                         // a newer sync run computed its own event diff — cancel here or both runs add the same tail twice
@@ -1864,6 +1906,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setPlayerError('loadSnapshotSourcesFailure')
             }
+        },
+        // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
+        // data already loaded, because the missing range would otherwise buffer forever with no error.
+        snapshotSourceLoadExhausted: () => {
+            console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
+            actions.setPlayerError('snapshotSourceLoadExhausted')
+        },
+        snapshotProcessingFailed: () => {
+            console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
+            actions.setPlayerError('snapshotProcessingFailed')
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
@@ -2214,6 +2266,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.pauseForced) {
                     actions.setPause()
                 }
+            } catch (error) {
+                // A replayer throw here would otherwise kill the animation loop silently — the
+                // playhead freezes while the controls still say "playing". Stop cleanly and surface it.
+                posthog.captureException(error, {
+                    feature: 'session-recording-replayer-animation',
+                    sessionRecordingId: props.sessionRecordingId,
+                })
+                actions.stopAnimation()
+                actions.setPlayerError('replayerPlaybackFailure')
             } finally {
                 cache._inUpdateAnimation = false
             }
