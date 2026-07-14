@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    materialized,
     snapshot_clickhouse_queries,
 )
 from unittest import TestCase
@@ -658,6 +659,46 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_query_with_materialized_exception_fingerprint(self, _name, use_issue_filter):
+        # For teams where `$exception_fingerprint` is a materialized column, the property read resolves to
+        # `mat_$exception_fingerprint`, whose `$` forces backtick-quoting. Without an explicit alias on the
+        # `cityHash64(...)` fingerprint expression, ClickHouse derives two block-column names that differ only in
+        # backtick quoting and fails the whole query with "Not found column". Snapshot tests miss this because
+        # `$exception_fingerprint` is not materialized in test environments, so they take the `JSONExtractRaw` path.
+        filter_group = None
+        if use_issue_filter:
+            # An issue-level filter routes the query through the legacy shape, which joins issue state via
+            # `events.issue_id_v2` (the lazy join whose ON key hashes the fingerprint).
+            filter_group = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+        with materialized("events", "$exception_fingerprint"):
+            results = self._calculate(filterGroup=filter_group)["results"]
+
+        result_ids = {result["id"] for result in results}
+        if use_issue_filter:
+            self.assertEqual(result_ids, {self.issue_id_one})
+        else:
+            self.assertEqual(result_ids, {self.issue_id_one, self.issue_id_two, self.issue_id_three})
 
     @parameterized.expand(
         [
