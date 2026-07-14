@@ -2474,7 +2474,13 @@ def validate_task_run_artifact_ids(
 
 
 def signal_task_run_user_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, content: str | None, artifact_ids: list[str]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: str | None,
+    artifact_ids: list[str],
+    steer: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2488,7 +2494,7 @@ def signal_task_run_user_message(
     if run is None:
         return None
     try:
-        signal_task_followup_message(run.workflow_id, content, artifact_ids)
+        signal_task_followup_message(run.workflow_id, content, artifact_ids, steer=steer)
     except Exception:
         logger.exception("Failed to signal follow-up message for task run %s", run.id)
         return False

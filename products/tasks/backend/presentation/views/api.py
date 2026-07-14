@@ -1463,7 +1463,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     )
 
             signal_result = tasks_facade.signal_task_run_user_message(
-                pk, task_id, self.team_id, content=command_params.get("content"), artifact_ids=artifact_ids
+                pk,
+                task_id,
+                self.team_id,
+                content=command_params.get("content"),
+                artifact_ids=artifact_ids,
+                steer=command_params.get("steer", False),
             )
             if signal_result is None:
                 raise NotFound()

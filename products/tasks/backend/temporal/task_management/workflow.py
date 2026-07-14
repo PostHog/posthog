@@ -88,6 +88,7 @@ class PendingExternalFollowup:
     message: str | None
     artifact_ids: list[str]
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    steer: bool = False
 
 
 @dataclass
@@ -235,9 +236,16 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._pending_external_complete = (status, error_message)
 
     @workflow.signal
-    async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+    async def send_followup_message(
+        self, message: str | None = None, artifact_ids: Optional[list[str]] = None, steer: bool = False
+    ) -> None:
         self._pending_external_followups.append(
-            PendingExternalFollowup(message=message, artifact_ids=artifact_ids or [], source=FOLLOWUP_SOURCE_USER)
+            PendingExternalFollowup(
+                message=message,
+                artifact_ids=artifact_ids or [],
+                source=FOLLOWUP_SOURCE_USER,
+                steer=steer,
+            )
         )
 
     @workflow.signal
@@ -517,6 +525,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 message=followup.message,
                 artifact_ids=followup.artifact_ids,
                 source=followup.source,
+                steer=followup.steer,
             )
         # The persisted queue is the orchestrator's recovery buffer — keep
         # it in sync after every drain so a restart sees an accurate picture
@@ -570,11 +579,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
     def _handle_shutdown_rejection(self, slot: PendingAckSlot) -> bool:
         """Re-queue rejected follow-up work. Returns True if anything was re-queued."""
         if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-            # signal_args = [ack_id, message, artifact_ids, source]
-            _ack_id, message, artifact_ids, source = slot.signal_args
+            # Older histories have four args; new deliveries append steer.
+            _ack_id, message, artifact_ids, source, *optional = slot.signal_args
+            steer = bool(optional and optional[0] is True)
             self._pending_external_followups.insert(
                 0,
-                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source),
+                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, steer=steer),
             )
             workflow.logger.warning(
                 "task_management_followup_requeued_after_shutdown",
@@ -620,9 +630,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         requeued = 0
         for slot in list(self._pending_ack_slots.values()):
             if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-                _ack_id, message, artifact_ids, source = slot.signal_args
+                _ack_id, message, artifact_ids, source, *optional = slot.signal_args
+                steer = bool(optional and optional[0] is True)
                 self._pending_external_followups.append(
-                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source)
+                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, steer=steer)
                 )
                 requeued += 1
         if requeued:
@@ -671,6 +682,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     message=item.get("message"),
                     artifact_ids=list(item.get("artifact_ids") or []),
                     source=item.get("source", FOLLOWUP_SOURCE_USER),
+                    steer=item.get("steer") is True,
                 )
             )
         # Seed the persistence snapshot so the next `_persist_pending_followups`
@@ -761,6 +773,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         message: str | None,
         artifact_ids: list[str],
         source: str = FOLLOWUP_SOURCE_USER,
+        steer: bool = False,
     ) -> None:
         if self._sandbox_workflow_id is None:
             workflow.logger.warning(
@@ -771,6 +784,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         ack_id = self._new_ack_id()
         signal_args: list[Any] = [ack_id, message, artifact_ids, source]
+        if steer:
+            signal_args.append(True)
         # Register the slot *before* sending so an in-flight send-failure
         # leaves the slot intact for the retry loop to re-attempt. The child
         # dedupes by ack_id so re-sending is safe.

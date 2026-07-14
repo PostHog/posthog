@@ -271,6 +271,7 @@ def send_user_message(
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     message_id: str | None = None,
+    steer: bool = False,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent.
 
@@ -285,6 +286,8 @@ def send_user_message(
         params["artifacts"] = artifacts
     if message_id:
         params["messageId"] = message_id
+    if steer:
+        params["steer"] = True
     return send_agent_command(
         task_run,
         method="user_message",

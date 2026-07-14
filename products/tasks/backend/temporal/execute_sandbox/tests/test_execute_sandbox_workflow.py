@@ -195,10 +195,10 @@ class TestSignalHandlers:
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
 
-        await workflow.send_followup_message("ack-3", "hello", ["art-1"], source="user")
+        await workflow.send_followup_message("ack-3", "hello", ["art-1"], source="user", steer=True)
 
         assert workflow._pending_followups == [
-            PendingFollowup(message="hello", artifact_ids=["art-1"], ack_id="ack-3", source="user")
+            PendingFollowup(message="hello", artifact_ids=["art-1"], ack_id="ack-3", source="user", steer=True)
         ]
         assert workflow._pending_outbound == []
         silent_workflow_logger.info.assert_called()

@@ -362,11 +362,11 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
 
         await workflow.send_followup_message("first", ["artifact-1"])
-        await workflow.send_followup_message("second", ["artifact-2"])
+        await workflow.send_followup_message("second", ["artifact-2"], True)
 
         assert workflow._pending_followups == [
             PendingFollowup(message="first", artifact_ids=["artifact-1"]),
-            PendingFollowup(message="second", artifact_ids=["artifact-2"]),
+            PendingFollowup(message="second", artifact_ids=["artifact-2"], steer=True),
         ]
         assert workflow._pending_followup is None
         deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)

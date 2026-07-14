@@ -113,6 +113,7 @@ class ProcessTaskInput:
 class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
+    steer: bool = False
 
 
 @dataclass
@@ -681,6 +682,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             await self._send_followup_to_sandbox(
                                 message=message,
                                 artifact_ids=artifact_ids,
+                                steer=pending_followup.steer,
                             )
                             continue
 
@@ -1656,7 +1658,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
-    async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+    async def send_followup_message(
+        self, message: str | None = None, artifact_ids: Optional[list[str]] = None, steer: bool = False
+    ) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
         context = self._context
@@ -1668,7 +1672,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "artifact_count": len(artifact_ids or []),
             },
         )
-        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
+        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [], steer=steer)
         # Always queue. `deprecate_patch` accepts existing non-deprecated
         # markers from workflows that ran the prior `workflow.patched(...)`
         # gate, so this is safe to deploy alongside in-flight workflows. The
@@ -1723,7 +1727,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self, message: str | None, artifact_ids: list[str], *, steer: bool = False
+    ) -> None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             extra={
@@ -1741,6 +1747,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
                     message_id=str(workflow.uuid4()),
+                    steer=steer,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
                 # The activity heartbeats while blocked on the sync delivery

@@ -112,6 +112,15 @@ class TestExternalSignalHandlers:
             PendingExternalFollowup(message="hello", artifact_ids=[], source="user")
         ]
 
+    async def test_send_followup_message_preserves_steer_intent(self):
+        workflow = TaskManagementWorkflow()
+
+        await workflow.send_followup_message("hello", ["a1"], True)
+
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(message="hello", artifact_ids=["a1"], source="user", steer=True)
+        ]
+
     async def test_external_heartbeat_records_activity(self, fixed_now):
         # Heartbeats only flow child -> parent, so the external handler is a
         # local-state-only update — it never forwards down to the sandbox.

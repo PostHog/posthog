@@ -170,6 +170,7 @@ class PendingFollowup:
     artifact_ids: list[str]
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    steer: bool = False
 
 
 @dataclass
@@ -623,6 +624,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
+        steer: bool = False,
     ) -> None:
         """Accept a follow-up message from the parent and queue it.
 
@@ -664,6 +666,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 artifact_ids=artifact_ids or [],
                 ack_id=ack_id,
                 source=source,
+                steer=steer,
             )
         )
 
@@ -708,6 +711,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    steer=followup.steer,
                 )
                 self._enqueue_ack(signal_name=SEND_FOLLOWUP_SIGNAL, ack_id=followup.ack_id)
             except Exception as e:
@@ -1188,7 +1192,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         elif result.error:
             workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self, message: str | None, artifact_ids: list[str], *, steer: bool = False
+    ) -> None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
             run_id=self.context.run_id,
@@ -1203,6 +1209,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
                 message_id=str(workflow.uuid4()),
+                steer=steer,
             ),
             start_to_close_timeout=timedelta(minutes=35),
             # See process_task: heartbeat detects worker restarts, message_id

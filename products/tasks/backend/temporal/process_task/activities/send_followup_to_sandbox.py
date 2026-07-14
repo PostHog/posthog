@@ -57,6 +57,7 @@ class SendFollowupToSandboxInput:
     # Workflow-generated idempotency key. Stable across activity retries, so
     # the agent-server can drop a redelivery of a message it already accepted.
     message_id: str | None = None
+    steer: bool = False
 
 
 @activity.defn
@@ -106,6 +107,13 @@ def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
     return isinstance(result, dict) and result.get("duplicate") is True
 
 
+def _is_steered(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is True
+
+
 def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
@@ -131,7 +139,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # Push a fresh MCP config before the turn so the agent-server rebinds its
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
-    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    if not input.steer:
+        _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
     artifacts = None
     artifact_ids = input.artifact_ids or []
     if artifact_ids:
@@ -148,6 +157,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
+        steer=input.steer,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -163,6 +173,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
                 run_id=input.run_id,
                 attempt=_current_attempt(),
             )
+            return
+        if _is_steered(result.data):
+            logger.info("send_followup_steered", run_id=input.run_id)
             return
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)

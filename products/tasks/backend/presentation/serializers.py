@@ -2013,6 +2013,10 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         if method == "user_message":
             content = params.get("content")
             artifact_ids = params.get("artifact_ids")
+            steer = params.get("steer")
+
+            if steer is not None and not isinstance(steer, bool):
+                raise serializers.ValidationError({"params": "steer must be a boolean when provided"})
 
             normalized_content = None
             if content is not None:
