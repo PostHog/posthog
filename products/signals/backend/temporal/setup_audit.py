@@ -292,7 +292,7 @@ async def create_proposal_reports_activity(inputs: CreateProposalsInputs) -> lis
                     team_id=inputs.team_id,
                     report_id=str(report.id),
                     content=SetupProposal(
-                        category=proposal.category,  # type: ignore[arg-type]
+                        category=proposal.category,
                         product=CATEGORY_PRODUCTS[proposal.category],
                     ),
                     attribution=attribution,
