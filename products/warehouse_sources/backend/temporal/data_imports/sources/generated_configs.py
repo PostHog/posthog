@@ -445,7 +445,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BasetenSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1808,7 +1808,8 @@ class IlluminaBasespaceSourceConfig(config.Config):
 
 @config.config
 class ImaggaSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config

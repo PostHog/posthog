@@ -571,6 +571,7 @@ SPECTACULAR_SETTINGS = {
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
+        "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
@@ -597,6 +598,15 @@ SPECTACULAR_SETTINGS = {
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        "ManagedWarehouseReadinessStateEnum": [
+            "not_configured",
+            "waiting",
+            "backfilling",
+            "catching_up",
+            "up_to_date",
+            "needs_attention",
+            "unknown",
+        ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
