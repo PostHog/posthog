@@ -9,7 +9,7 @@ from posthog.temporal.ai.checkpoint_compaction.types import (
 )
 from posthog.temporal.common.logger import get_write_only_logger
 
-from ee.hogai.django_checkpoint.compaction import compact_thread, select_compactable_conversation_ids
+from ee.hogai.django_checkpoint.compaction import compact_conversation, select_compactable_conversation_ids
 
 LOGGER = get_write_only_logger()
 
@@ -34,7 +34,7 @@ async def compact_checkpoint_conversations(input: CompactionBatch) -> CompactBat
         blobs_deleted = 0
         for conversation_id in input.conversation_ids:
             try:
-                outcome = compact_thread(conversation_id)
+                outcome = compact_conversation(conversation_id)
             except Exception:
                 # One poison thread must not sink the whole batch (and with it the daily sweep).
                 conversations_failed += 1

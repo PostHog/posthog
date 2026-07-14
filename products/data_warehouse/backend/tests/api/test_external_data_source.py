@@ -10941,6 +10941,42 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             }
         ]
 
+    def test_search_filters_returned_accounts(self):
+        # GSC ignores `search`, so the endpoint filters its returned list generically.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(
+                f"{self._GSC_MODULE}.list_sites",
+                return_value=[
+                    {"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"},
+                    {"siteUrl": "https://other.org/", "permissionLevel": "siteOwner"},
+                ],
+            ),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id) + "&search=other")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["https://other.org/"]
+
+    def test_github_lists_repositories_with_search(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={},
+            sensitive_config={"access_token": "gho_test"},
+            integration_id="gh_test",
+            created_by=self.user,
+        )
+        gh_path = "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+        with patch(gh_path) as mock_gh:
+            mock_gh.return_value.list_cached_repositories.return_value = ([{"full_name": "PostHog/posthog"}], False)
+            response = self.client.get(self._url("Github", integration.id) + "&search=posthog")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["PostHog/posthog"]
+        mock_gh.return_value.list_cached_repositories.assert_called_once_with(search="posthog", limit=100, offset=0)
+
     @parameterized.expand([(401,), (403,)])
     def test_gsc_auth_error_returns_actionable_400(self, status_code: int):
         integration = self._gsc_integration()
