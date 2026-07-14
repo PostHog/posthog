@@ -466,6 +466,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -561,6 +562,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -701,6 +703,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
         }
         flag_response = response.json()["success"][0]
 
