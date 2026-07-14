@@ -94,6 +94,16 @@ class TestTicketViewAPI(APIBaseTest):
         mock_report.assert_called_once()
         assert mock_report.call_args[0][1] == "ticket view updated"
 
+    def test_put_not_allowed(self):
+        created = self._create_via_api()
+        response = self.client.put(
+            f"{self.base_url}{created['short_id']}/",
+            {"name": "Replaced"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert TicketView.objects.get(pk=created["id"]).filters == created["filters"]
+
     def test_update_filters_keeps_name(self):
         created = self._create_via_api()
 

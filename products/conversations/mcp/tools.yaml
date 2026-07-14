@@ -164,9 +164,6 @@ tools:
     conversations-views-retrieve:
         operation: conversations_views_retrieve
         enabled: false
-    conversations-views-update:
-        operation: conversations_views_update
-        enabled: false
     conversations-zendesk-imports-create:
         operation: conversations_zendesk_imports_create
         enabled: false

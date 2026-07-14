@@ -61,6 +61,8 @@ class TicketViewViewSet(
     queryset = TicketView.objects.all().order_by("-created_at")
     serializer_class = TicketViewSerializer
     lookup_field = "short_id"
+    # PATCH only: full PUT would reset omitted fields (filters defaults to {}), clearing saved criteria
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)
