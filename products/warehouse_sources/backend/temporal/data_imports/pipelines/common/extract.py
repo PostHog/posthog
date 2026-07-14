@@ -28,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
@@ -225,6 +228,69 @@ async def reset_rows_synced_if_needed(
     ):
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
+
+
+def resolve_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+) -> list[str] | None:
+    """Resolve the primary keys for an incremental merge with a stable precedence.
+
+    1. Persisted `sync_type_config["primary_key_columns"]` (a user override or an earlier
+       detection) — always wins.
+    2. Otherwise the keys the source detected live this run.
+    3. Otherwise fall back to an `id` column when the schema has one — mirroring the discovery
+       path, which sync-time driver detection (e.g. a flaky Snowflake `SHOW PRIMARY KEYS`) lacks.
+
+    Returns None when no key can be resolved, so the keyless-table guardrail still fires.
+    """
+    if schema.primary_key_columns:
+        return schema.primary_key_columns
+    if resource.primary_keys:
+        return list(resource.primary_keys)
+    if "id" in extract_available_column_names(schema.schema_metadata):
+        return ["id"]
+    return None
+
+
+async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Persist a freshly resolved primary key so future runs stop depending on flaky live
+    detection (e.g. a Snowflake `SHOW PRIMARY KEYS` that intermittently returns nothing).
+
+    Only fills an empty stored value — never overwrites a user override — and checks again
+    inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
+    must not fail an otherwise successful sync.
+    """
+    if not is_incremental or schema.primary_key_columns:
+        return
+    primary_keys = resource.primary_keys
+    if not primary_keys:
+        return
+
+    resolved = list(primary_keys)
+
+    def _set_if_absent(config: dict[str, Any]) -> None:
+        if not config.get("primary_key_columns"):
+            config["primary_key_columns"] = resolved
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            mutate=_set_if_absent,
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
 def validate_incremental_sync(

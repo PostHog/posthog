@@ -27,6 +27,7 @@ use uuid::Uuid;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
@@ -371,7 +372,11 @@ struct Harness {
 /// the production batch consumer (no auto commit/store, earliest reset). The
 /// short session timeout makes group handovers observable quickly in tests.
 /// `instance_id` opts into static membership (`group.instance.id`).
-fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -> StreamConsumer {
+fn make_kafka_consumer(
+    topic: &str,
+    group_id: &str,
+    instance_id: Option<&str>,
+) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -384,7 +389,9 @@ fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer = config.create().expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> = config
+        .create_with_context(SentinelContext::detached())
+        .expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -1263,7 +1270,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone())
+        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone(), false)
         .await
         .expect("batch-1 send");
 
@@ -1290,7 +1297,12 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         "deferred group flushes to the survivor, not the drainer"
     );
     transport
-        .send_batch(f2[0].worker.as_ref(), "batch-2", f2[0].messages.clone())
+        .send_batch(
+            f2[0].worker.as_ref(),
+            "batch-2",
+            f2[0].messages.clone(),
+            false,
+        )
         .await
         .expect("batch-2 flush send");
 

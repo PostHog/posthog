@@ -56,7 +56,12 @@ from products.engineering_analytics.backend.logic.queries.pr_cost import (
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
-from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
+from products.engineering_analytics.backend.logic.queries.repo_overview import (
+    empty_repo_series,
+    query_default_branch,
+    query_repo_overview,
+    query_repo_series,
+)
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
@@ -329,9 +334,17 @@ def build_repo_overview(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
+    include_series: bool = True,
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    # The one place the endpoint's include_series toggle decides anything: headline-only consumers
+    # (the weekly digest) compose the empty series instead of paying the four chart scans.
+    series = (
+        query_repo_series(curated=curated, date_from=parsed_from, date_to=parsed_to)
+        if include_series
+        else empty_repo_series(date_from=parsed_from, date_to=parsed_to)
+    )
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to, series=series)
 
 
 def build_current_branch_health(*, curated: CuratedGitHubSource) -> CurrentBranchHealth:
