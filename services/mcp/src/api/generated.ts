@@ -58429,6 +58429,94 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    /**
+     * The default AI run triple stored at team or user level.
+     *
+     * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+     * their responses. `runtime_adapter` and `model` must be set together; send all three
+     * as null to clear a stored preference.
+     */
+    export interface TasksAIRunPreferences {
+      /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /**
+         * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+         * @nullable
+         */
+      model?: string | null;
+      /** Default reasoning effort for models that expose an effort control.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none
+     */
+    export type TasksResolvedAIRunDefaultsSourceEnum = typeof TasksResolvedAIRunDefaultsSourceEnum[keyof typeof TasksResolvedAIRunDefaultsSourceEnum];
+
+
+    export const TasksResolvedAIRunDefaultsSourceEnum = {
+      User: 'user',
+      Team: 'team',
+      None: 'none',
+    } as const;
+
+    /**
+     * The AI run triple a new run will effectively use when the caller pins nothing,
+     * plus which preference level supplied it.
+     */
+    export interface TasksResolvedAIRunDefaults {
+      /**
+         * Effective default runtime adapter, or null when no preference is stored.
+         * @nullable
+         */
+      runtime_adapter: string | null;
+      /**
+         * Effective default model identifier, or null when no preference is stored.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Effective default reasoning effort, or null when unset or unsupported.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+       *
+       * * `user` - user
+       * * `team` - team
+       * * `none` - none */
+      source: TasksResolvedAIRunDefaultsSourceEnum;
+    }
+
+    /**
+     * Team-level tasks configuration.
+     */
+    export interface TasksTeamConfigResponse {
+      /** Project-wide default AI run triple; empty object when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+    }
+
+    /**
+     * The requesting user's per-project tasks configuration.
+     */
+    export interface TasksUserConfigResponse {
+      /** The requesting user's per-project default AI run triple; empty object when unset. */
+      ai_run_preferences: TasksAIRunPreferences;
+      /** The defaults a new run will use when no explicit runtime selection is sent. */
+      resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -74196,6 +74284,28 @@ export namespace Schemas {
     };
 
     export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksMyConfigListParams = {
     /**
      * Number of results to return per page.
      */

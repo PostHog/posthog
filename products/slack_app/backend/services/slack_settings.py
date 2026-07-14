@@ -20,6 +20,12 @@ task layer applies its own defaults rather than duplicating them here.
 Gated by the `slack-app-home` feature flag: when off the resolver returns
 the empty object, preserving pre-Home-tab behaviour for workspaces that
 haven't opted in.
+
+Layering with the tasks product's central defaults: the resolved triple is
+passed to task creation as explicit per-run values, so Slack preferences sit
+above the central per-user / per-team defaults (see
+`products.tasks.backend.facade.ai_run_defaults`). When both Slack rows are
+empty the task layer falls back to those central defaults on its own.
 """
 
 from __future__ import annotations

@@ -34,6 +34,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -341,16 +342,65 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
+    def _apply_ai_run_defaults(self, state: dict, acting_user_id: int | None) -> None:
+        """Fill the run state's AI runtime selection from the acting user's / team's
+        default preferences when the caller pinned none.
+
+        A partially pinned selection (either `runtime_adapter` or `model` present) is
+        treated as explicit and left untouched — overwriting half a pin would replace a
+        value the caller chose. Internal tasks (custom-prompt infra agents) keep their
+        pinned behavior and never inherit preferences. An explicitly set
+        `reasoning_effort` survives injection; the default triple's effort only fills a
+        gap.
+        """
+        if self.internal:
+            return
+
+        from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
+            resolve_ai_run_selection,
+        )
+        from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps temporalio off the import path (matches _build_task)
+            RuntimeAdapter,
+            get_provider_for_runtime_adapter,
+        )
+
+        resolved = resolve_ai_run_selection(
+            self.team_id,
+            acting_user_id or self.created_by_id,
+            runtime_adapter=state.get("runtime_adapter"),
+            model=state.get("model"),
+            reasoning_effort=state.get("reasoning_effort"),
+        )
+        if resolved.source not in ("user", "team"):
+            return
+
+        state["runtime_adapter"] = resolved.runtime_adapter
+        state["model"] = resolved.model
+        if resolved.reasoning_effort:
+            state["reasoning_effort"] = resolved.reasoning_effort
+        provider = get_provider_for_runtime_adapter(resolved.runtime_adapter)
+        if provider is not None:
+            state["provider"] = provider.value
+        # Codex runs default permission mode to `auto` so a headless run doesn't stall on a
+        # prompt — same side effect `_build_task` applies for explicitly pinned runtimes.
+        if not state.get("initial_permission_mode") and resolved.runtime_adapter == RuntimeAdapter.CODEX.value:
+            state["initial_permission_mode"] = "auto"
+        state["ai_defaults_source"] = resolved.source
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
+        acting_user_id: int | None = None,
     ) -> "TaskRun":
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
+        # Every run creation flows through here, so this is where team/user default AI run
+        # preferences apply when the caller didn't pin a runtime selection.
+        self._apply_ai_run_defaults(state, acting_user_id)
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
         if "use_dedicated_stream" not in state:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
@@ -782,7 +832,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "workflow_id_prefix": workflow_id_prefix,
             }
 
-        task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
+        task_run = task.create_run(
+            mode=mode, extra_state=run_extra_state or None, branch=branch, acting_user_id=user_id
+        )
 
         if start_workflow:
             # Defer the fire-and-forget workflow start until the creating transaction commits.
@@ -2112,6 +2164,54 @@ class CodeWorkflowConfig(TeamScopedRootMixin):
 
     def __str__(self):
         return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
+
+
+class TeamTasksConfig(models.Model):
+    """Team-level tasks settings (Team extension model, singleton per team).
+
+    Read at run creation time to fill in AI run defaults when a run is created
+    without an explicit runtime selection. Rows are keyed on the canonical
+    (project root) team — callers must normalize environment team ids first.
+    """
+
+    # db_constraint=False: adding an FK constraint to the hot posthog_team table takes a
+    # SHARE ROW EXCLUSIVE lock on it; app-level integrity is enough here.
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    # {"runtime_adapter": str, "model": str, "reasoning_effort": str} — keys absent when unset.
+    # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
+    # (see logic/services/ai_run_defaults.py).
+    ai_run_preferences = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"TeamTasksConfig(team={self.team_id})"
+
+
+register_team_extension_signal(TeamTasksConfig)
+
+
+class UserTasksConfig(TeamScopedRootMixin):
+    """Per-(user, team) tasks settings; overrides `TeamTasksConfig` wholesale where set."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # takes a SHARE ROW EXCLUSIVE lock on them; app-level integrity is enough here.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # Same shape and validation as TeamTasksConfig.ai_run_preferences.
+    ai_run_preferences = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="user_tasks_config_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"UserTasksConfig(team={self.team_id}, user={self.user_id})"
 
 
 class CodePrSnapshot(TeamScopedRootMixin):

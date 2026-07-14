@@ -1901,6 +1901,72 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const TasksConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const TasksMyConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
  * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
  * @summary Fetch task summaries by ID
  */
