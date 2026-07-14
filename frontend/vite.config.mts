@@ -38,6 +38,27 @@ export default defineConfig(({ mode }) => {
         Object.entries(prebundledDeps?.aliases ?? {}).map(([name, rel]) => [name, resolve(__dirname, rel)])
     )
 
+    // The optimizer re-resolves every include specifier through the resolver chain on each cold
+    // start (~1s for 230 specifiers, sequentially). Its resolver honors resolve.alias, so replay
+    // the snapshot's recorded resolutions through a single exact-match alias entry: one anchored
+    // alternation regex (so subpaths like `pkg/sub` are untouched unless they're snapshot entries
+    // themselves) plus an O(1) map lookup. Applies only while the fingerprint-gated snapshot is
+    // active; the recorded file is what resolution produced at generation time, so runtime
+    // imports resolve identically.
+    const prebundledResolved = prebundledDeps?.resolved ?? {}
+    const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const prebundledResolveEntries =
+        Object.keys(prebundledResolved).length > 0
+            ? [
+                  {
+                      find: new RegExp(`^(?:${Object.keys(prebundledResolved).map(escapeRegExp).join('|')})$`),
+                      replacement: '$&',
+                      customResolver: (id: string): string | null =>
+                          prebundledResolved[id] ? resolve(__dirname, prebundledResolved[id]) : null,
+                  },
+              ]
+            : []
+
     return {
         plugins: [
             react(),
@@ -69,38 +90,43 @@ export default defineConfig(({ mode }) => {
         ],
         resolve: {
             dedupe: ['@base-ui/react'],
-            alias: {
-                // products/*-scoped deps, so the cold-start optimizer can pre-bundle them (dev only).
-                ...prebundledAliases,
-                '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
-                '~': fileURLToPath(new URL('./src', import.meta.url)),
-                '@': fileURLToPath(new URL('./src', import.meta.url)),
-                // Add direct mappings for PostHog's import structure from tsconfig.json
-                lib: resolve(__dirname, 'src/lib'),
-                scenes: resolve(__dirname, 'src/scenes'),
-                queries: resolve(__dirname, 'src/queries'),
-                layout: resolve(__dirname, 'src/layout'),
-                toolbar: resolve(__dirname, 'src/toolbar'),
-                taxonomy: resolve(__dirname, 'src/taxonomy'),
-                models: resolve(__dirname, 'src/models'),
-                mocks: resolve(__dirname, 'src/mocks'),
-                exporter: resolve(__dirname, 'src/exporter'),
-                types: resolve(__dirname, 'src/types.ts'),
-                // @posthog/lemon-ui aliases
-                '@posthog/lemon-ui': resolve(__dirname, '@posthog/lemon-ui/src/index'),
-                '@posthog/lemon-ui/': resolve(__dirname, '@posthog/lemon-ui/src/'),
-                // Other aliases from tsconfig.json
-                storybook: resolve(__dirname, '../.storybook'),
-                // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
-                public: resolve(__dirname, 'src/assets'),
-                // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
-                '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
-                products: resolve(__dirname, '../products'),
-                '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),
-                '@posthog/shared-onboarding/*': resolve(__dirname, '../docs/onboarding/*'),
-                // Node.js polyfills for browser compatibility
-                buffer: 'buffer',
-            },
+            alias: [
+                // Exact-match replay of the snapshot's recorded dep resolutions (dev only, empty
+                // without an active snapshot) — must come first so it wins for bare specifiers.
+                ...prebundledResolveEntries,
+                ...Object.entries({
+                    // products/*-scoped deps, so the cold-start optimizer can pre-bundle them (dev only).
+                    ...prebundledAliases,
+                    '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
+                    '~': fileURLToPath(new URL('./src', import.meta.url)),
+                    '@': fileURLToPath(new URL('./src', import.meta.url)),
+                    // Add direct mappings for PostHog's import structure from tsconfig.json
+                    lib: resolve(__dirname, 'src/lib'),
+                    scenes: resolve(__dirname, 'src/scenes'),
+                    queries: resolve(__dirname, 'src/queries'),
+                    layout: resolve(__dirname, 'src/layout'),
+                    toolbar: resolve(__dirname, 'src/toolbar'),
+                    taxonomy: resolve(__dirname, 'src/taxonomy'),
+                    models: resolve(__dirname, 'src/models'),
+                    mocks: resolve(__dirname, 'src/mocks'),
+                    exporter: resolve(__dirname, 'src/exporter'),
+                    types: resolve(__dirname, 'src/types.ts'),
+                    // @posthog/lemon-ui aliases
+                    '@posthog/lemon-ui': resolve(__dirname, '@posthog/lemon-ui/src/index'),
+                    '@posthog/lemon-ui/': resolve(__dirname, '@posthog/lemon-ui/src/'),
+                    // Other aliases from tsconfig.json
+                    storybook: resolve(__dirname, '../.storybook'),
+                    // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
+                    public: resolve(__dirname, 'src/assets'),
+                    // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
+                    '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
+                    products: resolve(__dirname, '../products'),
+                    '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),
+                    '@posthog/shared-onboarding/*': resolve(__dirname, '../docs/onboarding/*'),
+                    // Node.js polyfills for browser compatibility
+                    buffer: 'buffer',
+                }).map(([find, replacement]) => ({ find, replacement })),
+            ],
         },
         build: {
             // Generate manifest for backend integration

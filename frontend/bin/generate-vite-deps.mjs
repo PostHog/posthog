@@ -76,6 +76,15 @@ async function main() {
             .split('/')
             .slice(0, name.startsWith('@') ? 2 : 1)
             .join('/')
+    // Record where every include specifier resolved, so cold starts can replay the resolutions
+    // instead of re-walking node_modules for all of them again.
+    const resolved = {}
+    for (const name of include) {
+        const src = optimized[name]?.src
+        if (src) {
+            resolved[name] = relative(frontendDir, resolve(depsDir, src))
+        }
+    }
     const aliases = {}
     for (const name of include) {
         try {
@@ -103,7 +112,7 @@ async function main() {
         aliases[pkg] = relative(frontendDir, abs.slice(0, idx + marker.length))
     }
 
-    const snapshot = { fingerprint: computeDepsFingerprint(frontendDir), include, aliases }
+    const snapshot = { fingerprint: computeDepsFingerprint(frontendDir), include, aliases, resolved }
     writeFileSync(outputPath, JSON.stringify(snapshot, null, 4) + '\n')
     console.info(
         `✅ Wrote ${include.length} pre-bundled deps (${Object.keys(aliases).length} aliased) to vite.deps.json`

@@ -26,11 +26,17 @@ export interface ViteDepsSnapshot {
     // resolved module path (relative to the frontend dir) lets the optimizer pre-bundle them under
     // `noDiscovery`; without it a CommonJS one would be served raw and break in the browser.
     aliases: Record<string, string>
+    // Every include specifier mapped to the module file (relative to the frontend dir) Vite
+    // resolved it to when the snapshot was generated. The optimizer re-resolves every include
+    // specifier sequentially on each cold start (~1s for 230 specifiers); replaying these through
+    // an exact-match alias entry skips that. Fingerprint-gated like the rest of the snapshot.
+    resolved: Record<string, string>
 }
 
 export interface PrebundledDeps {
     include: string[]
     aliases: Record<string, string>
+    resolved: Record<string, string>
 }
 
 export function computeDepsFingerprint(root: string): string {
@@ -59,7 +65,7 @@ export function loadPrebundledDeps(root: string): PrebundledDeps | null {
         if (snapshot.fingerprint !== computeDepsFingerprint(root)) {
             return null
         }
-        return { include: snapshot.include, aliases: snapshot.aliases ?? {} }
+        return { include: snapshot.include, aliases: snapshot.aliases ?? {}, resolved: snapshot.resolved ?? {} }
     } catch {
         return null
     }
