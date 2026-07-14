@@ -286,6 +286,9 @@ const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> =>
         if (params.current_action_id !== undefined) {
             body['current_action_id'] = params.current_action_id
         }
+        if (params.use_draft !== undefined) {
+            body['use_draft'] = params.use_draft
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocations/`,

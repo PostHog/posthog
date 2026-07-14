@@ -868,6 +868,7 @@ export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
+export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
@@ -883,6 +884,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.'
+        ),
+    use_draft: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyUseDraftDefault)
+        .describe(
+            "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override."
         ),
 })
 
