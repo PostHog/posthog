@@ -1144,13 +1144,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_data = [s["data"] for s in results_group]
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["data"] = new_series_data
-            # The total for a time-series formula is the formula applied to each series' own total
-            # (ratio-of-sums), not the sum of the per-interval results. Summing per-interval ratios
-            # like `A/B` overcounts and can push a total that should be <=100% well past it. Each
-            # input series' total is the sum of its interval values, matching what that series'
-            # own total column would show.
-            series_totals = [[sum(value for value in (series or []) if value is not None)] for series in series_data]
-            base_result["count"] = float(FormulaAST(series_totals).call(formula)[0])
+            # For a ratio formula (one with division), the total must be the ratio of the summed
+            # series - the formula applied to each series' own total - not the sum of the per-interval
+            # ratios. Summing per-interval ratios like `A/B` overcounts and can push a total that
+            # should be <=100% well past it. Non-division formulas are additive across intervals, so
+            # the sum of the per-interval results is the correct total (e.g. `B+1` stays the sum of
+            # each interval, not `sum(B)+1`).
+            if "/" in formula:
+                series_totals = [
+                    [sum(value for value in (series or []) if value is not None)] for series in series_data
+                ]
+                base_result["count"] = float(FormulaAST(series_totals).call(formula)[0])
+            else:
+                base_result["count"] = float(sum(new_series_data))
 
         return base_result
 
