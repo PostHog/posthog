@@ -4,6 +4,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 import requests
+from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 from rest_framework.exceptions import NotFound
 
@@ -60,6 +61,50 @@ class TestCDPIconsService(SimpleTestCase):
             recovered = self.service.get_icon_http_response("linear.app")
 
         assert recovered.content == b"png-bytes"
+
+    def test_theme_and_fallback_partition_the_cache(self) -> None:
+        # A dark-variant logo must never be served to the light UI (nor a monogram where the
+        # caller expects a 404) — every parameter that changes logo.dev's bytes keys the cache.
+        with (
+            patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
+            patch(
+                "requests.request",
+                side_effect=[_response(content=b"dark-png"), _response(content=b"light-png")],
+            ) as upstream,
+        ):
+            dark = self.service.get_icon_http_response("linear.app", theme="dark", fallback="404")
+            light = self.service.get_icon_http_response("linear.app", theme="light", fallback="404")
+
+        assert upstream.call_count == 2
+        assert dark.content == b"dark-png"
+        assert light.content == b"light-png"
+        params = upstream.call_args.kwargs["params"]
+        assert params["format"] == "png"
+        assert params["retina"] == "true"
+        assert params["fallback"] == "404"
+        assert params["theme"] == "light"
+
+    @parameterized.expand(
+        [
+            ("definitive_miss_is_cached", "404", 1),
+            ("monogram_mode_stays_transient", "monogram", 2),
+        ]
+    )
+    def test_upstream_404_caching_depends_on_fallback_mode(
+        self, _name: str, fallback: str, expected_calls: int
+    ) -> None:
+        # With fallback="404" a miss is a definitive answer — without negative caching, every
+        # render of an unknown domain would re-proxy to logo.dev. Monogram-mode 404s are
+        # anomalies and must stay transient (uncached), as before.
+        with (
+            patch("posthog.egress.logodev.transport.consume_logodev_sync", return_value=True),
+            patch("requests.request", return_value=_response(status=404)) as upstream,
+        ):
+            for _ in range(2):
+                with self.assertRaises(NotFound):
+                    self.service.get_icon_http_response("unknown.example", fallback=fallback)
+
+        assert upstream.call_count == expected_calls
 
     def test_search_degrades_to_empty_when_budget_exhausted(self) -> None:
         # Icon search is sheddable (NORMAL lane) — when the shared budget is spent it must return no
