@@ -1452,7 +1452,8 @@ class TestOwnershipVerification:
     @pytest.mark.asyncio
     async def test_heartbeat_renews_lease_then_restamps_executing(self):
         # The success path: a held lease is renewed and the executing-status grace
-        # window is refreshed on the same beat. Loop exits via lease-loss on 2nd iteration.
+        # window is refreshed on the same beat. The lease returning False on the
+        # second iteration terminates the loop so we can assert the first cycle ran.
         consumer = _make_consumer()
         consumer._config.recovery_grace_seconds = 30
         batch = _make_batch()
@@ -1472,8 +1473,9 @@ class TestOwnershipVerification:
         ):
             await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
 
+        mock_renew.assert_awaited()
         assert mock_renew.await_count == 2
-        # First renewal succeeded → status was refreshed
+        # First iteration: lease renewed -> status refreshed; second: lease lost -> exit.
         mock_status.assert_awaited_once()
 
 
