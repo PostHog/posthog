@@ -133,7 +133,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async () => {
+                getAllTemplates: async (_, breakpoint) => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
@@ -165,6 +165,10 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
+                    // The chooser/modal (and the Dashboards → Templates tab) that mount this logic can close or
+                    // navigate away mid-request, unmounting it. Without this guard the loader still dispatches
+                    // `getAllTemplatesSuccess` into the gone instance, throwing `[KEA] Can not find path`.
+                    breakpoint()
                     if (!useSearch && listScope === undefined) {
                         return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
                     }

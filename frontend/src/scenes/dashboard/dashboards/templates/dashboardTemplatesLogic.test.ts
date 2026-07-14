@@ -137,6 +137,35 @@ describe('dashboardTemplatesLogic', () => {
         expect(listMock.mock.calls.length).toBe(listCallsAfterOpen)
     })
 
+    it('a superseded in-flight fetch is aborted and never applies its stale result', async () => {
+        // Guards the `breakpoint()` after the list request: without it, an older fetch that resolves
+        // last dispatches getAllTemplatesSuccess, overwriting the fresh result — the same unguarded
+        // dispatch that throws `[KEA] Can not find path` when the mounter unmounts mid-request.
+        const listMock = api.dashboardTemplates.list as jest.Mock
+        const stale: Pick<DashboardTemplateType, 'id'> = { id: 'stale' }
+        const fresh: Pick<DashboardTemplateType, 'id'> = { id: 'fresh' }
+        let resolveStale: (value: { results: DashboardTemplateType[] }) => void = () => {}
+        let resolveFresh: (value: { results: DashboardTemplateType[] }) => void = () => {}
+        listMock
+            .mockReturnValueOnce(new Promise((resolve) => (resolveStale = resolve)))
+            .mockReturnValueOnce(new Promise((resolve) => (resolveFresh = resolve)))
+
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        mounted.actions.getAllTemplates()
+        mounted.actions.getAllTemplates()
+
+        // Resolve the fresh (later) call first, then the stale (earlier) one — the stale response must not win.
+        resolveFresh({ results: [fresh as DashboardTemplateType] })
+        resolveStale({ results: [stale as DashboardTemplateType] })
+
+        await expectLogic(mounted).toFinishAllListeners()
+
+        expect(mounted.values.allTemplates).toEqual([fresh])
+    })
+
     it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
         router.actions.push('/dashboard', {})
         const listMock = api.dashboardTemplates.list as jest.Mock
