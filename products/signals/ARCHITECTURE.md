@@ -1121,7 +1121,7 @@ How to exercise the PR refund flow (`backend/billing.py`, the `refund` action, t
 4. **Data**: `python manage.py seed_refund_test_data --team-id 1` seeds the full matrix — excluded-path (PR today), credited-path (PR yesterday), billing-exempt, and a no-PR exemption-command target.
 5. **Expectations**: with an unseeded billing side the credited path legitimately returns `credit_amount_usd = "0.00"` — that IS the success path (free plan → nothing to credit). Non-$0 outcomes (`"15.00"` with paid-tier usage) require seeding a paid inbox state on the billing side; the recipe, a posthog-free curl smoke test, and how to verify the Stripe balance transaction live in the billing repo (internal): `notes/testing-signals-disputes-locally.md`.
    Inspecting the paid state via the posthog billing page (`/organization/billing`) additionally requires **organization owner** — local dev users are typically only `administrator`, so bump `OrganizationMembership.level` to `OWNER` (15) first.
-   Verify `billing_synced_at`/`credit_amount_usd` on `signals_signalreportrefund` (posthog) and the `Credit` row keyed `signals_pr_dispute:{refund_id}` (billing).
+   Verify `billing_synced_at`/`credit_amount_usd` on `signals_signalreportrefund` (posthog) and, for non-$0 outcomes, the `Credit` row keyed `signals_pr_dispute:{billing_customer_id}:{refund_id}` (billing). $0 outcomes persist nothing billing-side (`credit_id: null` in the response) — the refund row is the whole record.
    Celery-side analytics events (`signals_pr_refund_credit_issued`/`_failed`) are dropped locally (`ph_scoped_capture` is cloud-gated); the sync itself is unaffected.
 
 ---

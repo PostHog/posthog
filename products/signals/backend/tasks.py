@@ -30,15 +30,15 @@ _REFUND_SYNC_RETRY_MAX_SECONDS = 3600
 
 # Sweeper horizon: stop re-enqueueing unsynced credited refunds after 7 days. Anything older is
 # an operational problem surfaced by the failure analytics event, handled manually (a billing
-# admin creates the credit with idempotency key `signals_pr_dispute:{refund_id}`; the row then
-# syncs as already_processed on any later attempt).
+# admin creates the credit with idempotency key `signals_pr_dispute:{billing_customer_id}:{refund_id}`;
+# the row then syncs as already_processed on any later attempt).
 _REFUND_SYNC_SWEEP_MAX_AGE = timedelta(days=7)
 
 # Billing answered a handled $0 because it could no longer credit the period the refund was
 # accepted in — the sync outran billing's late-credit horizon (the frozen period is no longer
 # the customer's current or immediately-previous one), or the row predates the frozen period
-# bounds. Terminal for automation: retrying returns the same anchored $0, so the sweeper skips
-# these rows and recovery is the documented manual credit path.
+# bounds. Terminal for automation: retrying recomputes the same $0 (the frozen period only gets
+# older), so the sweeper skips these rows and recovery is the documented manual credit path.
 _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync time; credit needs manual recovery"
 
 

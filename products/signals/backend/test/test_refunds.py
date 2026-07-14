@@ -431,7 +431,12 @@ class TestSyncSignalsRefundCredit(BaseTest):
         refund = self._credited_refund()
         with patch(
             "ee.billing.billing_manager.BillingManager.dispute_signals_pr",
-            return_value={"credit_amount_usd": "0.00", "credit_id": "c1", "already_processed": False},
+            return_value={
+                "credit_amount_usd": "0.00",
+                "credit_id": None,
+                "already_processed": False,
+                "zero_reason": "no_marginal_cost",
+            },
         ):
             sync_signals_refund_credit(str(refund.id))
         refund.refresh_from_db()
@@ -447,7 +452,7 @@ class TestSyncSignalsRefundCredit(BaseTest):
             "ee.billing.billing_manager.BillingManager.dispute_signals_pr",
             return_value={
                 "credit_amount_usd": "0.00",
-                "credit_id": "c1",
+                "credit_id": None,
                 "already_processed": False,
                 "zero_reason": "out_of_period",
             },
