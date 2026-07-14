@@ -384,6 +384,7 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["title"], "Recent report")
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
+        self.assertNotIn("result_rates", result[0])
         self.assertIn("run_id", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
@@ -403,6 +404,8 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result["content"]["title"], "Recent report")
         self.assertEqual(len(result["content"]["sections"]), 1)
         self.assertEqual(result["metadata"]["pass_rate"], 94.2)
+        self.assertNotIn("result_counts", result["metadata"])
+        self.assertNotIn("result_rates", result["metadata"])
 
     def test_list_includes_back_to_back_previous_run(self):
         # Regression: period_end exactly equal to the current period_start used to be
@@ -433,7 +436,10 @@ class TestListAndGetReportRun(BaseTest):
             content={
                 "title": "Content-only metrics",
                 "sections": [],
-                "metrics": {"pass_rate": 42.5, "total_runs": 8},
+                "metrics": {
+                    "total_runs": 8,
+                    "result_counts": {"pass": 6, "fail": 2, "na": 0},
+                },
             },
             metadata={},
             period_start=now - dt.timedelta(hours=2),
@@ -441,7 +447,8 @@ class TestListAndGetReportRun(BaseTest):
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
-        self.assertEqual(entry["pass_rate"], 42.5)
+        self.assertEqual(entry["pass_rate"], 75.0)
+        self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
     def test_get_rejects_non_uuid(self):

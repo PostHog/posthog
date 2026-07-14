@@ -57,6 +57,95 @@ class TestEvaluationReportRunSerializer(SimpleTestCase):
         self.assertEqual(run.content, content)
         self.assertEqual(serialized["delivery_errors"], ["Email delivery failed"])
 
+    @parameterized.expand(
+        [
+            (
+                "missing_counts",
+                {"total_runs": 10, "pass_rate": 80.0},
+                None,
+                None,
+                80.0,
+            ),
+            (
+                "missing_all_outcomes",
+                {"total_runs": 10},
+                None,
+                None,
+                None,
+            ),
+            (
+                "explicit_zero_counts",
+                {
+                    "output_type": "boolean",
+                    "total_runs": 0,
+                    "result_counts": {"pass": 0, "fail": 0, "na": 0},
+                },
+                {"pass": 0, "fail": 0, "na": 0},
+                {"pass": 0.0, "fail": 0.0, "na": 0.0},
+                0.0,
+            ),
+            (
+                "explicit_legacy_zero_counts",
+                {
+                    "total_runs": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                    "na_count": 0,
+                },
+                {"pass": 0, "fail": 0, "na": 0},
+                {"pass": 0.0, "fail": 0.0, "na": 0.0},
+                0.0,
+            ),
+            (
+                "partial_rates_without_counts",
+                {
+                    "output_type": "sentiment",
+                    "total_runs": 10,
+                    "result_rates": {"positive": 60.0},
+                },
+                None,
+                {"positive": 60.0},
+                None,
+            ),
+        ]
+    )
+    def test_preserves_historical_metric_presence(
+        self,
+        _name: str,
+        stored_metrics: dict[str, object],
+        expected_counts: dict[str, int] | None,
+        expected_rates: dict[str, float] | None,
+        expected_pass_rate: float | None,
+    ) -> None:
+        now = timezone.now()
+        run = EvaluationReportRun(
+            report_id=uuid.uuid4(),
+            content={"metrics": stored_metrics},
+            metadata=stored_metrics,
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+            created_at=now,
+        )
+
+        serialized = EvaluationReportRunSerializer(run).data
+
+        for serialized_metrics in (serialized["content"]["metrics"], serialized["metadata"]):
+            self.assertEqual(serialized_metrics["total_runs"], stored_metrics["total_runs"])
+            if expected_counts is None:
+                self.assertNotIn("result_counts", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["result_counts"], expected_counts)
+
+            if expected_rates is None:
+                self.assertNotIn("result_rates", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["result_rates"], expected_rates)
+
+            if expected_pass_rate is None:
+                self.assertNotIn("pass_rate", serialized_metrics)
+            else:
+                self.assertEqual(serialized_metrics["pass_rate"], expected_pass_rate)
+
 
 class TestEvaluationReportApi(APIBaseTest):
     def setUp(self):

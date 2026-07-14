@@ -214,6 +214,9 @@ class EvalReportMetrics:
         return metrics
 
 
+_LEGACY_BOOLEAN_COUNT_FIELDS = frozenset({"pass_count", "fail_count", "na_count"})
+
+
 _KNOWN_METRIC_FIELDS = {
     "output_type",
     "total_runs",
@@ -226,16 +229,34 @@ _KNOWN_METRIC_FIELDS = {
     "previous_result_rates",
     "pass_rate",
     "previous_pass_rate",
-    "pass_count",
-    "fail_count",
-    "na_count",
-}
+} | _LEGACY_BOOLEAN_COUNT_FIELDS
+
+
+def _has_result_counts(data: dict) -> bool:
+    return isinstance(data.get("result_counts"), dict) or (
+        data.get("output_type", "boolean") == "boolean" and bool(_LEGACY_BOOLEAN_COUNT_FIELDS.intersection(data))
+    )
 
 
 def normalize_metrics_payload(data: dict) -> dict:
-    """Upgrade stored metrics to the canonical shape while preserving extensions."""
+    """Upgrade stored metrics without turning missing historical values into zero."""
     extensions = {key: value for key, value in data.items() if key not in _KNOWN_METRIC_FIELDS}
-    return {**extensions, **EvalReportMetrics.from_dict(data).to_dict()}
+    normalized = EvalReportMetrics.from_dict(data).to_dict()
+
+    if not _has_result_counts(data):
+        normalized.pop("result_counts", None)
+        provided_rates = data.get("result_rates")
+        if isinstance(provided_rates, dict):
+            normalized_rates = normalized.get("result_rates", {})
+            normalized["result_rates"] = {
+                outcome: normalized_rates[outcome] for outcome in provided_rates if outcome in normalized_rates
+            }
+        else:
+            normalized.pop("result_rates", None)
+        if data.get("pass_rate") is None:
+            normalized.pop("pass_rate", None)
+
+    return {**extensions, **normalized}
 
 
 def normalize_report_content_payload(data: dict) -> dict:

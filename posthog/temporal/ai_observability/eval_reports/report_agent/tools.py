@@ -24,7 +24,6 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
-    EvalReportMetrics,
     ReportSection,
     calculate_boolean_pass_rate,
     calculate_result_rates,
@@ -882,23 +881,21 @@ def list_recent_report_runs(
         # `metadata` mirror is maintained in the store activity for legacy consumers.
         # Prefer content so this tool stays correct even if the mirror is removed.
         metrics = content.get("metrics", {}) if isinstance(content.get("metrics"), dict) else {}
-        metrics_data = dict(metrics)
-        metrics_data.setdefault("total_runs", metadata.get("total_runs", 0))
-        if "pass_rate" not in metrics_data and metadata.get("pass_rate") is not None:
-            metrics_data["pass_rate"] = metadata["pass_rate"]
-        parsed_metrics = EvalReportMetrics.from_dict(metrics_data)
+        normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
+        output_type = normalized_metrics["output_type"]
         entry = {
             "run_id": str(run.id),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "title": content.get("title", ""),
-            "output_type": parsed_metrics.output_type,
-            "result_rates": parsed_metrics.result_rates,
-            "total_runs": parsed_metrics.total_runs,
+            "output_type": output_type,
+            "total_runs": normalized_metrics["total_runs"],
             "delivery_status": run.delivery_status,
         }
-        if parsed_metrics.output_type == "boolean":
-            entry["pass_rate"] = parsed_metrics.pass_rate
+        if "result_rates" in normalized_metrics:
+            entry["result_rates"] = normalized_metrics["result_rates"]
+        if output_type == "boolean" and "pass_rate" in normalized_metrics:
+            entry["pass_rate"] = normalized_metrics["pass_rate"]
         result.append(entry)
 
     return json.dumps(result, indent=2, default=str)
