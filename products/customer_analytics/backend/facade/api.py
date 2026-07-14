@@ -1110,7 +1110,7 @@ def create_custom_property_source(
     if definition.target_type == TargetType.PERSON.value:
         if external_data_schema_id is None:
             raise CustomPropertySourceValidationError("A person property source needs an external_data_schema.")
-        if saved_query_id is not None or source_column is not None:
+        if saved_query_id is not None or source_column:
             raise CustomPropertySourceValidationError(
                 "A person property source uses external_data_schema + column_property_map, not saved_query."
             )
