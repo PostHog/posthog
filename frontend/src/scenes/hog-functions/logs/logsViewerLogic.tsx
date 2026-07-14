@@ -449,7 +449,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                             await breakpoint(10)
                             newLogs = results
                         }
-                    } catch (e) {
+                    } catch (e: any) {
                         // Breakpoints signal cancellation (filters changed, unmounted), so let those propagate.
                         if (isBreakpoint(e)) {
                             throw e
