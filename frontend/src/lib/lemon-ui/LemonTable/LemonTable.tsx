@@ -20,7 +20,7 @@ import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
 import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
 import { LemonTableLoader } from './LemonTableLoader'
-import { Sorting, SortingIndicator, compareWithSortings, getNextSorting, getNextSortings } from './sorting'
+import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBulkSelection'
@@ -74,14 +74,6 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
-    /** Allow several client-side sort keys. Each clicked column is added as the lowest-priority key. */
-    multiSorting?: boolean
-    /** Ordered client-side sort keys to start with when `multiSorting` is enabled. */
-    defaultSortings?: Sorting[]
-    /** Controlled ordered client-side sort keys. */
-    sortings?: Sorting[]
-    /** Sorting change handler for controlled multi-column sorting. */
-    onSortingsChange?: (newSortings: Sorting[]) => void
     /** Defaults to true. Used if you don't want to use the URL to store sort order **/
     useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
@@ -139,10 +131,6 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     defaultSorting = null,
     sorting,
     onSort,
-    multiSorting = false,
-    defaultSortings = [],
-    sortings,
-    onSortingsChange,
     useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
@@ -173,7 +161,6 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
 
     // used when not using URL to store sorting
     const [internalSorting, setInternalSorting] = useState<Sorting | null>(sorting || null)
-    const [internalSortings, setInternalSortings] = useState<Sorting[] | null>(sortings ?? null)
 
     /** update sorting and conditionally replace the current browsing history item */
     const setLocalSorting = useCallback(
@@ -194,14 +181,6 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             }
         },
         [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
-    )
-
-    const setLocalSortings = useCallback(
-        (newSortings: Sorting[]) => {
-            setInternalSortings(newSortings)
-            onSortingsChange?.(newSortings)
-        },
-        [onSortingsChange]
     )
 
     const baseColumnGroups = useMemo(
@@ -241,21 +220,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                   }
             : defaultSorting)
 
-    const currentSortings = sortings ?? internalSortings ?? defaultSortings
-
     const sortedDataSource = useMemo(() => {
-        if (multiSorting) {
-            return currentSortings.length > 0
-                ? dataSource.slice().sort((first, second) =>
-                      compareWithSortings(first, second, currentSortings, (columnKey) => {
-                          const sorter = baseColumns.find(
-                              (column) => column.sorter && determineColumnKey(column, 'sorting') === columnKey
-                          )?.sorter
-                          return typeof sorter === 'function' ? sorter : undefined
-                      })
-                  )
-                : dataSource
-        }
         if (currentSorting) {
             const { columnKey: sortColumnKey, order: sortOrder } = currentSorting
             const sorter = baseColumns.find(
@@ -266,7 +231,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             }
         }
         return dataSource
-    }, [dataSource, currentSorting, currentSortings, baseColumns, multiSorting])
+    }, [dataSource, currentSorting, baseColumns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -543,29 +508,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                   return // Do nothing if the click is on the checkbox or more button
                                                                               }
 
-                                                                              const columnKey = determineColumnKey(
-                                                                                  column,
-                                                                                  'sorting'
+                                                                              const nextSorting = getNextSorting(
+                                                                                  currentSorting,
+                                                                                  determineColumnKey(column, 'sorting'),
+                                                                                  disableSortingCancellation,
+                                                                                  column.defaultSortOrder
                                                                               )
-                                                                              if (multiSorting) {
-                                                                                  setLocalSortings(
-                                                                                      getNextSortings(
-                                                                                          currentSortings,
-                                                                                          columnKey,
-                                                                                          disableSortingCancellation,
-                                                                                          column.defaultSortOrder
-                                                                                      )
-                                                                                  )
-                                                                              } else {
-                                                                                  setLocalSorting(
-                                                                                      getNextSorting(
-                                                                                          currentSorting,
-                                                                                          columnKey,
-                                                                                          disableSortingCancellation,
-                                                                                          column.defaultSortOrder
-                                                                                      )
-                                                                                  )
-                                                                              }
+
+                                                                              setLocalSorting(nextSorting)
                                                                           }
                                                                         : undefined
                                                                 }
@@ -610,22 +560,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 column,
                                                                                 'sorting'
                                                                             )
-                                                                            const sortingIndex = multiSorting
-                                                                                ? currentSortings.findIndex(
-                                                                                      (sorting) =>
-                                                                                          sorting.columnKey ===
-                                                                                          columnKey
-                                                                                  )
-                                                                                : currentSorting?.columnKey ===
-                                                                                    columnKey
-                                                                                  ? 0
-                                                                                  : -1
-                                                                            const activeSorting = multiSorting
-                                                                                ? currentSortings[sortingIndex]
-                                                                                : currentSorting
-                                                                            const isActiveSort = sortingIndex !== -1
+                                                                            const isActiveSort =
+                                                                                currentSorting?.columnKey === columnKey
                                                                             const order = isActiveSort
-                                                                                ? (activeSorting?.order ?? null)
+                                                                                ? currentSorting.order
                                                                                 : null
 
                                                                             // Hide indicator if inactive and hideSortingIndicatorWhenInactive is true
@@ -641,7 +579,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                     title={() => {
                                                                                         const nextSorting =
                                                                                             getNextSorting(
-                                                                                                activeSorting ?? null,
+                                                                                                currentSorting,
                                                                                                 columnKey,
                                                                                                 disableSortingCancellation,
                                                                                                 column.defaultSortOrder
@@ -656,14 +594,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                         }`
                                                                                     }}
                                                                                 >
-                                                                                    <SortingIndicator
-                                                                                        order={order}
-                                                                                        priority={
-                                                                                            multiSorting && isActiveSort
-                                                                                                ? sortingIndex + 1
-                                                                                                : undefined
-                                                                                        }
-                                                                                    />
+                                                                                    <SortingIndicator order={order} />
                                                                                 </Tooltip>
                                                                             )
                                                                         })()}

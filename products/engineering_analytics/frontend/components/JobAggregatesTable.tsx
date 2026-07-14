@@ -79,11 +79,10 @@ export function JobAggregatesTable({
                 },
                 {
                     title: 'Runs in',
-                    key: 'runsIn',
+                    key: 'runShare',
                     align: 'right',
-                    tooltip: 'Workflow runs this job appeared in. The percentage shows whether the job is conditional.',
-                    sorter: (a, b) => a.runs_in - b.runs_in,
-                    defaultSortOrder: -1,
+                    tooltip: 'Share of workflow runs this job ran in. Below 100% means the job is conditional.',
+                    sorter: (a, b) => (a.run_share ?? -1) - (b.run_share ?? -1),
                     render: (_, row) => (
                         <span
                             className={
@@ -92,10 +91,7 @@ export function JobAggregatesTable({
                                     : 'text-xs tabular-nums'
                             }
                         >
-                            {humanFriendlyNumber(row.runs_in)}
-                            {row.run_share != null && (
-                                <span className="ml-1 text-tertiary">{percent(Math.min(1, row.run_share))}</span>
-                            )}
+                            {row.run_share != null ? `${percent(Math.min(1, row.run_share))} of runs` : '—'}
                         </span>
                     ),
                 },
@@ -117,7 +113,6 @@ export function JobAggregatesTable({
                     tooltip:
                         'Median (p50) out to 95th-percentile duration over successful instances, as a bar scaled to the slowest job. The solid part reaches the median; the light tail runs out to p95.',
                     sorter: (a, b) => (a.p50_seconds ?? -1) - (b.p50_seconds ?? -1),
-                    defaultSortOrder: -1,
                     render: (_, row) => <DurationSpread p50={row.p50_seconds} p95={row.p95_seconds} max={maxP95} />,
                 },
                 {
@@ -176,11 +171,7 @@ export function JobAggregatesTable({
                     },
                 },
             ]}
-            multiSorting
-            defaultSortings={[
-                { columnKey: 'runsIn', order: -1 },
-                { columnKey: 'duration', order: -1 },
-            ]}
+            defaultSorting={{ columnKey: 'cost', order: -1 }}
             pagination={{ pageSize: 25 }}
             emptyState="No jobs in the window. The job-level source may not be synced."
             nouns={['job', 'jobs']}
