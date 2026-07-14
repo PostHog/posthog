@@ -11,11 +11,15 @@ describe('urlConfigLogic', () => {
             ['/admin-panel', 'warns'],
             ['/settings/account', 'warns'],
             ['example.com/admin', 'warns'],
+            // grouped/alternation path fragments anchor to e.g. ^(admin|billing)$, still unmatchable
+            ['(admin|billing)', 'warns'],
+            ['(?:admin|billing)', 'warns'],
+            ['(/admin|/billing)', 'warns'],
             // patterns that can match a full URL from the start
             ['.*admin-panel.*', 'ok'],
             ['^https://site.com/admin-panel$', 'ok'],
             ['https://app.posthog.com/.*', 'ok'],
-            ['(admin|billing)', 'ok'],
+            ['(?:https?://).*/admin', 'ok'],
             // empty / whitespace never warns
             ['', 'ok'],
             ['   ', 'ok'],

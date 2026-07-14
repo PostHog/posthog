@@ -38,9 +38,11 @@ export function urlPatternWarning(rawUrl: string): string | null {
         return `To match every path on this domain, write "${sanitized}(/.*)?". That matches ${sanitized}, ${sanitized}/, and ${sanitized}/page. Remember to start the pattern with https://.`
     }
 
-    // A pattern that can't match from the start of a URL (no scheme, no leading wildcard) will
-    // never fire once we anchor it, because the SDK matches against the whole URL.
-    const canMatchFromStart = /^(\.[*+]|https?:|\(|\[|\|)/i.test(pattern) || pattern.includes('://')
+    // A pattern that can't match from the start of a URL will never fire once we anchor it, because
+    // the SDK matches against the whole URL. Only exempt patterns that can actually match a URL
+    // prefix: a leading wildcard, a leading scheme, or a scheme separator anywhere. A grouping
+    // prefix like `(admin|billing)` is not enough — `^(admin|billing)$` still can't match a URL.
+    const canMatchFromStart = /^(\.[*+]|https?:)/i.test(pattern) || pattern.includes('://')
     if (!canMatchFromStart) {
         return `This is matched against the whole page URL, so "${pattern}" on its own will never match. Wrap it to match the full URL, for example ".*${pattern}.*", then use the URL tester below to confirm it matches before saving.`
     }
