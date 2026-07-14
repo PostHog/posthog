@@ -203,10 +203,12 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # workflow_run carries updated_at, which GitHub bumps on every status change — the natural
         # recency key so a completed run is never frozen by a stale earlier webhook event.
         version_keys=["updated_at"],
-        # Zero-day floor: like workflow_jobs, the webhook is the source of truth, so poll does no
-        # historical backfill. Crawling a busy repo's whole /actions/runs history on connect is huge
-        # against a shared, rate-limited budget and needlessly delays webhook mode (which only starts
-        # once the initial sync completes). History, if wanted, is a deliberate one-off backfill.
+        # Webhook-only marker, like workflow_jobs and reviews: the webhook is the source of truth.
+        # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
+        # webhook mode from the first sync (skips the initial_sync_complete gate in github.py), and
+        # makes the poll path yield no rows instead of crawling the full /actions/runs history.
+        # Crawling a busy repo's whole run history on connect is huge against a shared, rate-limited
+        # budget. History, if wanted, is a deliberate one-off backfill.
         initial_lookback_days=0,
     ),
     "workflow_jobs": GithubEndpointConfig(

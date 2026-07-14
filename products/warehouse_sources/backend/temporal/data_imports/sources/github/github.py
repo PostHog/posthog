@@ -953,6 +953,16 @@ def github_source(
             )
             return webhook_source_manager.get_items(table_transformer=transformer)
 
+        # Webhook-only endpoints (webhook-capable with initial_lookback_days == 0: workflow_runs,
+        # workflow_jobs, reviews) do no poll backfill — the webhook is the source of truth. When
+        # webhook mode isn't active for one (no webhook function yet, or reset_pipeline forced the
+        # poll path), yield nothing rather than crawling the full REST history. Without this the
+        # direct workflow_runs poll ignores the zero-day marker and re-crawls all of /actions/runs,
+        # the exact backfill the marker is meant to prevent. Matches the Slack/Stripe webhook-only
+        # sources; webhook_source_manager is non-None only for webhook-capable endpoints.
+        if webhook_source_manager is not None and skip_initial_sync_complete_check:
+            return iter([])
+
         return get_rows(
             personal_access_token=personal_access_token,
             repository=repository,
