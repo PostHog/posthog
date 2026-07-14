@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -16,7 +16,30 @@ from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
     resume_task_in_cloud_workflow,
+    signal_task_followup_message,
 )
+from products.tasks.backend.temporal.constants import SEND_STEER_SIGNAL
+
+
+class TestSignalTaskFollowupMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (False, "send_followup_message"),
+            (True, SEND_STEER_SIGNAL),
+        ]
+    )
+    def test_uses_versioned_signal_without_changing_legacy_argument_count(
+        self, steer: bool, expected_signal: str
+    ) -> None:
+        handle = Mock()
+        handle.signal = AsyncMock()
+        client = Mock()
+        client.get_workflow_handle.return_value = handle
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            signal_task_followup_message("workflow-id", "hello", ["artifact-1"], steer=steer)
+
+        handle.signal.assert_awaited_once_with(expected_signal, args=["hello", ["artifact-1"]])
 
 
 @override_settings(DEBUG=False)

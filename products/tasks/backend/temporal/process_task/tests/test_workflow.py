@@ -319,7 +319,7 @@ class TestProcessTaskFollowupDispatch:
         assert await workflow._dispatch_next_followup() is True
         await asyncio.sleep(0)
 
-        await workflow.send_followup_message("use green instead", steer=True)
+        await workflow.send_steer_message("use green instead")
         assert await workflow._dispatch_next_followup() is True
 
         assert deliveries == [("keep working", False), ("use green instead", True)]
@@ -391,11 +391,13 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
 
         await workflow.send_followup_message("first", ["artifact-1"])
-        await workflow.send_followup_message("second", ["artifact-2"], True)
+        await workflow.send_steer_message("second", ["artifact-2"])
+        await workflow.send_followup_message("legacy-steer", ["artifact-3"], True)
 
         assert workflow._pending_followups == [
             PendingFollowup(message="first", artifact_ids=["artifact-1"]),
             PendingFollowup(message="second", artifact_ids=["artifact-2"], steer=True),
+            PendingFollowup(message="legacy-steer", artifact_ids=["artifact-3"], steer=True),
         ]
         assert workflow._pending_followup is None
         deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)
@@ -415,7 +417,7 @@ class TestProcessTaskWorkflowUnit:
                 "artifact_count": 1,
             },
         )
-        assert logger.info.call_count == 2
+        assert logger.info.call_count == 3
 
     async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
         logger = Mock()

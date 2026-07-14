@@ -157,6 +157,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SEND_STEER_SIGNAL,
     WARM_IDLE_TIMEOUT,
 )
 
@@ -1730,6 +1731,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def send_followup_message(
         self, message: str | None = None, artifact_ids: Optional[list[str]] = None, steer: bool = False
     ) -> None:
+        self._queue_followup_message(message, artifact_ids, steer=steer)
+
+    @temporalio.workflow.signal(name=SEND_STEER_SIGNAL)
+    async def send_steer_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+        self._queue_followup_message(message, artifact_ids, steer=True)
+
+    def _queue_followup_message(self, message: str | None, artifact_ids: Optional[list[str]], *, steer: bool) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
         context = self._context

@@ -29,6 +29,7 @@ from products.tasks.backend.temporal.constants import (
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SEND_STEER_SIGNAL,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -677,6 +678,42 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         source: str = FOLLOWUP_SOURCE_USER,
         steer: bool = False,
     ) -> None:
+        self._queue_followup_message(
+            ack_id,
+            message,
+            artifact_ids,
+            source,
+            steer=steer,
+            signal_name=SEND_FOLLOWUP_SIGNAL,
+        )
+
+    @workflow.signal(name=SEND_STEER_SIGNAL)
+    async def send_steer_message(
+        self,
+        ack_id: str,
+        message: str | None = None,
+        artifact_ids: Optional[list[str]] = None,
+        source: str = FOLLOWUP_SOURCE_USER,
+    ) -> None:
+        self._queue_followup_message(
+            ack_id,
+            message,
+            artifact_ids,
+            source,
+            steer=True,
+            signal_name=SEND_STEER_SIGNAL,
+        )
+
+    def _queue_followup_message(
+        self,
+        ack_id: str,
+        message: str | None,
+        artifact_ids: Optional[list[str]],
+        source: str,
+        *,
+        steer: bool,
+        signal_name: str,
+    ) -> None:
         """Accept a follow-up message from the parent and queue it.
 
         Whether this is a user-driven message or a CI prompt is decided by
@@ -693,7 +730,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ack_id=ack_id,
         )
         # Already dispatched (or rejected) — re-ack and skip.
-        if self._is_duplicate_signal(SEND_FOLLOWUP_SIGNAL, ack_id):
+        if self._is_duplicate_signal(signal_name, ack_id):
             return
         if any(p.ack_id == ack_id for p in self._pending_followups) or ack_id in self._in_flight_followup_ack_ids:
             # Still in flight from the first delivery (queued, or popped and
@@ -705,7 +742,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # route it to a fresh sandbox instead of waiting indefinitely
             # on a child that has already torn down its session.
             self._enqueue_ack(
-                signal_name=SEND_FOLLOWUP_SIGNAL,
+                signal_name=signal_name,
                 ack_id=ack_id,
                 accepted=False,
                 detail=SHUTDOWN_REJECTION_DETAIL,
@@ -743,6 +780,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         # arrives mid-dispatch sees it via the dedupe check in
         # `send_followup_message` and is dropped quietly.
         self._in_flight_followup_ack_ids.add(followup.ack_id)
+        signal_name = SEND_STEER_SIGNAL if followup.steer else SEND_FOLLOWUP_SIGNAL
         try:
             if self._should_skip_followup(followup.message, followup.artifact_ids):
                 workflow.logger.warning(
@@ -751,7 +789,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     ack_id=followup.ack_id,
                 )
                 self._enqueue_ack(
-                    signal_name=SEND_FOLLOWUP_SIGNAL,
+                    signal_name=signal_name,
                     ack_id=followup.ack_id,
                     accepted=False,
                     detail="empty follow-up skipped",
@@ -764,7 +802,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     artifact_ids=followup.artifact_ids,
                     steer=followup.steer,
                 )
-                self._enqueue_ack(signal_name=SEND_FOLLOWUP_SIGNAL, ack_id=followup.ack_id)
+                self._enqueue_ack(signal_name=signal_name, ack_id=followup.ack_id)
             except Exception as e:
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
@@ -782,7 +820,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 self._completion_error_type = "followup_delivery_failed"
                 self._task_completed = True
                 self._enqueue_ack(
-                    signal_name=SEND_FOLLOWUP_SIGNAL,
+                    signal_name=signal_name,
                     ack_id=followup.ack_id,
                     accepted=False,
                     detail=(cause_message or str(e))[:200],

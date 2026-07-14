@@ -91,6 +91,10 @@ ACK_TIMEOUT = timedelta(seconds=60)
 # under different ack_ids still work normally.
 MAX_ACK_RETRIES = 5
 
+# Versioned signal for steer delivery. Keeping the legacy follow-up signal's
+# positional arguments unchanged makes mixed-worker rolling deployments safe.
+SEND_STEER_SIGNAL = "send_steer_message"
+
 # Cooldown after a failed outbound-signal flush on the child side. The child's
 # main loop wakes whenever `_pending_outbound` is non-empty; if the parent is
 # unreachable the re-queued items would otherwise keep waking the loop

@@ -189,16 +189,18 @@ class TestSignalHandlers:
             )
         ]
 
-    async def test_send_followup_message_queues_pending_followup_without_ack(self, silent_workflow_logger):
+    async def test_send_steer_message_queues_pending_followup_without_ack(self, silent_workflow_logger):
         # ACK is deferred until the main loop actually dispatches — the
         # handler only enqueues. Logging is the only visible side-effect here.
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
 
-        await workflow.send_followup_message("ack-3", "hello", ["art-1"], source="user", steer=True)
+        await workflow.send_steer_message("ack-3", "hello", ["art-1"], source="user")
+        await workflow.send_followup_message("ack-legacy", "legacy", ["art-2"], "user", True)
 
         assert workflow._pending_followups == [
-            PendingFollowup(message="hello", artifact_ids=["art-1"], ack_id="ack-3", source="user", steer=True)
+            PendingFollowup(message="hello", artifact_ids=["art-1"], ack_id="ack-3", source="user", steer=True),
+            PendingFollowup(message="legacy", artifact_ids=["art-2"], ack_id="ack-legacy", source="user", steer=True),
         ]
         assert workflow._pending_outbound == []
         silent_workflow_logger.info.assert_called()
@@ -833,7 +835,7 @@ class TestHandleFollowupInFlightTracking:
         assert await workflow._dispatch_next_followup() is True
         await asyncio.sleep(0)
 
-        await workflow.send_followup_message("ack-steer", "use green instead", steer=True)
+        await workflow.send_steer_message("ack-steer", "use green instead")
         assert await workflow._dispatch_next_followup() is True
 
         assert deliveries == [("keep working", False), ("use green instead", True)]

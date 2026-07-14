@@ -20,6 +20,7 @@ from products.tasks.backend.temporal.constants import (
     HEARTBEAT_DEBOUNCE,
     MAX_ACK_RETRIES,
     MAX_CI_REPETITIONS,
+    SEND_STEER_SIGNAL,
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import (
     COMPLETE_TASK_SIGNAL,
@@ -239,6 +240,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
     async def send_followup_message(
         self, message: str | None = None, artifact_ids: Optional[list[str]] = None, steer: bool = False
     ) -> None:
+        self._queue_external_followup(message, artifact_ids, steer=steer)
+
+    @workflow.signal(name=SEND_STEER_SIGNAL)
+    async def send_steer_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
+        self._queue_external_followup(message, artifact_ids, steer=True)
+
+    def _queue_external_followup(self, message: str | None, artifact_ids: Optional[list[str]], *, steer: bool) -> None:
         self._pending_external_followups.append(
             PendingExternalFollowup(
                 message=message,
@@ -578,13 +586,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
 
     def _handle_shutdown_rejection(self, slot: PendingAckSlot) -> bool:
         """Re-queue rejected follow-up work. Returns True if anything was re-queued."""
-        if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-            # Older histories have four args; new deliveries append steer.
-            _ack_id, message, artifact_ids, source, *optional = slot.signal_args
-            steer = bool(optional and optional[0] is True)
+        if slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} and slot.signal_args is not None:
+            _ack_id, message, artifact_ids, source, *_legacy = slot.signal_args
             self._pending_external_followups.insert(
                 0,
-                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, steer=steer),
+                PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source),
             )
             workflow.logger.warning(
                 "task_management_followup_requeued_after_shutdown",
@@ -629,11 +635,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # than silently dropping user input.
         requeued = 0
         for slot in list(self._pending_ack_slots.values()):
-            if slot.signal_name == SEND_FOLLOWUP_SIGNAL and slot.signal_args is not None:
-                _ack_id, message, artifact_ids, source, *optional = slot.signal_args
-                steer = bool(optional and optional[0] is True)
+            if slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL} and slot.signal_args is not None:
+                _ack_id, message, artifact_ids, source, *_legacy = slot.signal_args
                 self._pending_external_followups.append(
-                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source, steer=steer)
+                    PendingExternalFollowup(message=message, artifact_ids=artifact_ids, source=source)
                 )
                 requeued += 1
         if requeued:
@@ -784,19 +789,18 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         ack_id = self._new_ack_id()
         signal_args: list[Any] = [ack_id, message, artifact_ids, source]
-        if steer:
-            signal_args.append(True)
+        signal_name = SEND_STEER_SIGNAL if steer else SEND_FOLLOWUP_SIGNAL
         # Register the slot *before* sending so an in-flight send-failure
         # leaves the slot intact for the retry loop to re-attempt. The child
         # dedupes by ack_id so re-sending is safe.
         self._pending_ack_slots[ack_id] = PendingAckSlot(
-            signal_name=SEND_FOLLOWUP_SIGNAL,
+            signal_name=signal_name,
             sent_at=workflow.now(),
             detail=f"source={source}",
             signal_args=signal_args,
         )
         try:
-            await self._sandbox_handle().signal(SEND_FOLLOWUP_SIGNAL, args=signal_args)
+            await self._sandbox_handle().signal(signal_name, args=signal_args)
         except Exception as e:
             # Keep the slot — `_retry_stale_acks` will try again after
             # ACK_TIMEOUT. This is the "child is dead, parent retries"
