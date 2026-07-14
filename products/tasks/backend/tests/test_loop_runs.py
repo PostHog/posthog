@@ -253,6 +253,8 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         result = fire_loop(loop, trigger, "fire-1", "rendered context")
 
         self.assertTrue(result.created)
+        assert result.task_id is not None
+        assert result.task_run_id is not None
         task = Task.objects.get(id=result.task_id)
         self.assertTrue(task.internal)
         self.assertEqual(task.origin_product, Task.OriginProduct.LOOP)
@@ -319,8 +321,9 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
         result = fire_loop(loop, trigger, "fire-1", "ctx")
 
+        assert result.task_run_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
-        if has_sandbox_environment:
+        if sandbox_environment is not None:
             self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
         else:
             self.assertNotIn("sandbox_environment_id", task_run.state)

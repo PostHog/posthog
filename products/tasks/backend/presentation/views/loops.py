@@ -73,6 +73,8 @@ class HasLoopsAccess(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if getattr(view, "action", None) == "trigger":
             return True
+        if not request.user.is_authenticated:
+            return False
         return tasks_access.has_loops_access(request.user, view.team)  # type: ignore[attr-defined]
 
 
