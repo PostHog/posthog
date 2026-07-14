@@ -41,6 +41,16 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
 
+        # Connection-scoped queries read the external source's upstream data directly. Their tables
+        # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the
+        # warehouse-table name lookup below can't reliably match — so fail closed and partition the
+        # cache by both gates execution enforces: source viewer access (the connection resolver) and
+        # backing warehouse-table access (the virtual-table build). Without this, a denied user
+        # could be served an allowed user's cached upstream rows on a cache hit.
+        if getattr(query, "connectionId", None):
+            scopes.add("external_data_source")
+            scopes.add("warehouse_table")
+
         # Warehouse tables/views are per-team and dynamic, and the HogQL schema isn't built here (the
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the

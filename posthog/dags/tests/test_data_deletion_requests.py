@@ -30,6 +30,8 @@ from posthog.dags.data_deletion_requests import (
     load_deletion_request,
     load_person_removal_request,
     load_property_removal_request,
+    process_property_removal_shard,
+    verify_property_removal,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 from posthog.test.persons import create_person
@@ -114,6 +116,7 @@ def test_load_deletion_request_transitions_to_in_progress():
     assert request.attempt_count == 1
     assert request.first_executed_at is not None
     assert request.last_executed_at == request.first_executed_at
+    assert request.last_dagster_run_id == context.run_id
 
 
 @pytest.mark.django_db
@@ -632,6 +635,7 @@ def test_load_property_removal_request_transitions_to_in_progress():
 
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.last_dagster_run_id == context.run_id
 
 
 @pytest.mark.django_db
@@ -1622,6 +1626,62 @@ def test_full_job_property_removal_fails_on_residual_duplicates(cluster: Clickho
 
 
 @pytest.mark.django_db
+def test_single_shard_op_reexecution_completes_failed_request(cluster: ClickhouseCluster):
+    now = datetime.now()
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(20)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["secret"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
+
+    # Attempt 1 dies inside the shard op, mid duplicate-window (cleaned rows inserted, originals kept).
+    with patch.object(LightweightDeleteMutationRunner, "__call__", side_effect=Exception("delete-originals failed")):
+        failed = data_deletion_request_property_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        )
+    assert not failed.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+
+    # UI-style re-execution: load is NOT re-run — rebuild its cached output from the persisted
+    # request and drive only the shard op, then the downstream fan-in ops, directly.
+    assert request.start_time is not None
+    assert request.end_time is not None
+    ctx = DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        events=request.events,
+        properties=request.properties,
+        person_properties=list(request.person_properties or []),
+        delete_all_events=request.delete_all_events,
+        hogql_predicate=request.hogql_predicate or "",
+        inserted_at_marker=request.property_removal_marker,
+    )
+    shard_num = sorted(cluster.shards)[0]
+    stats = process_property_removal_shard(build_op_context(), cluster, shard_num, ctx)
+    verify_property_removal(build_op_context(), cluster, ctx, [stats])
+    finalize_deletion_request(build_op_context(), ctx)
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 20
+    for row_props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
+        assert "secret" not in row_props
+        assert "keep" in row_props
+
+
+@pytest.mark.django_db
 def test_load_person_removal_request_transitions_to_in_progress():
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
@@ -1643,6 +1703,7 @@ def test_load_person_removal_request_transitions_to_in_progress():
     assert result.drop_recordings is False
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.last_dagster_run_id == ctx.run_id
 
 
 @pytest.mark.django_db

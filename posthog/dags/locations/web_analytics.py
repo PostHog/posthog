@@ -56,6 +56,7 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
         eager_web_analytics_precompute.web_analytics_eager_baseline_warming_job,
+        eager_web_analytics_precompute.web_analytics_eager_backfill_job,
         web_dimensional_precompute.web_dimensional_precompute_job,
         marketing_precompute.marketing_precompute_job,
         cache_favicons.cache_authorized_domain_favicons_job,

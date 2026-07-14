@@ -43,7 +43,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
@@ -240,7 +243,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper,
+                self._logger,
+                webhook_only=self._resource.webhook_only,
             )
 
             # If the schema has no DWH table, it's a first ever sync
@@ -551,6 +559,9 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
+
+        await self._logger.adebug("Syncing engineering analytics views")
+        await database_sync_to_async_pool(sync_engineering_analytics_views)(self._schema, self._source)
 
 
 def _estimate_size(obj: Any) -> int:

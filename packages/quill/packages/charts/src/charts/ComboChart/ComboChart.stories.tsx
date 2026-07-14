@@ -60,6 +60,26 @@ export const StackedBarsAndLine: Story = {
     },
 }
 
+/** Stacked bars with negative values stack below the zero baseline (`divergingStack`) instead of
+ *  being clamped to 0 — e.g. a SQL insight plotting an upvote count against a negated downvote
+ *  count, with a ratio line on top. */
+export const DivergingStackedBarsAndLine: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'high', label: 'High ratings', color: '', data: [22, 24, 28, 26, 30, 32, 31], type: 'bar' },
+            { key: 'low', label: 'Low ratings', color: '', data: [-8, -6, -9, -5, -7, -4, -6], type: 'bar' },
+            { key: 'ratio', label: 'Bad rating share', color: '', data: [27, 20, 24, 16, 19, 11, 16], type: 'line' },
+        ]
+        const config: ComboChartConfig = { showGrid: true, barLayout: 'stacked', divergingStack: true }
+        return (
+            <Stage>
+                <ComboChart series={series} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const GroupedBarsAndLine: Story = {
     render: () => {
         const theme = useReactiveTheme()
