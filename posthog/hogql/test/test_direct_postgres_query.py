@@ -62,17 +62,16 @@ class TestDirectPostgresQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("global_in", ast.CompareOperationOp.GlobalIn, "(1 IN 1)"),
-            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(1 NOT IN 1)"),
+            ("global_in", ast.CompareOperationOp.GlobalIn, "(x IN (SELECT session_id FROM sessions))"),
+            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(x NOT IN (SELECT session_id FROM sessions))"),
         ]
     )
     def test_postgres_printer_maps_global_in_operators(self, _name: str, op: ast.CompareOperationOp, expected_sql: str):
         # The resolver rewrites sessions/events IN subqueries to GlobalIn/GlobalNotIn; Postgres has no
         # distributed GLOBAL concept, so the printer must emit a plain IN/NOT IN rather than crashing.
         printer = PostgresPrinter(context=HogQLContext(team_id=self.team.pk))
-        node = ast.CompareOperation(op=op, left=ast.Constant(value=1), right=ast.Constant(value=1))
 
-        self.assertEqual(printer.visit_compare_operation(node), expected_sql)
+        self.assertEqual(printer._get_compare_op(op, "x", "(SELECT session_id FROM sessions)"), expected_sql)
 
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
