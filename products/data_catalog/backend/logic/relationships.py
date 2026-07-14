@@ -138,7 +138,7 @@ def accept_proposal(proposal: RelationshipProposal, user: Optional[User]) -> Rel
 
         _acquire_accessor_lock(proposal)
         existing_join = _get_exact_existing_join(proposal)
-        _probe_join(proposal, user)
+        _probe_join(proposal, user, existing_join=existing_join)
         join = existing_join or _create_join(proposal, user)
 
         proposal.status = RelationshipStatus.ACCEPTED
@@ -151,7 +151,9 @@ def accept_proposal(proposal: RelationshipProposal, user: Optional[User]) -> Rel
     return proposal
 
 
-def _probe_join(proposal: RelationshipProposal, user: Optional[User]) -> None:
+def _probe_join(
+    proposal: RelationshipProposal, user: Optional[User], *, existing_join: Optional[DataWarehouseJoin]
+) -> None:
     """Prove the join works by running SELECT {joined_field} FROM {source} LIMIT 10 through it."""
     database = Database.create_for(team_id=proposal.team_id, user=user)
     from_field = get_join_field_chain(proposal.source_table_key)
@@ -163,7 +165,7 @@ def _probe_join(proposal: RelationshipProposal, user: Optional[User]) -> None:
         source_table = database.get_table(proposal.source_table_name)
         joining_table = database.get_table(proposal.joining_table_name)
         existing_field = source_table.fields.get(proposal.field_name)
-        if existing_field is not None and not isinstance(existing_field, LazyJoin):
+        if existing_field is not None and existing_join is None:
             raise ValidationError(
                 {"field_name": f"'{proposal.field_name}' is already a field on '{proposal.source_table_name}'."}
             )
@@ -219,7 +221,7 @@ def _get_exact_existing_join(proposal: RelationshipProposal) -> Optional[DataWar
         if join.source_table_key == proposal.source_table_key
         and join.joining_table_name == proposal.joining_table_name
         and join.joining_table_key == proposal.joining_table_key
-        and join.configuration == proposal.configuration
+        and _normalize_configuration(join.configuration) == _normalize_configuration(proposal.configuration)
     ]
     if len(exact_matches) == len(joins):
         return exact_matches[0] if exact_matches else None
@@ -228,6 +230,10 @@ def _get_exact_existing_join(proposal: RelationshipProposal) -> Optional[DataWar
             {"field_name": f"'{proposal.field_name}' is already a join field on '{proposal.source_table_name}'."}
         )
     return None
+
+
+def _normalize_configuration(configuration: object) -> object:
+    return configuration if isinstance(configuration, dict) else {}
 
 
 def _create_join(proposal: RelationshipProposal, user: Optional[User]) -> DataWarehouseJoin:

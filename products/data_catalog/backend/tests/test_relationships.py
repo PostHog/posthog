@@ -107,8 +107,15 @@ class TestAcceptProposal(BaseTest):
             with self.assertRaises(ValidationError):
                 accept_proposal(proposal, self.user)
 
-    def test_exact_existing_join_is_reused(self) -> None:
-        join = DataWarehouseJoin.objects.create(team=self.team, configuration={}, **_JOIN)
+    def test_builtin_lazy_field_name_collision_rejected(self) -> None:
+        proposal = propose_relationship(team=self.team, user=self.user, **{**_JOIN, "field_name": "group_0"})
+        with patch.object(relationships, "execute_hogql_query"):
+            with self.assertRaises(ValidationError):
+                accept_proposal(proposal, self.user)
+
+    @parameterized.expand([("empty_dict", {}), ("null", None)])
+    def test_exact_existing_join_is_reused(self, _name: str, configuration: dict[str, Any] | None) -> None:
+        join = DataWarehouseJoin.objects.create(team=self.team, configuration=configuration, **_JOIN)
         proposal = self._propose()
         with patch.object(relationships, "execute_hogql_query"):
             accepted = accept_proposal(proposal, self.user)
