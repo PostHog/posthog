@@ -382,6 +382,11 @@ class PostgresPrinter(BasePrinter):
             return f"({left} IN {right})"
         elif op == ast.CompareOperationOp.NotIn:
             return f"({left} NOT IN {right})"
+        elif op == ast.CompareOperationOp.GlobalIn:
+            # Postgres has no distributed GLOBAL concept, so it maps to a plain IN
+            return f"({left} IN {right})"
+        elif op == ast.CompareOperationOp.GlobalNotIn:
+            return f"({left} NOT IN {right})"
         elif op == ast.CompareOperationOp.Regex:
             return f"({left} ~ {right})"
         elif op == ast.CompareOperationOp.NotRegex:
@@ -512,7 +517,11 @@ class PostgresPrinter(BasePrinter):
         elif node.op == ast.ArithmeticOperationOp.Div:
             return f"({self.visit(node.left)} / {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Mod:
-            return f"({self.visit(node.left)} % {self.visit(node.right)})"
+            # A bare `%` can't appear in printed SQL — during client-side binding psycopg
+            # reads it as the start of a parameter placeholder (valid ones look like
+            # `%(hogql_val_0)s`) and errors on the incomplete placeholder. So modulo renders
+            # as MOD(a, b). Both Postgres and DuckDB (which subclasses this printer) support MOD().
+            return f"MOD({self.visit(node.left)}, {self.visit(node.right)})"
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 

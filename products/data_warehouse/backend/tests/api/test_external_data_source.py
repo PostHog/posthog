@@ -26,6 +26,8 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
@@ -43,6 +45,7 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
 from products.data_warehouse.backend.presentation.views.external_data_source import (
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
+    get_oauth_integration_kinds,
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
@@ -70,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -361,6 +365,56 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == created_via
 
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The MCP server appends the originating client to its own UA when proxying.
+            (
+                "posthog/mcp-server; version: 1.0.0; for posthog/code",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # Plain MCP clients keep the machine-injected value.
+            (
+                "posthog/mcp-server; version: 1.0.0",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.MCP,
+            ),
+            # Explicit non-MCP values are never rewritten, even with an upgrading user agent.
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_transport_user_agent_upgrades_mcp_created_via(
+        self, user_agent, sent_created_via, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": sent_created_via,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={"user-agent": user_agent},
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -383,13 +437,22 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == ExternalDataSource.CreatedVia.API
 
-    def test_create_external_data_source_rejects_invalid_created_via(self):
+    @parameterized.expand(
+        [
+            ("garbage_value", "hacker"),
+            # `wizard` and `self_driving` are derived server-side; a caller must not be able to
+            # self-label as wizard- or PostHog Code-created.
+            ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+            ("self_driving_is_not_caller_settable", ExternalDataSource.CreatedVia.SELF_DRIVING),
+        ]
+    )
+    def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
         # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
-                "created_via": "hacker",
+                "created_via": created_via,
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -434,7 +497,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted_defaults_true", {}, True),
+            ("omitted_defaults_false", {}, False),
             ("explicit_true", {"direct_query_enabled": True}, True),
             ("explicit_false", {"direct_query_enabled": False}, False),
         ]
@@ -518,17 +581,17 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
-        assert source.direct_query_enabled is True
+        assert source.direct_query_enabled is False
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"direct_query_enabled": False},
+            data={"direct_query_enabled": True},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["direct_query_enabled"] is False
+        assert response.json()["direct_query_enabled"] is True
         source.refresh_from_db()
-        assert source.direct_query_enabled is False
+        assert source.direct_query_enabled is True
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
@@ -1721,19 +1784,76 @@ class TestExternalDataSource(APIBaseTest):
                     "id": str(snowflake_source.pk),
                     "prefix": "Analytics Snowflake",
                     "engine": "snowflake",
+                    "source_type": "Snowflake",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(mysql_source.pk),
                     "prefix": "Reporting MySQL",
                     "engine": "mysql",
+                    "source_type": "MySQL",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
             ],
         )
+
+    def test_connections_lists_synced_sources_only_when_direct_query_enabled(self):
+        enabled_synced = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Enabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # Toggle off: must not be listed.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Disabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=False,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # No direct engine for the type: must not be listed even with the toggle on.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="Stripe synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["id"] for item in payload], [str(enabled_synced.pk)])
+        self.assertEqual(payload[0]["access_method"], "warehouse")
+        self.assertEqual(payload[0]["source_type"], "Postgres")
+        self.assertEqual(payload[0]["supports_hogql"], True)
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -10745,11 +10865,102 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
 
 
+class TestGetOAuthIntegrationKinds(APIBaseTest):
+    """These kinds are what the OAuth accounts endpoint pins a caller-supplied integration id against, so
+    a source whose OAuth field this fails to find would have its account listing rejected."""
+
+    def test_collects_kinds_from_both_oauth_field_types(self):
+        # A picker (`oauth-account-select`) and the plain `oauth` field it reads from, as the ad sources
+        # declare them. GitHub lists accounts off the plain field alone, with no picker.
+        fields = [
+            SourceFieldOauthConfig(
+                name="linkedin_ads_integration_id", label="Account", kind="linkedin-ads", required=True
+            ),
+            SourceFieldOauthAccountSelectConfig(
+                name="account_id",
+                label="Account ID",
+                integrationField="linkedin_ads_integration_id",
+                integrationKind="linkedin-ads",
+                required=True,
+            ),
+            SourceFieldInputConfig(
+                name="unrelated",
+                label="Unrelated",
+                type=SourceFieldInputConfigType.TEXT,
+                required=False,
+                placeholder="",
+                secret=False,
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"linkedin-ads"}
+
+    def test_finds_nested_oauth_fields(self):
+        # No source nests its OAuth field today, but one that did would otherwise resolve to no kinds at
+        # all and get its account listing 400'd.
+        fields = [
+            SourceFieldSwitchGroupConfig(
+                name="advanced",
+                label="Advanced",
+                default=False,
+                fields=cast(
+                    list,
+                    [
+                        SourceFieldOauthConfig(
+                            name="integration_id", label="Connection", kind="in-a-switch-group", required=True
+                        )
+                    ],
+                ),
+            ),
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                required=True,
+                defaultValue="oauth",
+                options=[
+                    SourceFieldSelectConfigOption(
+                        label="OAuth",
+                        value="oauth",
+                        fields=cast(
+                            list,
+                            [
+                                SourceFieldOauthAccountSelectConfig(
+                                    name="account_id",
+                                    label="Account",
+                                    integrationField="integration_id",
+                                    integrationKind="in-a-select-option",
+                                    required=True,
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"in-a-switch-group", "in-a-select-option"}
+
+    def test_source_without_oauth_fields_has_no_kinds(self):
+        fields = [
+            SourceFieldInputConfig(
+                name="host",
+                label="Host",
+                type=SourceFieldInputConfigType.TEXT,
+                required=True,
+                placeholder="",
+                secret=False,
+            )
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == set()
+
+
 class TestOAuthAccountsEndpoint(APIBaseTest):
     _GSC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source"
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10771,6 +10982,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             config={},
             sensitive_config={"access_token": "token", "refresh_token": "refresh"},
             integration_id="bing_test",
+            created_by=self.user,
+        )
+
+    def _linkedin_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="linkedin-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="linkedin_test",
             created_by=self.user,
         )
 
@@ -10842,6 +11063,42 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             }
         ]
 
+    def test_search_filters_returned_accounts(self):
+        # GSC ignores `search`, so the endpoint filters its returned list generically.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(
+                f"{self._GSC_MODULE}.list_sites",
+                return_value=[
+                    {"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"},
+                    {"siteUrl": "https://other.org/", "permissionLevel": "siteOwner"},
+                ],
+            ),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id) + "&search=other")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["https://other.org/"]
+
+    def test_github_lists_repositories_with_search(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={},
+            sensitive_config={"access_token": "gho_test"},
+            integration_id="gh_test",
+            created_by=self.user,
+        )
+        gh_path = "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+        with patch(gh_path) as mock_gh:
+            mock_gh.return_value.list_cached_repositories.return_value = ([{"full_name": "PostHog/posthog"}], False)
+            response = self.client.get(self._url("Github", integration.id) + "&search=posthog")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [a["value"] for a in response.json()["accounts"]] == ["PostHog/posthog"]
+        mock_gh.return_value.list_cached_repositories.assert_called_once_with(search="posthog", limit=100, offset=0)
+
     @parameterized.expand([(401,), (403,)])
     def test_gsc_auth_error_returns_actionable_400(self, status_code: int):
         integration = self._gsc_integration()
@@ -10853,6 +11110,70 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect your account" in str(response.json()).lower()
+
+    def test_linkedin_success_maps_ad_accounts_to_accounts(self):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.return_value = [{"id": 5123, "name": "Acme Ads", "status": "ACTIVE"}]
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "5123",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["ACTIVE"],
+                "group": None,
+                "secondary_text": None,
+            }
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_linkedin_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.side_effect = LinkedinAdsApiError(f"LinkedIn API error ({status_code}): nope", status_code)
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-authorize" in str(response.json()).lower()
+
+    def test_linkedin_non_auth_api_error_is_not_swallowed(self):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.side_effect = LinkedinAdsApiError("LinkedIn API error (400): bad", 400)
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_integration_of_another_kind_is_rejected(self):
+        # Same team, so the (id, team_id) lookup each source does would accept it: only the kind check
+        # stops this Bing token from being sent to LinkedIn's API.
+        integration = self._bing_integration()
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
+
+    def test_integration_from_another_team_is_rejected(self):
+        other_team = Team.objects.create(organization=self.organization)
+        integration = Integration.objects.create(
+            team=other_team,
+            kind="linkedin-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="linkedin_other_team",
+        )
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
 
     @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
     def test_bing_success_returns_accounts(self):

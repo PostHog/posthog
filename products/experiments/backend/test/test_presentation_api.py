@@ -5181,6 +5181,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
 
+        # The response must reflect the flag we just disabled, not a stale pre-mutation echo.
+        # MinimalFeatureFlagSerializer exposes active but not archived, so archived is checked on the row.
+        self.assertFalse(archive_response.json()["feature_flag"]["active"])
+
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
         self.assertFalse(feature_flag.active)
         self.assertTrue(feature_flag.archived)
@@ -5525,7 +5529,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-        new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
@@ -5557,7 +5561,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-        new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
@@ -5580,7 +5584,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
     )
     @patch(
         "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-        new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",

@@ -790,7 +790,10 @@
             "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
         },
         "AnyDataNode": {
-            "anyOf": [
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -995,7 +998,9 @@
                 {
                     "$ref": "#/definitions/MCPToolNeighborsQuery"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "AnyDataWarehouseNode": {
             "anyOf": [
@@ -1033,32 +1038,6 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
-                }
-            ]
-        },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
-        "AnyEntityNode<LifecycleDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
         },
@@ -13319,7 +13298,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/CalendarHeatmapQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -13333,6 +13312,27 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "CalendarHeatmapQuerySeriesNode": {
+            "$ref": "#/definitions/CalendarHeatmapQuerySeriesNodeUnion"
+        },
+        "CalendarHeatmapQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "CalendarHeatmapResponse": {
@@ -16766,107 +16766,7 @@
                     "type": "boolean"
                 },
                 "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/EventsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/EventsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/PersonsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/ActorsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebOverviewQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebStatsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebExternalClicksTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebGoalsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebVitalsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionAttributionExplorerQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueExampleEventsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/MarketingAnalyticsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ErrorTrackingQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentTrendsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/TracesQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/TraceQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/EndpointsUsageTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AccountsQuery"
-                        }
-                    ],
+                    "$ref": "#/definitions/DataTableNodeSource",
                     "description": "Source of the events"
                 },
                 "tags": {
@@ -16878,6 +16778,117 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataTableNodeSource": {
+            "$ref": "#/definitions/DataTableNodeSourceUnion"
+        },
+        "DataTableNodeSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActorsQuery"
+                },
+                {
+                    "$ref": "#/definitions/GroupsQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebExternalClicksTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebGoalsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebVitalsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionAttributionExplorerQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueExampleEventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
+                },
+                {
+                    "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionQuery"
+                },
+                {
+                    "$ref": "#/definitions/EndpointsUsageTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountsQuery"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "DataTableNodeViewPropsContext": {
@@ -17208,6 +17219,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17237,10 +17249,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -17760,7 +17773,11 @@
             "type": "string"
         },
         "DetectorConfig": {
-            "anyOf": [
+            "description": "Detector configuration types",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/SingleDetectorConfig"
                 },
@@ -17768,7 +17785,8 @@
                     "$ref": "#/definitions/EnsembleDetectorConfig"
                 }
             ],
-            "description": "Detector configuration types"
+            "required": ["type"],
+            "type": "object"
         },
         "DetectorType": {
             "enum": [
@@ -23252,7 +23270,12 @@
                 "Zep",
                 "Hex",
                 "Singular",
-                "Swonkie"
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23536,6 +23559,7 @@
                 "conversations",
                 "toolbar",
                 "visual_review",
+                "code_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23938,14 +23962,19 @@
             "type": "string"
         },
         "FunnelExclusion": {
-            "anyOf": [
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/FunnelExclusionEventsNode"
                 },
                 {
                     "$ref": "#/definitions/FunnelExclusionActionsNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "FunnelExclusionActionsNode": {
             "additionalProperties": false,
@@ -24651,14 +24680,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -24729,6 +24751,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsQuerySeriesNode": {
+            "$ref": "#/definitions/FunnelsQuerySeriesNodeUnion"
+        },
+        "FunnelsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -25269,7 +25315,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25376,7 +25422,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25521,7 +25567,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
@@ -26829,6 +26875,7 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
+                "apns",
                 "postgresql",
                 "aws-s3",
                 "s3-compatible"
@@ -27378,7 +27425,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
+                        "$ref": "#/definitions/LifecycleQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -27450,6 +27497,27 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "LifecycleQuerySeriesNode": {
+            "$ref": "#/definitions/LifecycleQuerySeriesNodeUnion"
+        },
+        "LifecycleQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "LifecycleToggle": {
@@ -28437,10 +28505,10 @@
         },
         "MCPToolFailureItem": {
             "additionalProperties": false,
-            "description": "One row of the per-tool \"Failures\" table: an exception message paired with a tool.",
+            "description": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
             "properties": {
                 "harnesses": {
-                    "description": "Resolved harness labels seen for this exception, deduped and sorted.",
+                    "description": "Resolved harness labels seen for this failure, deduped and sorted.",
                     "items": {
                         "type": "string"
                     },
@@ -28450,6 +28518,7 @@
                     "type": "string"
                 },
                 "message": {
+                    "description": "Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. \"api_5xx (HTTP 500)\").",
                     "type": "string"
                 },
                 "occurrences": {
@@ -28461,7 +28530,7 @@
         },
         "MCPToolFailuresQuery": {
             "additionalProperties": false,
-            "description": "Top exception messages paired with a single MCP tool, with server-resolved harness labels.",
+            "description": "Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels.",
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -28481,7 +28550,7 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "toolName": {
-                    "description": "The raw $mcp_tool_name to scope $exception events to.",
+                    "description": "The effective tool name to scope to (matched against the single-exec-resolved tool name).",
                     "type": "string"
                 },
                 "version": {
@@ -31662,6 +31731,22 @@
             "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
             "type": "string"
         },
+        "MetricsAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches.",
+            "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "MetricsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "MetricsAttributeScope": {
             "description": "Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes.",
             "enum": ["resource", "attribute", "auto"],
@@ -33438,6 +33523,7 @@
                 "product_analytics",
                 "product_tours",
                 "revenue_analytics",
+                "review_hog",
                 "session_replay",
                 "replay_vision",
                 "site_apps",
@@ -44574,7 +44660,11 @@
             "type": "string"
         },
         "SingleDetectorConfig": {
-            "anyOf": [
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/ZScoreDetectorConfig"
                 },
@@ -44612,7 +44702,8 @@
                     "$ref": "#/definitions/PCADetectorConfig"
                 }
             ],
-            "description": "A single (leaf) detector config"
+            "required": ["type"],
+            "type": "object"
         },
         "SlackIntegrationScope": {
             "enum": [
@@ -45434,7 +45525,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/StickinessQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -45510,6 +45601,27 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "StickinessQuerySeriesNode": {
+            "$ref": "#/definitions/StickinessQuerySeriesNodeUnion"
+        },
+        "StickinessQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "SubagentUpdateEvent": {
@@ -48014,14 +48126,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/TrendsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -48108,6 +48213,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TrendsQuerySeriesNode": {
+            "$ref": "#/definitions/TrendsQuerySeriesNodeUnion"
+        },
+        "TrendsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "UsageMetric": {
