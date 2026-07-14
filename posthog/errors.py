@@ -969,4 +969,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
-CH_TRANSIENT_ERRORS = (CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error)
+# ClickHouseAtCapacity is what wrap_clickhouse_query_error actually raises for the capacity codes
+# (TOO_MANY_SIMULTANEOUS_QUERIES / CANNOT_SCHEDULE_TASK), so it must be here for retries to trigger.
+CH_TRANSIENT_ERRORS = (
+    ClickHouseAtCapacity,
+    CHQueryErrorTooManySimultaneousQueries,
+    CHQueryErrorCannotScheduleTask,
+    CHQueryErrorS3Error,
+)
