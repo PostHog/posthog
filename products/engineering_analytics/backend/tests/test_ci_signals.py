@@ -8,6 +8,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 import pandas as pd
 
+from products.engineering_analytics.backend.logic.ci_signals_config import (
+    AUTHORIZED_SOURCES_CONFIG_KEY,
+    CI_SIGNAL_SOURCE_TYPES,
+    list_authorized_ci_signal_sources,
+    update_ci_signals_config,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
@@ -26,6 +32,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.tests.test_views import create_github_source
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.models import SignalSourceConfig
@@ -121,6 +128,52 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
     for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_MASTER, SOURCE_TYPE_DURATION_REGRESSION):
         assert source_type in {choice.value for choice in SignalSourceConfig.SourceType}
         assert (SOURCE_PRODUCT, source_type) in SIGNAL_VARIANT_LOOKUP
+
+
+class TestCISignalSourceAuthorization(BaseTest):
+    def test_sweep_scans_only_the_snapshot_the_enabling_user_authorized(self) -> None:
+        # The sweep is userless — enabling must snapshot the authorized sources, and the
+        # coordinator must never widen back to "all of the team's sources".
+        first = create_github_source(self.team, prefix="one_", source_id="gh-1")
+        second = create_github_source(self.team, prefix="two_", source_id="gh-2")
+        update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
+
+        for row in SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT):
+            assert set(row.config[AUTHORIZED_SOURCES_CONFIG_KEY]) == {str(first.id), str(second.id)}
+        authorized = list_authorized_ci_signal_sources(team=self.team)
+        assert {source.source_id for source in authorized} == {str(first.id), str(second.id)}
+        assert {source.authorized_by_user_id for source in authorized} == {self.user.id}
+
+        # A source connected after enabling was never authorized — excluded until a re-enable.
+        create_github_source(self.team, prefix="three_", source_id="gh-3")
+        assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {
+            str(first.id),
+            str(second.id),
+        }
+
+        # A snapshot entry whose source was deleted since drops out.
+        second.deleted = True
+        second.save()
+        assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {str(first.id)}
+
+        # A deactivated authorizing user fails the whole sweep closed.
+        self.user.is_active = False
+        self.user.save()
+        assert list_authorized_ci_signal_sources(team=self.team) == []
+
+    def test_rows_without_a_snapshot_authorize_nothing(self) -> None:
+        # Legacy or hand-created enabled rows carry no snapshot — they must not widen the sweep.
+        create_github_source(self.team, prefix="one_", source_id="gh-1")
+        for source_type in CI_SIGNAL_SOURCE_TYPES:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SOURCE_PRODUCT,
+                source_type=source_type,
+                enabled=True,
+                config={},
+                created_by=self.user,
+            )
+        assert list_authorized_ci_signal_sources(team=self.team) == []
 
 
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):

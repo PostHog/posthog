@@ -5,6 +5,11 @@ discovers enrolled teams and their GitHub sources, then runs one detect-and-emit
 Each source is independent and fail-silent, so one bad warehouse source can't sink the sweep. Emission goes
 through the Signals facade's ``emit_signal``, which re-checks org AI-approval and the per-type source
 config — this coordinator only decides *when* to look.
+
+The sweep runs with no request user, so enrollment alone never authorizes reading a warehouse
+source: it scans only the source ids the enabling user snapshot-authorized (see
+``list_authorized_ci_signal_sources``), and every read runs under that user's current
+``UserAccessControl`` — deletion, revocation, or a deactivated authorizer all fail closed.
 """
 
 import json
@@ -19,12 +24,14 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.engineering_analytics.backend.logic.ci_signals_config import list_authorized_ci_signal_sources
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
-from products.engineering_analytics.backend.logic.sources import list_github_sources
 from products.signals.backend.facade.api import emit_signal, team_ids_with_source_product_enabled
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +47,8 @@ TEAM_ACTIVITY_BATCH_SIZE = 10
 class CISignalTarget:
     team_id: int
     source_id: str
+    # The enabling user whose warehouse RBAC authorizes reading this source (see module docstring).
+    authorized_by_user_id: int
 
 
 def _rollout_flag_enabled(team: Team) -> bool:
@@ -61,7 +70,10 @@ def _discover_targets_for_team(team_id: int) -> list[CISignalTarget]:
     team = Team.objects.filter(id=team_id).first()
     if team is None or not _rollout_flag_enabled(team):
         return []
-    return [CISignalTarget(team_id=team.id, source_id=source.id) for source in list_github_sources(team=team)]
+    return [
+        CISignalTarget(team_id=team.id, source_id=source.source_id, authorized_by_user_id=source.authorized_by_user_id)
+        for source in list_authorized_ci_signal_sources(team=team)
+    ]
 
 
 def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], Team | None]:
@@ -69,7 +81,12 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
     # Re-check the rollout flag: retries can run this activity well after discovery checked it.
     if team is None or not _rollout_flag_enabled(team):
         return [], None
-    return detect_for_source(team, target.source_id), team
+    # Re-resolve the authorizing user too — access revoked or deactivated since discovery fails closed.
+    user = User.objects.filter(id=target.authorized_by_user_id, is_active=True).first()
+    if user is None:
+        return [], None
+    access_control = UserAccessControl(user=user, team=team)
+    return detect_for_source(team, target.source_id, user_access_control=access_control), team
 
 
 async def _execute_target_activity(target: CISignalTarget) -> dict[str, Any] | None:

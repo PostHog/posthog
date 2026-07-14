@@ -55,9 +55,21 @@ def signal_source_types_state(
 
 
 def set_signal_source_types_enabled(
-    *, team_id: int, source_product: str, source_types: tuple[str, ...], enabled: bool, created_by_id: int
+    *,
+    team_id: int,
+    source_product: str,
+    source_types: tuple[str, ...],
+    enabled: bool,
+    created_by_id: int,
+    config: dict | None = None,
 ) -> None:
-    """Atomically update a product-owned bundle of signal-source types."""
+    """Atomically update a product-owned bundle of signal-source types.
+
+    ``config`` is the product-owned payload stored on every row of the bundle — e.g.
+    engineering_analytics snapshots the warehouse source ids the enabling user was authorized to
+    read. Every enable refreshes ``config`` and ``created_by`` (even on already-enabled rows), so
+    the stored authorization always reflects the most recent enabling user, never an earlier one.
+    """
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
@@ -68,15 +80,18 @@ def set_signal_source_types_enabled(
             ).update(enabled=False)
             return
         for source_type in source_types:
-            config, created = SignalSourceConfig.objects.get_or_create(
+            row, created = SignalSourceConfig.objects.get_or_create(
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
-                defaults={"enabled": True, "config": {}, "created_by_id": created_by_id},
+                defaults={"enabled": True, "config": config or {}, "created_by_id": created_by_id},
             )
-            if not created and not config.enabled:
-                config.enabled = True
-                config.save(update_fields=["enabled", "updated_at"])
+            if created:
+                continue
+            row.enabled = True
+            row.config = config or {}
+            row.created_by_id = created_by_id
+            row.save(update_fields=["enabled", "config", "created_by", "updated_at"])
 
 
 def _token_count(text: str) -> int:

@@ -69,8 +69,16 @@ def get_ci_signals_config(*, team: Team) -> CISignalsConfig:
     return logic.get_ci_signals_config(team=team)
 
 
-def update_ci_signals_config(*, team: Team, enabled: bool, created_by_id: int) -> CISignalsConfig:
-    return logic.update_ci_signals_config(team=team, enabled=enabled, created_by_id=created_by_id)
+def update_ci_signals_config(
+    *,
+    team: Team,
+    enabled: bool,
+    created_by_id: int,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CISignalsConfig:
+    return logic.update_ci_signals_config(
+        team=team, enabled=enabled, created_by_id=created_by_id, user_access_control=user_access_control
+    )
 
 
 def get_pr_lifecycle(

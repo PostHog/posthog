@@ -232,6 +232,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             enabled=request.validated_data["enabled"],
             # Must be authenticated to reach this endpoint, so this is a real User, not AnonymousUser.
             created_by_id=cast(User, request.user).id,
+            # Enabling snapshots the sources this user may access as the sweep's authorization.
+            user_access_control=self.user_access_control,
         )
         return Response(CISignalsConfigSerializer(instance=result).data)
 
