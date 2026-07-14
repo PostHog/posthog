@@ -357,6 +357,8 @@ jobs:
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -818,7 +820,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -841,6 +844,12 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
@@ -910,33 +919,6 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: ./bin/hogli owners:lint --live
-
-    # Lints the distributed owners.yaml tree: schema, product.yaml/owners.yaml
-    # conflicts, dead rule globs, and coverage (warn-only). Runs without --live so
-    # it needs no GitHub API or secrets — which is why it is NOT fork-gated like
-    # validate-product-yamls above: fork PRs must not skip owners.yaml validation.
-    lint-owners:
-        needs: [changes]
-        if: needs.changes.outputs.product_yamls == 'true' && github.event_name == 'pull_request'
-        timeout-minutes: 5
-        name: Lint owners.yaml files (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14'
-            # The standalone owners package and its two deps are all this job
-            # needs — skip the full monorepo dev sync.
-            - name: Install owners package
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --package posthog-owners
-            - name: Lint owners.yaml files
-              run: owners lint
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
