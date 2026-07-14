@@ -1,5 +1,6 @@
 import type { Experiment } from '~/types'
 
+import { getExperimentVariants } from '../utils'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { getVariantValidationErrors } from './variantsPanelValidation'
 
@@ -29,7 +30,7 @@ export const validateExperimentSubmission = ({
     // Check variants
     const variantErrors = getVariantValidationErrors({
         flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters?.feature_flag_variants ?? [],
+        variants: getExperimentVariants(experiment),
         featureFlagKeyValidation,
         mode,
     })

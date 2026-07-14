@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.organization import OrganizationMembership
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
@@ -50,7 +51,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
                 f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
 
-    if compute_quota_snapshot(scanner.team.organization_id).exhausted:
+    if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(scanner.model)):
         activity.logger.info(
             "Skipping observation: monthly quota exhausted",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},

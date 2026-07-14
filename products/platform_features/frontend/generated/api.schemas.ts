@@ -645,7 +645,6 @@ export interface PatchedApprovalPolicyApi {
 /**
  * * `valid` - Valid
  * * `invalid` - Invalid
- * * `expired` - Expired
  * * `stale` - Stale (resource changed)
  */
 export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
@@ -653,7 +652,6 @@ export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typ
 export const ValidationStatusEnumApi = {
     Valid: 'valid',
     Invalid: 'invalid',
-    Expired: 'expired',
     Stale: 'stale',
 } as const
 
@@ -996,6 +994,8 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1078,6 +1078,8 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
 } as const
 
 /**
@@ -1147,6 +1149,8 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `StreamlitApp` - StreamlitApp
+ * * `Metric` - Metric
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1217,6 +1221,8 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
 } as const
 
 export type AdvancedActivityLogsListParams = {

@@ -1,5 +1,6 @@
-import type { BlockedWindow } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
+
+import type { BlockedWindow } from 'products/alerts/frontend/types'
 
 type ParsedWindow = { start: number; end: number; overnight: boolean }
 

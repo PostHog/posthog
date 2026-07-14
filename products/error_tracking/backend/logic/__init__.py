@@ -156,6 +156,10 @@ def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return get_issue_list_queryset(team_id)
 
 
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:
+    return list(get_issue_list_queryset(team_id).filter(created_at__gte=since).order_by("-created_at")[:limit])
+
+
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
     issue = get_issue_detail_queryset(team_id).filter(id=issue_id).first()
     if issue is None:
@@ -192,6 +196,15 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[Er
     if issue_id is not None:
         queryset = queryset.filter(issue_id=issue_id)
     return queryset
+
+
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
+    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at")
+        .distinct("issue_id")
+    )
 
 
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:
@@ -436,16 +449,19 @@ def create_release(
 ) -> ErrorTrackingRelease:
     release_id = UUIDT()
     resolved_hash_id = hash_id or str(release_id)
-    if release_hash_exists(team_id, resolved_hash_id):
-        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
-    return ErrorTrackingRelease.objects.create(
-        id=release_id,
+    release, created = ErrorTrackingRelease.objects.get_or_create(
         team_id=team_id,
         hash_id=resolved_hash_id,
-        metadata=metadata,
-        project=str(project),
-        version=str(version),
+        defaults={
+            "id": release_id,
+            "metadata": metadata,
+            "project": str(project),
+            "version": str(version),
+        },
     )
+    if not created:
+        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    return release
 
 
 def update_release(

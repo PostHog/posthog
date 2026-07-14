@@ -37,9 +37,10 @@
 - image: cymbal
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
-  # Frame pointers so the eBPF profiler can walk cymbal's native stacks on
-  # aarch64 (see EXTRA_RUSTFLAGS in rust/Dockerfile).
-  extra_rustflags: -C force-frame-pointers=yes
+  # Frame pointers and unwind tables so the profiler can walk Cymbal stacks on
+  # aarch64, including native dependency frames (see rust/Dockerfile).
+  extra_rustflags: -C force-frame-pointers=yes -C force-unwind-tables=yes
+  extra_cflags: -fno-omit-frame-pointer -fasynchronous-unwind-tables
 
 - image: embedding-worker
   dockerfile: ./rust/Dockerfile

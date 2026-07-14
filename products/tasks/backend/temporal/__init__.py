@@ -1,4 +1,6 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
+from .build_image.workflow import BuildSandboxImageWorkflow
 from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
 from .code_workstreams.activities.list_active_teams import list_active_code_teams
 from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
@@ -30,6 +32,7 @@ from .process_task.activities import (
     invalidate_resume_snapshot,
     launch_agent_server,
     mark_repo_ready,
+    post_permission_delivery_failure_notice,
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
@@ -38,6 +41,8 @@ from .process_task.activities import (
     relay_sandbox_events,
     run_wizard,
     send_followup_to_sandbox,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
@@ -61,6 +66,7 @@ WORKFLOWS = [
     RunTaskAutomationWorkflow,
     EvaluateCodeWorkstreamsWorkflow,
     EvaluateTeamCodeWorkstreamsWorkflow,
+    BuildSandboxImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -80,6 +86,9 @@ ACTIVITIES = [
     relay_agent_design_signals,
     relay_sandbox_events,
     create_resume_snapshot,
+    post_permission_delivery_failure_notice,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
     send_followup_to_sandbox,
     start_agent_server,
     launch_agent_server,
@@ -105,6 +114,10 @@ ACTIVITIES = [
     snapshot_setup_repository,
     snapshot_create_snapshot,
     snapshot_cleanup_sandbox,
+    # build_image activities
+    scan_image_spec,
+    build_and_publish_image,
+    mark_image_build_failed,
     list_active_code_teams,
     load_team_pr_urls,
     discover_branch_prs,

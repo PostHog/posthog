@@ -19,7 +19,6 @@ whatever HogQL refs it also reads — the same input shape Python nodes use.
 """
 
 import re
-import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,12 +46,15 @@ class SQLV2ReferenceError(Exception):
 class SQLV2Ref:
     """One upstream node available to a run, keyed by its dataframe name.
 
-    kind "hogql" is a query definition (last_run_code holds its last-run, self-contained
-    HogQL, or None if it has never completed a run); kind "local" is a frame a Python node
-    bound in the kernel namespace — it has no query, only a name.
+    kind "hogql" is a query definition — node_id names the upstream node, and run_id /
+    last_run_code identify its latest completed run (both None if it has never completed
+    one); kind "local" is a frame a Python node bound in the kernel namespace — it has
+    no query, only a name.
     """
 
     kind: str  # "hogql" | "local"
+    node_id: str | None = None
+    run_id: str | None = None
     last_run_code: str | None = None
 
 
@@ -161,14 +163,16 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
 
 def _hogql_input(name: str, ref: SQLV2Ref) -> dict[str, Any]:
     """The materialization spec for one HogQL ref: the executor fetches its last-run query to a
-    local Arrow file keyed by query_hash, so an unchanged upstream reuses its frame."""
-    if ref.last_run_code is None or not ref.last_run_code.strip():
+    local Arrow file keyed by the upstream run_id, so the same run reuses its frame while a
+    re-run materializes fresh data and the node's superseded frames get evicted."""
+    if ref.run_id is None or ref.last_run_code is None or not ref.last_run_code.strip():
         raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
     return {
         "name": name,
         "kind": "hogql",
+        "node_id": ref.node_id,
+        "run_id": ref.run_id,
         "query": ref.last_run_code,
-        "query_hash": hashlib.sha256(ref.last_run_code.encode()).hexdigest(),
     }
 
 
@@ -176,9 +180,11 @@ def resolve_python_node_inputs(code: str, refs: dict[str, SQLV2Ref]) -> list[dic
     """Return the input specs for the upstream frames a Python node reads.
 
     A Python node references frames as plain variables, so only the names its code actually
-    reads become inputs: a HogQL ref becomes a materialization spec (see `_hogql_input`); a
-    local ref becomes a presence assertion — the frame already lives in the kernel namespace
-    (bound by the upstream Python node), so the kernel just fails cleanly when it doesn't.
+    reads become inputs: a HogQL ref becomes a materialization spec keyed by the upstream
+    run_id (see `_hogql_input`), so a re-run of the upstream node yields a fresh frame (not
+    stale data); a local ref becomes a presence assertion — the frame already lives in the
+    kernel namespace (bound by the upstream Python node), so the kernel just fails cleanly
+    when it doesn't.
 
     Raises SQLV2ReferenceError if the code reads a HogQL node that has not been run yet.
     """

@@ -7,12 +7,26 @@ import { Breadcrumb } from '~/types'
 
 import type { scannerEditorSceneLogicType } from './scannerEditorSceneLogicType'
 
-export type ScannerEditorStep = 'template' | 'configure' | 'triggers'
-export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers']
+export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
+export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'self_driving']
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     template: 0,
     configure: 1,
     triggers: 2,
+    self_driving: 3,
+}
+
+export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {
+    switch (step) {
+        case 'template':
+            return urls.replayVisionScannerTemplate(scannerId)
+        case 'configure':
+            return urls.replayVisionScannerConfigure(scannerId)
+        case 'triggers':
+            return urls.replayVisionScannerTriggers(scannerId)
+        case 'self_driving':
+            return urls.replayVisionScannerSelfDriving(scannerId)
+    }
 }
 
 export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
@@ -43,7 +57,8 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
         visibleSteps: [
             (s) => [s.isNew],
             (isNew: boolean): readonly ScannerEditorStep[] =>
-                isNew ? SCANNER_EDITOR_STEPS : SCANNER_EDITOR_STEPS.filter((s) => s !== 'template'),
+                // The template picker only exists for a new scanner; every other step, self-driving included, always shows.
+                SCANNER_EDITOR_STEPS.filter((step) => isNew || step !== 'template'),
         ],
         breadcrumbs: [
             (s) => [s.scannerId, s.isNew],
@@ -109,6 +124,15 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
             }
             if (values.step !== 'triggers') {
                 actions.setStep('triggers')
+            }
+        },
+        [urls.replayVisionScannerSelfDriving(':id')]: ({ id }) => {
+            const scannerId = id || 'new'
+            if (scannerId !== values.scannerId) {
+                actions.setScannerId(scannerId)
+            }
+            if (values.step !== 'self_driving') {
+                actions.setStep('self_driving')
             }
         },
     })),

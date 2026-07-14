@@ -164,7 +164,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -249,7 +249,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -972,7 +972,7 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     )
 
 /**
- * List sessions for this application, newest first. Strips the
+ * List sessions for this application, most recently active first. Strips the
  * conversation transcript from each summary, but includes a `preview`
  * (last assistant text, ~120 chars) and `usage_total` (token + cost
  * aggregate). Use `agent-applications-sessions-retrieve` for the full

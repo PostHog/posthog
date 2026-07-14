@@ -85,6 +85,16 @@ Trust model today: the sandbox holds a signed, notebook+team-bound data-plane to
 `/internal/notebooks/data_plane/` over HTTPS. The frame store keeps that shape — the control plane stays
 token-authed; only the bulk-bytes leg moves to object storage.
 
+- **How the sandbox reads without AWS credentials.** The sandbox never assumes a role and never holds AWS
+  credentials of any kind. The backend — which does hold the role — signs a GET for one specific object with an
+  expiry and embeds that signature in the URL (a presigned URL); S3 verifies the signature server-side, so the
+  fetch is a plain HTTPS GET with no SDK. This is the same position a user's browser is in when it downloads a
+  CSV export (`ExportedAsset.get_content_response`) — an external reader given a narrow expiring capability, not
+  an identity. STS temp credentials (file-download-export pattern) were considered and rejected for the read
+  side: they would hand real, if scoped, AWS credentials to a container that executes arbitrary user code,
+  where a presign is one object, one verb, minutes. Note a presign is only valid while the credentials that
+  signed it are — fine for minutes-scale expiry, and the reason day-long URLs can't be minted from
+  instance-role session credentials.
 - **Bucket posture.** Private bucket (or dedicated prefix), public access blocked, SSE at rest.
   Per the repo's storage direction: SeaweedFS locally, S3 in cloud, standard S3 client, no hardcoded endpoints.
 - **Tenant isolation lives at mint time, not in the URL.** Object keys are namespaced
@@ -95,9 +105,10 @@ token-authed; only the bulk-bytes leg moves to object storage.
 - **Presigned GET discipline.** Short expiry (minutes — long enough for a resume-with-Range retry loop, no more),
   HTTPS-only, never logged. A presigned URL is a bearer secret of the same class as the existing command tokens;
   its blast radius is one object for a few minutes.
-- **Write-side auth.** CH writes via its instance role (keyless, batch-exports pattern), write-scoped to the
-  notebooks prefix. If tighter isolation is wanted later: STS prefix-scoped credentials per run
-  (file-download-export pattern).
+- **Write-side auth.** Phase 1: the Temporal worker writes with the standard worker-held object-storage
+  credentials (`OBJECT_STORAGE_*` — no new identity). Phase 2, if CH writes directly: CH's instance role
+  (keyless, batch-exports pattern), write-scoped to the notebooks prefix. If tighter isolation is wanted
+  later: STS prefix-scoped credentials per run (file-download-export pattern).
 - **Egress.** The sandbox already makes outbound HTTPS calls to the PostHog API; fetching a presigned S3 URL adds
   one more allowed destination. If Modal egress policy must stay single-destination, the fallback is proxying the
   object through the data-plane endpoint as a bounded stream — bytes transit Django once, but never Redis and
@@ -105,6 +116,48 @@ token-authed; only the bulk-bytes leg moves to object storage.
 - **Data at rest is a conscious change.** Query results currently live ≤20 min in Redis; parking them in object
   storage for hours is a retention-policy decision. Bound it with a bucket lifecycle TTL (e.g. 24h) plus
   delete-prefix-on-supersede, and document it.
+
+## Resource governance — not hammering ClickHouse
+
+Materialization is **user-facing** — someone is waiting on their cell — so it belongs on the ONLINE pool with
+interactive queries (OFFLINE is where batch exports, usage reports, and cohort calculations run, with
+explicitly accepted latency variance and failure rates; a user-waiting query must not queue behind those).
+The risk is different: a single materialization can be far more expensive than an insight query, an
+**uncapped whale in a pool tuned for bounded queries**. The governance goal is therefore not relocation but
+making the whale impossible. Note the cap that matters is not the row count — an insight query with
+`LIMIT 50000` can still scan billions of rows; cost is bounded by execution time, bytes read, memory,
+and threads.
+
+Layered levers:
+
+- **Per-query SETTINGS (batch-exports recipe).** The staging query carries hard caps, as `internal_stage.py`
+  does. Phase 1 ships `max_execution_time` 600s (via the `NOTEBOOK_MATERIALIZE` limit context — modestly
+  above the insight ceiling, frame pulls are legitimately heavier), `max_bytes_to_read` 50GB (refuse
+  oversized scans up front), and `max_threads` 16; memory stays on the cluster profile default for tier 1
+  (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
+  `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
+  to throttle the S3 write rate.
+- **Scheduler priority, not pool exile.** CH's `priority` setting could let materialization run ONLINE while
+  yielding CPU to interactive queries under genuine contention. Phase 1 deliberately does not set it:
+  everything else runs unprioritized (0), so a nonzero value would form a scheduling class of one — revisit
+  if the cluster ever adopts priorities broadly.
+- **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
+  watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
+- **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
+  phase 1 adds the Redis-Lua concurrency slots (global 10, per-team 2) acquired at Temporal activity start.
+  The refs resolver already minimizes demand — only frames the code actually reads are materialized.
+- **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
+  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
+  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
+  application bug can exceed.
+- **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
+  long-term this is the strongest lever.
+- **Escalation path.** If notebooks' share of online capacity becomes meaningful, the router already supports
+  product-specific pools (`Workload.ENDPOINTS` is precedent) — a dedicated notebooks pool with online-grade
+  latency is the growth answer, decided with data rather than up front.
+
+The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
+query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
 
 ## Phased plan — start basic, improve later
 
@@ -153,10 +206,46 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
   request falls back to the inline path clamped at 50k rows and the frame is silently truncated. Fine for
   frames under the clamp; a user-visible truncation signal is a follow-up before GA.
 
-**Phase 2 — let ClickHouse do the writing.**
+Two decisions locked in for this phase:
+
+- **Format: one plain Arrow IPC stream object per frame — not Delta, not Parquet.** Delta earns its machinery
+  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame key is a slot
+  holding one query's current result (see above — re-runs overwrite it atomically), read once by pandas;
+  versioned re-read machinery buys nothing for that flow. The executor already consumes ArrowStream from the
+  data plane, so the sandbox-side change is just "read the same bytes from a different host". If size matters,
+  Arrow IPC supports LZ4/ZSTD buffer compression without a format change; multi-file partitioning waits for
+  phase 2, if ever.
+- **An explicit concurrency limiter is the throttle.** Under worker streaming, one active task = one running
+  CH query = one upload — but the materialize workflow runs on the **shared** general-purpose Temporal queue,
+  so queue slots alone don't cap notebooks. The shipped throttle is the Redis-Lua concurrency limiter
+  (the `process_query_task` mechanism): slots acquired at activity start, global 10 / per-team 2, bounding CH
+  concurrency, worker memory, and S3 parallelism with one knob — no dedicated CH user needed for v1 (that
+  stays as hardening), and a dedicated notebooks task queue stays a later infra option. Throttling moves load
+  in time (retry backoff), never above the cap; the real amplification risk is impatient re-runs, and the
+  async manager's `cache_key` dedup (`get_running_query_by_cache_key`) closes it: enqueue with
+  `cache_key = notebook-frame:{team}:{sha256(user_id + query)}` (user-scoped, so differently-permissioned
+  teammates never share a job or an object) and duplicate in-flight materializations join the running query
+  instead of stacking new ones.
+
+**Phase 2 — let ClickHouse do the writing (only if the data says so).**
 Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
 the worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python.
 Add partitioned files + a manifest for very large frames, and Range-based resume in the executor.
+
+Why phase 1 streams from the worker instead of starting here:
+
+- **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
+  at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
+  and splice it into a raw `INSERT ... SELECT` executed outside the runner; batch exports does this safely,
+  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a ride-along.
+- **Credentials.** Workers already hold object-storage credentials; the CH-side write needs the cluster's IAM
+  role extended to the notebooks prefix (see open questions) and local CH → SeaweedFS config.
+- **Load placement.** Worker streaming actually puts _less_ work on ClickHouse — CH only executes and streams
+  blocks, while Arrow encoding and S3 PUTs burn worker CPU/NIC instead of CH-node resources. The worker's
+  drain pace is set by an in-region worker→S3 leg, so CH's result-hold time is near-identical either way.
+- **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
+  double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
+  MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
