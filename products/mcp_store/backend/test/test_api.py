@@ -544,9 +544,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=created_by if created_by is not None else self.user,
         )
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_dcr_path_used_when_pkce_verifier_present(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_dcr_path_used_when_pkce_verifier_present(self, mock_post):
         installation = self._create_installation()
 
         mock_post.return_value.status_code = 200
@@ -562,12 +561,11 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 302
         mock_post.assert_called_once()
-        assert mock_post.call_args[0][0] == "https://auth.example.com/token"
+        assert mock_post.call_args[0][1] == "https://auth.example.com/token"
         assert mock_post.call_args[1]["data"]["code_verifier"] == "test-pkce-verifier"
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_oauth_redirect_uses_posthog_code_callback_url(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_oauth_redirect_uses_posthog_code_callback_url(self, mock_post):
         installation = self._create_installation()
 
         mock_post.return_value.status_code = 200
@@ -593,9 +591,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert location.startswith("posthog-code://oauth/callback?")
         assert "status=success" in location
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_oauth_redirect_posthog_code_error_includes_error_param(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_oauth_redirect_posthog_code_error_includes_error_param(self, mock_post):
         installation = self._create_installation()
 
         callback_url = "posthog-code://oauth/callback"
@@ -689,9 +686,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_callback_happy_path_same_user(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_callback_happy_path_same_user(self, mock_post):
         """Positive control: callback authenticated as the same user -> success."""
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
@@ -708,9 +704,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation.refresh_from_db()
         assert installation.sensitive_configuration["access_token"] == "tok"
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_callback_happy_path_cross_client_same_user(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_callback_happy_path_cross_client_same_user(self, mock_post):
         """posthog-code scenario: initiate and callback happen in different HTTP clients.
 
         The CLI calls install_custom from its own process (no browser session),
@@ -735,9 +730,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         installation.refresh_from_db()
         assert installation.sensitive_configuration["access_token"] == "tok"
 
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_consumed_state_rejects_replay(self, mock_post, _allow):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_consumed_state_rejects_replay(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
 
@@ -1550,9 +1544,8 @@ class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatch
         mock_task.delay.assert_called_once_with(installation_id)
 
     @patch("products.mcp_store.backend.presentation.views.sync_installation_tools_task")
-    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_oauth_redirect_dispatches_background_sync(self, mock_post, _allow, mock_task):
+    @patch("products.mcp_store.backend.oauth.pinned_request")
+    def test_oauth_redirect_dispatches_background_sync(self, mock_post, mock_task):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,

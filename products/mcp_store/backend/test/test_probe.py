@@ -74,20 +74,18 @@ class TestProbeMCPServer(SimpleTestCase):
         post_router = _url_router(post_routes)
         get_router = _url_router(get_routes or {})
 
-        # The probe's own requests go through pinned_request; oauth.py's discovery
-        # and DCR requests still use the plain requests module. Both sides share
-        # the same route tables so a URL behaves identically on either path.
+        # probe.py and oauth.py both send every outbound request through
+        # pinned_request; patch each module's reference with the same
+        # method-dispatching router so a URL behaves identically on either path.
         def pinned_router(method, url, **kwargs):
             return post_router(url) if method == "POST" else get_router(url)
 
         with (
-            patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
             patch("products.mcp_store.backend.probe.pinned_request", side_effect=pinned_router) as pinned,
-            patch("products.mcp_store.backend.oauth.requests.post", side_effect=post_router) as post,
-            patch("products.mcp_store.backend.oauth.requests.get", side_effect=get_router) as get,
+            patch("products.mcp_store.backend.oauth.pinned_request", side_effect=pinned_router) as oauth_pinned,
         ):
             result = probe_mcp_server(SERVER_URL)
-        return result, post, get, pinned
+        return result, oauth_pinned, pinned
 
     @parameterized.expand(
         [
@@ -96,7 +94,7 @@ class TestProbeMCPServer(SimpleTestCase):
         ]
     )
     def test_open_server_happy_path(self, _name, content_type, body):
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={SERVER_URL: _mock_response(200, text=body, content_type=content_type)},
         )
 
@@ -109,7 +107,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertTrue(result.passed_activation_gate)
 
     def test_oauth_dcr_full_pass(self):
-        result, _post, _get, pinned = self._probe(
+        result, _oauth, pinned = self._probe(
             post_routes={
                 SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain"),
                 REGISTRATION_URL: _mock_response(
@@ -142,7 +140,7 @@ class TestProbeMCPServer(SimpleTestCase):
 
     def test_oauth_without_registration_endpoint_is_oauth_shared(self):
         metadata = {k: v for k, v in AUTH_SERVER_METADATA_BODY.items() if k != "registration_endpoint"}
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain")},
             get_routes={
                 PROTECTED_RESOURCE_URL: _mock_response(200, json_body=PROTECTED_RESOURCE_BODY),
@@ -159,7 +157,7 @@ class TestProbeMCPServer(SimpleTestCase):
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_required_without_metadata_is_api_key_or_unknown(self, _name, status_code):
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={SERVER_URL: _mock_response(status_code, text="denied", content_type="text/plain")},
         )
 
@@ -179,7 +177,7 @@ class TestProbeMCPServer(SimpleTestCase):
         ]
     )
     def test_non_mcp_endpoint(self, _name, response_factory, expected_reachable):
-        result, _post, _get, _pinned = self._probe(post_routes={SERVER_URL: response_factory()})
+        result, _oauth, _pinned = self._probe(post_routes={SERVER_URL: response_factory()})
 
         self.assertIs(result.reachable, expected_reachable)
         self.assertFalse(result.speaks_mcp)
@@ -188,7 +186,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.passed_activation_gate)
 
     def test_initialize_url_blocked_by_ssrf(self):
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={SERVER_URL: SSRFBlockedError("Disallowed target IP: 10.0.0.5")},
         )
 
@@ -198,7 +196,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.passed_activation_gate)
 
     def test_initialize_redirect_is_not_followed(self):
-        result, _post, _get, pinned = self._probe(
+        result, _oauth, pinned = self._probe(
             post_routes={
                 SERVER_URL: _mock_response(
                     302, text="", content_type="text/plain", headers={"Location": "http://169.254.169.254/latest/"}
@@ -215,7 +213,7 @@ class TestProbeMCPServer(SimpleTestCase):
 
     def test_authorize_redirect_to_blocked_target_fails_gate(self):
         blocked_url = "http://169.254.169.254/latest/"
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={
                 SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain"),
                 REGISTRATION_URL: _mock_response(
@@ -247,7 +245,7 @@ class TestProbeMCPServer(SimpleTestCase):
         ]
     )
     def test_dcr_registration_failure_falls_back_to_oauth_shared(self, _name, registration_response_factory):
-        result, _post, _get, _pinned = self._probe(
+        result, _oauth, _pinned = self._probe(
             post_routes={
                 SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain"),
                 REGISTRATION_URL: registration_response_factory(),
@@ -265,7 +263,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.passed_activation_gate)
 
     def test_probe_never_raises_on_unexpected_error(self):
-        result, _post, _get, _pinned = self._probe(post_routes={SERVER_URL: RuntimeError("boom")})
+        result, _oauth, _pinned = self._probe(post_routes={SERVER_URL: RuntimeError("boom")})
 
         self.assertFalse(result.reachable)
         self.assertFalse(result.speaks_mcp)

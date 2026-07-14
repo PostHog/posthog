@@ -7,9 +7,10 @@ so a rebinding DNS record can pass validation and still connect internally.
 validated, and ``pinned_request`` packages the validate → pin → send sequence
 for callers that make one-shot requests to externally controlled URLs.
 
-Redirects are never followed automatically — a redirect target has not been
-validated. Callers that need to follow one must re-enter ``pinned_request``
-with the new URL so every hop is validated and pinned.
+Redirects are never followed blindly — a redirect target has not been
+validated. By default a 3xx response is returned to the caller as-is; passing
+``max_redirects`` makes ``pinned_request`` follow GET redirects itself,
+re-validating and re-pinning every hop.
 """
 
 import ipaddress
@@ -94,6 +95,9 @@ class PinnedIPAdapter(HTTPAdapter):
                 conn.conn_kw["server_hostname"] = original  # ty: ignore[invalid-assignment]
 
 
+_REDIRECT_STATUSES = (301, 302, 303, 307, 308)
+
+
 def pinned_request(
     method: str,
     url: str,
@@ -101,13 +105,45 @@ def pinned_request(
     timeout: float | tuple[float, float],
     headers: dict[str, str] | None = None,
     json: object | None = None,
+    data: dict[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+    max_redirects: int = 0,
 ) -> requests.Response:
-    """Send one SSRF-validated HTTP request over a connection pinned to the validated IPs.
+    """Send an SSRF-validated HTTP request over a connection pinned to the validated IPs.
 
-    Never follows redirects. Raises ``SSRFBlockedError`` when the URL fails
-    validation and lets ``requests.RequestException`` propagate on transport
-    failures.
+    With the default ``max_redirects=0`` a 3xx response is returned as-is;
+    a positive value follows that many redirect hops, re-validating and
+    re-pinning each one. Only GETs may follow redirects — a redirected request
+    body would be silently dropped, so other methods refuse instead.
+
+    Raises ``SSRFBlockedError`` when any hop fails validation and
+    ``requests.TooManyRedirects`` past the hop limit; transport failures
+    propagate as ``requests.RequestException``.
     """
+    if max_redirects and method.upper() != "GET":
+        raise ValueError("Redirect following is only supported for GET requests")
+
+    current = url
+    for _hop in range(max_redirects + 1):
+        response = _send_pinned(method, current, timeout=timeout, headers=headers, json=json, data=data, auth=auth)
+        location = response.headers.get("Location")
+        if not max_redirects or response.status_code not in _REDIRECT_STATUSES or not location:
+            return response
+        response.close()
+        current = urlparse.urljoin(current, location)
+    raise requests.TooManyRedirects(f"Exceeded {max_redirects} redirects for pinned request to {url}")
+
+
+def _send_pinned(
+    method: str,
+    url: str,
+    *,
+    timeout: float | tuple[float, float],
+    headers: dict[str, str] | None,
+    json: object | None,
+    data: dict[str, str] | None,
+    auth: tuple[str, str] | None,
+) -> requests.Response:
     allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
     if not allowed:
         raise SSRFBlockedError(reason or "URL blocked by SSRF protection")
@@ -121,6 +157,8 @@ def pinned_request(
     session.mount("http://", adapter)  # nosemgrep: request-session-with-http
     session.mount("https://", adapter)
     try:
-        return session.request(method, url, headers=headers, json=json, timeout=timeout, allow_redirects=False)
+        return session.request(
+            method, url, headers=headers, json=json, data=data, auth=auth, timeout=timeout, allow_redirects=False
+        )
     finally:
         session.close()
