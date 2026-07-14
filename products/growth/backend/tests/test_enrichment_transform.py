@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from products.growth.backend.enrichment.transform import transform_harmonic_company
 
 
@@ -7,7 +9,13 @@ def _company(**overrides):
         "headcount": 120,
         "location": {"country": "United States"},
         "foundingDate": {"date": "2019-06-01", "granularity": "DAY"},
-        "funding": {"fundingStage": "SERIES_A", "investors": [{"name": "Y Combinator"}]},
+        "funding": {
+            "fundingStage": "SERIES_A",
+            "fundingTotal": 12000000,
+            "lastFundingTotal": 8000000,
+            "lastFundingAt": "2024-02-25T00:00:00Z",
+            "investors": [{"name": "Y Combinator"}],
+        },
         "tractionMetrics": {
             "headcount": {"latestMetricValue": 130},
             "headcountEngineering": {"latestMetricValue": 45},
@@ -30,8 +38,32 @@ def test_transform_maps_all_registry_fields():
         "country": "US",  # ISO alpha-2, matching the icp_country format
         "founded_year": 2019,
         "funding_stage": "SERIES_A",
+        "total_raised": 12000000,
+        "last_round_size": 8000000,
+        "last_round_date": "2024-02-25",  # ISO datetime truncated to the date
         "is_yc_company": True,
+        # is_ai_native stays unset: tagsV2 is empty, which is absence of tag data
     }
+
+
+@parameterized.expand(
+    [
+        ("ai_display_value", [{"type": "TECHNOLOGY_TYPE", "displayValue": "Artificial Intelligence (AI)"}], True),
+        ("ml_display_value", [{"type": "MARKET_VERTICAL", "displayValue": "Machine Learning"}], True),
+        ("non_ai_tags_present", [{"type": "MARKET_VERTICAL", "displayValue": "Fintech"}], False),
+    ]
+)
+def test_is_ai_native_matches_conservatively(_name, tags_v2, expected):
+    fields = transform_harmonic_company(_company(tagsV2=tags_v2))
+    assert fields is not None
+    assert fields.is_ai_native is expected
+
+
+def test_is_ai_native_unset_when_tags_v2_absent():
+    fields = transform_harmonic_company(_company(tagsV2=[]))
+    assert fields is not None
+    assert fields.is_ai_native is None
+    assert "is_ai_native" not in fields.to_dict()
 
 
 def test_headcount_falls_back_to_top_level_when_no_traction_metric():
