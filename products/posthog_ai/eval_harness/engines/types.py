@@ -12,8 +12,87 @@ base, reporting, and trace emission never see a braintrust type.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, Protocol
+
+
+@dataclass(frozen=True)
+class CaseSpec:
+    """An engine-neutral eval case: JSON-safe ``input`` plus ``expected`` and
+    ``metadata``. Each engine translates this to its native case type; the
+    harness keeps callable rebinding (a case's ``setup`` hook) in ``cases_by_name``."""
+
+    input: dict[str, Any]
+    expected: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+SpanKind = Literal["llm", "function", "task", "score"]
+
+
+class SpanHandle(Protocol):
+    """A single span the task logs onto; the engine renders it into its own trace."""
+
+    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None: ...
+
+
+class CaseHooks(Protocol):
+    """The per-case handle the engine passes to the task.
+
+    ``metadata`` is a mutable dict the engine must persist onto
+    ``CaseResult.metadata``; ``start_span`` opens a child span the task logs onto.
+    """
+
+    @property
+    def metadata(self) -> dict[str, Any]: ...
+
+    def start_span(self, name: str, kind: SpanKind) -> AbstractContextManager[SpanHandle]: ...
+
+
+EvalTaskFn = Callable[[dict[str, Any], CaseHooks], Awaitable[dict[str, Any] | None]]
+"""The per-case task the engine drives: it takes the JSON-safe case input and the
+neutral ``CaseHooks`` and returns the scorer ``output`` dict (or ``None``)."""
+
+
+class _NullSpanHandle:
+    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None:
+        return None
+
+
+class NullCaseHooks:
+    """A concrete no-op ``CaseHooks`` for tests and span-less engines.
+
+    Replaces the old ``hooks=None`` sentinel: ``metadata`` is a real (discarded)
+    dict and ``start_span`` yields a span that swallows every ``log``.
+    """
+
+    def __init__(self) -> None:
+        self._metadata: dict[str, Any] = {}
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self._metadata
+
+    @contextmanager
+    def start_span(self, name: str, kind: SpanKind) -> Iterator[SpanHandle]:
+        yield _NullSpanHandle()
+
+
+@dataclass(frozen=True)
+class ExperimentSpec:
+    """The single argument to ``run_experiment``. Bundling the knobs in one frozen
+    spec means a new field (e.g. a baseline experiment id) breaks no engine or stub."""
+
+    project_name: str
+    cases: Sequence[CaseSpec]
+    task: EvalTaskFn
+    scorers: Sequence[Any]  # duck-typed: eval_async(output, expected, **kwargs) + _name()
+    trial_count: int
+    is_public: bool
+    no_send_logs: bool
+    metadata: dict[str, Any]
 
 
 @dataclass

@@ -9,16 +9,13 @@ the run base or any suite.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Protocol
+from typing import Protocol
 
-from braintrust import EvalCase, EvalHooks
+from .types import EvalTaskFn, ExperimentResult, ExperimentSpec
 
-from .types import ExperimentResult
-
-EvalTaskFn = Callable[[dict[str, Any], EvalHooks], Awaitable[dict[str, Any] | None]]
-"""The per-case task the engine drives: it takes the JSON-safe case input and the
-Braintrust hooks and returns the scorer ``output`` dict (or ``None``)."""
+# Re-exported for callers that import ``EvalTaskFn`` from the engine seam; it now
+# lives in ``types`` (retargeted at the neutral ``CaseHooks``).
+__all__ = ["EvalEngine", "EvalTaskFn"]
 
 
 class EvalEngine(Protocol):
@@ -31,19 +28,8 @@ class EvalEngine(Protocol):
     the same interface, without changing the run base or any suite.
     """
 
-    async def run_experiment(
-        self,
-        *,
-        project_name: str,
-        cases: Sequence[EvalCase],
-        task: EvalTaskFn,
-        scorers: Sequence[Any],
-        trial_count: int,
-        is_public: bool,
-        no_send_logs: bool,
-        metadata: dict[str, Any],
-    ) -> ExperimentResult:
-        """Run every case (``trial_count`` times each) through ``task`` and
-        ``scorers``, and return the engine-neutral result plus its per-scorer
+    async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        """Run every case in ``spec`` (``trial_count`` times each) through the task
+        and scorers, and return the engine-neutral result plus its per-scorer
         summary."""
         ...

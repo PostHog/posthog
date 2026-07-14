@@ -8,13 +8,11 @@ from collections.abc import Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
-from braintrust import EvalCase, EvalHooks
-
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.braintrust import BraintrustEngine
-from .engines.types import ExperimentResult
+from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
@@ -38,7 +36,7 @@ def _get_last_assistant_text(parsed: ParsedLog) -> str:
     return ""
 
 
-def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
+def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
     """Log each conversation message as a child span so Braintrust renders a trace tree.
 
     Uses the same Anthropic-format messages as PostHog trace capture.
@@ -68,6 +66,7 @@ def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
         else:
             display_content = str(content)
 
+        span_type: SpanKind
         if role == "assistant":
             # Check if this message contains tool_use blocks
             has_tool_use = isinstance(content, list) and any(
@@ -85,7 +84,7 @@ def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
             span_type = "function"
             name = role
 
-        with hooks.span.start_span(name=name, span_attributes={"type": span_type}) as span:
+        with hooks.start_span(name, span_type) as span:
             if role == "user":
                 span.log(input=display_content)
             elif role == "assistant":
@@ -95,7 +94,7 @@ def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
 
     # Also log non-AI spans (console, errors)
     for span_desc in parsed.spans:
-        with hooks.span.start_span(name=span_desc.span_name, span_attributes={"type": "function"}) as span:
+        with hooks.start_span(span_desc.span_name, "function") as span:
             span.log(metadata={"message": span_desc.content})
 
 
@@ -171,15 +170,15 @@ class _BaseEvalRun:
         """The JSON-safe ``input`` dict a case round-trips through Braintrust as."""
         return {"name": case.name, "prompt": case.prompt}
 
-    def _build_eval_cases(self) -> list[EvalCase]:
-        eval_cases: list[EvalCase] = []
+    def _build_eval_cases(self) -> list[CaseSpec]:
+        eval_cases: list[CaseSpec] = []
         for case in self.cases:
             if self.case_filter and self.case_filter not in case.name:
                 continue
-            eval_cases.append(EvalCase(input=self._case_input(case), expected=case.expected, metadata=case.metadata))
+            eval_cases.append(CaseSpec(input=self._case_input(case), expected=case.expected, metadata=case.metadata))
         return eval_cases
 
-    async def _execute_case(self, input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any]:
+    async def _execute_case(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         """Run one case and return the scorer ``output`` dict.
 
         Owns the case's concurrency slot and its ``asyncio.wait_for`` budget;
@@ -198,7 +197,7 @@ class _BaseEvalRun:
     def _experiment_metadata(self) -> dict[str, Any]:
         return {"agent_model": self.ctx.agent_model}
 
-    async def _task(self, input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
+    async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
         case_name = input.get("name", "?")
         status: Literal["ok", "timeout", "error"] = "ok"
@@ -288,16 +287,18 @@ class _BaseEvalRun:
         await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
 
         result = await self.engine.run_experiment(
-            project_name=self._project_name(),
-            cases=eval_cases,
-            task=self._task,
-            scorers=self.active_scorers,
-            trial_count=self.ctx.trials,
-            is_public=self.is_public,
-            no_send_logs=self.no_send_logs,
-            # Experiment names stay runtime/model-agnostic so history lines up across
-            # runs; the metadata is what lets Braintrust filter or compare by them.
-            metadata=self._experiment_metadata(),
+            ExperimentSpec(
+                project_name=self._project_name(),
+                cases=eval_cases,
+                task=self._task,
+                scorers=self.active_scorers,
+                trial_count=self.ctx.trials,
+                is_public=self.is_public,
+                no_send_logs=self.no_send_logs,
+                # Experiment names stay runtime/model-agnostic so history lines up across
+                # runs; the metadata is what lets an engine filter or compare by them.
+                metadata=self._experiment_metadata(),
+            )
         )
 
         await self._finalize(result)
@@ -383,7 +384,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
     async def _post_process(
         self,
         eval_case: SandboxedEvalCase,
-        hooks: EvalHooks,
+        hooks: CaseHooks,
         result: EvalCaseResult,
         seed_result: dict[str, Any],
     ) -> dict[str, Any]:
@@ -448,7 +449,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "prompt": eval_case.prompt,
         }
 
-    async def _execute_case(self, input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any]:
+    async def _execute_case(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         eval_case = SandboxedEvalCase(
             name=input["name"],
             prompt=input["prompt"],

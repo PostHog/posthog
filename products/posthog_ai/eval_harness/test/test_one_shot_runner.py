@@ -7,8 +7,7 @@ from typing import Any
 import pytest
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
-from products.posthog_ai.eval_harness.engines.base import EvalTaskFn
-from products.posthog_ai.eval_harness.engines.types import EvalSummary, ExperimentResult
+from products.posthog_ai.eval_harness.engines.types import EvalSummary, ExperimentResult, ExperimentSpec, NullCaseHooks
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 
@@ -32,23 +31,10 @@ class _StubReporter:
 class _StubEngine:
     def __init__(self, result: ExperimentResult) -> None:
         self.result = result
-        self.calls: list[dict[str, Any]] = []
+        self.calls: list[ExperimentSpec] = []
 
-    async def run_experiment(
-        self,
-        *,
-        project_name: str,
-        cases: Any,
-        task: EvalTaskFn,
-        scorers: Any,
-        trial_count: int,
-        is_public: bool,
-        no_send_logs: bool,
-        metadata: dict[str, Any],
-    ) -> ExperimentResult:
-        self.calls.append(
-            {"project_name": project_name, "cases": list(cases), "trial_count": trial_count, "metadata": metadata}
-        )
+    async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        self.calls.append(spec)
         return self.result
 
 
@@ -90,7 +76,7 @@ def test_execute_case_backfills_prompt_and_writes_logs(tmp_path: Path, monkeypat
 
     ctx = _build_ctx()
     run = _build_run(tmp_path, monkeypatch, ctx, task)
-    output = asyncio.run(run._execute_case({"name": "c1", "prompt": "the prompt"}, hooks=None))
+    output = asyncio.run(run._execute_case({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
 
     assert output["answer"] == 42
     assert output["prompt"] == "the prompt"
@@ -104,7 +90,7 @@ def test_task_scores_timeout_as_output_not_error(tmp_path: Path, monkeypatch: py
 
     ctx = _build_ctx(timeout_seconds=1)
     run = _build_run(tmp_path, monkeypatch, ctx, task)
-    output = asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=None))
+    output = asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
 
     assert output == {"timeout": True, "error": "case timeout after 1s"}
     assert ctx.reporter.done == [("c1", "timeout")]  # type: ignore[attr-defined]
@@ -117,7 +103,7 @@ def test_task_reraises_infra_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ctx = _build_ctx()
     run = _build_run(tmp_path, monkeypatch, ctx, task)
     with pytest.raises(ValueError):
-        asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=None))
+        asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
     assert ctx.reporter.done == [("c1", "error")]  # type: ignore[attr-defined]
 
 
@@ -138,8 +124,8 @@ def test_one_shot_slots_bound_concurrency(tmp_path: Path, monkeypatch: pytest.Mo
 
     async def run_both() -> None:
         await asyncio.gather(
-            run._execute_case({"name": "c1", "prompt": "the prompt"}, hooks=None),
-            run._execute_case({"name": "c2", "prompt": "other"}, hooks=None),
+            run._execute_case({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()),
+            run._execute_case({"name": "c2", "prompt": "other"}, hooks=NullCaseHooks()),
         )
 
     asyncio.run(run_both())
@@ -172,9 +158,9 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
     assert returned is canned
     assert len(engine.calls) == 1
     call = engine.calls[0]
-    assert call["project_name"] == "one-shot-test"
-    assert [case.input["name"] for case in call["cases"]] == ["c1", "c2"]
-    assert call["metadata"] == {"agent_model": "claude-test"}
+    assert call.project_name == "one-shot-test"
+    assert [case.input["name"] for case in call.cases] == ["c1", "c2"]
+    assert call.metadata == {"agent_model": "claude-test"}
     reporter = ctx.reporter
     assert reporter.started == [("one-shot-test", 2)]  # type: ignore[attr-defined]
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)]  # type: ignore[attr-defined]
