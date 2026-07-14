@@ -2,10 +2,12 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBook, IconCheckCircle, IconGraduationCap, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { Link } from 'lib/lemon-ui/Link'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
@@ -17,6 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, OnboardingStepKey } from '~/types'
 
+import { QuickstartPublication } from './publications'
 import { QuickstartProduct, quickstartLogic } from './quickstartLogic'
 
 export const scene: SceneExport = {
@@ -250,6 +253,83 @@ function LearnCard({
     )
 }
 
+function PublicationCard({ publication }: { publication: QuickstartPublication }): JSX.Element {
+    return (
+        <LemonCard hoverEffect className="p-0 overflow-hidden">
+            <Link
+                to={publication.url}
+                target="_blank"
+                className="flex flex-col h-full text-primary hover:text-primary"
+                onClick={() =>
+                    posthog.capture('quickstart action clicked', {
+                        action: 'open_publication',
+                        url: publication.url,
+                    })
+                }
+                data-attr="quickstart-publication-card"
+            >
+                {publication.imageUrl && (
+                    <img
+                        src={publication.imageUrl}
+                        alt=""
+                        className="w-full aspect-video object-cover bg-surface-secondary"
+                        loading="lazy"
+                        onError={(e) => {
+                            e.currentTarget.style.display = 'none'
+                        }}
+                    />
+                )}
+                <div className="flex flex-col gap-1 p-3 flex-1">
+                    <h3 className="font-semibold text-sm mb-0 line-clamp-2">{publication.title}</h3>
+                    <p className="text-secondary text-xs mb-0 line-clamp-2 flex-1">{publication.description}</p>
+                    <div className="text-xs text-tertiary mt-1">
+                        {publication.author ? `${publication.author} · ` : ''}
+                        {dayjs(publication.publishedAt).fromNow()}
+                    </div>
+                </div>
+            </Link>
+        </LemonCard>
+    )
+}
+
+function PublicationsSection(): JSX.Element | null {
+    const { publications, publicationsLoading } = useValues(quickstartLogic)
+
+    if (!publicationsLoading && publications.length === 0) {
+        return null
+    }
+
+    return (
+        <section>
+            <div className="flex items-start justify-between gap-2">
+                <SectionHeader title="Fresh from PostHog" subtitle="What we've been shipping and writing about." />
+                <LemonButton
+                    size="small"
+                    to="https://posthog.com/blog"
+                    targetBlank
+                    onClick={() => captureQuickstartAction('open_blog')}
+                    data-attr="quickstart-publications-view-all"
+                >
+                    View all
+                </LemonButton>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {publicationsLoading
+                    ? Array.from({ length: 4 }, (_, index) => (
+                          <LemonCard key={index} hoverEffect={false} className="flex flex-col gap-2 p-3">
+                              <LemonSkeleton className="w-full h-24 rounded" />
+                              <LemonSkeleton className="w-3/4 h-4" />
+                              <LemonSkeleton className="w-full h-3" />
+                          </LemonCard>
+                      ))
+                    : publications.map((publication) => (
+                          <PublicationCard key={publication.url} publication={publication} />
+                      ))}
+            </div>
+        </section>
+    )
+}
+
 export function Quickstart(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featuredProducts, moreProducts } = useValues(quickstartLogic)
@@ -325,6 +405,8 @@ export function Quickstart(): JSX.Element {
                     />
                 </div>
             </section>
+
+            <PublicationsSection />
         </div>
     )
 }

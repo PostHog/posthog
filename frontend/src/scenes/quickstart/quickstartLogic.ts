@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import type { OnboardingProduct, TeamPublicType, TeamType } from '~/types'
 
+import { QuickstartPublication, fetchQuickstartPublications } from './publications'
 import type { quickstartLogicType } from './quickstartLogicType'
 
 export type QuickstartProductStatus = 'active' | 'ready' | 'needs_setup'
@@ -173,6 +175,22 @@ export const quickstartLogic = kea<quickstartLogicType>([
     actions({
         enableProduct: (productKey: ProductKey) => ({ productKey }),
     }),
+    loaders({
+        publications: [
+            [] as QuickstartPublication[],
+            {
+                // Swallow errors: without data the section simply doesn't render,
+                // and a feed hiccup must never toast at a brand-new user.
+                loadPublications: async (): Promise<QuickstartPublication[]> => {
+                    try {
+                        return await fetchQuickstartPublications()
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
+    }),
     reducers({
         enablingProducts: [
             {} as Record<string, boolean>,
@@ -220,7 +238,8 @@ export const quickstartLogic = kea<quickstartLogicType>([
             actions.updateCurrentTeam(definition.optInPayload)
         },
     })),
-    afterMount(({ values }) => {
+    afterMount(({ actions, values }) => {
+        actions.loadPublications()
         posthog.capture('quickstart viewed', {
             has_ingested_event: values.hasIngestedEvent,
             active_products: values.products.filter((product) => product.status === 'active').map((p) => p.key),
