@@ -635,6 +635,28 @@ function verifyUiHostReachability(
     }
 
     const checkStart = Date.now()
+
+    // A failing reachability check is almost always a customer-side config issue
+    // (a reverse proxy that doesn't route /toolbar_oauth/check, missing CORS
+    // headers, an unreachable host) rather than a toolbar bug. Record every
+    // failure via the structured `toolbar ui host check` event for observability
+    // instead of reporting a raw exception per failure — the latter floods error
+    // tracking with expected config failures (e.g. `Error: HTTP 404`).
+    const recordFailure = (errorType: string, httpStatus?: number): void => {
+        actions.setAuthStatus('error')
+        toolbarPosthogJS.capture('toolbar ui host check', {
+            ...checkBaseProps,
+            status: 'error',
+            error_type: errorType,
+            ...(httpStatus !== undefined ? { http_status: httpStatus } : {}),
+            duration_ms: Date.now() - checkStart,
+        })
+
+        if (authParams) {
+            actions.openUiHostConfigModal()
+        }
+    }
+
     void fetch(`${values.uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
@@ -642,7 +664,11 @@ function verifyUiHostReachability(
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                // A non-ok response (e.g. 404 from a proxy routing gap) is an
+                // expected reachability failure, not a code fault — record it
+                // without throwing/reporting an exception.
+                recordFailure('http_error', response.status)
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
@@ -656,20 +682,14 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
-            actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'error',
-                error_type: classifyFetchError(error),
-                duration_ms: Date.now() - checkStart,
-            })
-
-            if (authParams) {
-                actions.openUiHostConfigModal()
+            const errorType = classifyFetchError(error)
+            // network/CORS/timeout are expected environment failures already
+            // covered by the structured event; only capture an exception for a
+            // genuinely unexpected failure so real bugs aren't buried in noise.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', { error_type: errorType })
             }
+            recordFailure(errorType)
         })
 }
 

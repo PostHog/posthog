@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -358,6 +359,42 @@ describe('toolbar toolbarConfigLogic', () => {
                 (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
             )
             expect(headCalls).toHaveLength(1)
+        })
+
+        it('does not report an exception for a non-ok reachability response (e.g. proxy 404)', async () => {
+            // A reverse proxy that doesn't route /toolbar_oauth/check 404s here. That's an
+            // expected customer-side config gap, so it must flip to the error state via the
+            // structured event only — never a raw captured exception flooding error tracking.
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'http_error', http_status: 404 })
+            )
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('still reports an exception for a genuinely unexpected reachability failure', async () => {
+            // A non-Error rejection isn't network/CORS/timeout — it's unclassifiable and worth
+            // surfacing so real bugs aren't silently swallowed by the noise-reduction change.
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject('boom'))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                'boom',
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'unknown' })
+            )
+            captureExceptionSpy.mockRestore()
         })
 
         it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
