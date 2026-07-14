@@ -7,15 +7,20 @@ export interface QuickstartPublication {
     imageUrl?: string
 }
 
+export const QUICKSTART_PUBLICATIONS_PAGE_SIZE = 8
+
 const RSS_URL = 'https://posthog.com/rss.xml'
 const CACHE_KEY = 'ph-quickstart-publications'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
-// The feed is several MB because items embed full post bodies. The newest items sit at
-// the top, so we stream the response and cancel once we have what we need, capped as a
-// safety net in case the feed shape changes.
-const MAX_FEED_CHARS = 512 * 1024
+// The feed embeds full post bodies, so reading it whole costs several MB. Items are newest
+// first: the response is streamed and more bytes are pulled only as the user scrolls deeper.
+// The cap is a runaway guard sitting above the full feed size.
+const MAX_FEED_CHARS = 8 * 1024 * 1024
 
-export const QUICKSTART_PUBLICATION_COUNT = 4
+export interface PublicationsPage {
+    publications: QuickstartPublication[]
+    hasMore: boolean
+}
 
 interface PublicationsCache {
     fetchedAt: number
@@ -42,7 +47,7 @@ const writeCache = (publications: QuickstartPublication[]): void => {
     try {
         window.localStorage.setItem(CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), publications }))
     } catch {
-        // Storage unavailable or full - caching is best-effort
+        // Storage unavailable or full. Caching is best-effort.
     }
 }
 
@@ -78,36 +83,80 @@ export function parsePublicationsRss(xml: string, limit: number): QuickstartPubl
         .filter((publication) => publication.title && publication.url)
 }
 
-async function readFeedHead(response: Response): Promise<string> {
-    const reader = response.body?.getReader()
-    if (!reader) {
-        return await response.text()
-    }
-    const decoder = new TextDecoder()
-    let xml = ''
-    while (xml.length < MAX_FEED_CHARS && countItems(xml) <= QUICKSTART_PUBLICATION_COUNT) {
-        const { done, value } = await reader.read()
-        if (done) {
-            break
+/**
+ * Lazily consumes the RSS response across pages: each ensureItems call reads just enough
+ * additional bytes for the requested number of items, so scrolling the feed streams the
+ * download instead of fetching megabytes upfront.
+ */
+class FeedStream {
+    private reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    private decoder = new TextDecoder()
+    private xml = ''
+    private exhausted = false
+    private started = false
+
+    private async start(): Promise<void> {
+        this.started = true
+        const response = await fetch(RSS_URL)
+        if (!response.ok) {
+            this.exhausted = true
+            throw new Error(`Failed to load the PostHog RSS feed: ${response.status}`)
         }
-        xml += decoder.decode(value, { stream: true })
+        if (response.body) {
+            this.reader = response.body.getReader()
+        } else {
+            this.xml = await response.text()
+            this.exhausted = true
+        }
     }
-    void reader.cancel().catch(() => {})
-    return xml
+
+    async ensureItems(count: number): Promise<{ xml: string; exhausted: boolean }> {
+        if (!this.started) {
+            await this.start()
+        }
+        while (this.reader && !this.exhausted && countItems(this.xml) < count) {
+            if (this.xml.length >= MAX_FEED_CHARS) {
+                this.exhausted = true
+                break
+            }
+            const { done, value } = await this.reader.read()
+            if (done) {
+                this.exhausted = true
+                break
+            }
+            this.xml += this.decoder.decode(value, { stream: true })
+        }
+        return { xml: this.xml, exhausted: this.exhausted }
+    }
 }
 
-export async function fetchQuickstartPublications(): Promise<QuickstartPublication[]> {
-    const cached = readCache()
-    if (cached) {
-        return cached
+let feedStream: FeedStream | null = null
+
+/** Load one page of the feed. The first page may be served from the local cache. */
+export async function fetchPublicationsPage(offset: number): Promise<PublicationsPage> {
+    if (offset === 0) {
+        const cached = readCache()
+        if (cached) {
+            return { publications: cached, hasMore: true }
+        }
     }
-    const response = await fetch(RSS_URL)
-    if (!response.ok) {
-        throw new Error(`Failed to load the PostHog RSS feed: ${response.status}`)
+    if (!feedStream) {
+        feedStream = new FeedStream()
     }
-    const publications = parsePublicationsRss(await readFeedHead(response), QUICKSTART_PUBLICATION_COUNT)
-    if (publications.length > 0) {
+    let xml: string
+    let exhausted: boolean
+    try {
+        ;({ xml, exhausted } = await feedStream.ensureItems(offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE))
+    } catch (error) {
+        // A failed stream can't be resumed. The next call starts fresh.
+        feedStream = null
+        throw error
+    }
+    const parsed = parsePublicationsRss(xml, offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE)
+    const publications = parsed.slice(offset)
+    const hasMore = !exhausted || countItems(xml) > offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE
+    if (offset === 0 && publications.length > 0) {
         writeCache(publications)
     }
-    return publications
+    return { publications, hasMore }
 }

@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import type { OnboardingProduct, TeamPublicType, TeamType } from '~/types'
 
-import { QuickstartPublication, fetchQuickstartPublications } from './publications'
+import { QuickstartPublication, fetchPublicationsPage } from './publications'
 import type { quickstartLogicType } from './quickstartLogicType'
 
 export type QuickstartProductStatus = 'active' | 'ready' | 'needs_setup'
@@ -174,8 +174,9 @@ export const quickstartLogic = kea<quickstartLogicType>([
     })),
     actions({
         enableProduct: (productKey: ProductKey) => ({ productKey }),
+        setHasMorePublications: (hasMore: boolean) => ({ hasMore }),
     }),
-    loaders({
+    loaders(({ actions, values }) => ({
         publications: [
             [] as QuickstartPublication[],
             {
@@ -183,14 +184,36 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 // and a feed hiccup must never toast at a brand-new user.
                 loadPublications: async (): Promise<QuickstartPublication[]> => {
                     try {
-                        return await fetchQuickstartPublications()
+                        const page = await fetchPublicationsPage(0)
+                        actions.setHasMorePublications(page.hasMore)
+                        return page.publications
                     } catch {
+                        actions.setHasMorePublications(false)
                         return []
+                    }
+                },
+                loadMorePublications: async (): Promise<QuickstartPublication[]> => {
+                    if (!values.hasMorePublications) {
+                        return values.publications
+                    }
+                    try {
+                        const page = await fetchPublicationsPage(values.publications.length)
+                        actions.setHasMorePublications(page.hasMore)
+                        // The feed can shift between pages (a new post lands), so drop
+                        // anything already shown instead of rendering duplicate cards
+                        const seen = new Set(values.publications.map((publication) => publication.url))
+                        return [
+                            ...values.publications,
+                            ...page.publications.filter((publication) => !seen.has(publication.url)),
+                        ]
+                    } catch {
+                        actions.setHasMorePublications(false)
+                        return values.publications
                     }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         enablingProducts: [
             {} as Record<string, boolean>,
@@ -198,6 +221,12 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 enableProduct: (state, { productKey }) => ({ ...state, [productKey]: true }),
                 updateCurrentTeamSuccess: () => ({}),
                 updateCurrentTeamFailure: () => ({}),
+            },
+        ],
+        hasMorePublications: [
+            true,
+            {
+                setHasMorePublications: (_, { hasMore }) => hasMore,
             },
         ],
     }),

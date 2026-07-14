@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect, useRef } from 'react'
 
 import { IconBook, IconCheckCircle, IconGraduationCap, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -59,24 +61,17 @@ function GetDataFlowingSection(): JSX.Element {
 
     if (installationComplete) {
         return (
-            <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                    <IconCheckCircle className="text-success text-xl shrink-0" />
-                    <span className="font-semibold">Events are flowing</span>
-                    <span className="text-secondary hidden md:inline">
-                        — everything below runs on the data you're already capturing.
-                    </span>
-                </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
+            <div className="flex items-center gap-1.5 text-sm text-secondary">
+                <IconCheckCircle className="text-success text-base shrink-0" />
+                <span>Events are flowing.</span>
+                <Link
                     to={urls.activity(ActivityTab.ExploreEvents)}
                     onClick={() => captureQuickstartAction('view_events')}
                     data-attr="quickstart-view-events"
                 >
-                    View your events
-                </LemonButton>
-            </LemonCard>
+                    View events
+                </Link>
+            </div>
         )
     }
 
@@ -292,8 +287,32 @@ function PublicationCard({ publication }: { publication: QuickstartPublication }
     )
 }
 
+function LoadMoreSentinel({ onVisible }: { onVisible: () => void }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        const element = ref.current
+        if (!element) {
+            return
+        }
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    onVisible()
+                }
+            },
+            { rootMargin: '400px' }
+        )
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [onVisible])
+
+    return <div ref={ref} className="h-px" />
+}
+
 function PublicationsSection(): JSX.Element | null {
-    const { publications, publicationsLoading } = useValues(quickstartLogic)
+    const { publications, publicationsLoading, hasMorePublications } = useValues(quickstartLogic)
+    const { loadMorePublications } = useActions(quickstartLogic)
 
     if (!publicationsLoading && publications.length === 0) {
         return null
@@ -314,18 +333,32 @@ function PublicationsSection(): JSX.Element | null {
                 </LemonButton>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {publicationsLoading
-                    ? Array.from({ length: 4 }, (_, index) => (
-                          <LemonCard key={index} hoverEffect={false} className="flex flex-col gap-2 p-3">
-                              <LemonSkeleton className="w-full h-24 rounded" />
-                              <LemonSkeleton className="w-3/4 h-4" />
-                              <LemonSkeleton className="w-full h-3" />
-                          </LemonCard>
-                      ))
-                    : publications.map((publication) => (
-                          <PublicationCard key={publication.url} publication={publication} />
-                      ))}
+                {publications.map((publication) => (
+                    <PublicationCard key={publication.url} publication={publication} />
+                ))}
+                {publicationsLoading &&
+                    Array.from({ length: publications.length === 0 ? 8 : 4 }, (_, index) => (
+                        <LemonCard key={`skeleton-${index}`} hoverEffect={false} className="flex flex-col gap-2 p-3">
+                            <LemonSkeleton className="w-full h-24 rounded" />
+                            <LemonSkeleton className="w-3/4 h-4" />
+                            <LemonSkeleton className="w-full h-3" />
+                        </LemonCard>
+                    ))}
             </div>
+            {!publicationsLoading && hasMorePublications && <LoadMoreSentinel onVisible={loadMorePublications} />}
+            {!hasMorePublications && publications.length > 0 && (
+                <div className="flex items-center justify-center gap-2 py-6 text-sm text-secondary">
+                    <span>That's everything recent.</span>
+                    <Link
+                        to="https://posthog.com/blog"
+                        target="_blank"
+                        onClick={() => captureQuickstartAction('open_blog')}
+                        data-attr="quickstart-publications-feed-end"
+                    >
+                        Keep reading on the blog
+                    </Link>
+                </div>
+            )}
         </section>
     )
 }
@@ -336,14 +369,17 @@ export function Quickstart(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-8 py-4">
-            <div>
-                <h1 className="text-2xl font-bold mb-1">
-                    Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
-                </h1>
-                <p className="text-secondary mb-0 max-w-200">
-                    Every product here runs on the same events. Get data flowing once, then turn things on as you need
-                    them — no extra installs.
-                </p>
+            <div className="flex flex-col gap-3">
+                <Logomark size="xl" className="self-start" />
+                <div>
+                    <h1 className="text-2xl font-bold mb-1">
+                        Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
+                    </h1>
+                    <p className="text-secondary mb-0 max-w-200">
+                        Every product here runs on the same events. Get data flowing once, then turn things on as you
+                        need them. No extra installs.
+                    </p>
+                </div>
             </div>
 
             <GetDataFlowingSection />
@@ -379,7 +415,7 @@ export function Quickstart(): JSX.Element {
                         icon={<IconSparkles />}
                         title="Ask Max anything"
                         description={
-                            'Max is PostHog\'s AI analyst. Once events are flowing, ask questions in plain English — like "What are my most visited pages this week?"'
+                            'Max is PostHog\'s AI analyst. Once events are flowing, ask questions in plain English, like "What are my most visited pages this week?"'
                         }
                         buttonLabel="Ask Max"
                         to={urls.projectHomepage()}
@@ -388,7 +424,7 @@ export function Quickstart(): JSX.Element {
                     <LearnCard
                         icon={<IconBook />}
                         title="Read the docs"
-                        description="Guides for every product, SDK, and framework — from first install to advanced setups."
+                        description="Guides for every product, SDK, and framework, from first install to advanced setups."
                         buttonLabel="Open docs"
                         to="https://posthog.com/docs"
                         targetBlank
