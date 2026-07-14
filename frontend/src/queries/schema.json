@@ -1036,19 +1036,6 @@
                 }
             ]
         },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
         "AnyEntityNode<LifecycleDataWarehouseNode>": {
             "anyOf": [
                 {
@@ -12965,6 +12952,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -14968,6 +14959,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -17200,6 +17195,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17229,10 +17225,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -17668,6 +17665,26 @@
                 "date_to": {
                     "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
+                },
+                "daysOfWeek": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "enum": [1, 2, 3, 4, 5, 6, 7],
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
+                },
+                "excludeIncompletePeriods": {
+                    "default": false,
+                    "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "type": ["boolean", "null"]
                 },
                 "explicitDate": {
                     "default": false,
@@ -23155,7 +23172,81 @@
                 "TogetherAI",
                 "Vapi",
                 "Vespa",
-                "Writesonic"
+                "Writesonic",
+                "Aiven",
+                "Aviator",
+                "Backblaze",
+                "Baseten",
+                "Browserbase",
+                "Cohere",
+                "DenoDeploy",
+                "DigitalOcean",
+                "E2B",
+                "Fintoc",
+                "Firecrawl",
+                "FireworksAI",
+                "FlyIo",
+                "Groq",
+                "GrowthBook",
+                "Gumloop",
+                "Hatchet",
+                "Helicone",
+                "Heroku",
+                "Hetzner",
+                "HeyGen",
+                "Infisical",
+                "Inngest",
+                "KapaAI",
+                "Kernel",
+                "Koyeb",
+                "LambdaLabs",
+                "LangSmith",
+                "Linode",
+                "LlamaCloud",
+                "Mem0",
+                "Metriport",
+                "Mintlify",
+                "MistralAI",
+                "Mono",
+                "Netlify",
+                "Northflank",
+                "OpenAI",
+                "Pinecone",
+                "PlatformSh",
+                "PromptingCompany",
+                "Qdrant",
+                "Render",
+                "Replicate",
+                "RetellAI",
+                "Roark",
+                "RunPod",
+                "ScaleAI",
+                "Scaleway",
+                "SigNoz",
+                "Sim",
+                "Skyvern",
+                "Slash",
+                "Synthesia",
+                "Telli",
+                "TerraApi",
+                "TriggerDev",
+                "Turso",
+                "TwelveLabs",
+                "Twenty",
+                "Unstructured",
+                "Upstash",
+                "Vellum",
+                "Vultr",
+                "Windmill",
+                "Zep",
+                "Hex",
+                "Singular",
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23439,6 +23530,7 @@
                 "conversations",
                 "toolbar",
                 "visual_review",
+                "code_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23450,6 +23542,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"
@@ -24553,14 +24646,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -24631,6 +24717,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsQuerySeriesNode": {
+            "$ref": "#/definitions/FunnelsQuerySeriesNodeUnion"
+        },
+        "FunnelsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -25171,7 +25281,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25278,7 +25388,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25423,7 +25533,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
@@ -26731,6 +26841,7 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
+                "apns",
                 "postgresql",
                 "aws-s3",
                 "s3-compatible"
@@ -31564,6 +31675,22 @@
             "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
             "type": "string"
         },
+        "MetricsAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches.",
+            "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "MetricsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "MetricsAttributeScope": {
             "description": "Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes.",
             "enum": ["resource", "attribute", "auto"],
@@ -31571,6 +31698,11 @@
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsOtelType": {
+            "description": "OTel metric type; matches what ingest writes to `metric_type`",
+            "enum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
             "type": "string"
         },
         "MetricsQuery": {
@@ -31636,6 +31768,10 @@
                 },
                 "metricName": {
                     "type": "string"
+                },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series."
                 },
                 "name": {
                     "description": "Alias a formula refers to (e.g. \"a\"); must be unique within the query",
@@ -33152,6 +33288,7 @@
                 "experiment analyzed",
                 "feature flag created",
                 "session_replay_set_filters",
+                "session_replay_experiment_link_clicked",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
@@ -33169,6 +33306,10 @@
                 "logs_set_filters",
                 "logs_settings_opened",
                 "metrics_docs_viewed",
+                "metrics_viewer_query_run",
+                "metrics_sql_query_run",
+                "metrics_query_saved",
+                "metrics_first_ingested",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -33326,6 +33467,7 @@
                 "product_analytics",
                 "product_tours",
                 "revenue_analytics",
+                "review_hog",
                 "session_replay",
                 "replay_vision",
                 "site_apps",
@@ -35365,6 +35507,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -36749,6 +36895,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -41145,6 +41295,11 @@
                     "description": "If the query failed, this will be set to true. More information can be found in the error_message field.",
                     "type": "boolean"
                 },
+                "error_code": {
+                    "default": null,
+                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "type": ["string", "null"]
+                },
                 "error_message": {
                     "default": null,
                     "type": ["string", "null"]
@@ -41192,7 +41347,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message", "error_code"],
             "type": "object"
         },
         "QueryStatusResponse": {
@@ -46151,6 +46306,7 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
+                "mcp_properties",
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
@@ -49850,6 +50006,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"

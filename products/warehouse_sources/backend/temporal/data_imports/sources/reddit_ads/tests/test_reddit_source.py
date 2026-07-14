@@ -46,7 +46,6 @@ class TestRedditAdsSource:
         assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
-        # Check oauth field — it comes first, since the account selector reads from it
         oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "reddit_integration_id"
@@ -54,13 +53,11 @@ class TestRedditAdsSource:
         assert oauth_field.required is True
         assert oauth_field.kind == "reddit-ads"
 
-        # Check account_id field
         account_field = config.fields[1]
         assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
         assert account_field.name == "account_id"
         assert account_field.label == "Reddit Ads Account ID"
         assert account_field.required is True
-        assert account_field.placeholder == "Your Reddit Ads account ID"
         assert account_field.integrationField == "reddit_integration_id"
         assert account_field.integrationKind == "reddit-ads"
 

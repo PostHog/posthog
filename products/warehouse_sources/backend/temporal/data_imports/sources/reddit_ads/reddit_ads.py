@@ -22,10 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 logger = structlog.get_logger(__name__)
 
 REDDIT_ADS_BASE_URL = "https://ads-api.reddit.com/api/v3"
-# Reddit allows one request per second per advertiser, and listing accounts costs one call per
-# business, so a runaway `next_url` chain would be slow as well as wrong. Raise instead of
-# returning a truncated list.
+# Guard against a runaway `next_url` chain; raise instead of returning a truncated list.
 MAX_LISTING_PAGES = 50
+# These listings run in the web request path, so never let a stalled connection pin a worker.
+LISTING_TIMEOUT_SECONDS = 10
 
 
 @dataclasses.dataclass
@@ -34,8 +34,7 @@ class RedditAdsResumeConfig:
 
 
 class RedditAdsApiError(Exception):
-    """A failed Reddit Ads API response. `api_status_code` lets callers branch on the failure (401/403
-    is a customer-side credential problem) without parsing the message.
+    """A failed Reddit Ads API response, carrying the status so callers can branch on it.
 
     Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
     exception and would render Reddit's status as PostHog's HTTP response status.
@@ -46,6 +45,10 @@ class RedditAdsApiError(Exception):
         self.api_status_code = api_status_code
 
 
+class RedditAdsTooManyPagesError(Exception):
+    """A Reddit Ads list endpoint kept handing us a `next_url` past `MAX_LISTING_PAGES`."""
+
+
 def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
     """Yield each page of a Reddit Ads list endpoint, following `pagination.next_url` (an absolute
     URL) until it runs out."""
@@ -53,7 +56,9 @@ def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
     url = f"{REDDIT_ADS_BASE_URL}{path}"
 
     for _ in range(MAX_LISTING_PAGES):
-        response = session.get(url, headers={"Authorization": f"Bearer {access_token}"})
+        response = session.get(
+            url, headers={"Authorization": f"Bearer {access_token}"}, timeout=LISTING_TIMEOUT_SECONDS
+        )
         if response.status_code != 200:
             raise RedditAdsApiError(
                 f"Reddit Ads API error ({response.status_code}): {response.text}", response.status_code
@@ -67,7 +72,7 @@ def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
             return
         url = next_url
 
-    raise Exception(f"Reddit returned more than {MAX_LISTING_PAGES} pages for {path}")
+    raise RedditAdsTooManyPagesError(f"Reddit returned more than {MAX_LISTING_PAGES} pages for {path}")
 
 
 def list_businesses(access_token: str) -> list[dict]:

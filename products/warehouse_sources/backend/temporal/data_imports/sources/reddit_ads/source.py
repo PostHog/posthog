@@ -87,7 +87,6 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             fields=cast(
                 list[FieldType],
                 [
-                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="reddit_integration_id",
                         label="Reddit Ads account",
@@ -100,7 +99,6 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                         integrationField="reddit_integration_id",
                         integrationKind="reddit-ads",
                         required=True,
-                        placeholder="Your Reddit Ads account ID",
                     ),
                 ],
             ),
@@ -116,7 +114,10 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A Reddit member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
@@ -124,8 +125,10 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                 "The linked Reddit Ads integration could not be found. Please reconnect your Reddit Ads integration."
             ) from e
 
+        # `errors` persists on the row, so a past transient refresh failure must not stop us from
+        # trying again — `refresh_access_token` clears it on entry and usually succeeds.
         oauth = OauthIntegration(integration)
-        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+        if oauth.access_token_expired():
             oauth.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
             raise IntegrationAccountListingError(
@@ -134,11 +137,13 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
 
         access_token = integration.access_token
         try:
-            # Reddit exposes ad accounts only under a business, so this costs one call per business.
             return [
                 IntegrationAccount(
                     value=account["id"],
                     display_name=account.get("name") or "Unnamed account",
+                    # Sources predating this picker were configured by typing the account id, and
+                    # `group` is not searchable, so surface the id users already know.
+                    secondary_text=account["id"],
                     badges=("Suspended",) if account.get("suspension_reason") else (),
                     group=business.get("name"),
                 )
@@ -146,13 +151,19 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                 for account in list_business_ad_accounts(access_token, business["id"])
             ]
         except RedditAdsApiError as e:
-            if e.api_status_code not in (401, 403):
-                # Any other status is a bug in the request we build, not something the user can fix.
-                raise
-            raise IntegrationAccountListingError(
-                "Reddit rejected the credentials for this integration. Please reconnect your Reddit Ads "
-                "integration and make sure the connected account can access your ad accounts."
-            ) from e
+            if e.api_status_code in (401, 403):
+                raise IntegrationAccountListingError(
+                    "Reddit rejected the credentials for this integration. Please reconnect your Reddit Ads "
+                    "integration and make sure the connected account can access your ad accounts."
+                ) from e
+            if e.api_status_code == 429 or e.api_status_code >= 500:
+                # The session already retried these; Reddit rate-limits ~1 req/s per advertiser and this
+                # listing fires one call per business, so exhausting the retries is expected under load.
+                raise IntegrationAccountListingError(
+                    "Reddit is rate-limiting or temporarily unavailable for this integration. Please try again."
+                ) from e
+            # Any other status means we built a bad request, which the user cannot fix.
+            raise
 
     def validate_credentials(
         self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None

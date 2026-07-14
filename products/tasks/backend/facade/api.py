@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     is_blocked_sandbox_env_key,
 )
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.logic.services.image_builder import (
@@ -48,9 +49,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
-from products.tasks.backend.mentions import resolve_mentioned_user_ids
+from products.tasks.backend.mentions import format_mention_token, resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -139,6 +141,7 @@ __all__ = [
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
+    "complete_idle_local_task_run",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -627,13 +630,16 @@ def get_stale_queued_task_run_ids(
     *,
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
-    cloud_only: bool = False,
+    environment: str | None = None,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
-    ``cloud_only`` restricts the sweep to cloud-environment runs. Local (desktop) runs sit in
-    QUEUED by design while the desktop agent drives them, so dispatch-recovery callers must
-    exclude them — cloud-dispatching one hijacks the user's live local session.
+    ``environment`` restricts the sweep to runs of that environment. A QUEUED cloud run is
+    awaiting a workflow that should have started, but a local (desktop) run sits in QUEUED by
+    design while the desktop agent drives it — so sweep callers must scope themselves and act
+    per environment: dispatch recovery must only touch cloud runs (cloud-dispatching a local
+    run hijacks the user's live local session), and the janitor fails stale cloud runs but
+    quietly completes stale local ones.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
@@ -642,8 +648,8 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
-    if cloud_only:
-        queryset = queryset.filter(environment=TaskRun.Environment.CLOUD)
+    if environment is not None:
+        queryset = queryset.filter(environment=environment)
     return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
 
 
@@ -876,7 +882,7 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
-def fail_task_run(run_id: str | UUID, error: str) -> bool:
+def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
     Refetches filtered on ``status=QUEUED`` so a run that left the queue between the
@@ -887,11 +893,39 @@ def fail_task_run(run_id: str | UUID, error: str) -> bool:
     ).first()  # nosemgrep: celery-task-team-scope-audit
     if run is None:
         return False
-    run.mark_failed(error)
+    run.mark_failed(error, error_type=error_type)
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
+def complete_idle_local_task_run(run_id: str | UUID) -> bool:
+    """Quietly finalize a local (desktop-driven) run left idling in QUEUED. Returns whether
+    a run was acted on.
+
+    Local runs never get a cloud workflow, so QUEUED is their steady state while the desktop
+    drives the session — once the desktop goes away, nothing else ever terminalizes the row.
+    An idle session that ended is the run's normal end state, so it finalizes as COMPLETED,
+    and without a push notification: pinging a user a day after they closed their session is
+    noise, not signal.
+
+    Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
+    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
+    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
+    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
+    (janitor sweep).
+    """
+    claimed = TaskRun.objects.filter(
+        pk=run_id, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+    ).update(status=TaskRun.Status.COMPLETED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    return True
+
+
+def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
@@ -907,7 +941,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
-        run.mark_failed(error)
+        run.mark_failed(error, error_type=error_type)
     return True
 
 
@@ -1262,6 +1296,9 @@ def build_sandbox_custom_image(
         parse_image_spec_yaml,
         validate_spec_buildable,
     )
+    from products.tasks.backend.metrics import (
+        observe_custom_image_build,  # noqa: PLC0415 — keep prometheus deps off the api import path
+    )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
     image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
@@ -1287,6 +1324,7 @@ def build_sandbox_custom_image(
     image.error = ""
     image.save(update_fields=["spec", "status", "error", "updated_at"])
 
+    observe_custom_image_build("started")
     execute_build_sandbox_image_workflow(str(image.id), team_id)
     return _reload_image_dto(image.pk)
 
@@ -1488,8 +1526,13 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     provision an oversized or long-lived sandbox beyond what they're entitled to.
 #   - use_modal_directory_resume_snapshots is the server-side directory snapshot rollout decision;
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
+#   - use_modal_vm_sandbox is reserved for trusted server-created runs such as image builders;
+#     a caller could otherwise force the VM runtime while the feature flag or custom-image gate is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
+#     the derived id); a caller could otherwise repoint their run at another team's workflow and
+#     signal or terminate-and-restart it.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1503,9 +1546,16 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
+        "use_modal_vm_sandbox",
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        "workflow_id",
+        "pending_dispatch",
+        "cancel_requested_at",
+        "cancel_requested_by_user_id",
+        "cancel_source",
+        "cancel_fallback_cleanup_complete",
     }
 )
 
@@ -1711,7 +1761,12 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
 
 
 def update_task_run(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    validated_data: dict,
+    only_if_non_terminal: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -1745,8 +1800,10 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation:
+        if has_output_merge or has_state_mutation or only_if_non_terminal:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if only_if_non_terminal and run.is_terminal:
+            return _task_run_detail_to_dto(run)
 
         old_status = run.status
         old_environment = run.environment
@@ -1795,6 +1852,17 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
+            # This PATCH performed the DB transition, so it owns the task_run_failed
+            # capture. The workflow's status-update activity sees the row already
+            # FAILED and skips its own capture, keeping the event single-emitted.
+            run.capture_event(
+                "task_run_failed",
+                {
+                    "error_message": truncate_error_message(run.error_message),
+                    "error_type": "agent_reported",
+                    "duration_seconds": run._duration_seconds(),
+                },
+            )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
@@ -1848,7 +1916,14 @@ def set_task_run_output(
     if run is None:
         return None
     task = run.task
-    run.output = output
+    # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
+    # so a bare `= output` would drop output.pr_url / output.pr_merged recorded out of band.
+    existing = run.output if isinstance(run.output, dict) else {}
+    merged = {**output}
+    for key in ("pr_url", "pr_merged"):
+        if not merged.get(key) and existing.get(key):
+            merged[key] = existing[key]
+    run.output = merged
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
@@ -2588,7 +2663,6 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keep ORM off the api import path
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
         signal_agent_text_delta,
@@ -2610,7 +2684,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(TaskRun.get_workflow_id(str(run.task_id), str(run.id)), trimmed)
+            signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -4246,7 +4320,12 @@ def _slack_repo_research_dto(
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
-    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
+    workflow_id = (
+        research_run.workflow_id
+        if research_run is not None
+        else TaskRun.get_workflow_id(research_task_id, research_run_id)
+    )
     return contracts.SlackThreadContextRepoResearchDTO(
         task_id=research_task_id,
         run_id=research_run_id,
@@ -4309,7 +4388,7 @@ def resolve_slack_thread_context(
     for run in runs:
         state = run.state if isinstance(run.state, dict) else {}
         output = run.output if isinstance(run.output, dict) else {}
-        task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+        task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
             presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
@@ -4661,13 +4740,36 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     return [_channel_to_dto(channel) for channel in channels]
 
 
+def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
+    """Announce a newly-created public channel in its own feed as a system row
+    ("Ann created this context"). Server-emitted so the announcement appears no
+    matter which client (or integration) created the channel. Best-effort — a
+    feed-write failure must never break channel creation. The fail-closed
+    ``TeamScopedManager`` raises without team context, so callers outside a
+    request (temporal, MCP) must wrap in ``team_scope()`` or the announcement
+    is swallowed here and only logged."""
+    try:
+        ChannelFeedMessage.objects.create(
+            team_id=channel.team_id,
+            channel_id=channel.id,
+            author_id=user_id,
+            author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+            event="channel_created",
+            payload={"channel_name": channel.name},
+        )
+    except Exception:
+        logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
+
+
 def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
-    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names."""
+    """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
+    Emits a ``channel_created`` feed message the first time a channel is created."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
+    created = False
     try:
-        channel, _ = Channel.objects.select_related("created_by").get_or_create(
+        channel, created = Channel.objects.select_related("created_by").get_or_create(
             team_id=team_id,
             name=normalized,
             channel_type=Channel.ChannelType.PUBLIC,
@@ -4678,6 +4780,8 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
         channel = Channel.objects.select_related("created_by").get(
             team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PUBLIC, deleted=False
         )
+    if created:
+        _emit_channel_created(channel, user_id)
     return _channel_to_dto(channel)
 
 
@@ -4712,10 +4816,97 @@ def delete_channel(channel_id: str | UUID, team_id: int) -> str:
     return "ok"
 
 
+# Per-channel ceiling on feed rows — the feed holds rare lifecycle announcements, so the
+# cap exists to stop one member making the feed unboundedly expensive to store and read.
+CHANNEL_FEED_MAX_MESSAGES = 500
+
+
+def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.ChannelFeedMessageDTO:
+    return contracts.ChannelFeedMessageDTO(
+        id=message.id,
+        channel=message.channel_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
+        content=message.content,
+        created_at=message.created_at,
+        author=_user_basic_info(message.author if message.author_id else None),
+    )
+
+
+def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+    """A channel the requester may read: any live public channel on the team, or their
+    own personal channel. ``None`` when it's missing or someone else's personal channel."""
+    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return None
+    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
+        return None
+    return channel
+
+
+def list_channel_feed_messages(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelFeedMessageDTO] | None:
+    """A channel's system-announcement feed, ascending. ``None`` when the channel isn't visible.
+    Bounded to the newest ``CHANNEL_FEED_MAX_MESSAGES``: the feed holds rare lifecycle
+    events, and the write path caps a channel at the same count. Add real pagination
+    before any per-task or per-thread event lands here."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    messages = (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
+        .select_related("author")
+        .order_by("-created_at", "-id")[:CHANNEL_FEED_MAX_MESSAGES]
+    )
+    return [_channel_feed_message_to_dto(message) for message in reversed(messages)]
+
+
+def create_channel_feed_message(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    event: str,
+    payload: dict,
+    created_at: datetime | None = None,
+) -> contracts.ChannelFeedMessageDTO | None | str:
+    """Post an announcement into a channel's feed as the requester. ``None`` when the
+    channel isn't visible; ``"full"`` when the channel's feed is at capacity. The row is
+    marked human-authored — ``system``/``agent`` kinds are reserved for server-side
+    writers, so a client can't forge rows other clients render as trusted. ``author``
+    records the acting user so the client can render "Adam …". ``created_at`` lets a
+    client order a burst of announcements deterministically (else the server stamps
+    ``now``)."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    if (
+        ChannelFeedMessage.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False).count()
+        >= CHANNEL_FEED_MAX_MESSAGES
+    ):
+        return "full"
+    fields: dict = {
+        "team_id": team_id,
+        "channel_id": channel_id,
+        "author_id": user_id,
+        "author_kind": ChannelFeedMessage.AuthorKind.HUMAN,
+        "event": event,
+        "payload": payload or {},
+    }
+    if created_at is not None:
+        fields["created_at"] = created_at
+    message = ChannelFeedMessage.objects.create(**fields)
+    # Fresh row: author lazy-loads once for the DTO.
+    return _channel_feed_message_to_dto(message)
+
+
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
     return contracts.TaskThreadMessageDTO(
         id=message.id,
         task=message.task_id,
+        author_kind=message.author_kind,
+        event=message.event,
+        payload=message.payload or {},
         content=message.content,
         created_at=message.created_at,
         author=_user_basic_info(message.author if message.author_id else None),
@@ -4767,7 +4958,7 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     mentioned_user_ids = resolve_mentioned_user_ids(
         User, message.content, team_id=message.team_id, author_id=message.author_id
     )
-    TaskThreadMessageMention.objects.bulk_create(
+    TaskThreadMessageMention.objects.for_team(message.team_id).bulk_create(
         [
             TaskThreadMessageMention(
                 team_id=message.team_id,
@@ -4869,6 +5060,129 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+# Threads are a Channels (project-bluebird) surface, so agent-authored thread
+# updates are gated on the same flag — evaluated for the task creator.
+AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
+
+# One turn-complete post per run within the window, so an SSE relay reconnect
+# replaying the tail of the stream can't double-post the same end-of-turn.
+_TURN_COMPLETE_COOLDOWN_SECONDS = 30
+
+# Cap the relayed final message so one agent essay can't dwarf the thread.
+_TURN_MESSAGE_MAX_CHARS = 4000
+
+
+def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
+    """Write an agent-authored thread message and index its mentions.
+
+    ``content`` is the rendered text (older clients show it as-is); ``event`` +
+    ``payload`` are the structured record, mirroring ChannelFeedMessage, that
+    lets clients render agent rows natively and dedupe them against live views.
+    """
+    # for_team: callers include non-request contexts (temporal relay) where the
+    # fail-closed manager has no team scope.
+    message = TaskThreadMessage.objects.for_team(task.team_id).create(
+        team_id=task.team_id,
+        task_id=task.id,
+        author_id=None,
+        author_kind=TaskThreadMessage.AuthorKind.AGENT,
+        event=event,
+        payload=payload or {},
+        content=content,
+    )
+    try:
+        _index_thread_message_mentions(message)
+    except Exception:
+        logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
+
+
+def _agent_thread_updates_enabled(creator: User | None) -> bool:
+    """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
+    if creator is None:
+        return False
+    distinct_id = creator.distinct_id or f"user_{creator.id}"
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(AGENT_THREAD_UPDATES_FLAG, distinct_id, send_feature_flag_events=False)
+        )
+    except Exception:
+        logger.warning("Agent thread update flag check failed", extra={"user_id": creator.id}, exc_info=True)
+        return False
+
+
+def post_canvas_created_thread_update(
+    task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
+) -> None:
+    """Announce a freshly created canvas in the generating task's thread.
+
+    Posts "[name](url) has been created" as an agent message. Called on a canvas's
+    first publish only — the caller owns that once-guard. ``acting_user_id`` must be
+    the task's creator: the sandbox publishes with the creator's credentials, so this
+    binds the attributed task to the caller's identity — a same-team caller can't
+    plant agent messages in someone else's task thread by naming its id. Best-effort
+    and never raises: the publish must not fail because its announcement couldn't
+    be written.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or task.created_by_id is None or task.created_by_id != acting_user_id:
+            return
+        if not _agent_thread_updates_enabled(task.created_by):
+            return
+        # Brackets and newlines in the name would break the [label](url) token.
+        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
+        _create_agent_thread_message(
+            task,
+            content,
+            event="canvas_created",
+            payload={"canvas_name": name, "canvas_url": canvas_url},
+        )
+    except Exception:
+        logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
+
+
+def post_turn_complete_thread_update(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, message: str | None = None
+) -> None:
+    """Post the agent's final turn message into the task's thread, @-mentioning the task creator.
+
+    Fires from the sandbox event relay on every end-of-turn of a channel task's
+    background run, so the update lands even with no client open. ``message`` is
+    the agent's closing prose for the turn; when the relay captured none, a plain
+    "Turn complete." stands in. Best-effort and never raises — a failed post must
+    not disturb the relay.
+    """
+    try:
+        if not settings.TEST:
+            close_old_connections()
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        # Threads hang off a task's channel feed; a channel-less task has no audience.
+        if task is None or task.channel_id is None:
+            return
+        creator = task.created_by
+        if creator is None or not _agent_thread_updates_enabled(creator):
+            return
+        from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+        if not get_tasks_cache().add(f"thread_update:{run_id}:turn_complete", True, _TURN_COMPLETE_COOLDOWN_SECONDS):
+            return
+        body = (message or "").strip() or "Turn complete."
+        if len(body) > _TURN_MESSAGE_MAX_CHARS:
+            body = body[: _TURN_MESSAGE_MAX_CHARS - 1] + "…"
+        mention = format_mention_token(creator.get_full_name() or creator.email, creator.email)
+        # payload.run_id is the dedupe key: a client already rendering this run's
+        # live agent turns can suppress the durable row (or vice versa).
+        _create_agent_thread_message(
+            task,
+            f"{mention} {body}",
+            event="turn_complete",
+            payload={"run_id": str(run_id)},
+        )
+    except Exception:
+        logger.exception("Failed to post turn-complete thread update", extra={"task_id": str(task_id)})
 
 
 def respond_to_permission_request(

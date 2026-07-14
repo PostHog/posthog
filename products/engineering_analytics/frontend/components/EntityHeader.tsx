@@ -2,6 +2,9 @@
 
 import { ReactNode } from 'react'
 
+import { IconBox } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 
 export type VerdictKind = 'success' | 'danger' | 'warning' | 'muted'
@@ -36,6 +39,32 @@ export function VerdictPill({ kind, children }: { kind: VerdictKind; children: R
             />
             {children}
         </span>
+    )
+}
+
+/** The repo's identity header, shared across the hub and secondary tabs so the subject reads the same
+ *  everywhere: box icon · repo name · owner/name slug with a GitHub link. `right` docks the source
+ *  picker on multi-source teams. */
+export function RepoEntityHeader({ repoFullName, right }: { repoFullName: string; right?: ReactNode }): JSX.Element {
+    const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
+    return (
+        <EntityHeader
+            icon={<IconBox />}
+            title={name}
+            // No slug line when the source hasn't reported a repo name yet.
+            slug={
+                repoFullName ? (
+                    <>
+                        {repoFullName}
+                        {' · '}
+                        <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
+                            View on GitHub
+                        </Link>
+                    </>
+                ) : undefined
+            }
+            right={right}
+        />
     )
 }
 

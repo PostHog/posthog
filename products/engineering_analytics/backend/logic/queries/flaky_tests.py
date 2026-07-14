@@ -16,7 +16,8 @@ Two data caveats shape the query:
 
 Ranking is ``rerun_passed_count + failed_pr_count``: reruns catch the rerun-enabled lanes,
 distinct-PRs-hit catches the rest, and neither is inflated by one broken PR failing the same
-test on every push (that raises only ``failed_count``, the tiebreaker).
+test on every push (that raises only ``failed_count``, the tiebreaker). Spans are scoped by
+``ci.repository`` so the selected GitHub source cannot mix signals from another repository.
 
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
@@ -59,6 +60,7 @@ _SELECT = """
         FROM posthog.trace_spans
         WHERE service_name = {service_name}
             AND attributes['test.outcome'] IN {signal_outcomes}
+            AND lower(resource_attributes['ci.repository']) = lower({repository})
             AND timestamp >= {date_from} __DATE_TO__
     )
     GROUP BY nodeid
@@ -97,10 +99,18 @@ def query_flaky_tests(
     min_failed_prs: int,
     limit: int,
 ) -> FlakyTestList:
+    repository = curated.repository
+    # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
+    # cannot tell one connected repo's spans from another, so return nothing rather than leak every
+    # repository's flaky signals into the selected source's leaderboard.
+    if not repository:
+        return FlakyTestList(items=[], truncated=False, limit=limit)
+
     date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {
         "service_name": ast.Constant(value=_CI_SERVICE_NAME),
         "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
+        "repository": ast.Constant(value=repository),
         "date_from": ast.Constant(value=date_from),
         "min_rerun_passes": ast.Constant(value=min_rerun_passes),
         "min_failed_prs": ast.Constant(value=min_failed_prs),

@@ -100,10 +100,6 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
-    # Which source the delta sink's queue readers use: the legacy status-log
-    # laterals or the denormalized state columns. Readers only — writes always
-    # dual-write, which is what makes flipping back a complete rollback.
-    claim_path: str = "legacy"
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -642,8 +638,33 @@ class BatchConsumer:
                     owner_token=self._owner_token,
                     lease_ttl_seconds=self._lease_ttl_seconds,
                 )
-                if not renewed:
-                    raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
+            except Exception as e:
+                # A transient blip (pgbouncer bounce, network hiccup) must not
+                # end the heartbeat for the rest of a long batch: with renewals
+                # stopped, the lease expires and the executing row ages past
+                # grace while the owner is still healthily applying — inviting
+                # a concurrent re-claim of a batch that is mid-write. Log and
+                # try again next tick; a genuinely dead connection keeps
+                # failing and the lease-expiry backstop still applies.
+                logger.warning(
+                    self._event("batch_heartbeat_renewal_failed"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                    error=str(e),
+                )
+                continue
+            if not renewed:
+                # Another pod reclaimed the group: stop heartbeating so the
+                # in-flight apply is fenced by the per-batch ownership checks.
+                logger.warning(
+                    self._event("batch_heartbeat_lease_lost"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                )
+                return
+            try:
                 await self._adapter.update_status(
                     lock_conn,
                     batch_id=batch.id,
@@ -651,8 +672,14 @@ class BatchConsumer:
                     attempt=attempt,
                     batch_created_at=batch.created_at,
                 )
-            except Exception:
-                return
+            except Exception as e:
+                logger.warning(
+                    self._event("batch_heartbeat_status_refresh_failed"),
+                    batch_id=batch.id,
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                    error=str(e),
+                )
 
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
         """Bind per-batch log context, then process. Returns True only on success.

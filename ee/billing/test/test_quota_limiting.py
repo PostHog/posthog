@@ -2307,11 +2307,13 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         llm_events=0,
         ai_credits=0,
         signals_credits=0,
+        posthog_code_credits=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
+        replay_vision_credits=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base
