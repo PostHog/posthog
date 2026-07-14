@@ -33,13 +33,12 @@ export function ObservationSearchMaxChat({ scannerId }: { scannerId: string }): 
         active: scannerId !== 'new',
         context: { scanner_id: scannerId },
         contextDescription: scanner
-            ? { text: scanner.name || 'Replay Vision scanner', icon: iconForType('session_replay') }
+            ? { text: scanner.name || 'Replay vision scanner', icon: iconForType('session_replay') }
             : undefined,
         initialMaxPrompt: example,
     })
 
-    // Summarizer scanners already surface their own "Chat about these summaries" entry point; keep the search
-    // tool registered for Max, but don't render a second, near-identical card on that page.
+    // Summarizer pages already surface a near-identical chat entry point — keep the Max tool, skip the card.
     if (!openMax || scanner?.scanner_type === 'summarizer') {
         return null
     }

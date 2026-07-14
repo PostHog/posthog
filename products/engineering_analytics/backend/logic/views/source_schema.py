@@ -49,6 +49,10 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     "run_attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "pull_requests": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "repository": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The run's head commit object (author, message, id) verbatim as JSON. Carries the commit
+    # attribution the ci_job_history view extracts; a push run's PR number rides its squash-merge
+    # message when the pull_requests association is empty (master pushes). Nullable like every column.
+    "head_commit": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
 # Contract for the incoming ``github_workflow_jobs`` warehouse source (job-level CI: queue

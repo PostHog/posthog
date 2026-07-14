@@ -213,7 +213,8 @@
             "groups": [],
             "created_by_id": 1,
             "cohort_type": null,
-            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00"
+            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00",
+            "last_backfill_events_at": "2024-01-15T12:00:00+00:00"
         }
     ]
 }

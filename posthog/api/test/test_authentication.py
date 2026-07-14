@@ -243,7 +243,29 @@ class TestLoginAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
 
         # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
+
+    @parameterized.expand(
+        [
+            # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
+            # verification link can resume the flow.
+            ("safe_relative_next", "/oauth/authorize/?client_id=x", "/oauth/authorize/?client_id=x"),
+            # An off-origin `next` must be dropped.
+            ("unsafe_off_origin_next", "https://evil.example.com/steal", None),
+        ]
+    )
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    def test_email_verification_link_carries_safe_next(
+        self, _name, next_input, expected, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": next_input},
+        )
+        mock_send_email_verification.assert_called_once_with(self.user, expected)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -283,7 +305,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):

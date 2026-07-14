@@ -61,6 +61,16 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    webhook_only: bool = False
+    """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
+    rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
+    webhook ingestion instead."""
+    chunk_size: Optional[int] = None
+    """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
+    chunk_size_bytes: Optional[int] = None
+    """Override the batcher's per-chunk byte cap (defaults to DEFAULT_CHUNK_SIZE_BYTES). Lower it for
+    sources whose rows are large (e.g. whole documents) so the source->Arrow conversion doesn't
+    materialise an oversized table and OOM the worker."""
     xmin_ceiling_xid: Optional[int] = None
     """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
     xmin_ceiling_xid8: Optional[int] = None

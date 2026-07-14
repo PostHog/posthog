@@ -1,10 +1,17 @@
 import { ComponentType, useState } from 'react'
 
-import { HedgehogEinstein, HedgehogMagnifyingGlass, HedgehogReporter } from '@posthog/brand/hoggies'
+import * as einsteinPng from '@posthog/brand/hoggies/png/einstein'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { StarHog } from 'lib/components/hedgehogs'
 
 import { WizardStep } from './surveyWizardLogic'
+
+const HedgehogEinstein = pngHoggie(einsteinPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogReporter = pngHoggie(reporterPng)
 
 interface Tip {
     text: string

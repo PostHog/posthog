@@ -30,6 +30,34 @@ const TOOL_RESULTS = [
     ['cohort-create', 95, 6, 6.3, 1620],
 ]
 
+// One [day, calls, errors] table drives both time-series charts so they agree with
+// each other and with KPI_RESULTS' daily tool_calls/errors by construction.
+const DAILY_TOTALS: [string, number, number][] = [
+    ['2026-05-31', 4200, 145],
+    ['2026-06-01', 4300, 150],
+    ['2026-06-02', 4500, 165],
+    ['2026-06-03', 4720, 158],
+    ['2026-06-04', 4600, 170],
+    ['2026-06-05', 4900, 182],
+    ['2026-06-06', 5100, 176],
+    ['2026-06-07', 5300, 168],
+]
+
+const ACTIVITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors]) => [day, calls - errors, errors])
+
+const TOOL_DAILY_SHARES: [string, number][] = [
+    ['exec', 0.58],
+    ['execute-sql', 0.17],
+    ['read-data-schema', 0.085],
+    ['query-trends', 0.06],
+    ['insight-create', 0.046],
+    ['dashboard-create', 0.029],
+]
+
+const TOOL_DAILY_RESULTS = DAILY_TOTALS.flatMap(([day, calls]) =>
+    TOOL_DAILY_SHARES.map(([tool, share]) => [day, tool, Math.round(calls * share)])
+)
+
 const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000001', 42, 18, 42.9, 610, 7, '2026-06-07T10:00:00Z'],
     ['0193f2a1-aaaa-bbbb-cccc-000000000002', 6, 6, 100.0, 95, 2, '2026-06-07T09:30:00Z'],
@@ -335,6 +363,12 @@ const meta: Meta = {
                     if (query.includes('count() AS calls') && query.includes('GROUP BY category')) {
                         return [200, { results: CATEGORY_COUNTS }]
                     }
+                    if (query.includes('AS successes')) {
+                        return [200, { results: ACTIVITY_RESULTS }]
+                    }
+                    if (query.includes('GROUP BY day, tool')) {
+                        return [200, { results: TOOL_DAILY_RESULTS }]
+                    }
                     if (query.includes('p95_duration_ms')) {
                         return [200, { results: TOOL_RESULTS }]
                     }
@@ -349,7 +383,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2026-06-07',
+        mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS],
     },
@@ -359,6 +393,13 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Dashboard: Story = {}
+
+// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
+export const DashboardWithMenuBar: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
 
 export const Sessions: Story = {
     parameters: {

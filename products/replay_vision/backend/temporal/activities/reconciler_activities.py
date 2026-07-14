@@ -12,6 +12,7 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_TYPE,
     SWEEP_SCANNER_WORKFLOW_NAME,
 )
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.reconciler_types import (
     DeleteScannerScheduleActivityInputs,
     EnabledScannerEntry,
@@ -28,6 +29,7 @@ logger = structlog.get_logger(__name__)
 
 
 @activity.defn
+@track_activity()
 async def list_enabled_scanners_activity() -> list[EnabledScannerEntry]:
     """Every enabled ReplayScanner with its current fingerprint."""
     rows = await database_sync_to_async(load_enabled_scanner_fingerprints)()
@@ -51,6 +53,7 @@ def _schedule_fingerprint(listing: object) -> str | None:
 
 
 @activity.defn
+@track_activity()
 async def list_scanner_schedules_activity() -> list[ScannerScheduleEntry]:
     """Existing per-scanner schedules in Temporal; fingerprint is None for legacy schedules."""
     client = await async_connect()
@@ -71,10 +74,12 @@ async def list_scanner_schedules_activity() -> list[ScannerScheduleEntry]:
 
 
 @activity.defn
+@track_activity()
 async def upsert_scanner_schedule_activity(inputs: UpsertScannerScheduleActivityInputs) -> None:
     await a_upsert_scanner_schedule(inputs.scanner_id, inputs.team_id)
 
 
 @activity.defn
+@track_activity()
 async def delete_scanner_schedule_activity(inputs: DeleteScannerScheduleActivityInputs) -> None:
     await a_delete_scanner_schedule(inputs.scanner_id)

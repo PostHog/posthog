@@ -2,7 +2,7 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotFound } from 'lib/components/NotFound'
@@ -32,6 +32,10 @@ import { NotebookLoadingState } from './NotebookLoadingState'
 import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
+
+// Counts mounted markdown-v2 notebooks so the <body> marker class survives overlapping mounts
+// (e.g. one in the scene and one in the side panel)
+let markdownNotebookMountCount = 0
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -116,10 +120,26 @@ export function Notebook({
     }, [size]) // oxlint-disable-line exhaustive-deps
 
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
+
+    // Marker class replacing `body:has(.Notebook--markdown-v2)` in Notebook.scss: a near-root
+    // `:has()` anchor makes every DOM class change cost a whole-document style recalc in Blink
+    useLayoutEffect(() => {
+        if (!isMarkdownNotebook) {
+            return
+        }
+        if (++markdownNotebookMountCount === 1) {
+            document.body.classList.add('has-markdown-v2-notebook')
+        }
+        return () => {
+            if (--markdownNotebookMountCount === 0) {
+                document.body.classList.remove('has-markdown-v2-notebook')
+            }
+        }
+    }, [isMarkdownNotebook])
     const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ shortId, content, comments, setLocalContent })
     }
 
     return (

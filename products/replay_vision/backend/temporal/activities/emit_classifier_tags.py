@@ -20,13 +20,11 @@ from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.temporal.constants import KAFKA_DELIVERY_TIMEOUT_S
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EmitClassifierTagsInputs
 
 logger = structlog.get_logger(__name__)
-
-# Bounded so broker errors surface as activity failures instead of getting lost in the producer buffer.
-_KAFKA_DELIVERY_TIMEOUT_S = 10.0
 
 
 def _load_session_identity(observation_id: UUID) -> tuple[str | None, datetime | None] | None:
@@ -77,7 +75,7 @@ async def emit_classifier_tags_activity(inputs: EmitClassifierTagsInputs) -> Non
 
     def emit() -> None:
         with producer_scope(
-            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, flush_timeout=_KAFKA_DELIVERY_TIMEOUT_S
+            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, flush_timeout=KAFKA_DELIVERY_TIMEOUT_S
         ) as producer:
             result = producer.produce(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, data=payload)
         result.get(timeout=0)

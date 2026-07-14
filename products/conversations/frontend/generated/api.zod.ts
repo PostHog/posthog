@@ -255,6 +255,31 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreateBodyMessageIdMax = 200
+
+export const conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax = 2000
+
+export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
+    .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyMessageIdMax)
+            .describe('ID of the AI message being rated.'),
+        rating: zod
+            .enum(['good', 'bad'])
+            .describe('\* `good` - good\n\* `bad` - bad')
+            .describe('Reviewer rating: good or bad.\n\n\* `good` - good\n\* `bad` - bad'),
+        feedback_text: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax)
+            .optional()
+            .describe('Optional text explaining a bad rating.'),
+    })
+    .describe('Payload for recording reviewer feedback on an AI reply.')
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the
@@ -371,5 +396,27 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+})
+
+export const conversationsZendeskImportsCreateBodySubdomainMax = 255
+
+export const conversationsZendeskImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object({
+    subdomain: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodySubdomainMax)
+        .describe("Zendesk subdomain (e.g. 'acme' from acme.zendesk.com)."),
+    email_address: zod.email().describe('Zendesk agent email tied to the API token.'),
+    api_token: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodyApiTokenMax)
+        .describe('Zendesk API token with ticket read access.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel."
         ),
 })

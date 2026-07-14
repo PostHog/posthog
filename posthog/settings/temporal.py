@@ -36,6 +36,10 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
     "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
 )
 
+# PostHog project where Temporal worker logs are ingested, used to build logs links
+# in Temporal UI workflow details. Set to 0 to disable the links.
+TEMPORAL_LOGS_PROJECT_ID: int = get_from_env("TEMPORAL_LOGS_PROJECT_ID", 1, type_cast=int)
+
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
@@ -112,6 +116,7 @@ BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
 SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
 GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")

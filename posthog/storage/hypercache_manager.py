@@ -202,6 +202,29 @@ class HyperCacheManagementConfig:
     # Called once per batch for efficiency (avoids N+1 queries).
     get_team_ids_to_skip_fix_fn: Callable[[list[int]], set[int]] | None = None
 
+    # When True, a full cache_miss is repaired even for a team in the grace period.
+    # Only set for caches with no read-through DB fallback, where a miss is a hard
+    # user-facing failure (the Rust /flags/definitions endpoint 503s). Read-through
+    # caches (flags, team_metadata) cold-load on miss, so they keep the grace-period
+    # skip as an optimization and leave this False.
+    repair_miss_during_grace_period: bool = False
+
+    # Team columns the refresh/warm path reads off each Team object. When set,
+    # get_teams_with_expiring_caches narrows its SELECT to these columns via .only()
+    # instead of fetching the whole row. This keeps the refresh working when a Team
+    # column added by a migration the read replica hasn't applied yet would otherwise
+    # make `SELECT *` raise UndefinedColumn (the replica lags on posthog_team DDL).
+    # Must list every Team field the config's update_fn/load_fn reads; related fields
+    # (organization/project) come via select_related and don't need listing, but the
+    # FK columns (organization_id, project_id) do. Leave None to select all columns.
+    refresh_only_fields: list[str] | None = None
+
+    # Optional write guard: given (key, payload), returns True to skip the write. Used
+    # to veto caching an emptied group_type_mapping over populated data when personhog
+    # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
+    # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
+    should_skip_write: Callable[[Any, dict], bool] | None = None
+
     # Derived properties (computed from required properties using conventions)
     @property
     def namespace(self) -> str:
@@ -306,6 +329,9 @@ def warm_caches(
             teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
         else:
             teams_queryset = config.get_teams_queryset().select_related("organization", "project")
+
+        if config.refresh_only_fields is not None:
+            teams_queryset = teams_queryset.only(*config.refresh_only_fields)
 
         total_teams = teams_queryset.count()
 

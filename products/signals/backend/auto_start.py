@@ -9,11 +9,14 @@ import structlog
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -60,6 +63,17 @@ def _priority_rank(priority: Priority) -> int:
 def _effective_threshold(config: SignalUserAutonomyConfig | None, team_default_priority: Priority) -> Priority:
     """A user's effective autostart threshold: their personal setting if set, else the team default."""
     return Priority(config.autostart_priority) if config and config.autostart_priority else team_default_priority
+
+
+def _report_meets_team_autostart_threshold(report_priority: Priority, team_default_priority: Priority) -> bool:
+    """Whether the report's priority is at or above the team's default autostart threshold.
+
+    Gates the reviewer-less fallback so a team that set ``default_autostart_priority`` (e.g. P2)
+    doesn't get autonomous PRs for lower-priority reports. Lower rank = higher priority; the team
+    default is P4 ("all priorities") when the team has no config row, so the gate is a no-op then.
+    Per-user autostart priorities are intentionally not consulted — the fallback has no named user.
+    """
+    return _priority_rank(report_priority) <= _priority_rank(team_default_priority)
 
 
 def _build_autostart_task_description(
@@ -117,6 +131,9 @@ def _create_implementation_task_if_absent(
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
     report is gone.
     """
+    # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
+    agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
+
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
@@ -134,7 +151,9 @@ def _create_implementation_task_if_absent(
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
             team=team,
-            title=title,
+            # "Implementation: <report title>" mirrors the research task's "Research: <report title>"
+            # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
+            title=f"Implementation: {title}",
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
@@ -146,6 +165,11 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
+            # Internal so the run stays out of the default task list; the report surfaces it by id.
+            internal=True,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            model=agent_runtime.model,
+            reasoning_effort=agent_runtime.reasoning_effort,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
@@ -210,6 +234,61 @@ def _resolve_autostart_assignee(
     return None
 
 
+def _resolve_autostart_fallback_user(team_id: int) -> User | None:
+    """Assignee for an actionable report whose suggested reviewers don't resolve to a member.
+
+    Suggested reviewers are advisory — a report can be immediately actionable with a clear fix
+    even when none of its suggested reviewers have linked a GitHub account (or it has none at all).
+    Rather than drop the auto-start, run the implementation task under the human who turned signals
+    on for this team. Enabling a signal source is the team's opt-in to the signals product, of which
+    autonomous PRs are a part, so attributing the task to that member is within the team's consent.
+
+    Resolution, restricted at every tier to *active* org members (still in the org and not
+    deactivated) — the task mints a PostHog OAuth token as this user, so a departed or disabled
+    account can't run it:
+
+    1. The earliest active member who enabled a ``SignalSourceConfig`` for this team (ordered by
+       the source's creation time) — who first turned signals on.
+    2. If none (sources enabled by a system path leave ``created_by`` null), the organization's
+       owner, then an admin — the accountable human for an org that is clearly running signals.
+    3. Otherwise ``None`` — no eligible human, so nothing auto-starts.
+
+    Deterministic within each tier so concurrent evaluations pick the same user.
+    """
+    org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if org_id is None:
+        return None
+
+    active_member_ids = OrganizationMembership.objects.filter(organization_id=org_id, user__is_active=True).values_list(
+        "user_id", flat=True
+    )
+
+    # Tier 1: the earliest active member who enabled a signal source for this team.
+    enabler_id = (
+        SignalSourceConfig.objects.filter(team_id=team_id, created_by_id__in=active_member_ids)
+        .order_by("created_at")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if enabler_id is not None:
+        return User.objects.filter(id=enabler_id).first()
+
+    # Tier 2: no active enabler — fall back to the org's owner, then an admin (highest level first).
+    fallback_id = (
+        OrganizationMembership.objects.filter(
+            organization_id=org_id,
+            user__is_active=True,
+            level__gte=OrganizationMembership.Level.ADMIN,
+        )
+        .order_by("-level", "user_id")
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if fallback_id is not None:
+        return User.objects.filter(id=fallback_id).first()
+    return None
+
+
 def _resolve_triggering_user(
     team_id: int,
     user_id: int,
@@ -256,11 +335,19 @@ async def maybe_autostart_implementation_task(
 
     Idempotent: skipped if an implementation task already started for the report
     (a `SignalReportTask` implementation gate row), if the report is not immediately
-    actionable, if it's already addressed, if priority is missing, if there are no
-    suggested reviewers, or if no reviewer qualifies. The
-    "already started" check is enforced atomically under a row lock in
+    actionable, if it's already addressed, or if priority is missing. The "already
+    started" check is enforced atomically under a row lock in
     `_create_implementation_task_if_absent`, so concurrent evaluations
     (reviewer-edit hook, pipeline, custom agent) can't double-start.
+
+    Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
+    whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
+    under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`),
+    provided the report meets the team's ``default_autostart_priority``, so a clear fix isn't
+    dropped just because nobody linked GitHub. It's skipped when the report is below that team
+    threshold or no such member exists. The user-triggered path (a reviewer edit) still runs
+    strictly as the editing user and never falls back, so it can't act under another member's
+    identity.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -283,8 +370,6 @@ async def maybe_autostart_implementation_task(
         skip_reason = "report already addressed"
     elif priority is None:
         skip_reason = "no priority assessment"
-    elif not reviewers_content:
-        skip_reason = "no suggested reviewers"
     if skip_reason is not None:
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
         return
@@ -304,12 +389,17 @@ async def maybe_autostart_implementation_task(
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id, priority.priority, reviewers_content, team_default_priority
         )
+        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
+            # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
+            # team's default autostart priority, so run it under the member who enabled signals for
+            # the team rather than dropping the PR.
+            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
     if task_user is None:
         logger.info(
             "signals auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="no reviewer meets the autonomy priority threshold",
+            reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
         return
 
@@ -433,15 +523,11 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     priority = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
+    # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
+    # falls back to the member who enabled signals for the team (for the system/scout path, gated by
+    # the team autostart priority), while a user-edited list still runs strictly as the editing user
+    # via `triggering_user_id` below.
     reviewers_content, editor_user_id = await _latest_reviewers_content(report_id)
-    if not reviewers_content:
-        logger.info(
-            "signals auto-start re-eval skipped",
-            report_id=report_id,
-            team_id=team_id,
-            reason="no suggested reviewers",
-        )
-        return
 
     await maybe_autostart_implementation_task(
         team_id=team_id,

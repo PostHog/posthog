@@ -7,6 +7,9 @@
 //! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
 //! the in-crate classifier / catalog tests, not duplicated here.
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -16,15 +19,17 @@ use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
+use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
+use cohort_stream_processor::stage1::person_record::{MatchedSet, PersonRecord};
 use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
     StatefulRecord, TransitionKind,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, StoreConfig,
+    Behavioral, BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonPrefix,
+    PersonRecordKey, PersonRecords, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
@@ -48,6 +53,17 @@ fn temp_store() -> (TempDir, CohortStore) {
     };
     let store = CohortStore::open(&config).expect("open store");
     (dir, store)
+}
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 /// Raise the dispatch ceiling *before* sending: `mark_processed` clamps a processed offset to what
@@ -214,21 +230,19 @@ fn event_at(
     }
 }
 
-fn stage1_key(lsk: LeafStateKey, person: Uuid) -> Stage1Key {
-    Stage1Key {
-        partition_id: PARTITION_ID,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    }
+fn behavioral_key(lsk: LeafStateKey, person: Uuid) -> BehavioralKey {
+    BehavioralKey::new(PARTITION_ID, TEAM as u64, person, lsk)
 }
 
-fn person_index_key(person: Uuid) -> PersonIndexKey {
-    PersonIndexKey {
-        partition_id: PARTITION_ID,
-        team_id: TEAM as u64,
-        person_id: person,
-    }
+/// One person's stored leaf-state keys, read by prefix-scanning their `cf_behavioral` slice (the
+/// person-clustered replacement for the old per-person index). Returned in lsk-byte order.
+fn person_leaves(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
+    store
+        .scan_behavioral_prefix(PersonPrefix::new(PARTITION_ID, TEAM as u64, person))
+        .unwrap()
+        .into_iter()
+        .map(|(key, _)| key.lsk())
+        .collect()
 }
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
@@ -239,9 +253,46 @@ fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stag
 /// replay-dedup assertions.
 fn record_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<StatefulRecord> {
     store
-        .get_stage1(&stage1_key(lsk, person))
+        .get_behavioral(&behavioral_key(lsk, person))
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap())
+}
+
+/// The person's decoded durable record, or `None` when absent.
+fn person_record_at(store: &CohortStore, who: Uuid) -> Option<PersonRecord> {
+    store
+        .get_person_record(&PersonRecordKey::new(PARTITION_ID, TEAM as u64, who))
+        .unwrap()
+        .map(|bytes| PersonRecord::decode(&bytes).unwrap())
+}
+
+/// Whether `who`'s person leaf (PERSON_HASH) is currently a member, per the durable record.
+fn person_is_member(store: &CohortStore, who: Uuid) -> bool {
+    person_record_at(store, who).is_some_and(|r| r.matched.contains(&PERSON_HASH))
+}
+
+/// Write a person record for `who` with the given matched hashes + optional main-map/ancestor dedup.
+fn write_person_record(
+    store: &CohortStore,
+    who: Uuid,
+    matched: &[[u8; 16]],
+    applied: AppliedOffsets,
+    redirect: &[(Uuid, AppliedOffsets)],
+) {
+    let mut record = PersonRecord::absent();
+    record.matched = MatchedSet::from_iter(matched.iter().copied());
+    record.applied_offsets = applied;
+    for (anc, offs) in redirect {
+        record.redirect_dedup.insert(*anc, offs.clone());
+    }
+    store
+        .write_batch(|b| {
+            b.put::<PersonRecords>(
+                &PersonRecordKey::new(PARTITION_ID, TEAM as u64, who),
+                &record.encode(),
+            )
+        })
+        .unwrap();
 }
 
 /// Assert `offset` is the recorded high-water mark for `partition` — probed via the public
@@ -405,6 +456,101 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     assert_eq!(after_replay, advanced, "replay must not regress state");
 }
 
+/// The batched pre-event read under a mixed read set — stored rows `[present, corrupt, absent]`
+/// across one event's applies. Pins the alignment of `multi_get` slots to applies: a hole or a
+/// decode failure in one slot must not shift a neighbour's prior state or first-write bookkeeping.
+#[test]
+fn mixed_present_corrupt_absent_read_set_stays_aligned() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![
+        (CohortId(1), cohort(vec![behavioral_leaf(7)])),
+        (
+            CohortId(2),
+            cohort(vec![behavioral_leaf_multiple(7, "gte", 1)]),
+        ),
+        (CohortId(3), cohort(vec![person_leaf()])),
+    ]);
+    let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
+    let single_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralSingle)
+        .unwrap();
+    let daily_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralDailyBuckets)
+        .unwrap();
+    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let alice = person(1);
+
+    // Present: a member record whose last-event ts is NEWER than the incoming event — the folded
+    // result (max) can only come from the decoded prior, never from a first write.
+    let newer_ts = "2026-05-27 12:34:56.789000";
+    let newer_ms = clickhouse_timestamp_to_millis(newer_ts).unwrap();
+    let seeded = StatefulRecord::new(
+        Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: newer_ms,
+            earliest_eviction_at_ms: start_of_day_ms_in_tz(
+                day_idx_in_tz(newer_ms, UTC) + 7 + 1,
+                UTC,
+            ),
+        },
+        AppliedOffsets::default(),
+    );
+    store
+        .write_batch(|batch| {
+            batch.put::<Behavioral>(&behavioral_key(single_lsk, alice), &seeded.encode());
+            // Corrupt: undecodable bytes under the daily leaf's key. The person leaf stays absent.
+            batch.put::<Behavioral>(&behavioral_key(daily_lsk, alice), b"not a record");
+        })
+        .unwrap();
+
+    let out = process_event(PARTITION_ID, &store, &filters, &event(alice, 1, 10)).unwrap();
+    assert_eq!(out.skipped, None);
+
+    // Only the absent slot first-writes: one Entered for exactly that leaf, and the person record now
+    // exists (the person leaf was absent before the event).
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].leaf_state_key, person_lsk);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert!(
+        person_record_at(&store, alice).is_some(),
+        "the first-written person record is now stored",
+    );
+    assert!(
+        person_is_member(&store, alice),
+        "the person leaf evaluated true",
+    );
+
+    // The present slot folded the event into its decoded prior: the newer seeded ts survives the
+    // max, and the event's offset advanced the dedup high-water mark.
+    let record = record_at(&store, single_lsk, alice).unwrap();
+    match record.state {
+        Stage1State::BehavioralSingle {
+            has_match,
+            last_event_at_ms,
+            ..
+        } => {
+            assert!(has_match);
+            assert_eq!(
+                last_event_at_ms, newer_ms,
+                "prior state lost or misattributed",
+            );
+        }
+        other => panic!("expected BehavioralSingle, got {other:?}"),
+    }
+    assert_high_water(&record.applied_offsets, 1, 10);
+
+    // The corrupt slot is skipped, not written: the garbage stays in place.
+    assert_eq!(
+        store
+            .get_behavioral(&behavioral_key(daily_lsk, alice))
+            .unwrap()
+            .unwrap(),
+        b"not a record",
+    );
+}
+
 #[test]
 fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     let (_dir, store) = temp_store();
@@ -544,15 +690,27 @@ fn ten_thousand_events_then_replay_is_idempotent() {
     assert_eq!(unexpected, 0);
 
     for &p in &persons {
-        for lsk in filters.by_lsk.keys() {
+        // The behavioral leaf lives in `cf_behavioral`; the person leaf lives in the durable record.
+        for (lsk, leaf) in &filters.by_lsk {
+            if leaf.variant == StateVariant::PersonProperty {
+                continue;
+            }
             assert!(
-                store.get_stage1(&stage1_key(*lsk, p)).unwrap().is_some(),
-                "missing state row",
+                store
+                    .get_behavioral(&behavioral_key(*lsk, p))
+                    .unwrap()
+                    .is_some(),
+                "missing behavioral state row",
             );
         }
         assert_eq!(
-            store.get_person_index(&person_index_key(p)).unwrap().len(),
-            2
+            person_leaves(&store, p).len(),
+            1,
+            "the person's one behavioral leaf is stored in cf_behavioral",
+        );
+        assert!(
+            person_is_member(&store, p),
+            "the person leaf is a member per the durable record",
         );
     }
 
@@ -578,9 +736,17 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
     let mut map = BTreeMap::new();
     for &p in persons {
         for lsk in filters.by_lsk.keys() {
-            if let Some(bytes) = store.get_stage1(&stage1_key(*lsk, p)).unwrap() {
+            if let Some(bytes) = store.get_behavioral(&behavioral_key(*lsk, p)).unwrap() {
                 map.insert((p.as_u128(), lsk.0), bytes);
             }
+        }
+        // The person leaf's state now lives in the durable record, not `cf_behavioral`; capture its
+        // bytes under the person LSK's (otherwise-empty) slot so replay-idempotency still covers it.
+        if let Some(bytes) = store
+            .get_person_record(&PersonRecordKey::new(PARTITION_ID, TEAM as u64, p))
+            .unwrap()
+        {
+            map.insert((p.as_u128(), PERSON_HASH), bytes);
         }
     }
     map
@@ -590,7 +756,6 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
 fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let p = person(1);
 
     // Enter from source partition 10 at a high offset.
@@ -608,7 +773,7 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
     );
     assert_eq!(out.transitions[0].kind, TransitionKind::Left);
 
-    let applied = record_at(&store, lsk, p).unwrap().applied_offsets;
+    let applied = person_record_at(&store, p).unwrap().applied_offsets;
     assert_high_water(&applied, 10, 100);
     assert_high_water(&applied, 20, 3);
 }
@@ -648,7 +813,6 @@ fn cross_partition_replay_does_not_double_apply_or_disturb_other_partitions() {
 fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let p = person(1);
 
     let from_a = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 5);
@@ -656,7 +820,7 @@ fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
     let later_b = person_event(p, "u@p.com", "2026-05-26 13:00:00.000000", 20, 10);
     process_event(PARTITION_ID, &store, &filters, &later_b).unwrap();
 
-    let before = record_at(&store, lsk, p).unwrap();
+    let before = person_record_at(&store, p).unwrap();
     assert_high_water(&before.applied_offsets, 10, 5);
     assert_high_water(&before.applied_offsets, 20, 10);
 
@@ -667,7 +831,7 @@ fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
     );
 
     assert_eq!(
-        record_at(&store, lsk, p).unwrap(),
+        person_record_at(&store, p).unwrap(),
         before,
         "the person replay left state and partition 20 untouched",
     );
@@ -677,7 +841,6 @@ fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
 fn argmax_stale_event_still_advances_applied_offsets_across_partitions() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let p = person(1);
 
     // Newest write from partition 10 (offset 5).
@@ -690,18 +853,14 @@ fn argmax_stale_event_still_advances_applied_offsets_across_partitions() {
     let out = process_event(PARTITION_ID, &store, &filters, &older_b).unwrap();
     assert!(out.transitions.is_empty(), "a stale event flips nothing");
 
-    let record = record_at(&store, lsk, p).unwrap();
-    match record.state {
-        Stage1State::PersonProperty {
-            matches,
-            last_updated_offset,
-            ..
-        } => {
-            assert!(matches, "the stale event kept the newer match");
-            assert_eq!(last_updated_offset, 5, "argMax kept partition 10's offset");
-        }
-        other => panic!("expected PersonProperty, got {other:?}"),
-    }
+    // Under B2, a stale event advances the record's dedup + last_seen but does NOT rewrite the matched
+    // set or stamp from its own snapshot: the newer match and its stamp survive unchanged.
+    let record = person_record_at(&store, p).unwrap();
+    assert!(
+        record.matched.contains(&PERSON_HASH),
+        "the stale event kept the newer match",
+    );
+    assert_eq!(record.stamp.offset, 5, "argMax kept partition 10's offset");
     assert_high_water(&record.applied_offsets, 10, 5);
     assert_high_water(&record.applied_offsets, 20, 0);
 }
@@ -711,7 +870,6 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let bob = person(1);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
     let newest_ts = "2026-05-26 12:00:00.000000";
     let newest = person_event(bob, "u@p.com", newest_ts, 1, 100);
@@ -724,18 +882,13 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
     assert!(out.transitions.is_empty(), "stale event emits nothing");
 
     let newest_ms = clickhouse_timestamp_to_millis(newest_ts).unwrap();
-    match state_at(&store, lsk, bob).unwrap() {
-        Stage1State::PersonProperty {
-            matches,
-            last_updated_at_ms,
-            last_updated_offset,
-        } => {
-            assert!(matches, "the newest-by-event-time value (a match) is kept");
-            assert_eq!(last_updated_at_ms, newest_ms);
-            assert_eq!(last_updated_offset, 100);
-        }
-        other => panic!("expected PersonProperty, got {other:?}"),
-    }
+    let record = person_record_at(&store, bob).unwrap();
+    assert!(
+        record.matched.contains(&PERSON_HASH),
+        "the newest-by-event-time value (a match) is kept",
+    );
+    assert_eq!(record.stamp.ms, newest_ms);
+    assert_eq!(record.stamp.offset, 100);
 }
 
 #[test]
@@ -817,15 +970,18 @@ fn person_records_every_event_with_no_false_to_false_transition() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let carol = person(1);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
     let miss = person_event(carol, "nope@x.com", "2026-05-26 12:00:00.000000", 1, 10);
     let out = process_event(PARTITION_ID, &store, &filters, &miss).unwrap();
     assert!(out.transitions.is_empty(), "no false→false transition");
-    match state_at(&store, lsk, carol).expect("row written even on non-match") {
-        Stage1State::PersonProperty { matches, .. } => assert!(!matches),
-        other => panic!("expected PersonProperty, got {other:?}"),
-    }
+    assert!(
+        person_record_at(&store, carol).is_some(),
+        "record written even on non-match",
+    );
+    assert!(
+        !person_is_member(&store, carol),
+        "the non-matching person leaf is not a member",
+    );
 
     let hit = person_event(carol, "u@p.com", "2026-05-26 13:00:00.000000", 1, 11);
     let out = process_event(PARTITION_ID, &store, &filters, &hit).unwrap();
@@ -858,9 +1014,8 @@ fn person_path_is_inactive_for_null_or_empty_person_properties() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
     let erin = person(1);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
-    // Null and empty-string are both JS-falsy → person path never runs → processed no-op, no row.
+    // Null and empty-string are both JS-falsy → person path never runs → processed no-op, no record.
     for (offset, payload) in [(10, None), (11, Some(String::new()))] {
         let ev = CohortStreamEvent {
             person_properties: payload,
@@ -870,8 +1025,8 @@ fn person_path_is_inactive_for_null_or_empty_person_properties() {
         assert_eq!(out.skipped, None, "processed as a no-op, not skipped whole");
         assert!(out.transitions.is_empty());
         assert!(
-            state_at(&store, lsk, erin).is_none(),
-            "no person row written"
+            person_record_at(&store, erin).is_none(),
+            "no person record written"
         );
     }
 }
@@ -884,7 +1039,6 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
         cohort(vec![behavioral_leaf(7), person_leaf()]),
     )]);
     let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
-    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let alice = person(1);
 
     // Empty-string person_properties is JS-falsy: Node skips the person path but still runs the
@@ -910,8 +1064,8 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
         "behavioral row written"
     );
     assert!(
-        state_at(&store, person_lsk, alice).is_none(),
-        "empty person_properties → person path inactive, no row",
+        person_record_at(&store, alice).is_none(),
+        "empty person_properties → person path inactive, no record",
     );
 }
 
@@ -921,16 +1075,14 @@ fn non_boolean_person_result_coerces_to_false() {
     let nonbool = person_leaf_with_bytecode(json!(["_H", 1, 33, 42]));
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![nonbool]))]);
     let frank = person(1);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
     let out = process_event(PARTITION_ID, &store, &filters, &event(frank, 1, 0)).unwrap();
     assert!(out.transitions.is_empty(), "false → no enter");
-    match state_at(&store, lsk, frank).expect("row written") {
-        Stage1State::PersonProperty { matches, .. } => {
-            assert!(!matches, "non-bool result coerced to false")
-        }
-        other => panic!("expected PersonProperty, got {other:?}"),
-    }
+    assert!(person_record_at(&store, frank).is_some(), "record written",);
+    assert!(
+        !person_is_member(&store, frank),
+        "non-bool result coerced to false",
+    );
 }
 
 #[tokio::test]
@@ -943,7 +1095,6 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
         cohort(vec![behavioral_leaf(7), person_leaf()]),
     )]);
     let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
-    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let alice = person(1);
 
     let catalog = catalog_of(filters);
@@ -951,10 +1102,11 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -968,13 +1120,14 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     worker.join().await.unwrap();
 
     assert!(state_at(&store, behavioral_lsk, alice).is_some());
-    assert!(state_at(&store, person_lsk, alice).is_some());
+    assert!(
+        person_is_member(&store, alice),
+        "the person leaf entered via the durable record",
+    );
     assert_eq!(
-        store
-            .get_person_index(&person_index_key(alice))
-            .unwrap()
-            .len(),
-        2
+        person_leaves(&store, alice).len(),
+        1,
+        "alice's one behavioral leaf is stored in cf_behavioral",
     );
     let changes = sink.changes();
     assert_eq!(
@@ -988,6 +1141,63 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&1)
+    );
+}
+
+/// The offloaded read for a second event must observe the first event's committed write: within one
+/// batch, a replay racing ahead of that commit would re-apply and emit a spurious second transition.
+#[tokio::test]
+async fn sub_batch_read_your_writes_survives_offload() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        MergeWorkerDeps::capture(),
+        false,
+    );
+
+    // Same source coordinates (5, 0) make the second event an exact replay of the first; shipping
+    // both in one batch forces the worker to process them back-to-back.
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    tx.send(vec![
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "the replay in the same sub-batch must fold once, not twice (read-your-writes held)",
+    );
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert!(
+        state_at(&store, behavioral_lsk, alice).is_some(),
+        "the single fold wrote the leaf state",
     );
 }
 
@@ -1007,10 +1217,11 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1074,10 +1285,11 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1094,14 +1306,9 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     drop(tx);
     worker.join().await.unwrap();
 
-    let key = Stage1Key {
-        partition_id: PARTITION_ID,
-        team_id: 999,
-        leaf_state_key: behavioral_lsk,
-        person_id: alice,
-    };
+    let key = BehavioralKey::new(PARTITION_ID, 999, alice, behavioral_lsk);
     assert!(
-        store.get_stage1(&key).unwrap().is_none(),
+        store.get_behavioral(&key).unwrap().is_none(),
         "no write for unknown team"
     );
     assert!(sink.changes().is_empty());
@@ -1125,10 +1332,11 @@ async fn worker_produces_changes_and_advances_offset() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1159,10 +1367,11 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1193,10 +1402,11 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1223,10 +1433,11 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1661,10 +1872,11 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1992,10 +2204,11 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -2051,34 +2264,25 @@ fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
     applied
 }
 
-/// Seed a person-property record (with a chosen dedup state) directly into `cf_stage1`.
-fn seed_person_record(store: &CohortStore, lsk: LeafStateKey, who: Uuid, record: &StatefulRecord) {
-    store
-        .write_batch(|b| b.put_stage1(&stage1_key(lsk, who), &record.encode()))
-        .unwrap();
-}
-
 #[test]
 fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative() {
     // A fresh (non-redirected) P_new event must dedup against the MAIN map, not an ancestor's
     // `redirect_dedup` entry.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let p_new = person(2);
     let ancestor = person(1);
 
     // P_new: not a member, main offsets at partition 5 = 50, an ancestor entry at partition 5 = 100.
-    let mut seed = StatefulRecord::new(
-        Stage1State::PersonProperty {
-            matches: false,
-            last_updated_at_ms: 1_000,
-            last_updated_offset: 0,
-        },
+    // The seed's stamp/fingerprints stay at the absent() baseline, so the fresh event below takes the
+    // Eval arm (its real props fingerprint never equals 0) and re-evaluates the email leaf.
+    write_person_record(
+        &store,
+        p_new,
+        &[],
         applied(&[(5, 50)]),
+        &[(ancestor, applied(&[(5, 100)]))],
     );
-    seed.redirect_dedup.insert(ancestor, applied(&[(5, 100)]));
-    seed_person_record(&store, lsk, p_new, &seed);
 
     // A fresh event on partition 5 at offset 60: 60 > main's 50 ⇒ fold, even though 60 ≤ the ancestor
     // entry's 100. The matching email flips the person leaf false→true.
@@ -2091,11 +2295,11 @@ fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative(
         "the fresh event folded and flipped"
     );
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
-    let after = record_at(&store, lsk, p_new).unwrap();
-    assert!(matches!(
-        after.state,
-        Stage1State::PersonProperty { matches: true, .. }
-    ));
+    let after = person_record_at(&store, p_new).unwrap();
+    assert!(
+        after.matched.contains(&PERSON_HASH),
+        "the person leaf is now a member"
+    );
     assert!(
         after.applied_offsets.is_replay(5, 60),
         "the main map advanced to the fresh event's offset",
@@ -2112,21 +2316,19 @@ fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
     // A redirected straggler (origin = P_old) must dedup against `redirect_dedup[P_old]`.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
-    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let p_new = person(2);
     let p_old = person(1);
 
-    // P_new is a member; P_old (an ancestor) folded up to offset 100 on partition 5.
-    let mut seed = StatefulRecord::new(
-        Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1_000,
-            last_updated_offset: 0,
-        },
+    // P_new is a member; P_old (an ancestor) folded up to offset 100 on partition 5. The seed's
+    // stamp/fingerprints stay at the absent() baseline: the above-max event below is fresh and takes
+    // the Eval arm, re-evaluating the (now non-matching) email leaf into a Left.
+    write_person_record(
+        &store,
+        p_new,
+        &[PERSON_HASH],
         applied(&[(5, 50)]),
+        &[(p_old, applied(&[(5, 100)]))],
     );
-    seed.redirect_dedup.insert(p_old, applied(&[(5, 100)]));
-    seed_person_record(&store, lsk, p_new, &seed);
 
     // A redirected event at offset 80 ≤ the ancestor's 100 → replay via redirect_dedup[P_old] → skip.
     let mut redirected_replay = person_event(p_new, "different@x.com", BASE_TS, 5, 80);
@@ -2137,11 +2339,8 @@ fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
         "a redirected replay at/below the ancestor max is skipped",
     );
     assert!(
-        matches!(
-            record_at(&store, lsk, p_new).unwrap().state,
-            Stage1State::PersonProperty { matches: true, .. }
-        ),
-        "the skipped replay leaves P_new's state unchanged",
+        person_is_member(&store, p_new),
+        "the skipped replay leaves P_new's membership unchanged",
     );
 
     // A redirected event at offset 101 > the ancestor's 100 → not a replay → folds (email no longer
@@ -2155,7 +2354,7 @@ fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
         "the above-max redirected event folds"
     );
     assert_eq!(folded.transitions[0].kind, TransitionKind::Left);
-    let after = record_at(&store, lsk, p_new).unwrap();
+    let after = person_record_at(&store, p_new).unwrap();
     assert!(
         after.redirect_dedup[&p_old].is_replay(5, 101),
         "the ancestor entry advanced to the folded offset",

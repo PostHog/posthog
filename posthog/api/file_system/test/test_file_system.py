@@ -7,11 +7,14 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
-from posthog.models import Project, Team, User
+from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -179,6 +182,24 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def test_delete_ref_less_registered_row_refused_on_web_surface(self):
+        """
+        On the default (web) surface every registered-type row points at a real object via `ref`.
+        A ref-less registered row is a data-integrity error, so deletion is refused, not silently applied.
+        """
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="DeleteMe/RefLessDashboard",
+            type="dashboard",
+            created_by=self.user,
+        )
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
+
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
+        self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
@@ -1251,6 +1272,95 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # staff user sees everything
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+        blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Blocked",
+            depth=2,
+            type="dashboard",
+            ref=str(blocked_dashboard.pk),
+            created_by=self.other_user,
+        )
+        # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
+        # what tells the UI to grey them out
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/FileA"], "manager")  # creator keeps access
+        # file_b's tree row was created by someone else, but the user created the dashboard itself
+        self.assertEqual(levels["Docs/FileB"], "manager")
+        self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertIsNone(levels["Docs"])  # folders have no access controls
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_annotates_short_id_refs_via_pk_keyed_grants(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Granted insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Granted insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        self._create_access_control(resource="insight", resource_id=None, access_level="none")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # AccessControl rows are keyed by pk while insight file system refs are short_ids
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/Granted insight"], "viewer")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_access_level_annotation_queries_do_not_scale_with_rows(self, mock_flag):
+        def create_entries(suffix: str) -> None:
+            dashboard = Dashboard.objects.create(team=self.team, name=f"D{suffix}", created_by=self.other_user)
+            insight = Insight.objects.create(team=self.team, name=f"I{suffix}", created_by=self.other_user)
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/D{suffix}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.pk),
+                created_by=self.other_user,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/I{suffix}",
+                depth=2,
+                type="insight",
+                ref=insight.short_id,
+                created_by=self.other_user,
+            )
+
+        create_entries("1")
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(list_url)
+
+        for i in range(2, 6):
+            create_entries(str(i))
+
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(list_url)
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
 
     def test_created_at_filters(self):
         """

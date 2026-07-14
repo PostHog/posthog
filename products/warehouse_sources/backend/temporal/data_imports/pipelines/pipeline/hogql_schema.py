@@ -1,4 +1,5 @@
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -50,14 +51,21 @@ class HogQLSchema:
         hogql_type = self._map_arrow_type(field.type)
 
         if hogql_type is StringDatabaseField:
-            # Checking for JSON string columns with the first non-null value in the column
-            for value_str in column.to_pylist():
-                if isinstance(value_str, str):
-                    if value_str.startswith("{") or value_str.startswith("["):
-                        hogql_type = StringJSONDatabaseField
-                    break
+            value = self._first_non_null(column)
+            if isinstance(value, str) and (value.startswith("{") or value.startswith("[")):
+                hogql_type = StringJSONDatabaseField
 
         self.schema[field.name] = hogql_type.__name__
+
+    @staticmethod
+    def _first_non_null(column: pa.ChunkedArray):
+        for chunk in column.chunks:
+            if chunk.null_count == len(chunk):
+                continue
+            i = pc.index(chunk.is_valid(), True).as_py()
+            if i != -1:
+                return chunk[i].as_py()
+        return None
 
     def _map_arrow_type(self, arrow_type: pa.DataType) -> type[DatabaseField]:
         if pa.types.is_time(arrow_type):
