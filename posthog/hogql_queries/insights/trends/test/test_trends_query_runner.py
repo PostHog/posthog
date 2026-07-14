@@ -1575,25 +1575,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response.results.sort(key=lambda r: r["count"])
 
-        assert response.results[0]["label"] == "Formula (A+B)"
+        # The total is the formula applied to each series' summed values, so the constant in
+        # `B+1` counts once, not once per interval: sum(B) + 1, not sum(B_i + 1).
+        assert response.results[0]["label"] == "Formula (B+1)"
         assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 9
-        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
 
         assert response.results[1]["label"] == "Formula (B+1)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 15
-        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 7
+        assert response.results[1]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
 
         assert response.results[2]["label"] == "Formula (A+B)"
-        assert response.results[2]["breakdown_value"] == "all"
-        assert response.results[2]["count"] == 16
-        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 9
+        assert response.results[2]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
-        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["label"] == "Formula (A+B)"
         assert response.results[3]["breakdown_value"] == "all"
-        assert response.results[3]["count"] == 18
-        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+        assert response.results[3]["count"] == 16
+        assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
