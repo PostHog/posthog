@@ -1,3 +1,4 @@
+import time
 import uuid
 import hashlib
 import dataclasses
@@ -13,13 +14,24 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
-from products.pulse.backend.generation.accountability import OpportunityStatusLine
+from products.pulse.backend.generation.accountability import MAX_STATUS_LINES, OpportunityStatusLine
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief, ResourceLink, build_action
+from products.pulse.backend.sources.anchored_insights import (
+    InsightResultsCache,
+    resolve_metric_insight,
+    series_daily_values,
+    split_score_windows,
+)
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, build_evidence_index
 
 logger = structlog.get_logger(__name__)
+
+# Cumulative wall-clock ceiling on proposal promotions, mirroring accountability's _RESCORE_BUDGET_SECONDS:
+# promotions run after the LLM call inside the same fixed-length activity, so a burst of slow (but not
+# timing-out) insight reads must not push the activity past its timeout and fail the brief.
+_PROMOTION_BUDGET_SECONDS = 45
 
 _FINGERPRINT_MAX_LENGTH = Opportunity._meta.get_field("fingerprint").max_length or 512
 _TITLE_MAX_LENGTH = Opportunity._meta.get_field("title").max_length or 400
@@ -67,11 +79,109 @@ def _section_dict(section: BriefSectionOut, evidence_index: dict[str, EvidenceRe
     }
 
 
+def _validated_proposal(brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None) -> dict | None:
+    """The stored proposal JSON, or None when the opportunity carries no valid proposal.
+
+    Deterministic guard, mirroring synthesize's goalless zeroing: the prompt allows a proposed
+    experiment only on goal-relevant opportunities, but the model may not comply — persist is
+    where non-compliance is dropped instead of stored.
+    """
+    if not opp.goal_relevant or opp.proposed_experiment is None:
+        return None
+    short_id = opp.proposed_experiment.target_metric_insight_short_id
+    if item is not None:
+        # The prompt's never-invent rule, code-enforced: the target must be among the resolved
+        # item's (server-gathered) insight refs.
+        valid = short_id in {e.ref for e in item.evidence if e.is_insight}
+    else:
+        # No item resolved, so the cited refs are LLM-authored — validating against them would be
+        # circular. Resolving the insight (team-scoped, deleted excluded) is the server-authoritative
+        # check instead.
+        valid = resolve_metric_insight(brief.team, short_id) is not None
+    return {
+        "hypothesis": opp.proposed_experiment.hypothesis,
+        "flag_key_suggestion": opp.proposed_experiment.flag_key_suggestion,
+        # Nested to match the Opportunity.metric_ref convention for insight refs.
+        "target_metric": {"insight_short_id": short_id} if valid else None,
+        "variant_sketch": opp.proposed_experiment.variant_sketch,
+    }
+
+
+def _promoted_metric(
+    brief: ProductBrief,
+    proposed_experiment: dict,
+    results_cache: InsightResultsCache,
+    period_days: int,
+) -> tuple[dict, dict] | None:
+    """Close the suggest→act→measure loop for a proposal-carrying opportunity that resolved no
+    metric of its own: promote the proposal's (already membership-validated) target metric into
+    the `metric_ref`/`baseline` pair accountability re-scores, snapshotting the current window
+    as the baseline. All-or-nothing: without a readable snapshot there is nothing to measure
+    against, so neither field is set."""
+    target = proposed_experiment.get("target_metric")
+    if not target:
+        return None
+    short_id = target["insight_short_id"]
+    if results_cache.attempts >= MAX_STATUS_LINES:
+        # The shared per-run execution budget is spent — mirror accountability's gate. Logged so
+        # the resulting metric_ref-less proposal (which re-scoring skips) is queryable, not silent.
+        logger.info(
+            "pulse_proposal_promotion_budget_exhausted",
+            team_id=brief.team_id,
+            brief_id=str(brief.id),
+            insight_short_id=short_id,
+        )
+        return None
+    try:
+        # The insight resolve shares the try so a DB failure skips this one promotion rather than
+        # aborting the whole brief persist. Bounded: results_for is memoized per run (the goal
+        # metric is typically already cached), so a promotion costs at most one insight run.
+        insight = resolve_metric_insight(brief.team, short_id)
+        if insight is None:
+            logger.info(
+                "pulse_proposal_insight_missing",
+                team_id=brief.team_id,
+                brief_id=str(brief.id),
+                insight_short_id=short_id,
+            )
+            return None
+        results = results_cache.results_for(insight)
+    except Exception:
+        logger.warning(
+            "pulse_proposal_metric_snapshot_failed",
+            team_id=brief.team_id,
+            brief_id=str(brief.id),
+            insight_short_id=short_id,
+            exc_info=True,
+        )
+        return None
+    values = series_daily_values(results[0], period_days) if results else None
+    windows = split_score_windows(values) if values is not None else None
+    if windows is None:
+        # Info log on the unreadable branch (mirrors accountability's pulse_accountability_metric
+        # _unreadable): a non-trends shape or too-sparse series must be queryable, not just an
+        # absent metric_ref an operator can't distinguish from a budget or resolve miss.
+        logger.info(
+            "pulse_proposal_metric_unreadable",
+            team_id=brief.team_id,
+            brief_id=str(brief.id),
+            insight_short_id=short_id,
+        )
+        return None
+    # The minimal shape accountability's usability gate requires — the same snapshot semantics
+    # as anchored-insights movement numbers (current window total over period_days).
+    return dict(target), {"current_total": float(sum(windows[1])), "period_days": period_days}
+
+
 def _build_opportunity(
-    brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None, evidence: list[EvidenceRef]
+    brief: ProductBrief,
+    opp: OpportunityOut,
+    baseline: dict | None,
+    metric_ref: dict | None,
+    proposed_experiment: dict | None,
 ) -> Opportunity:
-    baseline = item.metrics if item is not None else None
-    first_insight = next((e for e in evidence if e.is_insight), None)
+    """Pure construction from already-resolved values — no insight I/O — so promotion's side
+    effect stays in persist_brief_output's loop, not hidden behind a construction call."""
     return Opportunity(
         team_id=brief.team_id,
         first_seen_brief=brief,
@@ -79,9 +189,10 @@ def _build_opportunity(
         title=opp.title[:_TITLE_MAX_LENGTH],
         summary=opp.summary,
         action=build_action(opp.suggested_action),
-        metric_ref=first_insight.metric_ref if first_insight else None,
+        metric_ref=metric_ref,
         baseline=baseline,
         goal_relevant=opp.goal_relevant,
+        proposed_experiment=proposed_experiment,
         fingerprint=_fingerprint(opp.kind, opp.fingerprint_hint),
     )
 
@@ -160,11 +271,57 @@ def persist_brief_output(
     items: list[SourceItem],
     status_lines: list[OpportunityStatusLine] | None = None,
     goal_status: GoalStatus | None = None,
+    period_days: int | None = None,
+    results_cache: InsightResultsCache | None = None,
 ) -> ProductBrief:
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
     # Same index the render side built, so the ids the model cited resolve back to the same refs.
     evidence_index = build_evidence_index(items)
+    results_cache = results_cache or InsightResultsCache(brief.team)
+    # The window a promoted metric is snapshotted over: the caller's resolved lookback, falling
+    # back to the brief's period spec (default 7) for callers that don't thread one through.
+    window_days = period_days if period_days is not None else int(brief.period.get("days", 7))
+
+    # Rows are built before the write transaction on purpose: a target-metric promotion may execute
+    # an insight (a slow read), which must not stretch the transaction. The dedup pre-check needs no
+    # transactional protection either — the (team, fingerprint) unique constraint plus ignore_conflicts
+    # below is the real race guard.
+    seen = _existing_fingerprints(
+        team_opportunities, [_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities]
+    )
+    new_opportunities: list[Opportunity] = []
+    links_by_opportunity: list[tuple[Opportunity, list[EvidenceRef]]] = []
+    promotion_started = time.monotonic()
+    for opp in out.opportunities:
+        fingerprint = _fingerprint(opp.kind, opp.fingerprint_hint)
+        if fingerprint in seen:
+            continue  # open dupes AND dismissed fingerprints both suppress re-creation
+        seen.add(fingerprint)
+        item = items_by_hint.get(opp.fingerprint_hint)
+        evidence = _resolve_citations(opp.evidence_refs, evidence_index)
+        baseline = item.metrics if item is not None else None
+        first_insight = next((e for e in evidence if e.is_insight), None)
+        metric_ref = first_insight.metric_ref if first_insight else None
+        proposed_experiment = _validated_proposal(brief, opp, item)
+        # Close the suggest→act→measure loop: a proposal-carrying opportunity that resolved no metric
+        # of its own promotes its validated target metric, snapshotting the current window as baseline.
+        if proposed_experiment is not None and metric_ref is None:
+            if time.monotonic() - promotion_started > _PROMOTION_BUDGET_SECONDS:
+                # Budget spent — keep the proposal (target_metric intact) but skip the snapshot, so a
+                # slow run degrades to a metric_ref-less proposal (queryable) instead of overrunning
+                # the activity timeout. Mirrors accountability's pulse_accountability_budget_exceeded.
+                logger.warning(
+                    "pulse_proposal_promotion_budget_exceeded", team_id=brief.team_id, brief_id=str(brief.id)
+                )
+            else:
+                promoted = _promoted_metric(brief, proposed_experiment, results_cache, window_days)
+                if promoted is not None:
+                    metric_ref, baseline = promoted
+        opportunity = _build_opportunity(brief, opp, baseline, metric_ref, proposed_experiment)
+        new_opportunities.append(opportunity)
+        links_by_opportunity.append((opportunity, evidence))
+
     with transaction.atomic():
         brief.sections = [_section_dict(s, evidence_index) for s in out.sections]
         # Deterministic, code-computed then-vs-now re-scores — persisted alongside the LLM output
@@ -178,20 +335,6 @@ def persist_brief_output(
         # the synthesis prompt saw rather than a live re-read.
         brief.goal_status = dataclasses.asdict(goal_status) if goal_status is not None else None
         brief.save(update_fields=["sections", "accountability", "status", "sources_used", "goal_status", "updated_at"])
-        seen = _existing_fingerprints(
-            team_opportunities, [_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities]
-        )
-        new_opportunities: list[Opportunity] = []
-        links_by_opportunity: list[tuple[Opportunity, list[EvidenceRef]]] = []
-        for opp in out.opportunities:
-            fingerprint = _fingerprint(opp.kind, opp.fingerprint_hint)
-            if fingerprint in seen:
-                continue  # open dupes AND dismissed fingerprints both suppress re-creation
-            seen.add(fingerprint)
-            evidence = _resolve_citations(opp.evidence_refs, evidence_index)
-            opportunity = _build_opportunity(brief, opp, items_by_hint.get(opp.fingerprint_hint), evidence)
-            new_opportunities.append(opportunity)
-            links_by_opportunity.append((opportunity, evidence))
         if new_opportunities:
             # ignore_conflicts lets a concurrent persist that inserted the same (team, fingerprint)
             # between the dedup read above and here win the race without erroring.

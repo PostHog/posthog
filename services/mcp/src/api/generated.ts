@@ -33368,6 +33368,22 @@ export namespace Schemas {
       url: string;
     }
 
+    export interface ProposedExperimentTargetMetric {
+      /** Short ID of the insight the experiment should move. */
+      insight_short_id: string;
+    }
+
+    export interface ProposedExperiment {
+      /** The testable hypothesis grounded in the opportunity's evidence. */
+      hypothesis: string;
+      /** Suggested feature flag key for the experiment. */
+      flag_key_suggestion: string;
+      /** The goal metric the experiment should move, as an insight reference. Null when the proposal's metric did not validate against the opportunity's cited insight refs. */
+      target_metric: ProposedExperimentTargetMetric | null;
+      /** Short sketch of the control and test variants. */
+      variant_sketch: string;
+    }
+
     export interface Opportunity {
       readonly id: string;
       /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
@@ -33393,6 +33409,8 @@ export namespace Schemas {
       readonly evidence: readonly ResourceLink[];
       /** Whether this opportunity plausibly advances the focus goal of the brief it surfaced in. */
       readonly goal_relevant: boolean;
+      /** Experiment proposed by goal-conditioned synthesis: hypothesis, flag key suggestion, target metric, and variant sketch. Only ever set on goal-relevant opportunities; null otherwise. */
+      readonly proposed_experiment: ProposedExperiment | null;
       /** The brief this opportunity first surfaced in. */
       readonly first_seen_brief: string;
       readonly created_at: string;
