@@ -120,6 +120,41 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["filters"] == {}
 
+    def test_columns_round_trip(self):
+        columns = [
+            {"id": "ts", "type": "timestamp"},
+            {
+                "id": "c1",
+                "type": "custom",
+                "name": "Pod",
+                "expression": "resource_attributes.k8s.pod.name",
+                "width": 240,
+            },
+            {"id": "msg", "type": "message"},
+        ]
+        data = self._create_via_api(columns=columns)
+        assert data["columns"] == columns
+
+        # Update replaces the whole list; other fields untouched
+        response = self.client.patch(f"{self.base_url}{data['short_id']}/", {"columns": columns[:2]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["columns"] == columns[:2]
+        assert response.json()["filters"] == {"severityLevels": ["error", "fatal"]}
+
+    def test_columns_default_to_null_and_reject_bad_type(self):
+        # Pre-columns views (and views saved without a column preference) round-trip null
+        data = self._create_via_api()
+        assert data["columns"] is None
+        response = self.client.get(f"{self.base_url}{data['short_id']}/")
+        assert response.json()["columns"] is None
+
+        bad = self.client.post(
+            self.base_url,
+            self._valid_payload(columns=[{"id": "x", "type": "not_a_type"}]),
+            format="json",
+        )
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_create_with_complex_filters(self):
         filters = {
             "severityLevels": ["error"],

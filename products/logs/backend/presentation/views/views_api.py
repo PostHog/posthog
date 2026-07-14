@@ -10,12 +10,49 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from products.logs.backend.models import LogsView
 
 
+class LogsViewColumnSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text="Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.",
+    )
+    type = serializers.ChoiceField(
+        choices=["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        help_text="Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.",
+    )
+    # Optional keys are omitted (not null) so the stored JSON round-trips the client shape exactly
+    name = serializers.CharField(
+        required=False,
+        help_text="Header label override. Defaults to the built-in type's label, or to the expression for custom columns.",
+    )
+    expression = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, "
+            "`resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim "
+            "in the logs query's `customColumns`."
+        ),
+    )
+    width = serializers.IntegerField(
+        required=False,
+        help_text="Column width in pixels. Omitted for the default width; ignored for the flex message column.",
+    )
+
+
 class LogsViewSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     filters = serializers.DictField(
         required=False,
         default=dict,
         help_text="Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.",
+    )
+    columns = serializers.ListField(
+        child=LogsViewColumnSerializer(),
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. "
+            "Null means the view has no column preference and the client renders its default column set."
+        ),
     )
 
     class Meta:
@@ -25,6 +62,7 @@ class LogsViewSerializer(serializers.ModelSerializer):
             "short_id",
             "name",
             "filters",
+            "columns",
             "pinned",
             "created_at",
             "created_by",
