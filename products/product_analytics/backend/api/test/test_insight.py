@@ -2147,24 +2147,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         ]
     )
-    @parameterized.expand(
-        [
-            [  # Property group filter, which is what's actually used these days
-                PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
-                        )
-                    ],
-                )
-            ],
-            [  # Classic list of filters
-                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
-            ],
-        ]
-    )
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
     def test_insight_refreshing_query_async(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
