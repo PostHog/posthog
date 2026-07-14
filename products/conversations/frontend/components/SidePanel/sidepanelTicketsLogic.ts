@@ -483,13 +483,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     afterMount(({ values, actions }) => {
         if (values.isEnabled) {
+            // initTickets re-consumes any pending support intent (isEmailFormOpen/pendingViewTicket),
+            // so no need to repeat that here
             actions.initTickets()
-            if (values.isEmailFormOpen) {
-                actions.startTicketFromSupportForm()
-            }
-            if (values.pendingViewTicket) {
-                actions.openPendingTicket()
-            }
         }
     }),
 ])

@@ -810,8 +810,8 @@ export const supportLogic = kea<supportLogicType>([
                         body:
                             message +
                             `\n\n-----` +
-                            `\nKind: ${kind}` +
-                            `\nTarget area: ${target_area}` +
+                            `\nKind: ${kind ?? 'support'}` +
+                            `\nTarget area: ${target_area ?? 'General'}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
