@@ -44,7 +44,7 @@ class _ClickHouseAliasNamePrinter(HogQLPrinter):
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
         if isinstance(name, int) and str(name).isdigit():
             return str(name)
-        return escape_clickhouse_identifier(name)
+        return escape_clickhouse_identifier(str(name))
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
