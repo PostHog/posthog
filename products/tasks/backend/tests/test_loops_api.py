@@ -122,6 +122,21 @@ class LoopCRUDAPITest(LoopsAPITestCase):
         self.assertEqual(self.owner_client.get(self._loop_url(loop_id)).status_code, status.HTTP_404_NOT_FOUND)
 
 
+class LoopBehaviorsAPITest(LoopsAPITestCase):
+    def test_behaviors_persist_through_create_retrieve_and_update(self):
+        behaviors = {"create_prs": True, "watch_ci": True, "fix_review_comments": True, "max_fix_iterations": 3}
+        loop_id = self._create_loop(self.owner_client, behaviors=behaviors)["id"]
+
+        self.assertEqual(Loop.objects.unscoped().get(id=loop_id).behaviors, behaviors)
+        retrieved = self.owner_client.get(self._loop_url(loop_id))
+        self.assertEqual(retrieved.json()["behaviors"], behaviors)
+
+        toggled_off = {**behaviors, "watch_ci": False, "fix_review_comments": False}
+        updated = self.owner_client.patch(self._loop_url(loop_id), {"behaviors": toggled_off}, format="json")
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.content)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop_id).behaviors, toggled_off)
+
+
 class LoopVisibilityAPITest(LoopsAPITestCase):
     def test_personal_loop_hidden_and_immutable_to_teammate(self):
         loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]
