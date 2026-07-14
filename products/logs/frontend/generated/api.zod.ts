@@ -296,10 +296,10 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+        .enum(['slack', 'discord', 'webhook', 'teams'])
+        .describe('\* `slack` - slack\n\* `discord` - discord\n\* `webhook` - webhook\n\* `teams` - teams')
         .describe(
-            'Destination type — slack, webhook, or teams.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+            'Destination type: Slack, Discord, webhook, or Microsoft Teams.\n\n\* `slack` - slack\n\* `discord` - discord\n\* `webhook` - webhook\n\* `teams` - teams'
         ),
     slack_workspace_id: zod
         .number()
@@ -310,7 +310,7 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     webhook_url: zod
         .url()
         .optional()
-        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
+        .describe('HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations.'),
 })
 
 /**

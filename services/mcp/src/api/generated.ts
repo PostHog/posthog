@@ -32019,6 +32019,7 @@ export namespace Schemas {
 
     /**
      * * `slack` - slack
+     * * `discord` - discord
      * * `webhook` - webhook
      * * `teams` - teams
      */
@@ -32027,6 +32028,7 @@ export namespace Schemas {
 
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
+      Discord: 'discord',
       Webhook: 'webhook',
       Teams: 'teams',
     } as const;
@@ -32130,9 +32132,10 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack, webhook, or teams.
+      /** Destination type: Slack, Discord, webhook, or Microsoft Teams.
        *
        * * `slack` - slack
+       * * `discord` - discord
        * * `webhook` - webhook
        * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
@@ -32142,7 +32145,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+      /** HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations. */
       webhook_url?: string;
     }
 

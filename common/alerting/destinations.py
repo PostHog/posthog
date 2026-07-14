@@ -17,20 +17,16 @@ never inside the serializer payload.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 
-DestinationType = Literal["slack", "webhook", "teams"]
 
-ALERT_ID_PROPERTY = "alert_id"
+class AlertDestinationTemplate(StrEnum):
+    SLACK = "template-slack"
+    DISCORD = "template-discord"
+    WEBHOOK = "template-webhook"
+    TEAMS = "template-microsoft-teams"
 
-TEMPLATE_ID_BY_DESTINATION_TYPE: dict[DestinationType, str] = {
-    "slack": "template-slack",
-    "webhook": "template-webhook",
-    "teams": "template-microsoft-teams",
-}
-DESTINATION_TYPE_BY_TEMPLATE_ID = {
-    template_id: destination_type for destination_type, template_id in TEMPLATE_ID_BY_DESTINATION_TYPE.items()
-}
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 
@@ -40,11 +36,7 @@ _HOG_FUNCTION_NAME_MAX_LEN = 400
 
 @dataclass(frozen=True)
 class AlertDestinationConfig:
-    """One HogFunction to create: the serializer payload plus the team it belongs to.
-
-    `team` rides alongside (not inside) `payload` because the serializer receives it
-    via context/save, never as input data.
-    """
+    """Keeps the team outside the serializer payload."""
 
     team: Any
     payload: dict[str, Any]
@@ -52,23 +44,13 @@ class AlertDestinationConfig:
 
 @dataclass(frozen=True)
 class Button:
-    """One action button on a rendered alert message."""
-
     url: str
     label: str
 
 
 @dataclass(frozen=True)
 class EventKindSpec:
-    """Product-authored content for one alert event kind (firing, resolved, ...).
-
-    Products customize within this vocabulary — never by supplying their own
-    rendering — so the message structure stays uniform per destination type.
-    The optional fields default to the standard layout: structured detail rows
-    and a single action button. A prose-shaped product (e.g. insight alerts
-    with one breach description per series) sets `body_lines`; a product with
-    several actions adds `extra_buttons`.
-    """
+    """Keeps product content within the shared destination rendering vocabulary."""
 
     event_id: str
     display_kind: str
@@ -101,7 +83,7 @@ def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
         "events": [{"id": event_id, "type": "events"}],
         "properties": [
             {
-                "key": ALERT_ID_PROPERTY,
+                "key": "alert_id",
                 "value": alert_id,
                 "operator": "exact",
                 "type": "event",
@@ -202,7 +184,7 @@ def build_slack_destination_config(
         alert_id=alert_id,
         alert_name=alert_name,
         name=name,
-        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["slack"],
+        template_id=AlertDestinationTemplate.SLACK,
         inputs={
             "blocks": {"value": slack_blocks(spec, context_elements)},
             "text": {"value": spec.header},
@@ -227,11 +209,34 @@ def build_webhook_destination_config(
         alert_id=alert_id,
         alert_name=alert_name,
         name=name,
-        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["webhook"],
+        template_id=AlertDestinationTemplate.WEBHOOK,
         inputs={
             "body": {"value": spec.webhook_body},
             "url": {"value": webhook_url},
             "headers": {"value": WEBHOOK_HEADERS},
+        },
+    )
+
+
+def build_discord_destination_config(
+    *,
+    team: Any,
+    spec: EventKindSpec,
+    alert_id: str,
+    alert_name: str,
+    name: str,
+    webhook_url: str,
+) -> AlertDestinationConfig:
+    return _base_config(
+        team=team,
+        spec=spec,
+        alert_id=alert_id,
+        alert_name=alert_name,
+        name=name,
+        template_id=AlertDestinationTemplate.DISCORD,
+        inputs={
+            "webhookUrl": {"value": webhook_url},
+            "content": {"value": teams_text(spec)},
         },
     )
 
@@ -251,7 +256,7 @@ def build_teams_destination_config(
         alert_id=alert_id,
         alert_name=alert_name,
         name=name,
-        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["teams"],
+        template_id=AlertDestinationTemplate.TEAMS,
         inputs={
             "webhookUrl": {"value": webhook_url},
             "text": {"value": teams_text(spec)},

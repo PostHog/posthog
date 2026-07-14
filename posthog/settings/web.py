@@ -721,7 +721,7 @@ SPECTACULAR_SETTINGS = {
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
-        "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+        "NotificationDestinationTypeEnum": ["slack", "discord", "webhook", "teams"],
         "TaskRunArtifactTypeEnum": [
             "plan",
             "context",

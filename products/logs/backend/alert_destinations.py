@@ -9,6 +9,7 @@ from products.logs.backend.models import LogsAlertConfiguration
 from common.alerting.destinations import (
     AlertDestinationConfig,
     EventKindSpec,
+    build_discord_destination_config,
     build_slack_destination_config,
     build_teams_destination_config,
     build_webhook_destination_config,
@@ -184,6 +185,22 @@ def build_webhook_config(
         alert_id=str(alert.id),
         alert_name=alert.name,
         name=f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
+        webhook_url=webhook_url,
+    )
+
+
+def build_discord_config(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    webhook_url: str,
+) -> AlertDestinationConfig:
+    spec = EVENT_KIND_CONFIG[kind]
+    return build_discord_destination_config(
+        team=alert.team,
+        spec=spec,
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Discord",
         webhook_url=webhook_url,
     )
 

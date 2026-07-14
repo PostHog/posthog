@@ -24,7 +24,7 @@ from posthog.kafka_client.client import ProduceResult
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
-from common.alerting.destinations import ALERT_ID_PROPERTY, DESTINATION_TYPE_BY_TEMPLATE_ID, AlertDestinationConfig
+from common.alerting.destinations import AlertDestinationConfig, AlertDestinationTemplate
 
 
 class AlertDestinationOwnershipError(Exception):
@@ -52,26 +52,17 @@ def soft_delete_alert_destinations(
     alert_id: str,
     hog_function_ids: list[UUID],
 ) -> None:
-    """Soft-delete a destination's HogFunction group, verifying every ID belongs to the alert.
+    """Soft-delete destinations after verifying every ID belongs to the alert.
 
-    The filtered UPDATE is the ownership check: touching fewer rows than requested
-    means something in the list doesn't belong to this alert — roll back. Narrowed
-    to `template_id__in=DESTINATION_TYPE_BY_TEMPLATE_ID`, matching the delete-all
-    path below, so a same-team HogFunction that isn't an alert destination can't
-    be soft-deleted just because it happens to carry a matching `alert_id`
-    property (e.g. an unrelated automation reusing that property key).
-
-    Unlike the delete-all path below, this deliberately does not filter on
-    `deleted=False`: already-deleted rows still count as owned, keeping a retried
-    delete idempotent instead of tripping the ownership check.
+    Already-deleted destinations count as owned so retries remain idempotent.
     """
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         updated = HogFunction.objects.filter(
             team_id=team_id,
             id__in=unique_ids,
-            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-            filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
+            template_id__in=list(AlertDestinationTemplate),
+            filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
         ).update(deleted=True, enabled=False)
         if updated != len(unique_ids):
             raise AlertDestinationOwnershipError
@@ -82,8 +73,8 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:
     return HogFunction.objects.filter(
         team_id=team_id,
         deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-        filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
+        template_id__in=list(AlertDestinationTemplate),
+        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
     ).update(deleted=True, enabled=False)
 
 
