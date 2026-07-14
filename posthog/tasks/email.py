@@ -383,7 +383,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
+def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", repository: str | None = None) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -396,6 +396,7 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") 
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "partner_name": partner_name,
+            "repository": repository or "",
         },
     )
     message.add_user_recipient(user)

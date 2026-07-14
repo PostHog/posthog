@@ -579,6 +579,9 @@ SPECTACULAR_SETTINGS = {
         # The metrics query's OTel metric-type filter; without a pinned name it
         # collides with the experiments MetricTypeEnum (funnel/ratio/...).
         "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+        # Staff flags-cache warm-run status; 'state'/'scope' are collision-prone field names.
+        "FlagsWarmRunStateEnum": ["running", "completed", "cancelled"],
+        "FlagsWarmRunScopeEnum": ["all_teams", "teams_with_flags"],
         # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
@@ -760,6 +763,10 @@ SPECTACULAR_SETTINGS = {
         # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
         # to a hash name.
         "StaffCacheSourceEnum": ["redis", "miss"],
+        # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
+        # `caches` list item share the same evaluation/definitions choice set. Pin to a
+        # stable name so "cache" and "caches" don't collide into a hash name.
+        "StaffCacheKindEnum": ["evaluation", "definitions"],
     },
 }
 

@@ -15,6 +15,7 @@ PROVISIONING_ALIAS_URLS = [
     ("resource_remove", f"/api/provisioning/resources/{RESOURCE_ID}/remove", "POST"),
     ("resource_detail", f"/api/provisioning/resources/{RESOURCE_ID}", "GET"),
     ("deep_links", "/api/provisioning/deep_links", "POST"),
+    ("github_grants_create", "/api/provisioning/github/grants", "POST"),
 ]
 
 

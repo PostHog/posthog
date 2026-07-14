@@ -66,6 +66,7 @@ the row lists both.
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
+| aviator                 | HTTP                        | requests                                                        | ✅                          |
 | awin                    | HTTP                        | requests                                                        | ✅                          |
 | azure_devops            | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                | HTTP                        | requests                                                        | ✅                          |
@@ -137,6 +138,7 @@ the row lists both.
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | deepgram                | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
+| deno_deploy             | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
@@ -198,6 +200,7 @@ the row lists both.
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | harvey                  | HTTP                        | requests                                                        | ✅                          |
+| hatchet                 | HTTP                        | requests                                                        | ✅                          |
 | healthchecks            | HTTP                        | requests                                                        | ✅                          |
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
@@ -343,6 +346,7 @@ the row lists both.
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | savvycal                | HTTP                        | requests                                                        | ✅                          |
+| scale_ai                | HTTP                        | requests                                                        | ✅                          |
 | scaleway                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
@@ -394,10 +398,14 @@ the row lists both.
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | tremendous              | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev             | HTTP                        | requests                                                        | ✅                          |
+| twelve_labs             | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| upstash                 | HTTP                        | requests                                                        | ✅                          |
+| vantage                 | HTTP                        | requests                                                        | ✅                          |
+| vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
@@ -476,7 +484,6 @@ doesn't conflict with concurrent PRs.
 - apptivo
 - appwrite
 - auth0
-- aviator
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
@@ -585,7 +592,6 @@ doesn't conflict with concurrent PRs.
 - gusto
 - harness
 - harvey
-- hatchet
 - heap
 - helicone
 - helpscout
@@ -761,6 +767,7 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - scale_ai
+- scaleway
 - search_ads_360
 - sendpulse
 - senseforce
@@ -822,7 +829,6 @@ doesn't conflict with concurrent PRs.
 - turso
 - tvmaze
 - twelve_data
-- twelve_labs
 - twenty
 - twitter
 - twitter_ads
@@ -830,14 +836,11 @@ doesn't conflict with concurrent PRs.
 - unleash
 - unstructured
 - uppromote
-- upstash
 - uptick
 - us_census
 - uservoice
-- vantage
 - vapi
 - veeqo
-- vellum
 - vespa
 - visma_economic
 - vultr

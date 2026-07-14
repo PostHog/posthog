@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-13 11:01:26 UTC
+// Generated at: 2026-07-13 20:24:09 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -80,7 +80,6 @@ export type CanonicalProvider =
     | 'inflection'
     | 'io-net-fp8'
     | 'ionstream-fp8'
-    | 'liquid'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
