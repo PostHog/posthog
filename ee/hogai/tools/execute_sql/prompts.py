@@ -50,6 +50,15 @@ The metadata of the person associated with an event is similarly accessed like: 
 "Person" is a synonym of "user" – instead of a "users" table, we have a "persons" table.
 For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
 
+# Query performance
+Slow queries burn compute and risk timeouts. Follow these unless the user explicitly asks otherwise:
+- Bound every events query by time. Every SELECT that reads the `events` table needs a `WHERE` clause narrowing `timestamp` to the smallest period that answers the question (for example `timestamp >= now() - INTERVAL 7 DAY`). This applies to every aggregation and subquery over events, not just the outermost SELECT.
+- Count unique users with `person_id` (or `person.id`), not `distinct_id`. One user can have many `distinct_id`s, so `count(DISTINCT distinct_id)` overcounts and scans more rows than `uniq(person_id)`.
+- Don't scan the whole serialized properties blob. Avoid `toString(properties)` and leading-wildcard substring searches over unindexed JSON (`... ILIKE '%term%'`), which force a full scan of every row. Instead:
+  - Match a specific property key (`properties.$current_url ILIKE '%/checkout%'`), never the entire `properties` object.
+  - Narrow first by `event = '...'` and a tight `timestamp` range so any substring match runs over far fewer rows.
+  - Prefer anchored matches (`=`, `IN`, `startsWith`) over leading `%...%` wildcards when the value allows it.
+
 # Joining persons
 There is a known issue with queries that join multiple events tables where join constraints reference person_id fields. The person_id fields are ExpressionFields that expand to expressions referencing override tables (e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py) BEFORE lazy table processing begins. This creates forward references to override tables that don't exist yet.
 
