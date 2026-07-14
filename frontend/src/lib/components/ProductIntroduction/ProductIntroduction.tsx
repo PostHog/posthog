@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogConstruction2, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +13,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
 import type { SurfaceKey } from '../MCPHint/prompts'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
  * A component to introduce new users to a product, and to show something

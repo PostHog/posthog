@@ -33,6 +33,8 @@ export function InsertBoundaryButton({
             )}
             contentEditable={false}
             onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}
+            // Reveal on keyboard focus, mirroring the mouse-hover reveal.
+            onFocusCapture={() => setActiveBoundaryIndex(boundaryIndex)}
             onMouseDown={(event) => {
                 if (
                     !isAvailable ||
@@ -69,9 +71,8 @@ export function InsertBoundaryButton({
                     tooltip="Add block"
                     onClick={() => openInsertMenuAtBoundary(boundaryIndex)}
                     aria-label="Add block"
-                    aria-hidden={!isVisible}
                     data-boundary-index={boundaryIndex}
-                    tabIndex={isVisible ? 0 : -1}
+                    tabIndex={0}
                 />
             ) : null}
         </div>

@@ -275,7 +275,7 @@ class TestValidateCredentials:
         with self._patch_session(_response(status_code=302)) as patched:
             valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
             assert valid is False
-            assert msg == gitlab_module.HOST_NOT_ALLOWED_ERROR
+            assert "unexpected redirect" in (msg or "")
             assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
 
     def test_blocks_unsafe_host(self):

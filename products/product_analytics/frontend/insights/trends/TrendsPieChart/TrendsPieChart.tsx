@@ -5,7 +5,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -22,7 +22,6 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -50,9 +49,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
     const { baseCurrency } = useValues(teamLogic)
@@ -241,7 +238,13 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
     )
 
     if (!visibleResults.length) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="pie"
+            />
+        )
     }
 
     return (

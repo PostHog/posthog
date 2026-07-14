@@ -13,7 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -1866,7 +1866,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 
@@ -1968,7 +1968,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 
@@ -1982,6 +1982,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
                 data={
                     "name": "Updated name",
+                    "active": True,
                     "filters": {
                         "groups": [
                             {
@@ -2002,6 +2003,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                     "original_flag": {
                         "name": "original name",  # This is the same as the name (though not the current name)
+                        "active": True,
                         "filters": {
                             "groups": [
                                 {
@@ -2031,6 +2033,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             self.assertEqual(feature_flag.name, "Updated name")
+            self.assertFalse(feature_flag.active)
             self.assertEqual(feature_flag.last_modified_by, original_user)
             self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
 
@@ -4550,8 +4553,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("no_group_type_mapping", None, "group", "groups"),
+            ("named_group_type", "organization", "Company", "Companies"),
+        ]
+    )
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_create_group_feature_flag_usage_dashboard(
+        self, _name, group_type, expected_singular, expected_plural, mock_report_user_action
+    ):
+        if group_type is not None:
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type=group_type,
+                group_type_index=0,
+                name_singular=expected_singular,
+                name_plural=expected_plural,
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4607,10 +4627,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(total_volume_properties, [flag_property_filter, group_property_filter])
 
         assert tiles[1].insight is not None
-        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique groups per variant")
+        self.assertEqual(tiles[1].insight.name, f"Feature Flag calls made by unique {expected_plural} per variant")
         self.assertEqual(
             tiles[1].insight.description,
-            "Shows the number of unique group calls made on feature flag per variant with key: group-feature",
+            f"Shows the number of unique {expected_singular} calls made on feature flag per variant with key: group-feature",
         )
         unique_calls_query = cast(dict[str, Any], tiles[1].insight.query)
         unique_calls_series = unique_calls_query["source"]["series"][0]
@@ -4619,8 +4639,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         unique_calls_properties = unique_calls_query["source"]["properties"]["values"][0]["values"]
         self.assertEqual(unique_calls_properties, [flag_property_filter, group_property_filter])
 
+    @patch("posthog.personhog_client.client.get_personhog_client")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_update_group_feature_flag_key_updates_usage_dashboard(self, mock_report_user_action):
+    def test_update_group_feature_flag_key_updates_usage_dashboard(
+        self, mock_report_user_action, mock_personhog_client
+    ):
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_id.return_value = MagicMock(mappings=[])
         create = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -5505,6 +5529,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_kwargs["cohort_type"] = cohort_type
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+            cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
 
         cohort = Cohort.objects.create(**cohort_kwargs)
 
@@ -12939,18 +12964,59 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Cannot provide both distinct_id and person_id", response.json()["detail"])
 
-    def test_test_evaluation_person_not_found(self):
-        """Test 404 when person doesn't exist."""
+    def test_test_evaluation_person_id_not_found(self):
+        """A person_id we can't resolve still 404s — there's no distinct_id to bucket on."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
 
+        missing_person_id = "00000000-0000-0000-0000-000000000000"
         response = self.client.post(
             f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-            {"distinct_id": "nonexistent-user"},
+            {"person_id": missing_person_id},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
+        self.assertEqual(response.json()["detail"], f"Person not found for person_id: {missing_person_id}")
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_distinct_id_without_person(self, mock_get_person, mock_get_flags):
+        """A synthetic distinct_id with no person (server-to-server / webhook automation,
+        groups-only) must still evaluate instead of 404ing — bucketing on the given
+        distinct_id with empty person properties."""
+        flag = FeatureFlag.objects.create(team=self.team, key="org-flag")
+
+        # No person resolves for this distinct_id.
+        mock_get_person.return_value = (None, [])
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "org-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {"payload": None},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "webhook-synthetic-id", "groups": {"organization": "org_123"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["result"], True)
+        # Bucketing uses the provided distinct_id and it is echoed back.
+        self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "webhook-synthetic-id")
+        self.assertEqual(mock_get_flags.call_args.kwargs["groups"], {"organization": "org_123"})
+        self.assertEqual(data["evaluation_distinct_id"], "webhook-synthetic-id")
+        # No person → empty person properties passed to the evaluation service.
+        self.assertEqual(mock_get_flags.call_args.kwargs["person_properties"], {})
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="")

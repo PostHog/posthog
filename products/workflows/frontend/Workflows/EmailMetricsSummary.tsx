@@ -15,7 +15,6 @@ export function EmailMetricsSummary({
     onMetricClick,
 }: {
     logicKey: string
-    /** Invoked when a drill-down-able metric tile (e.g. Bounced) is clicked. */
     onMetricClick?: (metricKey: EmailMetric) => void
 }): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))

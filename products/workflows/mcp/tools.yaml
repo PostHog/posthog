@@ -36,6 +36,12 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
+    hog-flows-asset-content-retrieve:
+        operation: hog_flows_asset_content_retrieve
+        enabled: false
+    hog-flows-assets-retrieve:
+        operation: hog_flows_assets_retrieve
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false

@@ -21,6 +21,8 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CacheHealth } from './CacheHealth'
+import { PrecomputeOverview } from './PrecomputeOverview'
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
@@ -45,6 +47,16 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'funnel:strict', label: 'Funnel: strict' },
     { value: 'ratio', label: 'Ratio' },
     { value: 'retention', label: 'Retention' },
+]
+
+const EXCEPTION_CODE_OPTIONS = [
+    { value: '', label: 'All exit codes' },
+    { value: '307', label: '307 (bytes)' },
+    { value: '159', label: '159 (timeout)' },
+    { value: '241', label: '241 (memory)' },
+    { value: '202', label: '202 (cluster busy)' },
+    { value: '164', label: '164 (readonly)' },
+    { value: '47', label: '47 (unknown identifier)' },
 ]
 
 // Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
@@ -82,6 +94,8 @@ const EXCEPTION_CODE_LABELS: Record<number, string> = {
     159: 'timeout',
     241: 'out of memory',
     202: 'cluster busy',
+    164: 'readonly',
+    47: 'unknown identifier',
 }
 
 const codeLabel = (code: number): string => EXCEPTION_CODE_LABELS[code] ?? `error ${code}`
@@ -142,6 +156,8 @@ export function QueryPerformance(): JSX.Element {
         teamIdFilter,
         experimentIdFilter,
         metricTypeFilter,
+        exceptionCodeFilter,
+        experimentsTab,
     } = useValues(queryPerformanceLogic)
     const {
         setSearch,
@@ -151,6 +167,8 @@ export function QueryPerformance(): JSX.Element {
         setTeamIdFilter,
         setExperimentIdFilter,
         setMetricTypeFilter,
+        setExceptionCodeFilter,
+        setExperimentsTab,
     } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
@@ -309,6 +327,8 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Scan window',
+            tooltip:
+                "The read query's analysis window (experiment start → end/now). Direct-scan reads scan this whole range — that's expected, not a bug. Precompute build jobs are capped at 7 days each; expand a row to see per-build windows.",
             width: 110,
             render: function ScanWindowCol(_, item): JSX.Element | null {
                 return <ScanWindow from={item.experiment_scan_date_from} to={item.experiment_scan_date_to} />
@@ -438,6 +458,7 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Scan window',
+            tooltip: "This build INSERT's job window — capped at 7 days per job.",
             width: 110,
             render: function SubQueryWindow(_, item): JSX.Element | null {
                 return <ScanWindow from={item.precompute_window_start} to={item.precompute_window_end} />
@@ -486,147 +507,199 @@ export function QueryPerformance(): JSX.Element {
                         key: 'experiments',
                         label: 'Experiments',
                         content: (
-                            <>
-                                <h2>Slowest queries</h2>
-                                <div className="flex flex-wrap gap-2 mb-4 items-center">
-                                    {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
-                                        <LemonButton
-                                            key={hours}
-                                            type={hoursBack === hours ? 'primary' : 'tertiary'}
-                                            size="small"
-                                            onClick={() => setHoursBack(hours)}
-                                        >
-                                            {label}
-                                        </LemonButton>
-                                    ))}
-                                    <LemonInput
-                                        type="number"
-                                        min={1}
-                                        size="small"
-                                        placeholder="Team ID"
-                                        value={teamIdFilter ? Number(teamIdFilter) : undefined}
-                                        onChange={(value) => setTeamIdFilter(value != null ? String(value) : '')}
-                                        className="w-32"
-                                    />
-                                    <LemonInput
-                                        type="number"
-                                        min={1}
-                                        size="small"
-                                        placeholder="Experiment ID"
-                                        value={experimentIdFilter ? Number(experimentIdFilter) : undefined}
-                                        onChange={(value) => setExperimentIdFilter(value != null ? String(value) : '')}
-                                        className="w-36"
-                                    />
-                                    <LemonSelect
-                                        size="small"
-                                        value={metricTypeFilter}
-                                        onChange={(value) => setMetricTypeFilter(value ?? '')}
-                                        options={METRIC_TYPE_OPTIONS}
-                                        className="w-44"
-                                    />
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => loadSlowestQueries()}
-                                        disabledReason={slowestQueriesLoading ? 'Loading...' : undefined}
-                                    >
-                                        Refresh
-                                    </LemonButton>
-                                </div>
-                                <LemonTable
-                                    columns={slowestQueryColumns}
-                                    dataSource={slowestQueries}
-                                    loading={slowestQueriesLoading}
-                                    emptyState="No queries found in this time range"
-                                    pagination={{ pageSize: 20 }}
-                                    className="overflow-visible! flex-none!"
-                                    expandable={{
-                                        expandedRowRender: function ExpandedQuery(item) {
-                                            return (
-                                                <div className="flex flex-col gap-2 p-2">
-                                                    <QueryStats {...item} />
-                                                    <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                        <span>
-                                                            query_id:{' '}
-                                                            <CopyToClipboardInline description="query ID">
-                                                                {item.query_id}
-                                                            </CopyToClipboardInline>
-                                                        </span>
-                                                        {item.experiment_query_group_id && (
-                                                            <span>
-                                                                group:{' '}
-                                                                <CopyToClipboardInline description="group ID">
-                                                                    {item.experiment_query_group_id}
-                                                                </CopyToClipboardInline>
-                                                            </span>
-                                                        )}
-                                                        <LinkMetabaseQuery queryId={item.query_id} />
-                                                    </div>
-                                                    {item.sub_queries && item.sub_queries.length > 0 && (
-                                                        <div>
-                                                            <h4 className="mb-1">Sub-queries (precompute builds)</h4>
-                                                            <LemonTable
-                                                                size="small"
-                                                                columns={subQueryColumns}
-                                                                dataSource={item.sub_queries}
-                                                                expandable={{
-                                                                    expandedRowRender: function ExpandedSubQuery(sub) {
-                                                                        return (
-                                                                            <div className="flex flex-col gap-2 p-2">
-                                                                                <QueryStats {...sub} />
-                                                                                <CodeSnippet
-                                                                                    language={Language.SQL}
-                                                                                    thing="query"
-                                                                                    maxLinesWithoutExpansion={10}
-                                                                                >
-                                                                                    {sub.query}
-                                                                                </CodeSnippet>
-                                                                            </div>
-                                                                        )
-                                                                    },
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {item.exception && (
-                                                        <CodeSnippet
-                                                            language={Language.Text}
-                                                            thing="error"
-                                                            maxLinesWithoutExpansion={5}
+                            <LemonTabs
+                                activeKey={experimentsTab}
+                                onChange={setExperimentsTab}
+                                tabs={[
+                                    {
+                                        key: 'slowest_queries',
+                                        label: 'Slowest queries',
+                                        content: (
+                                            <>
+                                                <div className="flex flex-wrap gap-2 mb-4 items-center">
+                                                    {TIME_RANGE_OPTIONS.map(({ label, hours }) => (
+                                                        <LemonButton
+                                                            key={hours}
+                                                            type={hoursBack === hours ? 'primary' : 'tertiary'}
+                                                            size="small"
+                                                            onClick={() => setHoursBack(hours)}
                                                         >
-                                                            {item.exception}
-                                                        </CodeSnippet>
-                                                    )}
-                                                    <CodeSnippet
-                                                        language={Language.SQL}
-                                                        thing="query"
-                                                        maxLinesWithoutExpansion={10}
+                                                            {label}
+                                                        </LemonButton>
+                                                    ))}
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={1}
+                                                        size="small"
+                                                        placeholder="Team ID"
+                                                        value={teamIdFilter ? Number(teamIdFilter) : undefined}
+                                                        onChange={(value) =>
+                                                            setTeamIdFilter(value != null ? String(value) : '')
+                                                        }
+                                                        className="w-32"
+                                                    />
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={1}
+                                                        size="small"
+                                                        placeholder="Experiment ID"
+                                                        value={
+                                                            experimentIdFilter ? Number(experimentIdFilter) : undefined
+                                                        }
+                                                        onChange={(value) =>
+                                                            setExperimentIdFilter(value != null ? String(value) : '')
+                                                        }
+                                                        className="w-36"
+                                                    />
+                                                    <LemonSelect
+                                                        size="small"
+                                                        value={metricTypeFilter}
+                                                        onChange={(value) => setMetricTypeFilter(value ?? '')}
+                                                        options={METRIC_TYPE_OPTIONS}
+                                                        className="w-44"
+                                                    />
+                                                    <LemonSelect
+                                                        size="small"
+                                                        value={exceptionCodeFilter}
+                                                        onChange={(value) => setExceptionCodeFilter(value ?? '')}
+                                                        options={EXCEPTION_CODE_OPTIONS}
+                                                        className="w-44"
+                                                    />
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        onClick={() => loadSlowestQueries()}
+                                                        disabledReason={
+                                                            slowestQueriesLoading ? 'Loading...' : undefined
+                                                        }
                                                     >
-                                                        {item.query}
-                                                    </CodeSnippet>
+                                                        Refresh
+                                                    </LemonButton>
                                                 </div>
-                                            )
-                                        },
-                                    }}
-                                />
+                                                <LemonTable
+                                                    columns={slowestQueryColumns}
+                                                    dataSource={slowestQueries}
+                                                    loading={slowestQueriesLoading}
+                                                    emptyState="No queries found in this time range"
+                                                    pagination={{ pageSize: 20 }}
+                                                    className="overflow-visible! flex-none!"
+                                                    expandable={{
+                                                        expandedRowRender: function ExpandedQuery(item) {
+                                                            return (
+                                                                <div className="flex flex-col gap-2 p-2">
+                                                                    <QueryStats {...item} />
+                                                                    <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                                        <span>
+                                                                            query_id:{' '}
+                                                                            <CopyToClipboardInline description="query ID">
+                                                                                {item.query_id}
+                                                                            </CopyToClipboardInline>
+                                                                        </span>
+                                                                        {item.experiment_query_group_id && (
+                                                                            <span>
+                                                                                group:{' '}
+                                                                                <CopyToClipboardInline description="group ID">
+                                                                                    {item.experiment_query_group_id}
+                                                                                </CopyToClipboardInline>
+                                                                            </span>
+                                                                        )}
+                                                                        <LinkMetabaseQuery queryId={item.query_id} />
+                                                                    </div>
+                                                                    {item.sub_queries &&
+                                                                        item.sub_queries.length > 0 && (
+                                                                            <div>
+                                                                                <h4 className="mb-1">
+                                                                                    Sub-queries (precompute builds)
+                                                                                </h4>
+                                                                                <LemonTable
+                                                                                    size="small"
+                                                                                    columns={subQueryColumns}
+                                                                                    dataSource={item.sub_queries}
+                                                                                    expandable={{
+                                                                                        expandedRowRender:
+                                                                                            function ExpandedSubQuery(
+                                                                                                sub
+                                                                                            ) {
+                                                                                                return (
+                                                                                                    <div className="flex flex-col gap-2 p-2">
+                                                                                                        <QueryStats
+                                                                                                            {...sub}
+                                                                                                        />
+                                                                                                        <CodeSnippet
+                                                                                                            language={
+                                                                                                                Language.SQL
+                                                                                                            }
+                                                                                                            thing="query"
+                                                                                                            maxLinesWithoutExpansion={
+                                                                                                                10
+                                                                                                            }
+                                                                                                        >
+                                                                                                            {sub.query}
+                                                                                                        </CodeSnippet>
+                                                                                                    </div>
+                                                                                                )
+                                                                                            },
+                                                                                    }}
+                                                                                />
+                                                                            </div>
+                                                                        )}
+                                                                    {item.exception && (
+                                                                        <CodeSnippet
+                                                                            language={Language.Text}
+                                                                            thing="error"
+                                                                            maxLinesWithoutExpansion={5}
+                                                                        >
+                                                                            {item.exception}
+                                                                        </CodeSnippet>
+                                                                    )}
+                                                                    <CodeSnippet
+                                                                        language={Language.SQL}
+                                                                        thing="query"
+                                                                        maxLinesWithoutExpansion={10}
+                                                                    >
+                                                                        {item.query}
+                                                                    </CodeSnippet>
+                                                                </div>
+                                                            )
+                                                        },
+                                                    }}
+                                                />
 
-                                <h2 className="mt-8">Precomputation</h2>
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search by organization name..."
-                                    value={search}
-                                    onChange={setSearch}
-                                    className="mb-4 max-w-md"
-                                />
-                                <LemonTable
-                                    columns={precomputationColumns}
-                                    dataSource={precomputationTeams}
-                                    loading={precomputationTeamsLoading}
-                                    emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
-                                    pagination={{ pageSize: 20 }}
-                                    className="overflow-visible! flex-none!"
-                                />
-                            </>
+                                                <h2 className="mt-8">Precomputation</h2>
+                                                <LemonInput
+                                                    type="search"
+                                                    placeholder="Search by organization name..."
+                                                    value={search}
+                                                    onChange={setSearch}
+                                                    className="mb-4 max-w-md"
+                                                />
+                                                <LemonTable
+                                                    columns={precomputationColumns}
+                                                    dataSource={precomputationTeams}
+                                                    loading={precomputationTeamsLoading}
+                                                    emptyState={
+                                                        search
+                                                            ? 'No teams found'
+                                                            : 'No teams have precomputation enabled'
+                                                    }
+                                                    pagination={{ pageSize: 20 }}
+                                                    className="overflow-visible! flex-none!"
+                                                />
+                                            </>
+                                        ),
+                                    },
+                                    {
+                                        key: 'precompute_overview',
+                                        label: 'Precompute overview',
+                                        content: <PrecomputeOverview />,
+                                    },
+                                    {
+                                        key: 'cache_health',
+                                        label: 'Cache health',
+                                        content: <CacheHealth />,
+                                    },
+                                ]}
+                            />
                         ),
                     },
                 ]}

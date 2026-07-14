@@ -53,7 +53,7 @@ describe('TrendsPieChart (ActionsPie)', () => {
         },
     ])('$name', async ({ query, expectedLabels }) => {
         renderInsight({ query })
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {

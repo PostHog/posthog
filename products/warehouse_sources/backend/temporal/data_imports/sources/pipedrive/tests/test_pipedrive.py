@@ -48,6 +48,13 @@ class TestNormalizeCompanyDomain:
         with pytest.raises(ValueError):
             normalize_company_domain(raw)
 
+    def test_rejection_message_guides_without_echoing_input(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            normalize_company_domain("https://secret-subdomain.example.com/")
+        message = str(exc_info.value)
+        assert "secret-subdomain" not in message
+        assert "pipedrive.com" in message
+
     def test_base_url_is_pinned_to_pipedrive(self) -> None:
         assert base_url("mycompany") == "https://mycompany.pipedrive.com"
         assert base_url("https://MyCompany.pipedrive.com") == "https://mycompany.pipedrive.com"

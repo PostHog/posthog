@@ -3,15 +3,16 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { lazy, Suspense, useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -20,12 +21,12 @@ import { ExportType, ExportedData } from '~/exporter/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
-const LazyDashboardScene = lazy(() => import('./scenes/ExporterDashboardScene'))
-const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
-const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
-const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
-const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
-const LazyInterviewScene = lazy(() => import('./scenes/ExporterInterviewScene'))
+const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
+const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
+const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
+const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
+const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
+const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
     return (
@@ -123,7 +124,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                                     target="_blank"
                                 >
-                                    <Logo className="text-lg" />
+                                    <Logo size="xs" />
                                 </Link>
                             )}
                             <div className="SharedDashboard-header-title">
@@ -144,7 +145,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                             to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                             target="_blank"
                         >
-                            <Logo className="text-lg" />
+                            <Logo size="xs" />
                         </Link>
                     ) : type === ExportType.Image && !whitelabel ? (
                         <>
@@ -161,7 +162,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-notebook"
                                     target="_blank"
                                 >
-                                    <Logo className="text-lg" />
+                                    <Logo size="xs" />
                                 </Link>
                                 <div className="SharedDashboard-header-team text-right">
                                     <span className="block">{currentTeam?.name}</span>
@@ -204,7 +205,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 )}
                 {!whitelabel && dashboard && (
                     <div className="text-center pb-4">
-                        {type === ExportType.Image ? <Logo className="text-lg" /> : null}
+                        {type === ExportType.Image ? <Logo size="xs" /> : null}
                         <div>
                             Made with{' '}
                             <Link

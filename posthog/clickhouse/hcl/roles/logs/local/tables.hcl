@@ -285,10 +285,13 @@ database "posthog" {
       type    = "DateTime"
       default = "now()"
     }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
-      remote_table    = "log_attributes2"
+      remote_table    = "log_attributes3"
     }
   }
   table "logs" {
@@ -606,6 +609,21 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint
+SQL
+
+    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs32"
       replica_name = "{replica}-{shard}"
@@ -765,6 +783,21 @@ database "posthog" {
       expr        = "timestamp"
       type        = "minmax"
       granularity = 1
+    }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint
+SQL
+
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs34"
@@ -1014,6 +1047,16 @@ database "posthog" {
       type  = "Float64"
       codec = "Gorilla(8)"
     }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
     column "trace_id" {
       type = "String"
     }
@@ -1055,6 +1098,16 @@ database "posthog" {
       type  = "Float64"
       codec = "Gorilla(8)"
     }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
     column "trace_id" {
       type = "String"
     }
@@ -1091,6 +1144,13 @@ database "posthog" {
     column "unit" {
       type = "LowCardinality(String)"
     }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
     column "service_name" {
       type = "LowCardinality(String)"
     }
@@ -1112,6 +1172,7 @@ database "posthog" {
   }
   table "metric_series1" {
     order_by = ["team_id", "metric_name", "series_fingerprint"]
+    ttl      = "toDateTime(last_seen) + toIntervalDay(90)"
     settings = {
       index_granularity = "8192"
     }
@@ -1130,6 +1191,13 @@ database "posthog" {
     }
     column "unit" {
       type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
     }
     column "service_name" {
       type = "LowCardinality(String)"

@@ -1,4 +1,4 @@
-from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
@@ -12,16 +12,20 @@ from .get_task_processing_context import TaskProcessingContext, get_task_process
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
+    CheckoutBranchInSandboxOutput,
     CloneRepositoryInSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
+    InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
+    invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
@@ -30,9 +34,22 @@ from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsOutput,
     refresh_sandbox_credentials,
 )
-from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .relay_sandbox_events import (
+    RelaySandboxEventsInput,
+    relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
+)
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_permission_response_to_sandbox import (
+    PostPermissionDeliveryFailureInput,
+    SendPermissionDenialGuidanceInput,
+    SendPermissionResponseToSandboxInput,
+    post_permission_delivery_failure_notice,
+    send_permission_denial_guidance,
+    send_permission_response_to_sandbox,
+)
+from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -47,6 +64,7 @@ from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_st
 
 __all__ = [
     "CleanupSandboxInput",
+    "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
     "EmitProgressInput",
@@ -55,10 +73,13 @@ __all__ = [
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
+    "CheckoutBranchInSandboxOutput",
     "CloneRepositoryInSandboxInput",
+    "CloneRepositoryInSandboxOutput",
     "CreateSandboxForRepositoryInput",
     "CreateSandboxForRepositoryOutput",
     "InjectFreshTokensOnResumeInput",
+    "InvalidateResumeSnapshotInput",
     "PostSlackUpdateInput",
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
@@ -72,19 +93,30 @@ __all__ = [
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
+    "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
+    "PostPermissionDeliveryFailureInput",
+    "SendPermissionDenialGuidanceInput",
+    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
+    "complete_run_stream",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
     "emit_progress_activity",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
+    "relay_agent_design_signals",
     "relay_sandbox_events",
+    "relay_sandbox_events_deferred_completion",
+    "post_permission_delivery_failure_notice",
+    "send_permission_denial_guidance",
+    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
+    "invalidate_resume_snapshot",
     "post_slack_update",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",

@@ -4,7 +4,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import type { LinearIssueSignalExtra } from '~/queries/schema/schema-signals'
+import type { LinearIssueSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ExternalSignalCard, type StatePill } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -13,14 +13,16 @@ import type { SignalCardEntry, SignalCardProps } from './types'
  * Linear has `url` + `priority` + `number`, but unlike GitHub it carries no `html_url`.
  * Requiring `identifier` and `priority_label` keeps this narrow enough not to match other issue sources.
  */
-export function isLinearIssueExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & LinearIssueSignalExtra {
+export function isLinearIssueExtra(value: unknown): value is Record<string, unknown> & LinearIssueSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return 'identifier' in extra && 'priority_label' in extra && typeof extra.url === 'string'
 }
 
 /** Linear workflow state types → state pill tone. */
-function statePillForState(extra: LinearIssueSignalExtra): StatePill | undefined {
+function statePillForState(extra: LinearIssueSignalExtraApi): StatePill | undefined {
     if (!extra.state_name) {
         return undefined
     }
@@ -43,7 +45,7 @@ const PRIORITY_DOT_CLASS: Record<number, string> = {
     4: 'text-muted',
 }
 
-function PriorityIndicator({ extra }: { extra: LinearIssueSignalExtra }): JSX.Element {
+function PriorityIndicator({ extra }: { extra: LinearIssueSignalExtraApi }): JSX.Element {
     const dotClass = PRIORITY_DOT_CLASS[extra.priority] ?? 'text-muted'
     const label = extra.priority === 0 ? extra.priority_label || 'No priority' : extra.priority_label
     return (
@@ -55,7 +57,7 @@ function PriorityIndicator({ extra }: { extra: LinearIssueSignalExtra }): JSX.El
 }
 
 export function LinearIssueSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as Record<string, unknown> & LinearIssueSignalExtra
+    const extra = signal.extra as Record<string, unknown> & LinearIssueSignalExtraApi
 
     const title = extra.identifier || `#${extra.number}`
     const labels = Array.isArray(extra.labels) ? extra.labels : []

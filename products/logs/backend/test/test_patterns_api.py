@@ -42,9 +42,12 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         assert body["scanned_count"] == 3
         assert body["total_count"] == 3
         assert body["sampled"] is False
+        assert body["sample_coverage_pct"] == 100.0
         pattern = next(p for p in body["patterns"] if p["pattern"] == "User <*> not found")
         assert pattern["count"] == 3
+        assert pattern["estimated_count"] == 3
         assert pattern["error_count"] == 3
+        assert pattern["estimated_error_count"] == 3
         assert pattern["services"] == ["auth"]
 
     @freeze_time("2026-06-23T13:00:00Z")

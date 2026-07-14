@@ -22,6 +22,7 @@ from .github_setup import (
 from .restore import WidgetRestoreRedeemView, WidgetRestoreRequestView
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
+from .slack_interactivity import supporthog_interactivity_handler
 from .slack_oauth import SupportSlackAuthorizeView, SupportSlackDisconnectView, support_slack_oauth_callback
 from .teams_channels import TeamsChannelsView, TeamsInstallAppView, TeamsSelectChannelView, TeamsTeamsView
 from .teams_events import teams_event_handler
@@ -37,6 +38,7 @@ urlpatterns = [
     path("v1/widget/restore", WidgetRestoreRedeemView.as_view(), name="widget-restore-v1"),
     # SupportHog Slack app
     re_path(r"^v1/slack/events/?$", supporthog_event_handler, name="supporthog-slack-events"),
+    re_path(r"^v1/slack/interactivity/?$", supporthog_interactivity_handler, name="supporthog-slack-interactivity"),
     re_path(r"^v1/slack/authorize/?$", SupportSlackAuthorizeView.as_view(), name="supporthog-slack-authorize"),
     re_path(r"^v1/slack/callback/?$", support_slack_oauth_callback, name="supporthog-slack-callback"),
     re_path(r"^v1/slack/disconnect/?$", SupportSlackDisconnectView.as_view(), name="supporthog-slack-disconnect"),

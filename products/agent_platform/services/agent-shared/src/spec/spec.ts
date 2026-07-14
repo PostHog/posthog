@@ -771,6 +771,17 @@ export const SpecLimitsSchema = z.object({
     // Per-turn provider max_tokens. Unset → reasoning-aware default in runner.
     // Clamped at request time to model.maxTokens + operator override.
     max_output_tokens: z.number().int().positive().max(200_000).optional(),
+    /**
+     * Cap on open (queued) approval requests per session. A model looping on
+     * an approval-gated tool can otherwise flood approvers — Slack posts per
+     * queued row, console badge inflation — because args-hash dedupe only
+     * collapses identical calls, not distinct-args floods. At the cap,
+     * further gated calls return a synthetic `approval_budget_exhausted`
+     * error to the model instead of queueing. Decisions and TTL expiry free
+     * budget; an identical re-ask dedupes onto its existing row and is
+     * always allowed.
+     */
+    max_open_approvals: z.number().int().positive().max(100).default(10),
 })
 
 export type AuthMode = z.infer<typeof AuthModeSchema>
@@ -1010,6 +1021,7 @@ export const AgentSpecSchema = z.object({
         max_wall_seconds: 15 * 60,
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
+        max_open_approvals: 10,
     }),
     reasoning: ReasoningEffortSchema.describe(
         'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'

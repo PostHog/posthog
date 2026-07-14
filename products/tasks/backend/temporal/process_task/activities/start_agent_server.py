@@ -1,6 +1,7 @@
 import shlex
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from django.conf import settings
 from django.db import connection
@@ -18,13 +19,14 @@ from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionE
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms, record_boot_total_ms
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
     get_sandbox_ph_mcp_configs,
+    get_task_run_credential_user,
     get_user_mcp_server_configs,
     mark_mcp_token_issued,
 )
@@ -134,6 +136,13 @@ class StartAgentServerInput:
     sandbox_connect_token: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     defer_for_clone: bool = False
+    # Which boot architecture produced this run ("classic" serial launch vs "overlap"
+    # launch-before-clone); labels the latency metrics so cohorts stay comparable.
+    boot_path: str = "classic"
+    used_snapshot: bool | None = None
+    # Workflow start time (ISO 8601); when set, the activity that completes boot records
+    # the wall-clock workflow-start → agent-ready total.
+    workflow_start_at: str | None = None
 
 
 @dataclass
@@ -146,6 +155,10 @@ class MarkRepoReadyInput:
 class StartAgentServerOutput:
     sandbox_url: str
     connect_token: str | None = None
+    launch_ms: int | None = None
+    ready_wait_ms: int | None = None
+    session_init_ms: int | None = None
+    boot_total_ms: int | None = None
 
 
 @dataclass
@@ -163,10 +176,21 @@ def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
     return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
 
 
+def _include_personal_mcp_for_task(task: Task) -> bool:
+    """Whether a run may pull the task creator's *personal* MCP installations.
+
+    Internal/autonomous runs (support reply, signals) must never pull a
+    resolved member's personal creds — they get shared team connections only.
+    User-initiated Code runs get shared + the creator's personal installs.
+    """
+    return not task.internal
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by").get(id=ctx.task_id)
-        access_token = create_oauth_access_token(task, scopes=scopes)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -200,15 +224,16 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
     )
-    if task.created_by_id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=ctx.team_id,
-            user_id=task.created_by_id,
-            interaction_origin=ctx.interaction_origin,
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    include_personal = _include_personal_mcp_for_task(task)
+    user_mcp_configs = get_user_mcp_server_configs(
+        token=access_token,
+        team_id=ctx.team_id,
+        user_id=actor_user.id if actor_user else None,
+        include_personal=include_personal,
+        interaction_origin=ctx.interaction_origin,
+    )
+    if user_mcp_configs:
+        mcp_configs = mcp_configs + user_mcp_configs
 
     if mcp_configs:
         emit_agent_log(
@@ -273,12 +298,14 @@ def _invoke_start_agent_server(
             run_id=ctx.run_id,
             mode=ctx.mode,
             create_pr=ctx.create_pr,
+            auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
             runtime_adapter=ctx.runtime_adapter,
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
@@ -286,12 +313,21 @@ def _invoke_start_agent_server(
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
+            rtk_enabled=ctx.rtk_enabled,
         )
 
         # Mark startup-time token issuance so follow-ups within the next
         # 30m window skip the redundant refresh.
         if params.mcp_configs:
             mark_mcp_token_issued(ctx.run_id)
+
+        # Persist the effective rtk posture the agent launched with, so terminal
+        # analytics can cohort runs by it (the state override alone misses the
+        # kill-switch flag). Best-effort: never fail the launch over it.
+        try:
+            TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+        except Exception:
+            logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -328,6 +364,30 @@ def _spawn_post_ready_diagnostics(
     threading.Thread(target=_run, name=f"post-ready-diag-{ctx.run_id}", daemon=True).start()
 
 
+def _record_boot_total(input: StartAgentServerInput) -> int | None:
+    """Record workflow-start → agent-ready wall-clock; returns the total for the activity output."""
+    if not input.workflow_start_at:
+        return None
+    try:
+        started_at = datetime.fromisoformat(input.workflow_start_at)
+        # Temporal start_time is tz-aware UTC; treat a naive value as UTC rather than
+        # letting the aware-naive subtraction raise. Metrics must never fail the boot.
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+        boot_total_ms = max(0, int((datetime.now(UTC) - started_at).total_seconds() * 1000))
+    except (TypeError, ValueError):
+        logger.warning("boot_total_unparseable_start_time", workflow_start_at=input.workflow_start_at)
+        return None
+    record_boot_total_ms(
+        boot_total_ms,
+        boot_path=input.boot_path,
+        used_snapshot=input.used_snapshot,
+        has_repo=input.context.repository is not None,
+        origin_product=input.context.origin_product,
+    )
+    return boot_total_ms
+
+
 @activity.defn
 @asyncify
 def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
@@ -352,7 +412,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         _ensure_repository_on_disk(ctx, sandbox)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes)
 
-        with StepTimer("agent_server_ready"):
+        with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
@@ -360,11 +420,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms)
+            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+
+        boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
 
-        return StartAgentServerOutput(sandbox_url=input.sandbox_url, connect_token=input.sandbox_connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=input.sandbox_url,
+            connect_token=input.sandbox_connect_token,
+            ready_wait_ms=ready_timer.elapsed_ms,
+            session_init_ms=session_init_ms,
+            boot_total_ms=boot_total_ms,
+        )
 
 
 @activity.defn
@@ -383,10 +451,15 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         params = _prepare_launch(ctx, input.posthog_mcp_scopes)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
-        _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
+        with StepTimer("agent_server_launch", boot_path=input.boot_path) as launch_timer:
+            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
-        return StartAgentServerOutput(sandbox_url=input.sandbox_url, connect_token=input.sandbox_connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=input.sandbox_url,
+            connect_token=input.sandbox_connect_token,
+            launch_ms=launch_timer.elapsed_ms,
+        )
 
 
 @activity.defn
@@ -411,7 +484,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
 
         try:
-            with StepTimer("agent_server_ready"):
+            with StepTimer("agent_server_ready", boot_path=input.boot_path) as ready_timer:
                 sandbox.wait_for_agent_server_ready(agentsh_domains)
         except Exception:
             if agentsh_domains is not None:
@@ -424,8 +497,16 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
 
         session_init_ms = sandbox.read_agent_server_session_init_ms()
         if session_init_ms is not None:
-            record_agent_server_session_init_ms(session_init_ms)
+            record_agent_server_session_init_ms(session_init_ms, boot_path=input.boot_path)
+
+        boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)
 
-        return StartAgentServerOutput(sandbox_url=input.sandbox_url, connect_token=input.sandbox_connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=input.sandbox_url,
+            connect_token=input.sandbox_connect_token,
+            ready_wait_ms=ready_timer.elapsed_ms,
+            session_init_ms=session_init_ms,
+            boot_total_ms=boot_total_ms,
+        )

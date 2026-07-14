@@ -14,7 +14,7 @@ import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -24,9 +24,9 @@ import { ResultDetails } from './ResultDetails'
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
 
-    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    const variants = getExperimentVariants(experiment)
     // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
-    if (!variants || !isSavedExperiment(experiment)) {
+    if (!variants.length || !isSavedExperiment(experiment)) {
         return null
     }
 

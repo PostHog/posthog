@@ -21,6 +21,7 @@ import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
@@ -33,7 +34,6 @@ import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,

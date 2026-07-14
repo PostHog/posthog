@@ -40,6 +40,9 @@ tools:
             with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot
             when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.
         feature_flag: mcp-analytics
+    mcp-analytics-sessions-activity-overview:
+        operation: mcp_analytics_sessions_activity_overview
+        enabled: false
     mcp-analytics-sessions-generate-intent:
         operation: mcp_analytics_sessions_generate_intent
         enabled: true
@@ -56,6 +59,9 @@ tools:
             summary.
         requires_ai_consent: true
         feature_flag: mcp-analytics
+    mcp-analytics-sessions-intent-digest:
+        operation: mcp_analytics_sessions_intent_digest
+        enabled: false
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
         enabled: true
@@ -83,7 +89,23 @@ tools:
         feature_flag: mcp-analytics
     mcp-analytics-sessions-tool-calls:
         operation: mcp_analytics_sessions_tool_calls
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session tool calls
+        description: >
+            List a single session's $mcp_tool_call events in chronological order — the drill-down for a session found
+            via mcp-analytics-sessions-list. Pass the session's session_id (the {id} path param); for sessions older
+            than the default 7-day lookback, also pass its session_start as date_from so the event scan reaches them.
+            Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit
+            (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's
+            has_next flag indicates whether more calls remain.
+        feature_flag: mcp-analytics
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false

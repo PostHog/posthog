@@ -26,15 +26,19 @@ name: signals-scout-<scope>
 description: >
   One or two sentences, third person: the surface it watches and the specific shapes it
   looks for (bursts, regressions, clusters, drops). Keep it tight. Don't restate the
-  fleet-wide boilerplate every scout shares (emits above the confidence bar, writes
+  fleet-wide boilerplate every scout shares (files reports above the bar, writes
   memory, closes out empty, self-contained peer) — that's assumed, and repeating it
   across the fleet burns the caller's token budget and gets truncated in AI plugins.
+allowed_tools:
+  - emit_report
+  - edit_report
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit).
+  (read-only analytics plus signal_scout_report:write for reports and
+  signal_scout_internal:write for scratchpad).
   Assumes the signals-scout MCP family (project-profile-get, runs-list, runs-retrieve,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus whatever
-  query tools the scope needs (e.g. execute-sql, read-data-schema,
+  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-report, edit-report)
+  plus whatever query tools the scope needs (e.g. execute-sql, read-data-schema,
   query-error-tracking-issues-list, inbox-reports-list).
 metadata:
   owner_team: signals # or the team that owns the scope
@@ -43,6 +47,7 @@ metadata:
 ```
 
 `name` and `description` are required and validated at build time.
+`allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
 `compatibility` and `metadata` are optional but conventional — `compatibility` documents the scopes/tools the scout assumes; `metadata.scope` gives downstream tooling a short label.
 
 The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
@@ -61,6 +66,7 @@ The fleet's specialists all share this shape:
 
 2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
    This keeps idle scouts cheap.
+   `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
 
    ```text
    key:     not-in-use:<scope>:team{team_id}     # if the surface is absent entirely
@@ -86,16 +92,16 @@ The fleet's specialists all share this shape:
 6. **Save memory as you go.** Tell the scout to write scratchpad entries continuously, encoding the category in the key prefix (see [`dedupe-and-memory.md`](dedupe-and-memory.md)).
    Give 2–3 worked example entries scoped to this surface so the agent matches the format.
 
-7. **Decide.** Emit / remember / skip, calibrated against the emit contract (see [`emit-contract.md`](emit-contract.md)).
-   State the surface-specific "strong finding" thresholds (e.g. "confidence ≥ 0.85, with concrete entity ids and counts in the evidence").
-   Tell it to cross-check `inbox-reports-list` before emitting.
+7. **Decide.** Author / edit / remember / skip, calibrated against the report contract (see [`report-contract.md`](report-contract.md)) and the four-states classifier (see [`dedupe-and-memory.md`](dedupe-and-memory.md)).
+   State the surface-specific "report-worthy" thresholds (e.g. "a broad-reach burst with concrete entity ids and counts in the evidence").
+   Tell it to cross-check `inbox-reports-list` before authoring — an existing report on the topic gets an `edit_report`, not a duplicate.
 
 8. **Disqualifiers.** The known noise for this surface that should be skipped (single-user quirks, dev-env bursts, allowlisted domains, known upstream provider errors).
-   "When in doubt, write memory instead of emitting."
+   "When in doubt, write memory instead of filing a report."
 
 9. **MCP tools.** List the direct (read-only) calls and the harness-level tools the scout uses, so the agent doesn't rediscover them each run.
 
-10. **Close out.** One paragraph: looked at what, emitted what, remembered what, ruled out what.
+10. **Close out.** One paragraph: looked at what, filed/edited what, remembered what, ruled out what.
     The harness saves this as the run summary; future runs read it via `signals-scout-runs-list`.
     Tell it **not** to write a separate "run metadata" scratchpad entry — the summary already serves that role.
     "Looked but found nothing meaningful" is a real outcome.
@@ -105,8 +111,7 @@ Sections 4–6 and 9 are where a specialist earns its keep.
 
 ## References
 
-The generalist is report-only and carries `references/conventions.md` (the four-states author/edit classifier + scratchpad vocab); the report-channel contract itself rides in the harness prompt (injected into every report-channel scout), so a report scout bundles no copy of it.
-The emit contract the signal-emitting fleet reasons in terms of lives in [`emit-contract.md`](emit-contract.md) in this skill.
+The generalist carries `references/conventions.md` (the four-states author/edit classifier + scratchpad vocab); the report-channel contract itself rides in the harness prompt (injected into every report-channel scout), so a scout bundles no copy of it.
 For a **per-team** scout you usually don't need to bundle your own copies — the canonical scout already encodes the conventions inline, and your scout body can too.
 Bundle a reference only when you have genuinely surface-specific depth (a long SQL cookbook, a taxonomy of fingerprints) that would bloat the body.
 Attach bundled files to a per-team scout with `posthog:skill-file-create`; in the repo, drop them in `references/` and they're collected automatically.
@@ -119,10 +124,13 @@ name: signals-scout-<scope>
 description: >
   Signals scout for PostHog <surface>. Watches <event/metric> for <the shapes: bursts /
   regressions / clusters / drops>.
+allowed_tools:
+  - emit_report
+  - edit_report
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write). Assumes the signals-scout MCP
-  family plus <the query tools this scope needs>.
+  (read-only analytics plus signal_scout_report:write and signal_scout_internal:write).
+  Assumes the signals-scout MCP family plus <the query tools this scope needs>.
 metadata:
   owner_team: <team>
   scope: <scope>
@@ -131,7 +139,7 @@ metadata:
 # Signals scout: <surface>
 
 You are a focused <surface> scout. Spot meaningful changes in <event/metric> — <the
-shapes> — and emit findings only when they clear the confidence bar.
+shapes> — and file a report only when a finding clears the report bar.
 
 <Name the discriminator here.> The relationship between <X> and <Y> is the most important
 signal-vs-noise discriminator. Internalize that shape.
@@ -180,14 +188,16 @@ category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
 
 ### Decide
 
-- **Emit** via `signals-scout-emit-signal` above the bar (confidence ≥ 0.85,
-  concrete entity ids + counts in evidence). Cross-check `inbox-reports-list` first.
+- **Author** a report via `signals-scout-emit-report` above the bar (a well-formed
+  finding you'd own end-to-end, concrete entity ids + counts in evidence).
+  Cross-check `inbox-reports-list` first — an existing report on the topic gets a
+  `signals-scout-edit-report` instead of a duplicate.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
 
 ### Close out
 
-One paragraph: looked at what, emitted what, remembered what, ruled out what.
+One paragraph: looked at what, filed/edited what, remembered what, ruled out what.
 
 ## Disqualifiers (skip these)
 
@@ -196,7 +206,7 @@ One paragraph: looked at what, emitted what, remembered what, ruled out what.
 ## MCP tools
 
 Direct (read-only): <list>. Harness-level: project-profile-get, scratchpad-search,
-runs-list, runs-retrieve, emit-signal, scratchpad-remember.
+runs-list, runs-retrieve, emit-report, edit-report, scratchpad-remember.
 ```
 
 ## Skeleton — broad / cross-product scout
