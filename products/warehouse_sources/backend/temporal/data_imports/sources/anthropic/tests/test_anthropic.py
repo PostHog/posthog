@@ -103,8 +103,17 @@ class TestReportParams:
         )
         assert params["starting_at"] == "2026-03-04T00:00:00Z"
         assert params["bucket_width"] == "1d"
-        assert params["limit"] == 31
+        assert params["limit"] == 7
         assert multi == {"group_by[]": config.group_by}
+
+    def test_usage_report_page_size_stays_below_bucket_max(self) -> None:
+        # Grouping by every dimension multiplies the results per bucket, so requesting the 31-bucket
+        # max overflows the per-response result cap and the API 400s. Keep the page small while still
+        # grouping by the full set; pagination walks the rest.
+        config = anthropic.ANTHROPIC_ENDPOINTS["usage_report"]
+        params, _ = _report_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
+        assert len(config.group_by) == 8
+        assert params["limit"] <= 7
 
     def test_full_refresh_falls_back_to_launch_date(self) -> None:
         # Without a watermark we must still send the required starting_at; the Anthropic launch date
