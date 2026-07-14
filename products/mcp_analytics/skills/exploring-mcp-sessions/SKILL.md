@@ -59,10 +59,10 @@ posthog:mcp-analytics-sessions-list
 
 Each row: `session_id`, `tool_calls`, `session_start`, `session_end`,
 `tools_used`, `mcp_client_name`, `distinct_id` (+ resolved `person_email` /
-`person_name`), `distinct_id_count`, and `intent` (empty until generated).
-Response is `{ results, has_next }` — page with `limit` / `offset`.
+`person_name`), and `intent` (empty until generated). Response is
+`{ results, has_next }` — page with `limit` / `offset`.
 
-Two sharp edges:
+Three sharp edges:
 
 - **`order_by` takes column names, not response field names.** Sort call volume
   as `tool_call_count` (not `tool_calls`). `duration_seconds` sorts fine even
@@ -72,6 +72,9 @@ Two sharp edges:
   `tool_call_count`, `mcp_client_name`, `distinct_id`; prefix `-` to descend.
 - **There is no error filter and no error count on a session row.** "Which
   sessions had errors?" is a SQL question — see below.
+- **`distinct_id_count` is always `0`.** The field is in the response but the
+  backend never populates it, so don't read it as "one distinct id per session"
+  — it says nothing. To count distinct ids in a session, use SQL.
 
 `search` does a case-insensitive substring match across `session_id`,
 `distinct_id`, `mcp_client_name`, and `tools_used`.
