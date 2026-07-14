@@ -57,6 +57,8 @@ import type {
     StaffTeamConfigListResponseApi,
     StaffTeamConfigMutationApi,
     StaffTeamSearchResponseApi,
+    StaffWarmRunCancelResponseApi,
+    StaffWarmRunResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -97,10 +99,8 @@ export const getFeatureFlagsStaffCacheListUrl = (params: FeatureFlagsStaffCacheL
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -123,10 +123,8 @@ export const getFeatureFlagsStaffCacheClearCreateUrl = () => {
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -163,10 +161,8 @@ export const getFeatureFlagsStaffCacheEntryRetrieveUrl = (params: FeatureFlagsSt
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -189,10 +185,8 @@ export const getFeatureFlagsStaffCacheRebuildCreateUrl = () => {
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -207,6 +201,42 @@ export const featureFlagsStaffCacheRebuildCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunRetrieveUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/`
+}
+
+/**
+ * Status of the most recent warm-all run, published by the Rust warmer.
+ */
+export const featureFlagsStaffCacheWarmRunRetrieve = async (
+    options?: RequestInit
+): Promise<StaffWarmRunResponseApi> => {
+    return apiMutator<StaffWarmRunResponseApi>(getFeatureFlagsStaffCacheWarmRunRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunCancelCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/cancel/`
+}
+
+/**
+ * Request cancellation of the active warm-all run.
+ *
+ * Sets the cancel key the warmer polls between status heartbeats; the run winds down after
+ * in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
+ * so a dead process simply never reads it).
+ */
+export const featureFlagsStaffCacheWarmRunCancelCreate = async (
+    options?: RequestInit
+): Promise<StaffWarmRunCancelResponseApi> => {
+    return apiMutator<StaffWarmRunCancelResponseApi>(getFeatureFlagsStaffCacheWarmRunCancelCreateUrl(), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -1103,8 +1103,9 @@ export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: st
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigRetrieve = async (
     organizationId: string,
@@ -1123,8 +1124,9 @@ export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationI
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdate = async (
     organizationId: string,

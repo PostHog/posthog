@@ -5411,6 +5411,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -6914,7 +6915,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
-    | ProductKey.MCP_ANALYTICS,
+    | ProductKey.MCP_ANALYTICS
+    | ProductKey.CONVERSATIONS,
     OnboardingProduct
 >
 
@@ -6945,6 +6947,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
