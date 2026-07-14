@@ -76,6 +76,18 @@ async def enrich_signup_organization_activity(
 
     close_old_connections()
     logger = LOGGER.bind(organization_id=inputs.organization_id, is_recheck=is_recheck)
+
+    if is_recheck:
+        # The org owner can delete the org during the recheck delay; without this guard the
+        # recheck would enrich a deleted org (db_constraint=False means orphan rows, and the
+        # group projection would write properties for a dead org).
+        from posthog.models import Organization  # noqa: PLC0415 — heavy import kept off the workflow module path
+
+        org_exists = await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)()
+        if not org_exists:
+            logger.info("signup_enrichment_recheck_skipped_org_deleted")
+            return {"matched": False, "fields_filled": 0, "org_deleted": True}
+
     pha_client = get_client()
 
     try:

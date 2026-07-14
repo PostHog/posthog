@@ -33,7 +33,9 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
         patch(f"{_MODULE}.enrich_organization", enrich),
         patch(f"{_MODULE}._deterministic_company_type", return_value=None),
         patch(f"{_MODULE}.capture_signup_enrichment_snapshot") as snapshot,
+        patch("posthog.models.Organization.objects") as org_objects,
     ):
+        org_objects.filter.return_value.exists.return_value = True
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with Worker(
                 env.client,
@@ -85,3 +87,21 @@ async def test_match_on_first_attempt_skips_the_recheck():
     snapshot.assert_called_once()
     assert _events(pha_client, "signup_enrichment_recheck") == []
     assert len(_events(pha_client, "signup_enrichment_completed")) == 1
+
+
+async def test_recheck_skips_deleted_organization():
+    """The 4h recheck must not enrich or emit for an org deleted during the delay."""
+    inputs = SignupEnrichmentInputs(
+        organization_id="00000000-0000-0000-0000-00000000dead", distinct_id="d1", domain="gone.dev"
+    )
+    with (
+        patch(f"{_MODULE}.enrich_organization") as enrich_mock,
+        patch(f"{_MODULE}.get_client") as client_mock,
+        patch("posthog.models.Organization.objects") as org_objects,
+    ):
+        org_objects.filter.return_value.exists.return_value = False
+        result = await enrich_signup_organization_activity(inputs, is_recheck=True)
+    assert result["org_deleted"] is True
+    assert result["matched"] is False
+    enrich_mock.assert_not_called()
+    client_mock.assert_not_called()
