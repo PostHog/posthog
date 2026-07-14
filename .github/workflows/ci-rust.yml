@@ -470,6 +470,109 @@ jobs:
                   org-slug: posthog-inc
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
+    # Spawns a real personhog stack (replica, writer, leaders, leader-mode
+    # router) against dockerized Postgres/Kafka/etcd and asserts that every
+    # write acked by the leader path is visible afterwards — in strong reads
+    # and in Postgres at the acked version — including under chaos (leader
+    # kill + scale-up mid-traffic). Not a required check while it soaks.
+    personhog-gate:
+        name: PersonHog e2e gate
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 25
+        permissions:
+            contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        defaults:
+            run:
+                working-directory: rust
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Start Postgres, Kafka, and etcd
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+                  COMPOSE_PROFILES: etcd
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  ../bin/ci-wait-for-docker launch --down db kafka etcd
+                  ../bin/ci-wait-for-docker wait --only db kafka etcd
+
+                  echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
+
+            # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Create and migrate the persons database
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: |
+                  sqlx database create
+                  sqlx migrate run --source persons_migrations/
+
+            - name: Build the personhog stack and harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-cannon
+
+            - name: Run the e2e gate
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  ./target/debug/personhog-cannon gate \
+                    --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            - name: Run the e2e gate under chaos
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  ./target/debug/personhog-cannon gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 15s \
+                    --kill-after 5s --scale-up-after 8s
+
+            - name: Dump service logs on failure
+              if: failure()
+              run: |
+                  docker ps -a || true
+                  docker logs --tail=200 rust-kafka-1 || true
+                  docker logs --tail=200 rust-etcd-1 || true
+
+            - name: Upload harness logs on failure
+              if: failure()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: personhog-cannon-logs
+                  path: rust/target/debug/cannon-logs/
+                  if-no-files-found: ignore
+
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
