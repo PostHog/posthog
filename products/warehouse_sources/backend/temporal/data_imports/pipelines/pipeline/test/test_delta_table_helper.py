@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    snapshots_outside_retention,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_snapshot_column_to_pyarrows_table,
@@ -1013,6 +1014,48 @@ class TestFullRefreshAppend:
         helper.get_delta_table.cache_clear()
         final = (await helper.get_delta_table()).to_pyarrow_table()
         assert final.num_rows == 1
+
+    @pytest.mark.asyncio
+    async def test_snapshot_inventory_returns_distinct_ascending(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (2, 1, 3)]
+        for day, snapshot_at in enumerate(snapshots):
+            # Two rows per snapshot so distinctness (not row count) is what's asserted.
+            await self._write_run(helper, [day, day + 100], snapshot_at)
+
+        helper.get_delta_table.cache_clear()
+        inventory = await helper.snapshot_inventory()
+
+        assert inventory == sorted(snapshots)
+
+
+class TestSnapshotsOutsideRetention:
+    """The retention math shared by the sync-time prune and the on-demand admin orphaned-snapshot readout."""
+
+    _NOW = datetime(2026, 1, 31, tzinfo=UTC)
+
+    def _days(self, *days: int) -> list[datetime]:
+        return [datetime(2026, 1, day, tzinfo=UTC) for day in days]
+
+    @parameterized.expand(
+        [
+            # (name, distinct_days, mode, value, expected_prunable_days)
+            ("count_prunes_oldest", (1, 2, 3, 4, 5), "count", 2, (1, 2, 3)),
+            ("count_under_retention_noop", (1, 2), "count", 5, ()),
+            ("count_exactly_retention_noop", (1, 2, 3), "count", 3, ()),
+            ("single_snapshot_noop", (5,), "count", 1, ()),
+            ("empty_noop", (), "count", 1, ()),
+            # _NOW is Jan 31; a 7-day window keeps >= Jan 24.
+            ("days_prunes_outside_window", (10, 20, 28), "days", 7, (10, 20)),
+            # All snapshots older than the window: keep only the newest so the table is never emptied.
+            ("days_all_old_keeps_newest", (1, 2, 3), "days", 7, (1, 2)),
+        ]
+    )
+    def test_partitions_snapshots(
+        self, _name: str, distinct_days: tuple[int, ...], mode: str, value: int, expected_days: tuple[int, ...]
+    ) -> None:
+        prunable = snapshots_outside_retention(self._days(*distinct_days), cast(Any, mode), value, now=self._NOW)
+        assert prunable == list(self._days(*expected_days))
 
 
 class TestIsTableCorrupted:

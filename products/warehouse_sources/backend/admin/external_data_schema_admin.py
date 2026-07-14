@@ -1,4 +1,5 @@
 import time
+from datetime import UTC, datetime
 from typing import Any, assert_never, cast, get_args
 
 from django.conf import settings
@@ -14,14 +15,22 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+    snapshots_outside_retention,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionFormat,
     PartitionMode,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.prune_snapshots import (
+    PruneSnapshotsWorkflowInputs,
 )
 
 # Source of truth lives in pipeline.typings. Re-deriving here keeps the dropdowns in
@@ -39,6 +48,32 @@ async def _start_external_data_workflow(client: Client, workflow_id: str, inputs
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
     )
+
+
+@async_to_sync
+async def _start_prune_snapshots_workflow(
+    client: Client, workflow_id: str, inputs: PruneSnapshotsWorkflowInputs
+) -> None:
+    await client.start_workflow(
+        "prune-snapshots",
+        inputs,
+        id=workflow_id,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
+def _read_snapshot_inventory(schema: ExternalDataSchema) -> list[datetime]:
+    """Read the live Delta table's distinct snapshot timestamps for the on-demand admin readout.
+
+    Best-effort and synchronous (this is a staff-only page): the caller swallows any failure into a
+    shown error. Returns [] when the schema has never synced (no job to resolve the S3 folder from).
+    """
+    job = ExternalDataJob.objects.filter(schema_id=schema.id).order_by("-created_at").first()
+    if job is None:
+        return []
+    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=get_logger(__name__).bind())
+    return async_to_sync(helper.snapshot_inventory)()
 
 
 @async_to_sync
@@ -137,6 +172,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 "<uuid:schema_id>/trigger-sync/",
                 self.admin_site.admin_view(self.trigger_sync_view),
                 name="external_data_schema_trigger_sync",
+            ),
+            path(
+                "<uuid:schema_id>/trigger-prune/",
+                self.admin_site.admin_view(self.trigger_prune_view),
+                name="external_data_schema_trigger_prune",
             ),
             path(
                 "<uuid:schema_id>/pause-schedule/",
@@ -474,6 +514,71 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         )
         return redirect(_change_url(schema_id))
 
+    def trigger_prune_view(self, request, schema_id):
+        # Ad-hoc, source-free prune of expired ("orphaned") snapshots for a full-refresh-append schema.
+        # Pruning normally happens at sync time, so a paused / failing / idle schema accumulates snapshots
+        # past its retention window. Mirror trigger_sync_view's safety: pause the schedule first so a
+        # scheduled sync can't start mid-prune, and let the workflow unpause on completion. The prune
+        # activity additionally no-ops if a sync is already running.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
+        except ExternalDataSchema.DoesNotExist:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
+
+        if not self.has_change_permission(request, schema):
+            raise PermissionDenied
+
+        if not schema.is_full_refresh_append:
+            messages.error(request, "This schema is not in full-refresh-append mode; there are no snapshots to prune.")
+            return redirect(_change_url(schema_id))
+
+        try:
+            client = sync_connect()
+        except Exception as e:
+            messages.error(request, f"Failed to connect to Temporal: {e}.")
+            return redirect(_change_url(schema_id))
+
+        was_paused = _is_schedule_paused(client, str(schema.id))
+        admin_paused_now = False
+        if not was_paused:
+            try:
+                pause_external_data_schedule(str(schema.id))
+                admin_paused_now = True
+            except Exception as e:
+                messages.error(request, f"Failed to pause schedule before prune: {e}.")
+                return redirect(_change_url(schema_id))
+
+        inputs = PruneSnapshotsWorkflowInputs(
+            team_id=schema.team_id, schema_id=str(schema.id), unpause_schedule_after=admin_paused_now
+        )
+        workflow_id = f"{schema.id}-admin-prune-{int(time.time())}"
+        try:
+            _start_prune_snapshots_workflow(client, workflow_id, inputs)
+        except Exception as e:
+            # Best-effort rollback of the pause so a failed workflow start doesn't leave syncs paused.
+            if admin_paused_now:
+                try:
+                    unpause_external_data_schedule(str(schema.id))
+                except Exception:
+                    pass
+            messages.error(request, f"Failed to trigger snapshot prune: {e}")
+            return redirect(_change_url(schema_id))
+
+        pause_note = (
+            " Schedule paused for the prune; will auto-unpause on completion."
+            if admin_paused_now
+            else " Schedule was already paused; leaving it paused."
+        )
+        messages.success(
+            request,
+            f"Triggered snapshot prune for {schema.name} (workflow_id={workflow_id}).{pause_note}",
+        )
+        return redirect(_change_url(schema_id))
+
     def pause_schedule_view(self, request, schema_id):
         if request.method != "POST":
             return redirect(_change_url(schema_id))
@@ -536,6 +641,30 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["unpause_schedule_url"] = reverse(
                 "admin:external_data_schema_unpause_schedule", args=[obj.id]
             )
+
+            # Snapshot inventory for full-refresh-append schemas: read the live Delta table on demand and
+            # surface how many retained snapshots are "orphaned" (past the retention window but not yet
+            # pruned, since pruning only runs at sync time). Best-effort — a read failure shows an error
+            # rather than breaking the change page.
+            if obj.is_full_refresh_append:
+                extra_context["is_full_refresh_append"] = True
+                extra_context["snapshot_retention_mode"] = obj.snapshot_retention_mode
+                extra_context["snapshot_retention_value"] = obj.snapshot_retention_value
+                extra_context["trigger_prune_url"] = reverse("admin:external_data_schema_trigger_prune", args=[obj.id])
+                try:
+                    inventory = _read_snapshot_inventory(obj)
+                    orphaned = snapshots_outside_retention(
+                        inventory,
+                        obj.snapshot_retention_mode,
+                        obj.snapshot_retention_value,
+                        now=datetime.now(UTC),
+                    )
+                    extra_context["snapshot_total"] = len(inventory)
+                    extra_context["snapshot_orphaned"] = len(orphaned)
+                    extra_context["snapshot_oldest"] = inventory[0] if inventory else None
+                    extra_context["snapshot_newest"] = inventory[-1] if inventory else None
+                except Exception as e:
+                    extra_context["snapshot_inventory_error"] = str(e)
 
             # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
             # above is paused once streaming starts, so surface the real one too.

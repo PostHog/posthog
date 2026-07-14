@@ -87,6 +87,34 @@ def _snapshot_predicate_literal(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def snapshots_outside_retention(
+    distinct: list[datetime],
+    retention_mode: Literal["count", "days"],
+    retention_value: int,
+    *,
+    now: datetime,
+) -> list[datetime]:
+    """Given the ascending distinct snapshot timestamps of a full-refresh-append table, return the ones
+    that fall outside the retention window (i.e. should be pruned), oldest first.
+
+    Always keeps at least the newest snapshot, so a table is never emptied even when its only snapshot is
+    older than a day-based window. `now` is injected so the day-mode cutoff stays testable. Pure so both
+    the sync-time prune and the on-demand admin "orphaned snapshots" readout share one definition.
+    """
+    if len(distinct) <= 1:
+        return []
+    if retention_mode == "days":
+        cutoff = now - timedelta(days=retention_value)
+        kept = [snapshot for snapshot in distinct if snapshot >= cutoff]
+        # Never drop everything: keep the newest snapshot even when it's older than the cutoff.
+        oldest_kept = min(kept) if kept else distinct[-1]
+    else:
+        if len(distinct) <= retention_value:
+            return []
+        oldest_kept = distinct[-retention_value]
+    return [snapshot for snapshot in distinct if snapshot < oldest_kept]
+
+
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
     table_data: pa.Table,
@@ -800,9 +828,35 @@ class DeltaTableHelper:
         Must run after the new snapshot is written and before the queryable folder is rebuilt / the row
         count is recomputed, so neither reflects rows that are about to be deleted.
         """
+        distinct = await self.snapshot_inventory()
+        prunable = snapshots_outside_retention(distinct, retention_mode, retention_value, now=datetime.now(UTC))
+        if not prunable:
+            return 0
+
         table = await self.get_delta_table()
         if table is None:
             return 0
+
+        # prunable is the earliest len(prunable) snapshots, so the next one is the oldest we keep.
+        oldest_kept = distinct[len(prunable)]
+        predicate = f"{SNAPSHOT_COLUMN} < '{_snapshot_predicate_literal(oldest_kept)}'"
+        await self._logger.ainfo(
+            f"prune_snapshots: deleting {len(prunable)} expired snapshot(s) with predicate {predicate}"
+        )
+        await asyncio.to_thread(table.delete, predicate)
+        await self.vacuum_table()
+        return len(prunable)
+
+    async def snapshot_inventory(self) -> list[datetime]:
+        """Distinct `_ph_snapshot_at` values present in the live Delta table, oldest first.
+
+        Empty when the table doesn't exist yet or has no snapshot column (i.e. not a full-refresh-append
+        table). A single-column scan, used both to prune at sync time and to report retained / orphaned
+        snapshots on demand.
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return []
 
         def _distinct_snapshots() -> list[datetime]:
             dataset = table.to_pyarrow_dataset()
@@ -811,30 +865,7 @@ class DeltaTableHelper:
             column = dataset.to_table(columns=[SNAPSHOT_COLUMN]).column(SNAPSHOT_COLUMN)
             return sorted(value for value in pc.unique(column).to_pylist() if value is not None)
 
-        distinct = await asyncio.to_thread(_distinct_snapshots)
-        # One (or zero) snapshots: nothing to prune, and we never delete the only snapshot.
-        if len(distinct) <= 1:
-            return 0
-
-        if retention_mode == "days":
-            cutoff = datetime.now(UTC) - timedelta(days=retention_value)
-            kept = [snapshot for snapshot in distinct if snapshot >= cutoff]
-            # Never drop everything: keep the newest snapshot even when it's older than the cutoff.
-            oldest_kept = min(kept) if kept else distinct[-1]
-        else:
-            if len(distinct) <= retention_value:
-                return 0
-            oldest_kept = distinct[-retention_value]
-
-        pruned = sum(1 for snapshot in distinct if snapshot < oldest_kept)
-        if pruned == 0:
-            return 0
-
-        predicate = f"{SNAPSHOT_COLUMN} < '{_snapshot_predicate_literal(oldest_kept)}'"
-        await self._logger.ainfo(f"prune_snapshots: deleting {pruned} expired snapshot(s) with predicate {predicate}")
-        await asyncio.to_thread(table.delete, predicate)
-        await self.vacuum_table()
-        return pruned
+        return await asyncio.to_thread(_distinct_snapshots)
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
