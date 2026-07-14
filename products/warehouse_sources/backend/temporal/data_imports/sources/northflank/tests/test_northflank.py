@@ -242,19 +242,15 @@ class TestFanOut:
         assert parse_qs(urlparse(job_urls[1]).query)["cursor"] == ["jobs-cursor-2"]
 
     @mock.patch(PATCH_SESSION)
-    def test_projects_without_id_are_skipped(self, mock_session):
+    def test_project_without_id_raises(self, mock_session):
+        # A project missing its id would silently drop all of its nested resources; fail loudly instead.
         _route_session(
             mock_session,
-            {
-                "/v1/projects": _page("projects", [{"name": "no id"}, {"id": "proj-a"}], None),
-                "/v1/projects/proj-a/services": _page("services", [{"id": "svc-1"}], None),
-            },
+            {"/v1/projects": _page("projects", [{"name": "no id"}], None)},
         )
 
-        rows = [row for batch in get_rows("token", "services", mock.MagicMock()) for row in batch]
-
-        assert [row["id"] for row in rows] == ["svc-1"]
-        assert not any("None" in u for u in _requested_urls(mock_session))
+        with pytest.raises(ValueError, match="missing a required 'id' field"):
+            list(get_rows("token", "services", mock.MagicMock()))
 
 
 class TestRetryBehavior:

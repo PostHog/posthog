@@ -190,8 +190,11 @@ def _iter_project_ids(fetch_page: FetchPageFn, logger: FilteringBoundLogger) -> 
     ):
         for project in projects:
             project_id = project.get("id")
-            if project_id:
-                yield project_id
+            if not project_id:
+                # A project without an id would silently drop all of its nested resources
+                # (services, jobs, addons, volumes), leaving a partial import. Fail loudly instead.
+                raise ValueError(f"Northflank: project is missing a required 'id' field: {project!r}")
+            yield project_id
 
 
 def get_rows(
