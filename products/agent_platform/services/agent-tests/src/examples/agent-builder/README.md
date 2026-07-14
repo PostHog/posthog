@@ -1,8 +1,8 @@
 # Agent Builder — the meta-agent for the platform
 
 The "explain, debug, edit" assistant for every agent on the
-PostHog agent platform. One deployment, three surfaces (PostHog Code
-chat dock, MCP from Claude Code / Cursor, future Slack),
+PostHog agent platform. One deployment, two surfaces (PostHog Code
+chat dock, MCP from Claude Code / Cursor),
 all acting under the user's PostHog OAuth principal.
 
 ## Status

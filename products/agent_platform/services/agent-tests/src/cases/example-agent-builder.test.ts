@@ -80,15 +80,15 @@ describe('example: agent-builder bundle', () => {
         }
     })
 
-    it('declares chat + mcp + slack triggers (console, MCP, and now Slack)', async () => {
+    it('declares chat + mcp triggers and NO slack trigger', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const types = parsed.triggers.map((t) => t.type)
-        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp', 'slack']))
-        // Slack must be owner-only so the asker's identity resolves (shared
-        // threads fail closed — you can't act as the owner for someone else).
-        const slack = parsed.triggers.find((t) => t.type === 'slack')
-        expect(slack?.type === 'slack' && slack.config.allow_workspace_participants).toBe(false)
+        expect(types).toEqual(expect.arrayContaining(['chat', 'mcp']))
+        // No Slack: the canonical Agent Builder has no dedicated Slack app, and
+        // a slack trigger makes promote refuse until SLACK_SIGNING_SECRET +
+        // SLACK_BOT_TOKEN are set — re-adding it breaks the seeded deployment.
+        expect(types).not.toContain('slack')
     })
 
     it('declares a posthog identity provider with the scopes authoring needs', async () => {
