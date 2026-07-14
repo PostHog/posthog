@@ -69,7 +69,6 @@ The key needs the following scopes to sync every table: `project:read`, `keys:re
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

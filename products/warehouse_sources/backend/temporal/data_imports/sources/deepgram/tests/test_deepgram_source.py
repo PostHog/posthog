@@ -54,7 +54,6 @@ class TestSourceConfig:
     def test_basic_metadata(self) -> None:
         config = DeepgramSource().get_source_config
         assert config.label == "Deepgram"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
         assert config.category is not None
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/deepgram"
