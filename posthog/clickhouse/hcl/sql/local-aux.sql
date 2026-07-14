@@ -577,17 +577,6 @@ CREATE TABLE posthog.sharded_web_stats_paths_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_stats_paths_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, breakdown_value, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.sharded_web_stats_paths_preaggregated_pathkey (
-  team_id Int64,
-  job_id UUID,
-  time_window_start DateTime64(6, 'UTC'),
-  breakdown_value String,
-  uniq_users_state AggregateFunction(uniq, UUID),
-  sum_pageviews_state AggregateFunction(sum, Int64),
-  avg_bounce_state AggregateFunction(avg, Nullable(Float64)),
-  computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_stats_paths_preaggregated_pathkey', '{replica}', computed_at) ORDER BY (team_id, time_window_start, breakdown_value, job_id) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_stats_preaggregated (
   team_id Int64,
   job_id UUID,

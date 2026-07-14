@@ -1,1 +1,1 @@
-0287_events_recent_inserted_at_not_nullable
+0288_drop_web_stats_paths_preaggregated_pathkey
