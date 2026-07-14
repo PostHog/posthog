@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 TRIGGER_URL = "/api/review_hog/trigger/"
@@ -135,10 +136,18 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
 
+    @parameterized.expand(
+        [
+            ("membership_removed", False),
+            ("still_member_but_disabled", True),
+        ]
+    )
     @override_settings(REVIEWHOG_RUN_USER_ID=None)
     @patch(_START, return_value="wf-1")
-    def test_inactive_integration_creator_falls_back_to_active_org_member(self, mock_start):
+    def test_inactive_integration_creator_falls_back_to_active_org_member(self, _name, keep_membership, mock_start):
         departed = User.objects.create(email="departed@posthog.com", is_active=False)
+        if keep_membership:
+            OrganizationMembership.objects.create(organization=self.organization, user=departed)
         Integration.objects.create(
             team=self.team,
             kind="github",
