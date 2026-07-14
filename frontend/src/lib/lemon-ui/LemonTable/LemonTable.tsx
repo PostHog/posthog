@@ -20,7 +20,7 @@ import { PaginationAuto, PaginationControl, PaginationManual, usePagination } fr
 import { Popover } from '../Popover/Popover'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
-import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
+import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
