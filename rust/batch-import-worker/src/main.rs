@@ -218,9 +218,12 @@ pub async fn main() -> Result<(), Error> {
 
             while let Some(job) = next_step {
                 if job_handle.is_shutting_down() {
-                    info!("Shutting down, cleaning up in-flight job before dropping");
-                    if let Err(e) = job.source.cleanup_after_job().await {
-                        warn!("Failed to cleanup job source on shutdown: {e:?}");
+                    // Keep remote staging on shutdown (deploys included): the pod
+                    // that re-claims the job attaches to staged parts instead of
+                    // re-downloading. Local temp files are still freed.
+                    info!("Shutting down, releasing in-flight job resources before dropping");
+                    if let Err(e) = job.source.release_job_resources().await {
+                        warn!("Failed to release job source resources on shutdown: {e:?}");
                     }
                     break;
                 }

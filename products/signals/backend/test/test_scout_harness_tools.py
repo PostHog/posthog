@@ -673,8 +673,8 @@ class TestBuildEmitExtra:
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
-        — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsScoutSignalInput
+        — this is the contract `emit_signal` checks via `SIGNAL_VARIANT_LOOKUP`."""
+        from products.signals.backend.contracts import SignalsScoutSignalInput
 
         extra = self._minimal()
         extra["tags"] = ["cost-spike"]
@@ -700,7 +700,12 @@ async def aorganization_emit():
     org = await database_sync_to_async(Organization.objects.create)(
         name="signals-scout-emit", is_ai_data_processing_approved=True
     )
-    return org
+    yield org
+    # database_sync_to_async writes commit on an executor-thread connection, outside the
+    # test's transaction, so this delete is the only cleanup these rows get. Without it every
+    # emit test leaks a committed org into the shared --reuse-db database and poisons later
+    # product suites in the same CI job (cascade also removes the team/config/run fixtures).
+    await database_sync_to_async(org.delete)()
 
 
 @pytest_asyncio.fixture

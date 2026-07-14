@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogEinstein } from '@posthog/brand/hoggies'
+import * as einsteinPng from '@posthog/brand/hoggies/png/einstein'
 import { IconBell, IconGraph, IconRocket, IconTarget } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+
+const HedgehogEinstein = pngHoggie(einsteinPng)
 
 interface FirstSurveyHelperProps {
     onTabChange?: (tab: string) => void

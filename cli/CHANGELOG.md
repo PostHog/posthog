@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.8.2 — 2026-07-13
+
+### Patch changes
+
+- [e38163eaab](https://github.com/PostHog/posthog/commit/e38163eaab6d1120f3c87fc2c38f2772ee9cadf2) Fix concurrent release creation and multipart symbol uploads — Thanks @ablaszkiewicz!
+
+## 0.8.1 — 2026-07-06
+
+### Patch changes
+
+- [d57bdcce6d](https://github.com/PostHog/posthog/commit/d57bdcce6dc77adde629de5ffbbad10a6a99b850) Capture CLI errors with PostHog telemetry — Thanks @hpouillot!
+
 ## 0.8.0 — 2026-07-03
 
 ### Minor changes

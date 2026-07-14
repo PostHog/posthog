@@ -7,6 +7,7 @@ import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -98,14 +99,22 @@ function PlanChoice({
     onContinue: () => void
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+    const { reportContextOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
     // Guard the subscribe button against double-submit: `isLoading` covers the returning-customer
     // activate call, `paymentEntryModalOpen` covers a new customer once the Stripe modal is up.
     const { isLoading, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const subscribing = isLoading || paymentEntryModalOpen
 
+    // Reported at the pick, not at payment completion — whether payment then resolves is billing's
+    // own funnel (GROW-89).
     const subscribe = (): void => {
+        reportContextOnboardingPlanSelected('pay_as_you_go')
         // Returning the user to the same URL keeps them in the onboarding flow once payment resolves.
         startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search)
+    }
+    const continueFree = (): void => {
+        reportContextOnboardingPlanSelected('free')
+        onContinue()
     }
 
     return (
@@ -127,7 +136,7 @@ function PlanChoice({
                     type="secondary"
                     fullWidth
                     center
-                    onClick={onContinue}
+                    onClick={continueFree}
                     className="mt-auto"
                     data-attr="context-onboarding-free"
                 >

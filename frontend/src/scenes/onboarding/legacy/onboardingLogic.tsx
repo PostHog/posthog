@@ -25,6 +25,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
+import { onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { appendSharedTrailingSteps } from './sharedSteps'
@@ -69,6 +70,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
+            onboardingEventUsageLogic,
+            ['reportContextOnboardingCompleted'],
         ],
     })),
     actions({
@@ -518,6 +521,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (primary === ProductKey.ERROR_TRACKING) {
                 teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
             }
+            // Support has no onboarding screen; enable the product on completion so it's live on arrival.
+            if (primary === ProductKey.CONVERSATIONS) {
+                teamLogic.actions.updateCurrentTeam({ conversations_enabled: true })
+            }
             // Only mark a product as fully onboarded when the user actually visited at
             // least one of its steps. Without this guard, a hand-crafted URL with an
             // arbitrary `?with=...` list would silently flip every secondary's flag on
@@ -595,7 +602,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 products.push(ProductKey.SURVEYS)
             }
             for (const productKey of products) {
-                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
+                // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
+                // so dashboards can split the flows without a rename (GROW-89).
+                actions.reportContextOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Populating has_completed_onboarding_for flips teamLogic.hasOnboardedAnyProduct true, so
@@ -661,8 +670,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // `appendSharedTrailingSteps`; self-correcting too eagerly here would clobber
             // the URL before the flow settles, leaving the user on `flow[0]` even after
             // billing arrives.
+            // A `?` or `&` means query params fused into the step value (a mangled URL) — never
+            // treat that as a valid namespaced id, or self-correction skips it and the host
+            // spins forever waiting for a step that can't resolve.
             const isKnownStepKey = (id: string): boolean =>
-                Object.values(OnboardingStepKey).includes(id as OnboardingStepKey) || id.includes(':')
+                !/[?&]/.test(id) &&
+                (Object.values(OnboardingStepKey).includes(id as OnboardingStepKey) || id.includes(':'))
             if (stepId && values.flow.length > 0 && !isKnownStepKey(stepId)) {
                 const exact = values.flow.find((step) => step.id === stepId)
                 const loose = exact ? null : values.flow.find((step) => step.stepKey === stepId)
@@ -766,21 +779,27 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // loads, so they may not be in `flow` when the URL push lands. Stripping them
             // from the URL would re-fire `setStepId('')` and permanently lose the request.
             const isKnownStepKey =
-                Object.values(OnboardingStepKey).includes(stepId as OnboardingStepKey) || stepId.includes(':')
+                !/[?&]/.test(stepId) &&
+                (Object.values(OnboardingStepKey).includes(stepId as OnboardingStepKey) || stepId.includes(':'))
             const stepResolves =
                 !stepId ||
                 values.flow.length === 0 ||
                 isKnownStepKey ||
                 !!values.flow.find((s) => s.id === stepId || s.stepKey === stepId)
-            const url = urls.onboarding({
-                productKey: values.productKey ?? undefined,
-                step: stepResolves ? stepId || undefined : undefined,
-                withProducts: values.secondaryProductKeys.length ? values.secondaryProductKeys : undefined,
-            })
+            // The first tuple element must be a bare pathname: kea-router joins the tuple by
+            // string concatenation (`path + '?' + search`), so a query embedded here would get a
+            // second `?` appended for `passthrough` — parsed back, the extra params fuse into the
+            // step value (`step=configure:x?integration_id=14`) and the step never resolves.
+            const url = urls.onboarding({ productKey: values.productKey ?? undefined })
+            const searchParams: Record<string, any> = {
+                ...passthrough,
+                ...(stepResolves && stepId ? { step: stepId } : {}),
+                ...(values.secondaryProductKeys.length ? { with: values.secondaryProductKeys.join(',') } : {}),
+            }
             // Use `replace` so the user doesn't accumulate one history entry per onboarding
             // step — otherwise pressing browser Back after onboarding requires N presses to
             // escape, where N is the number of steps the user advanced.
-            return [url, passthrough, undefined, { replace: true }]
+            return [url, searchParams, undefined, { replace: true }]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {

@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { HedgehogDirector } from '@posthog/brand/hoggies'
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -19,6 +20,8 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export function SessionRecordingsPlaylist({
     ...props

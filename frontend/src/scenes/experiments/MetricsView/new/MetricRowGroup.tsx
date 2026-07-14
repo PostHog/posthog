@@ -596,13 +596,8 @@ export function MetricRowGroup({
         useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isRecalculating, isMetricRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
-
-    /**
-     * Dim the stale value in place while a non-cold recalc refreshes this metric; block clicks on it.
-     */
-    const recalculatingClassName = isMetricRecalculating(metric.uuid) ? 'opacity-40 pointer-events-none' : ''
 
     /**
      * On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
@@ -802,10 +797,7 @@ export function MetricRowGroup({
 
         return (
             <>
-                <tr
-                    className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
-                    style={noResultStateStyle}
-                >
+                <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={noResultStateStyle}>
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
@@ -911,10 +903,7 @@ export function MetricRowGroup({
                 )}
 
             {/* Baseline row */}
-            <tr
-                className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
-                style={FIXED_HEIGHT_STYLE}
-            >
+            <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={FIXED_HEIGHT_STYLE}>
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
@@ -1044,7 +1033,7 @@ export function MetricRowGroup({
                 return (
                     <tr
                         key={`${metric.uuid}-${variant.key}`}
-                        className={clsx('hover:bg-bg-hover group [&:last-child>td]:border-b-0', recalculatingClassName)}
+                        className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={FIXED_HEIGHT_STYLE}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
                         onMouseLeave={handleTooltipMouseLeave}

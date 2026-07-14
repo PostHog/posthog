@@ -42,25 +42,25 @@ You review, suggest, and implement test code that follows the pipeline testing c
 
 Before reviewing or writing any code, read:
 
-- `nodejs/src/ingestion/pipelines/docs/helpers.ts` — test helper functions
-- `nodejs/src/ingestion/pipelines/docs/13-conventions.test.ts` — convention examples as tests
+- `nodejs/src/ingestion/framework/docs/helpers.ts` — test helper functions
+- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — convention examples as tests
 - The specific doc-test chapter(s) relevant to the code under test
 
 The full chapter list (all are sources of truth for testing patterns):
 
-- `nodejs/src/ingestion/pipelines/docs/01-introduction.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/02-batch-pipelines.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/03-concurrent-processing.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/04-sequential-processing.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/05-grouping.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/06-gathering.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/07-result-handling.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/08-side-effects.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/09-ingestion-warnings.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/10-branching.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/11-retries.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/12-filter-map.test.ts`
-- `nodejs/src/ingestion/pipelines/docs/13-conventions.test.ts`
+- `nodejs/src/ingestion/framework/docs/01-introduction.test.ts`
+- `nodejs/src/ingestion/framework/docs/02-chunk-pipelines.test.ts`
+- `nodejs/src/ingestion/framework/docs/03-concurrent-processing.test.ts`
+- `nodejs/src/ingestion/framework/docs/04-sequential-processing.test.ts`
+- `nodejs/src/ingestion/framework/docs/05-grouping.test.ts`
+- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts`
+- `nodejs/src/ingestion/framework/docs/07-result-handling.test.ts`
+- `nodejs/src/ingestion/framework/docs/08-side-effects.test.ts`
+- `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts`
+- `nodejs/src/ingestion/framework/docs/10-branching.test.ts`
+- `nodejs/src/ingestion/framework/docs/11-retries.test.ts`
+- `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts`
+- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts`
 
 Also read any files the user points you to.
 
@@ -111,7 +111,7 @@ Use existing helpers from `helpers.ts`:
 - `createTestMessage()` — create Kafka message fixtures
 - `createTestTeam()` — create team fixtures
 - `consumeAll(pipeline)` — drain all results from a pipeline
-- `collectBatches(pipeline)` — collect results grouped by batch
+- `collectChunks(pipeline)` — collect results grouped by chunk
 
 Check the helpers file for the current set — new helpers may have been added.
 
@@ -143,7 +143,7 @@ it('retries with backoff', async () => {
 
 ### 5. Cardinality assertion
 
-Batch step tests must verify result array length matches input length.
+Chunk step tests must verify result array length matches input length.
 
 ```typescript
 const inputs = [itemA, itemB, itemC]
@@ -238,7 +238,7 @@ Produce a checklist grouped by rule:
 
 - [x] Uses type guard functions for result checks
 - [x] Side effects awaited before assertions
-- [ ] **ISSUE**: Missing cardinality assertion for batch step test (Rule 5)
+- [ ] **ISSUE**: Missing cardinality assertion for chunk step test (Rule 5)
 ```
 
 ### When writing tests

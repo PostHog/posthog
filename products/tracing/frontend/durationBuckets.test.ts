@@ -1,7 +1,9 @@
 import {
+    bucketUpperBound,
     fillBucketSeries,
     formatBucketLabel,
     pivotDurationHistogram,
+    selectionToDurationRange,
     snapDurationToBucket,
     visibleDurationRange,
 } from './durationBuckets'
@@ -58,6 +60,32 @@ describe('durationBuckets', () => {
 
     it('pivotDurationHistogram returns empties for no rows', () => {
         expect(pivotDurationHistogram([], ['c1'])).toEqual({ data: [], bucketsNs: [], labels: [] })
+    })
+
+    it.each([
+        [1, 2],
+        [2, 5],
+        [5, 10],
+        [500 * MS, 1_000 * MS], // 500ms → 1s
+        [1_000 * MS, 2_000 * MS],
+    ])('bucketUpperBound(%i) → %i', (bucket, expected) => {
+        expect(bucketUpperBound(bucket)).toBe(expected)
+    })
+
+    // Bucket b covers [b, nextBucket(b)) — an off-by-one here silently shifts which spans a
+    // histogram drag-selection matches (the 5ms bar must mean [5ms, 10ms)).
+    it.each<[number, number, { minNs: number; maxNs: number } | null]>([
+        [0, 1, { minNs: 1 * MS, maxNs: 5 * MS }], // interior selection: max is the bucket after the last bar
+        [2, 2, { minNs: 5 * MS, maxNs: 10 * MS }], // single bar
+        [2, 3, { minNs: 5 * MS, maxNs: 20 * MS }], // ends on the last bar: upper edge extrapolated on the series
+        [3, 99, { minNs: 10 * MS, maxNs: 20 * MS }], // out-of-range end clamps to the last bar
+    ])('selectionToDurationRange over [1,2,5,10]ms maps [%i, %i] → %o', (startIndex, endIndex, expected) => {
+        const bucketsNs = [1, 2, 5, 10].map((bucketMs) => bucketMs * MS)
+        expect(selectionToDurationRange(bucketsNs, startIndex, endIndex)).toEqual(expected)
+    })
+
+    it('selectionToDurationRange returns null for an empty axis', () => {
+        expect(selectionToDurationRange([], 0, 0)).toBeNull()
     })
 
     it('visibleDurationRange orders min/max regardless of sort direction and clamps indices', () => {

@@ -59,7 +59,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                                 data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}
                             >
                                 <IconDownload />
-                                Download markdown
+                                Download .md
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => copyMarkdown()}

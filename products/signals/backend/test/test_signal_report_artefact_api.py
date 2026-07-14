@@ -149,6 +149,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert len(results) == 1
         assert results[0]["content"][0]["github_login"] == "alice"
 
+    @parameterized.expand([("sig_praise",), ("bulk_download",), ("not-a-uuid",)])
+    def test_list_non_uuid_report_id_returns_404_not_500(self, report_id):
+        # Agents whose prompt only carries a signal_id pass it as report_id; it can never be a
+        # report UUID, so this must 404 rather than 500 from the ORM coercing it to a UUID.
+        response = self.client.get(self._list_url(report_id))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- GET retrieve ---
 
     def test_retrieve_returns_single_enriched_artefact(self):
@@ -708,6 +715,15 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert artefact.team_id == self.team.id
         assert json.loads(artefact.content) == _CODE_REFERENCE_CONTENT
 
+    def test_post_non_uuid_report_id_returns_404_not_500(self):
+        # The create guard has its own report lookup, distinct from the read path's queryset.
+        response = self.client.post(
+            self._list_url("sig_praise"),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand(
         [
             ("code_reference", _CODE_REFERENCE_CONTENT),
@@ -829,6 +845,31 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": "video_segment", "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    def test_post_rejects_system_generated_code_review_type(self):
+        # code_review receipts are written only by the ReviewHog workflow; accepting them through the
+        # API would let a caller fabricate review receipts for reviews that never ran. The payload is
+        # schema-valid on purpose — the rejection must be type-based, not a validation accident.
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "code_review",
+                    "content": {
+                        "review_report_id": "11111111-1111-1111-1111-111111111111",
+                        "repository": "posthog/posthog",
+                        "head_sha": "abc123",
+                        "head_branch": "feat",
+                        "base_branch": "master",
+                        "outcome": "published",
+                    },
+                }
+            ),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
