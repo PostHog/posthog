@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -61,52 +61,6 @@ export const StamphogDigestChannelsCreateBody = /* @__PURE__ */ zod.object({
     slack_channel_name: zod
         .string()
         .max(stamphogDigestChannelsCreateBodySlackChannelNameMax)
-        .optional()
-        .describe('Human-readable Slack channel name, for display only.'),
-    enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
-})
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const StamphogDigestChannelsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this digest channel.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const stamphogDigestChannelsPartialUpdateBodyAudienceKeyMax = 255
-
-export const stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMin = -2147483648
-export const stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMax = 2147483647
-
-export const stamphogDigestChannelsPartialUpdateBodySlackChannelIdMax = 64
-
-export const stamphogDigestChannelsPartialUpdateBodySlackChannelNameMax = 255
-
-export const StamphogDigestChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    audience_key: zod
-        .string()
-        .max(stamphogDigestChannelsPartialUpdateBodyAudienceKeyMax)
-        .optional()
-        .describe("Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'."),
-    slack_integration_id: zod
-        .number()
-        .min(stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMin)
-        .max(stamphogDigestChannelsPartialUpdateBodySlackIntegrationIdMax)
-        .optional()
-        .describe("ID of the team's Slack integration used to post the digest."),
-    slack_channel_id: zod
-        .string()
-        .max(stamphogDigestChannelsPartialUpdateBodySlackChannelIdMax)
-        .optional()
-        .describe("Slack channel ID to post the digest to, e.g. 'C012AB3CD'."),
-    slack_channel_name: zod
-        .string()
-        .max(stamphogDigestChannelsPartialUpdateBodySlackChannelNameMax)
         .optional()
         .describe('Human-readable Slack channel name, for display only.'),
     enabled: zod.boolean().optional().describe('Whether this channel is included in the daily digest fan-out.'),
@@ -233,40 +187,6 @@ export const StamphogRepoConfigsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-})
-
-/**
- * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
- */
-export const StamphogRepoConfigsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this stamphog repo config.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const stamphogRepoConfigsPartialUpdateBodyProviderMax = 32
-
-export const stamphogRepoConfigsPartialUpdateBodyRepositoryMax = 255
-
-export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    provider: zod
-        .string()
-        .max(stamphogRepoConfigsPartialUpdateBodyProviderMax)
-        .optional()
-        .describe("SCM provider this config talks to. Defaults to 'github'."),
-    repository: zod
-        .string()
-        .max(stamphogRepoConfigsPartialUpdateBodyRepositoryMax)
-        .optional()
-        .describe("Repository full name, e.g. 'PostHog/posthog'."),
-    enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
-    digest_enabled: zod
-        .boolean()
-        .optional()
-        .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
 })
 
 /**

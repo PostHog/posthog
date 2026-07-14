@@ -53,6 +53,9 @@ tools:
             `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy
             config) and whether it's currently enabled.
         feature_flag: stamphog
+    stamphog-digest-channels-partial-update:
+        operation: stamphog_digest_channels_partial_update
+        enabled: false
     stamphog-digest-channels-retrieve:
         operation: stamphog_digest_channels_retrieve
         enabled: false
@@ -172,6 +175,9 @@ tools:
             GitHub App installation authorizes the calls. Use this to check whether a repo is already onboarded before
             creating a new config.
         feature_flag: stamphog
+    stamphog-repo-configs-partial-update:
+        operation: stamphog_repo_configs_partial_update
+        enabled: false
     stamphog-repo-configs-sync-installation-create:
         operation: stamphog_repo_configs_sync_installation_create
         enabled: false

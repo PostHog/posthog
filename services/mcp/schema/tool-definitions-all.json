@@ -8095,21 +8095,6 @@
         },
         "feature_flag": "stamphog"
     },
-    "stamphog-digest-channels-update": {
-        "description": "Update a digest channel by id. Set `enabled: false` to stop the daily digest posting to this channel without deleting its configuration — this is the kill switch for opting an audience out of digests.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "Update stamphog digest channel",
-        "title": "Update stamphog digest channel",
-        "required_scopes": ["stamphog:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "stamphog"
-    },
     "stamphog-digest-runs-list": {
         "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, the rendered summary text, and the Slack message timestamp it posted to.",
         "category": "Stamphog",
@@ -8212,21 +8197,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "stamphog"
-    },
-    "stamphog-repo-configs-update": {
-        "description": "Update a repo config by id. Use `enabled: false` to pause stamphog review for the repo without deleting its history, or `digest_enabled: false` to drop it from the daily digest.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "Update stamphog repo config",
-        "title": "Update stamphog repo config",
-        "required_scopes": ["stamphog:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         },
         "feature_flag": "stamphog"
     },
