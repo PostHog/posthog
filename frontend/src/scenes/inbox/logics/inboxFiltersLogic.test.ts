@@ -53,19 +53,20 @@ describe('inboxFiltersLogic', () => {
             ],
             [
                 'teammate scope only',
-                { ...DEFAULT_STATE, scope: 'teammate:abc-123' },
-                { scope: 'teammate:abc-123' },
+                { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
+                { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
         })
 
-        // A shared link is authoritative but untrusted: unknown values must not leak into the filter state.
-        it('drops unknown sources, priorities, scope and sort, falling back to defaults', () => {
+        // A shared link is authoritative but untrusted: unknown values (and a malformed teammate id, which
+        // would otherwise reach the report-list API as a bad reviewer UUID) must not leak into filter state.
+        it('drops unknown sources, priorities, malformed teammate scope and sort, falling back to defaults', () => {
             expect(
                 parseFilterSearchParams({
-                    scope: 'nonsense',
+                    scope: 'teammate:not-a-uuid',
                     source: 'error_tracking,bogus_source',
                     priority: 'P9,P1',
                     sort: 'foo:sideways',

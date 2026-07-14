@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { INBOX_PRIORITY_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
@@ -38,8 +39,15 @@ export interface InboxFilterState {
 }
 
 function parseScopeParam(raw: unknown): InboxScope {
-    if (typeof raw === 'string' && (raw === 'entire-project' || raw.startsWith('teammate:'))) {
-        return raw as InboxScope
+    if (typeof raw === 'string') {
+        if (raw === 'entire-project') {
+            return raw
+        }
+        // Validate the teammate id so a malformed shared link falls back to the default scope
+        // instead of forwarding junk to the report-list API as a reviewer UUID.
+        if (raw.startsWith('teammate:') && isUUIDLike(raw.slice('teammate:'.length))) {
+            return raw as InboxScope
+        }
     }
     return INBOX_SCOPE_FOR_YOU
 }
@@ -156,9 +164,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
         toggleSourceProduct: (source: string) => ({ source }),
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
-        // Bulk-set variants used when hydrating from the URL (a shared link is authoritative).
-        setSourceProducts: (sources: string[]) => ({ sources }),
-        setPriorities: (priorities: SignalReportPriority[]) => ({ priorities }),
+        // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
+        // is restored in one action — one list refresh, no fan-out race between partial states.
+        setFilters: (filters: InboxFilterState) => ({ filters }),
         clearFilters: true,
         // Debounced server-side org-member search for the scope (teammate) picker.
         searchAvailableReviewers: (query: string) => ({ query }),
@@ -192,15 +200,18 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 setScope: (_, { scope }) => scope,
                 applyDefaultScope: (_, { scope }) => scope,
+                setFilters: (_, { filters }) => filters.scope,
             },
         ],
         // Whether the user has explicitly picked a scope. Once true, the empty-inbox auto-default
         // no longer fires, so a deliberate choice of "For you" is respected even with zero reports.
+        // A shared link is an explicit choice too, so hydrating from the URL sets it.
         hasUserChosenScope: [
             false,
             { persist: true },
             {
                 setScope: () => true,
+                setFilters: () => true,
             },
         ],
         // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
@@ -216,6 +227,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             { persist: true },
             {
                 setSort: (_, { field }) => field,
+                setFilters: (_, { filters }) => filters.sortField,
             },
         ],
         sortDirection: [
@@ -223,6 +235,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             { persist: true },
             {
                 setSort: (_, { direction }) => direction,
+                setFilters: (_, { filters }) => filters.sortDirection,
             },
         ],
         sourceProductFilter: [
@@ -231,7 +244,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 toggleSourceProduct: (state, { source }) =>
                     state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
-                setSourceProducts: (_, { sources }) => sources,
+                setFilters: (_, { filters }) => filters.sourceProductFilter,
                 clearFilters: () => [],
             },
         ],
@@ -241,7 +254,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 togglePriority: (state, { priority }) =>
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
-                setPriorities: (_, { priorities }) => priorities,
+                setFilters: (_, { filters }) => filters.priorityFilter,
                 clearFilters: () => [],
             },
         ],
@@ -260,14 +273,14 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     actionToUrl(({ values }) => {
         // Every filter mutation rewrites the current URL from the full (non-default) filter state.
         const toUrl = (): [string, Record<string, any>, any, { replace: boolean }] => currentUrlWithFilters(values)
+        // `setFilters` is intentionally absent: it only fires while hydrating from the URL, which is
+        // already the source of truth in that path, so re-deriving the URL from it would be redundant.
         return {
             setScope: toUrl,
             applyDefaultScope: toUrl,
             setSort: toUrl,
             toggleSourceProduct: toUrl,
             togglePriority: toUrl,
-            setSourceProducts: toUrl,
-            setPriorities: toUrl,
             clearFilters: toUrl,
         }
     }),
@@ -290,18 +303,17 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             }
 
             // A shared link is authoritative: apply the params it carries and reset the rest to defaults.
+            // Only dispatch when something actually changed — urlToAction also fires on plain navigation
+            // (opening a report, switching tabs), and we don't want a redundant list refresh each time.
             const parsed = parseFilterSearchParams(searchParams)
-            if (values.scope !== parsed.scope) {
-                actions.setScope(parsed.scope)
-            }
-            if (!sameSet(values.sourceProductFilter, parsed.sourceProductFilter)) {
-                actions.setSourceProducts(parsed.sourceProductFilter)
-            }
-            if (!sameSet(values.priorityFilter, parsed.priorityFilter)) {
-                actions.setPriorities(parsed.priorityFilter)
-            }
-            if (values.sortField !== parsed.sortField || values.sortDirection !== parsed.sortDirection) {
-                actions.setSort(parsed.sortField, parsed.sortDirection)
+            const changed =
+                values.scope !== parsed.scope ||
+                !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||
+                !sameSet(values.priorityFilter, parsed.priorityFilter) ||
+                values.sortField !== parsed.sortField ||
+                values.sortDirection !== parsed.sortDirection
+            if (changed) {
+                actions.setFilters(parsed)
             }
         }
 
