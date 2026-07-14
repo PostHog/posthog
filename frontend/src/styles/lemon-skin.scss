@@ -234,6 +234,18 @@
     box-shadow: none;
 }
 
+/* Buttons inside the group keep quill's compact metrics — the Lemon button remap
+   (2.0625rem, full radius) overflows the 2rem group on hover. */
+[data-lemon-skin] .quill-input-group .quill-button {
+    border-radius: calc(var(--lemon-skin-radius) - 2px);
+}
+
+[data-lemon-skin] .quill-input-group .quill-input-group__button--size-icon-xs {
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+}
+
 /* ═══ Switch → LemonSwitch ═════════════════════════════════════════════ */
 
 [data-lemon-skin] .quill-switch {
