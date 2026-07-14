@@ -204,7 +204,7 @@ async function main() {
     }
     const blocks = buildBlocks(now, rows)
     if (DRY_RUN) {
-        console.log(JSON.stringify(blocks, null, 2))
+        console.info(JSON.stringify(blocks, null, 2))
         return
     }
     if (!SLACK_BOT_TOKEN) {
@@ -212,7 +212,7 @@ async function main() {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
     await postToSlack(blocks)
-    console.log(`Posted weekly CI digest to ${SLACK_CHANNEL}.`)
+    console.info(`Posted weekly CI digest to ${SLACK_CHANNEL}.`)
 }
 
 main().catch((err) => {

@@ -11,7 +11,7 @@ import pytest
 # enabled as usual. The window normally opens even earlier, in the pytest_boot_gc
 # plugin (`-p pytest_boot_gc` in pytest.ini), so that django.setup() (which
 # pytest-django runs before conftest files load) sits inside it too; the disable
-# here is the fallback for runs that don't load that plugin (e.g. ee/pytest.ini).
+# here is the fallback for runs that don't load that plugin.
 gc.disable()
 
 

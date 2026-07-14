@@ -109,7 +109,7 @@ async def alert(ateam):
 @pytest_asyncio.fixture
 async def alert_with_user(ateam, aorganization):
     @sync_to_async
-    def _create() -> AlertConfiguration:
+    def _create() -> tuple[AlertConfiguration, User]:
         user = User.objects.create_and_join(
             organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
         )
@@ -130,9 +130,15 @@ async def alert_with_user(ateam, aorganization):
             threshold=threshold,
         )
         a.subscribed_users.add(user)
-        return a
+        return a, user
 
-    return await _create()
+    alert, user = await _create()
+    yield alert
+
+    # User.current_organization is SET_NULL, so deleting the org/team (via the
+    # ateam/aorganization fixtures) does not cascade-delete this user; the executor-thread
+    # write above committed for real, so it must be cleaned up explicitly.
+    await sync_to_async(user.delete)()
 
 
 async def _create_alert_check(
