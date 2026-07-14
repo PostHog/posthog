@@ -37,10 +37,6 @@ DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
 # ceiling is the tasks-task-queue worker's own concurrency, where the sandboxes execute.
 MAX_CONCURRENT_SANDBOXES = 10
 
-# Per-turn poll budget for ReviewHog sandbox turns (ADR 0001). Must stay strictly below the
-# workflow's `_SANDBOX_TIMEOUT` (60m) so `poll_for_turn`'s dropped-finalization salvage can fire.
-SANDBOX_TURN_POLL_SECONDS = 55 * 60
-
 # A fan-out stage (review / validate) degrades best-effort while at most this fraction of
 # its units fail; above it the run fails loudly instead of finalizing a near-empty review as success
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
