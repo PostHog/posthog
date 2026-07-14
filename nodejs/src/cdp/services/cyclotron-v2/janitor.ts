@@ -254,7 +254,8 @@ export class CyclotronV2Janitor {
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
              ORDER BY last_transition ASC
-             LIMIT $3`,
+             LIMIT $3
+             FOR UPDATE SKIP LOCKED`,
             [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
         )
 
