@@ -982,14 +982,8 @@ export interface notebookNodeLogicActions {
     onUpdateEditor: () => {
         value: true
     } // props.notebookLogic
-    setTextSelection: (
-        selection:
-            | number
-            | import('/Users/marius/Projects/PostHog/posthog/frontend/src/lib/components/RichContentEditor/types').EditorRange
-    ) => {
-        selection:
-            | number
-            | import('/Users/marius/Projects/PostHog/posthog/frontend/src/lib/components/RichContentEditor/types').EditorRange
+    setTextSelection: (selection: number | import('@tiptap/core').Range) => {
+        selection: number | import('@tiptap/core').Range
     } // props.notebookLogic
     convertToBacklink: (href: string) => {
         href: string

@@ -424,10 +424,8 @@ export interface notebookLogicActions {
         clientID: string
         steps: Record<string, any>[]
     } // notebookCollabLogic
-    applyRemoteSteps: (
-        steps: import('/Users/marius/Projects/PostHog/posthog/frontend/src/scenes/notebooks/Notebook/notebookCollabLogic').RemoteStep[]
-    ) => {
-        steps: import('/Users/marius/Projects/PostHog/posthog/frontend/src/scenes/notebooks/Notebook/notebookCollabLogic').RemoteStep[]
+    applyRemoteSteps: (steps: import('./notebookCollabLogic').RemoteStep[]) => {
+        steps: import('./notebookCollabLogic').RemoteStep[]
     } // notebookCollabLogic
     rebaseFailed: (params: { localContent: JSONContent; localText: string }) => {
         localContent: JSONContent
