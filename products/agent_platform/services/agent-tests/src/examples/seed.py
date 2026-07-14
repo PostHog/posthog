@@ -13,8 +13,10 @@ spec) is a no-op; a drifted bundle branches a new draft and re-promotes,
 leaving the previously-live revision archived. Bundles that receive
 platform-injected content at freeze (kernel skills) never match the on-disk
 manifest, so they get a second, post-freeze check: if the new frozen
-bundle_sha256 equals the live one, the artifact is byte-identical — the draft
-is archived and promote is skipped, so repeated seeds don't churn revisions.
+bundle_sha256 AND the frozen spec both equal the live revision's, the
+revision is identical — the draft is archived and promote is skipped, so
+repeated seeds don't churn revisions. (Both checks are needed: the sha only
+covers bundle files, while the spec lives on the revision row.)
 
 Usage:
     # Seed every discovered bundle into the default local project:
@@ -643,6 +645,15 @@ def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | Non
     return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec, live_sha
 
 
+def get_frozen_spec(app_id: str, rev_id: str) -> dict | None:
+    """The revision's spec as stamped at freeze (defaults filled, skills[]/tools[]
+    derived) — the same normalized shape `get_live` reads off the live revision,
+    so the two compare apples-to-apples. None when the read fails."""
+    status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
+    spec = rev.get("spec") if status == 200 else None
+    return spec if isinstance(spec, dict) else None
+
+
 def seed_bundle(bundle_root: Path) -> None:
     """Run the full deploy pipeline for one bundle. Raises SystemExit (via die)
     on any platform/validation error."""
@@ -679,14 +690,19 @@ def seed_bundle(bundle_root: Path) -> None:
     validate(slug, app_id, rev_id)
     new_sha = freeze(slug, app_id, rev_id)
     log(slug, f"frozen sha={new_sha[:12]}...")
-    # The frozen sha hashes the full materialized bundle (author files + spec +
-    # freeze-injected kernel skills), so equality with the live revision means a
-    # byte-identical artifact: the manifest "drift" above was only platform-injected
-    # content the on-disk bundle can't carry. Don't churn a new live revision.
+    # The frozen sha hashes the materialized bundle FILES (author files +
+    # freeze-injected kernel skills) — the spec (trigger auth, tool approvals,
+    # limits) lives on the revision row, not in the bundle, so a spec-only
+    # change freezes to the same sha and must still promote. Skip promote only
+    # when the bundle sha AND the frozen spec both match the live revision:
+    # then the "drift" above was only platform-injected content the on-disk
+    # bundle can't carry, and promoting would churn an identical revision.
     if live_sha and new_sha == live_sha:
-        log(slug, "frozen artifact identical to live — archiving duplicate, skipping promote")
-        archive(slug, app_id, rev_id)
-        return
+        if get_frozen_spec(app_id, rev_id) == live_spec:
+            log(slug, "frozen artifact identical to live — archiving duplicate, skipping promote")
+            archive(slug, app_id, rev_id)
+            return
+        log(slug, "bundle identical but frozen spec changed — promoting")
     promote(slug, app_id, rev_id)
     log(slug, f"DONE: live at {rev_id}")
 
