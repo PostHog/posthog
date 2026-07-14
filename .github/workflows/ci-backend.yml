@@ -1106,11 +1106,13 @@ jobs:
               with:
                   version: '0.11.14'
 
-            - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            # The standalone owners package and its two deps are all this job
+            # needs — skip the full monorepo dev sync.
+            - name: Install owners package
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --package posthog-owners
 
             - name: Lint owners.yaml files
-              run: ./bin/hogli owners:lint
+              run: owners lint
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
