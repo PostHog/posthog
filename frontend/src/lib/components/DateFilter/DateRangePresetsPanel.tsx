@@ -114,7 +114,7 @@ export function selectionKeyOf(selection: DateRangeSelection): string {
 }
 
 const CHIP_CLASSES =
-    'h-5 px-1 text-[0.6875rem] border-border bg-transparent aria-selected:border-primary aria-selected:bg-primary/10 aria-selected:font-semibold aria-selected:text-primary'
+    'h-6 px-1.5 text-[0.75rem] border-border bg-transparent aria-selected:border-primary aria-selected:bg-primary/10 aria-selected:font-semibold aria-selected:text-primary'
 
 function chipSelected(chip: PresetSelection, selection: DateRangeSelection): boolean {
     if (chip.kind === 'rolling') {
