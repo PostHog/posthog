@@ -452,6 +452,10 @@ snapshots:
         hash: v1.k794b7964.1a06b5929a7dd0a863c6101c48737ac69dabfcdabfc11eb4ee738ceef735c3dc.FdGXRQxb8Qt-ywt9_lzOoHl-SkjFzCxf5nVtQJ-zZK4
     components-errors-collapsibleframe--no-context--light:
         hash: v1.k794b7964.fd89cde383e22e48dec83b2707747470a4f9df1bd6566f8e1328f39471994f70.m8qRWSuIFdq198cIoNbcJ_PSaEGrgug0dnOdoadIjOk
+    components-errors-collapsibleframe--rust-frame-with-context--dark:
+        hash: v1.k794b7964.6305bca7f195bd99851d113512b943cf6d897254905cabe0659e806821749fd4.HWq4B0NhtGtVV0RcChv2H3loexsVYvs57i5OyOQ_EPk
+    components-errors-collapsibleframe--rust-frame-with-context--light:
+        hash: v1.k794b7964.6120d4e9f5713640df01995b2df2fea37d4d5e5381a7dad14a463b86137a62e8.x8uS8dJUCAvxR40-GTZ9uTKLTDFskZsBWEGbqIruW98
     components-errors-collapsibleframe--unresolved-frame--dark:
         hash: v1.k794b7964.ddd532dee3f706c1abe1a25e7e1d7fb1f073c5480b8b76ea0c042b6fd28cd036.Og9fo0TgApn_v-eQ5INCEwzacvBwIP3NlZzvP90WReY
     components-errors-collapsibleframe--unresolved-frame--light:
