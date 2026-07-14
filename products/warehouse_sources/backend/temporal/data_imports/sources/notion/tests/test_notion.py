@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -11,6 +12,7 @@ from tenacity import RetryCallState
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
+    MAX_CURSOR_RESTARTS,
     MAX_RETRY_AFTER_SECONDS,
     NOTION_VERSION,
     NotionBadRequestError,
@@ -20,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _blocks_stream,
     _comments_stream,
     _get_headers,
+    _is_invalid_cursor_error,
     _iter_block_children,
+    _iter_page_ids,
     _parse_retry_after,
     _request,
     _search_body,
@@ -80,6 +84,20 @@ def _list_response(results: list[dict[str, Any]], has_more: bool, next_cursor: s
     return FakeResponse({"results": results, "has_more": has_more, "next_cursor": next_cursor})
 
 
+def _stale_cursor_response() -> FakeResponse:
+    # Mirrors Notion's real 400 when a pagination cursor goes stale mid-enumeration.
+    response = FakeResponse({}, status_code=400)
+    response.text = json.dumps(
+        {
+            "object": "error",
+            "status": 400,
+            "code": "validation_error",
+            "message": "The start_cursor provided is invalid: cursor-abc",
+        }
+    )
+    return response
+
+
 class _FakeRetryState:
     """Minimal RetryCallState stand-in carrying just the failing outcome."""
 
@@ -136,6 +154,87 @@ class TestNotion:
 
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
+
+    @parameterized.expand(
+        [
+            # Real stale-cursor error: validation_error whose message names start_cursor.
+            ("validation_error", "The start_cursor provided is invalid: c-1", True),
+            # The has_children quirk is also a validation_error, but not about the cursor — must not be
+            # treated as recoverable pagination or block-skip semantics break.
+            ("validation_error", "body.children[0] should be defined", False),
+            # A validation-shaped message but a different code is not the cursor case.
+            ("object_not_found", "start_cursor was invalid", False),
+            (None, None, False),
+        ]
+    )
+    def test_is_invalid_cursor_error(self, code: str | None, message: str | None, expected: bool) -> None:
+        exc = NotionBadRequestError("boom", code=code, notion_message=message)
+        assert _is_invalid_cursor_error(exc) is expected
+
+    def test_iter_page_ids_restarts_on_stale_cursor(self) -> None:
+        # The reported bug: a stale search cursor mid-enumeration crashed the whole comments/blocks
+        # sync. It must instead restart pagination from the beginning, skipping ids already yielded so
+        # the fan-out is not re-driven over them.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}], has_more=True, next_cursor="c1")
+            if index == 1:
+                return _stale_cursor_response()
+            return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        logger = mock.MagicMock()
+
+        page_ids = list(_iter_page_ids(cast(requests.Session, session), logger))
+
+        assert page_ids == ["p1", "p2"]
+        assert len(session.calls) == 3
+        assert logger.warning.called
+
+    def test_iter_page_ids_propagates_non_cursor_bad_request(self) -> None:
+        # A genuine bad request (not a stale cursor) must still fail loudly rather than being swallowed
+        # as recoverable pagination.
+        response = FakeResponse({}, status_code=400)
+        response.text = json.dumps({"code": "validation_error", "message": "unsupported filter"})
+        session = FakeSession([response])
+
+        with pytest.raises(NotionBadRequestError):
+            list(_iter_page_ids(cast(requests.Session, session), mock.MagicMock()))
+
+    def test_iter_page_ids_gives_up_after_max_restarts(self) -> None:
+        # A workspace under continuous edits could invalidate the cursor on every attempt. Enumeration
+        # must end gracefully after the restart bound instead of looping forever or re-crashing.
+        session = FakeSession(lambda _index: _stale_cursor_response())
+        logger = mock.MagicMock()
+
+        page_ids = list(_iter_page_ids(cast(requests.Session, session), logger))
+
+        assert page_ids == []
+        # Initial attempt plus MAX_CURSOR_RESTARTS restarts, then it stops.
+        assert len(session.calls) == MAX_CURSOR_RESTARTS + 1
+        assert logger.warning.called
+
+    def test_search_stream_recovers_from_stale_cursor(self) -> None:
+        # search-backed streams (pages/databases) use a batcher and persist resume cursors, so their
+        # recovery wiring differs from the raw id iterator — a stale cursor there must also restart
+        # rather than crash, and later pages still come through.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}], has_more=True, next_cursor="c1")
+            if index == 1:
+                return _stale_cursor_response()
+            return _list_response([{"id": "p2"}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        tables = list(
+            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+        )
+
+        assert sum(t.num_rows for t in tables) == 2
+        assert len(session.calls) == 3
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
