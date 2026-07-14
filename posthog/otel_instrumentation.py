@@ -38,7 +38,7 @@ def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpR
     if span and span.is_recording():
         span.set_attribute("http.status_code", response.status_code)
         resolver_match = getattr(request, "resolver_match", None)
-        route = resolver_match.route if resolver_match else None
+        route = getattr(resolver_match, "route", None) if resolver_match else None
         if route:
             span.set_attribute("http.route", route)
             http_method = sanitize_method((request.method or "").strip())

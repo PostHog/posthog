@@ -266,7 +266,7 @@ class TestOtelInstrumentation(BaseTest):
     def test_otel_django_response_hook_without_resolved_route(self):
         mock_span = mock.Mock()
         mock_span.is_recording.return_value = True
-        mock_request = mock.Mock(spec=["method"])
+        mock_request = mock.Mock(method="GET", resolver_match=object())
         mock_response = mock.Mock(status_code=404)
 
         _otel_django_response_hook(mock_span, mock_request, mock_response)
