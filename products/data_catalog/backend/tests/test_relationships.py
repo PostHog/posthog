@@ -64,6 +64,15 @@ class TestProposeRelationship(BaseTest):
                 field_name="linked_events",
             )
 
+    def test_equivalent_key_formatting_is_deduped(self) -> None:
+        propose_relationship(team=self.team, user=self.user, **_JOIN)
+        with self.assertRaises(CatalogConflict):
+            propose_relationship(
+                team=self.team,
+                user=self.user,
+                **{**_JOIN, "source_table_key": " distinct_id ", "joining_table_key": " id "},
+            )
+
 
 class TestAcceptProposal(BaseTest):
     def _propose(self) -> RelationshipProposal:

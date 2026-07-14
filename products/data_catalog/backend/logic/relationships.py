@@ -43,7 +43,12 @@ from .exceptions import CatalogConflict
 
 
 def _fingerprint(source_name: str, source_key: str, joining_name: str, joining_key: str) -> str:
-    endpoints = sorted([[source_name, source_key], [joining_name, joining_key]])
+    endpoints = sorted(
+        [
+            [source_name, parse_expr(source_key).to_hogql()],
+            [joining_name, parse_expr(joining_key).to_hogql()],
+        ]
+    )
     return hashlib.sha256(json.dumps(endpoints, sort_keys=True).encode()).hexdigest()
 
 
