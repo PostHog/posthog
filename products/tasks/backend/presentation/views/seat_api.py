@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import requests
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -67,6 +68,7 @@ def _is_org_admin(user: Any) -> bool:
     ).exists()
 
 
+@extend_schema(exclude=True)
 class SeatViewSet(viewsets.ViewSet):
     """
     Proxy for seat management through the billing service.
