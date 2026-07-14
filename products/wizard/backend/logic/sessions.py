@@ -13,7 +13,7 @@ from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
-from products.wizard.backend.tasks import sync_wizard_event_definitions
+from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
 
 logger = logging.getLogger(__name__)
 

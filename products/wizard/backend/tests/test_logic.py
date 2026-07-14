@@ -15,7 +15,7 @@ from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
-from products.wizard.backend.tasks import sync_wizard_event_definitions
+from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -169,7 +169,7 @@ def test_event_definition_task_recovers_after_transient_failure(team):
 
     with (
         patch(
-            "products.wizard.backend.tasks.create_placeholder_event_definitions",
+            "products.wizard.backend.tasks.tasks.create_placeholder_event_definitions",
             side_effect=RuntimeError("definition write failed"),
         ),
         pytest.raises(Retry),
