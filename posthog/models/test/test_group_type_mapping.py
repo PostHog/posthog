@@ -851,16 +851,13 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         assert get_safe_cache(marker_key) is None
 
 
+# Missing client (PERSONHOG_ADDR unset) raises RuntimeError; read paths must recover
+# like a DatabaseError instead of letting it escape and 500 the caller.
 class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
-    """When PERSONHOG_ADDR is unset, get_personhog_client() returns None and
-    require_personhog_client() raises RuntimeError. The singular read paths must treat
-    that as a recoverable miss (like a DatabaseError), not let the RuntimeError escape
-    the except-DatabaseError handlers and 500 the home, project, and events renders.
-    """
-
     def setUp(self):
         self.project_id = 314159
         _clear_cache(self.project_id)
+        safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.project_id}")
         self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
         self._client_patcher.start()
 
