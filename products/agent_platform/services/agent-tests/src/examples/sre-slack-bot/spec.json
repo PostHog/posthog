@@ -196,7 +196,6 @@
             "auth": { "provider": "posthog" }
         }
     ],
-    "authoritative_provider": "posthog",
     "identity_providers": [
         {
             "kind": "posthog",
