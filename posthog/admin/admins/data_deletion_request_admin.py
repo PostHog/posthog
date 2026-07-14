@@ -1,6 +1,7 @@
 import ast
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -66,6 +67,20 @@ EDITABLE_FIELDS = (
     "person_drop_events",
     "person_drop_recordings",
 )
+
+# Dagster Cloud deployment slug per PostHog cloud environment. The admin runs on web pods, which
+# don't carry DAGSTER_DOMAIN (only Dagster pods do), so the run URL is derived from CLOUD_DEPLOYMENT.
+DAGSTER_DEPLOYMENT_BY_CLOUD = {"US": "prod-us", "EU": "prod-eu", "DEV": "dev"}
+
+
+def dagster_run_url(run_id: str) -> str | None:
+    """Link to a Dagster run, or None when the deployment can't be identified (local/self-hosted)."""
+    if settings.DAGSTER_DOMAIN:
+        return f"https://{settings.DAGSTER_DOMAIN}/runs/{run_id}"
+    deployment = DAGSTER_DEPLOYMENT_BY_CLOUD.get(settings.CLOUD_DEPLOYMENT or "")
+    if deployment:
+        return f"https://posthog.dagster.cloud/{deployment}/runs/{run_id}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +468,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "attempt_count",
         "first_executed_at",
         "last_executed_at",
+        "last_dagster_run",
         "rendered_count_query",
     )
     ordering = ("-created_at",)
@@ -524,6 +540,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "attempt_count",
                     "first_executed_at",
                     "last_executed_at",
+                    "last_dagster_run",
                 ),
             },
         ),
@@ -556,6 +573,16 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             )
             created += 1
         messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
+
+    @admin.display(description="Last Dagster run")
+    def last_dagster_run(self, obj: DataDeletionRequest) -> str:
+        """Link to the Dagster run of the latest execution attempt, for debugging in-flight requests."""
+        if not obj.last_dagster_run_id:
+            return "—"
+        url = dagster_run_url(obj.last_dagster_run_id)
+        if url is None:
+            return obj.last_dagster_run_id
+        return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, obj.last_dagster_run_id)
 
     @admin.display(description="Count query (ready to paste)")
     def rendered_count_query(self, obj: DataDeletionRequest) -> str:

@@ -116,6 +116,7 @@ def test_load_deletion_request_transitions_to_in_progress():
     assert request.attempt_count == 1
     assert request.first_executed_at is not None
     assert request.last_executed_at == request.first_executed_at
+    assert request.last_dagster_run_id == context.run_id
 
 
 @pytest.mark.django_db
@@ -634,6 +635,7 @@ def test_load_property_removal_request_transitions_to_in_progress():
 
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.last_dagster_run_id == context.run_id
 
 
 @pytest.mark.django_db
@@ -1701,6 +1703,7 @@ def test_load_person_removal_request_transitions_to_in_progress():
     assert result.drop_recordings is False
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.last_dagster_run_id == ctx.run_id
 
 
 @pytest.mark.django_db

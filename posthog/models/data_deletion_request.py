@@ -369,6 +369,13 @@ class DataDeletionRequest(UUIDModel):
         blank=True,
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
+    last_dagster_run_id = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Dagster run ID of the most recent execution attempt (set on every APPROVED → IN_PROGRESS "
+        "transition). Rendered as a link to the Dagster run in the admin.",
+    )
     property_removal_marker = models.DateTimeField(
         null=True,
         blank=True,
