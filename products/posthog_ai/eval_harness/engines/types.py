@@ -1,12 +1,12 @@
 """Engine-neutral types at the harness/engine boundary.
 
-Stdlib-only on purpose: no braintrust, no Django, no pydantic. ``env_preflight``
+Stdlib-only on purpose: no Braintrust, no Django, no pydantic. ``env_preflight``
 imports ``EnvVarSpec`` from here, and it sits on the Django-free ``__main__``
 import chain (see ``harness/AGENTS.md``), so nothing here may pull in a heavier
 dependency.
 
 Each ``EvalEngine`` translates its native result shapes into these so the run
-base, reporting, and trace emission never see a braintrust type.
+base, reporting, and trace emission never see an engine-specific type.
 """
 
 from __future__ import annotations

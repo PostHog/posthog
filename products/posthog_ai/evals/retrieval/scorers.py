@@ -34,10 +34,8 @@ import re
 import json
 from typing import Any
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, LogParser
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = ["InfoCalledBeforeTool", "InformationSchemaBeforeSql", "LookupIdInOutput", "SkillLoaded"]
 

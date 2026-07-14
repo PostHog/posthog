@@ -11,8 +11,7 @@ import json
 
 import pytest
 
-from braintrust import Score
-
+from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.posthog_ai.evals.experiments.scorers import (
     FirstUpdateMetricShape,
     validate_ratio_revenue_metric,

@@ -63,13 +63,13 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     await reporter.record_summary(
         "sandboxed-cli-mcp-verify-event-cli",
         EvalSummary(
-            engine_name="braintrust",
+            engine_name="Braintrust",
             experiment_name="sandboxed-cli-mcp-verify-event-cli",
             scores={
                 "exit_code_zero": AggregateScore("exit_code_zero", 1.0),
                 "called_target_tool": AggregateScore("called_target_tool", 0.0),
             },
-            experiment_url="https://braintrust.example/experiment",
+            experiment_url="https://experiments.example/e",
         ),
     )
     await reporter.record_posthog_evaluations_url(
@@ -108,7 +108,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "exit_code_zero: 100.0%" in output
     assert "called_target_tool: 0.0%" in output
     assert "PostHog: https://us.posthog.com/" in output
-    assert "Braintrust: https://braintrust.example/experiment" in output
+    assert "Braintrust: https://experiments.example/e" in output
     assert f"Agent logs: {tmp_path}" in output
     assert output.count("PASS") == 1
 

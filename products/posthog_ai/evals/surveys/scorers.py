@@ -6,11 +6,9 @@ import re
 import json
 from typing import Any
 
-from braintrust import Score
-from braintrust_core.score import Scorer
-
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
+from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 SURVEY_CREATE_TOOL_NAME = "survey-create"
 SURVEY_FORBIDDEN_WRITE_TOOLS = frozenset(
