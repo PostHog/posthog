@@ -43,7 +43,6 @@ class CohereSource(SimpleSource[CohereSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cohere",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Cohere API key to pull your Cohere assets and job history into the PostHog Data warehouse.
 
 Create an API key in your [Cohere dashboard](https://dashboard.cohere.com/api-keys). Prefer a production key: trial keys are capped at 1,000 API calls per month, which a recurring sync can exhaust.
