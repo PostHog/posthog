@@ -263,11 +263,14 @@ class TestHogFlowDraftPublish(APIBaseTest):
     def test_publish_with_confirm_promotes_draft_and_clears_it(self, _flag):
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
-        assert flow.draft_updated_at is not None
+        # Narrow a local, not the attribute — narrowing flow.draft_updated_at here would make the
+        # post-publish `is None` assertion unreachable in mypy's eyes (it can't see refresh_from_db)
+        staged_at = flow.draft_updated_at
+        assert staged_at is not None
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "draft_updated_at": flow.draft_updated_at.isoformat()},
+            {"confirm": True, "draft_updated_at": staged_at.isoformat()},
         )
         assert response.status_code == 200, response.json()
 
