@@ -820,6 +820,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Formula (A-B)", response.results[1]["label"])
         self.assertEqual([1, 0, 0, 2, -2, 0, 2, -1, 1, 0, 1], response.results[1]["data"])
 
+    def test_ratio_formula_total_is_ratio_of_sums(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formulas=["A/B"]),
+        )
+
+        self.assertEqual(1, len(response.results))
+        # Per-interval line stays as the daily ratio (division by zero renders as 0).
+        self.assertEqual(
+            [0, 0, 1, 3, 1 / 3, 0, 0, 0, 0, 0, 0],
+            response.results[0]["data"],
+        )
+        # The total is the ratio of the summed series (sum(A)/sum(B) = 10/6), not the sum of the
+        # daily ratios (which would be 1 + 3 + 1/3 = 4.333 and nonsensically overshoot the ratio).
+        self.assertAlmostEqual(10 / 6, response.results[0]["count"])
+
     def test_formula_with_compare(self):
         self._create_test_events()
 
