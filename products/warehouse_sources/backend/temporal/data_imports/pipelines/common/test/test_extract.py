@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
@@ -46,6 +47,78 @@ class TestResolvePrimaryKeys:
         schema = MagicMock(primary_key_columns=persisted, schema_metadata=schema_metadata)
         resource = MagicMock(primary_keys=live)
         assert resolve_primary_keys(schema, resource) == expected
+
+
+class TestPersistPrimaryKeys:
+    @parameterized.expand(
+        [
+            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
+            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            # A stored PK is already the source of truth — nothing to backfill.
+            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
+            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            # The fix: an incremental schema with no stored PK backfills the resolved one.
+            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
+            (
+                "does_not_clobber_concurrent_write",
+                True,
+                None,
+                ["id"],
+                {"primary_key_columns": ["already"]},
+                {"primary_key_columns": ["already"]},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_persists_only_when_incremental_and_empty(
+        self,
+        _name: str,
+        is_incremental: bool,
+        persisted: list[str] | None,
+        resource_pks: list[str] | None,
+        db_config_before: dict,
+        expected_written: dict | None,
+    ):
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        resource = MagicMock(primary_keys=resource_pks)
+
+        captured: dict = {}
+
+        def fake_pool(fn):
+            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
+                config = dict(db_config_before)
+                if mutate is not None:
+                    mutate(config)
+                captured["config"] = config
+                return config
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, is_incremental, AsyncMock())
+
+        assert captured.get("config") == expected_written
+
+    @pytest.mark.asyncio
+    async def test_persistence_failure_does_not_raise(self):
+        # Best-effort: a DB failure while backfilling the PK must not fail an otherwise good sync.
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=None)
+        resource = MagicMock(primary_keys=["id"])
+        logger = AsyncMock()
+
+        def fake_pool(fn):
+            async def _call(*args, **kwargs):
+                raise RuntimeError("pooler dropped the connection")
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, True, logger)
+
+        logger.aexception.assert_awaited_once()
 
 
 class TestRunPreWriteDefensiveCompact:

@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
@@ -260,7 +261,7 @@ class PipelineV3(Generic[ResumableData]):
 
             validate_incremental_sync(self._is_incremental, self._resource)
 
-            await self._persist_primary_keys()
+            await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
@@ -445,36 +446,6 @@ class PipelineV3(Generic[ResumableData]):
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
         )
-
-    async def _persist_primary_keys(self) -> None:
-        """Persist a freshly resolved primary key so future runs stop depending on flaky live
-        detection (e.g. a Snowflake `SHOW PRIMARY KEYS` that intermittently returns nothing).
-
-        Only fills an empty stored value — never overwrites a user override — and checks again
-        inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
-        must not fail an otherwise successful sync.
-        """
-        if not self._is_incremental or self._schema.primary_key_columns:
-            return
-        primary_keys = self._resource.primary_keys
-        if not primary_keys:
-            return
-
-        resolved = list(primary_keys)
-
-        def _set_if_absent(config: dict[str, Any]) -> None:
-            if not config.get("primary_key_columns"):
-                config["primary_key_columns"] = resolved
-
-        try:
-            config = await database_sync_to_async_pool(update_sync_type_config_keys)(
-                self._schema.id,
-                self._job.team_id,
-                mutate=_set_if_absent,
-            )
-            self._schema.sync_type_config = config
-        except Exception:
-            await self._logger.aexception("V3 Pipeline: Failed to persist detected primary keys into sync_type_config")
 
     async def _finalize(self, row_count: int) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.

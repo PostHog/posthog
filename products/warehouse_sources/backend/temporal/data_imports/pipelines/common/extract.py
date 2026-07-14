@@ -253,6 +253,46 @@ def resolve_primary_keys(
     return None
 
 
+async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Persist a freshly resolved primary key so future runs stop depending on flaky live
+    detection (e.g. a Snowflake `SHOW PRIMARY KEYS` that intermittently returns nothing).
+
+    Only fills an empty stored value — never overwrites a user override — and checks again
+    inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
+    must not fail an otherwise successful sync.
+    """
+    if not is_incremental or schema.primary_key_columns:
+        return
+    primary_keys = resource.primary_keys
+    if not primary_keys:
+        return
+
+    resolved = list(primary_keys)
+
+    def _set_if_absent(config: dict[str, Any]) -> None:
+        if not config.get("primary_key_columns"):
+            config["primary_key_columns"] = resolved
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            mutate=_set_if_absent,
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist detected primary keys into sync_type_config")
+
+
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
