@@ -152,22 +152,31 @@ async def expand_mission_activity(inputs: ExpandMissionInputs) -> MissionBundleD
     bundle = inputs.bundle
     if brief.created_by is None:
         return bundle
-    seeds = bundle.get(MISSION_SEED_ITEMS_KEY, [])
+    seeds = list(bundle.get(MISSION_SEED_ITEMS_KEY, []))
     focus_prompt = bundle.get(MISSION_FOCUS_PROMPT_KEY, "")
-    proposals = await propose_expansions(
-        seeds, team=team, user=brief.created_by, focus_prompt=focus_prompt, max_proposals=MAX_EXPANSION_QUERIES
-    )
-    for proposal in proposals:
-        # valid_hogql pre-filters obviously-broken SQL so we don't pay an execution roundtrip on it;
-        # execute_expansion still drops anything that fails at run time.
-        if not valid_hogql(proposal.hogql):
-            continue
-        item = await database_sync_to_async(execute_expansion, thread_sensitive=False)(
-            proposal, team=team, max_rows=MAX_EXPANSION_ROWS
+    try:
+        proposals = await propose_expansions(
+            seeds, team=team, user=brief.created_by, focus_prompt=focus_prompt, max_proposals=MAX_EXPANSION_QUERIES
         )
-        if item is not None:
-            seeds.append(dataclasses.asdict(item))
-    bundle[MISSION_SEED_ITEMS_KEY] = seeds
+        for proposal in proposals:
+            # valid_hogql pre-filters obviously-broken SQL so we don't pay an execution roundtrip on it;
+            # execute_expansion still drops anything that fails at run time.
+            if not valid_hogql(proposal.hogql):
+                continue
+            item = await database_sync_to_async(execute_expansion, thread_sensitive=False)(
+                proposal, team=team, max_rows=MAX_EXPANSION_ROWS
+            )
+            if item is not None:
+                seeds.append(dataclasses.asdict(item))
+    except Exception:
+        # Best-effort: proposing (LLM call) can fail, but enrichment must never fail a brief that
+        # prepare_mission already produced — return it un-enriched and let run_agent proceed.
+        logger.warning("pulse_expand_failed", team_id=inputs.team_id, brief_id=inputs.brief_id, exc_info=True)
+        return bundle
+    # Re-apply the gather budget: expansion appended past _gather_source_items' priority-sort + cap,
+    # so re-sort and re-cap the combined list to keep the bundle under the Temporal payload guard.
+    seeds.sort(key=lambda item: KIND_PRIORITY.get(item.get("kind", ""), len(KIND_PRIORITY)))
+    bundle[MISSION_SEED_ITEMS_KEY] = seeds[:MAX_ITEMS]
     return bundle
 
 

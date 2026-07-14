@@ -18,6 +18,9 @@ logger = structlog.get_logger(__name__)
 
 EXPAND_MODEL = "gpt-4.1"
 _LLM_TIMEOUT_SECONDS = 120
+# Row count is capped by max_rows, but a row can be arbitrarily wide (string/JSON columns); cap the
+# rendered byte width too so one wide result can't bloat the bundle. Matches scout_reports.py.
+_DESCRIPTION_MAX_CHARS = 1000
 
 EXPAND_PROMPT = """You are a product analyst proposing extra read-only HogQL queries to surface signals a team's regular product brief might miss.
 
@@ -95,8 +98,10 @@ def execute_expansion(proposal: ExpansionProposal, *, team: Team, max_rows: int)
         logger.warning("pulse_expand_execution_failed", team_id=team.id, hogql=proposal.hogql, exc_info=True)
         return None
     # Row values are untrusted query output; sanitize before it flows into the agent prompt,
-    # same boundary posture as _render_seeds.
-    description = f"{len(rows)} row(s) (capped at {max_rows}): {sanitize_for_prompt(str(rows))}"
+    # same boundary posture as _render_seeds. Byte-cap so a wide result can't bloat the bundle.
+    description = f"{len(rows)} row(s) (capped at {max_rows}): {sanitize_for_prompt(str(rows))}"[
+        :_DESCRIPTION_MAX_CHARS
+    ]
     return SourceItem(
         source="expansion",
         kind="signal",

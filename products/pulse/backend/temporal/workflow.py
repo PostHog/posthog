@@ -112,15 +112,20 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             )
             return QUIET_BRIEF_STATUS
         if inputs.expand:
-            bundle = cast(
-                MissionBundleDict,
-                await temporalio.workflow.execute_activity(
-                    expand_mission_activity,
-                    ExpandMissionInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),
-                    start_to_close_timeout=EXPAND_MISSION_TIMEOUT,
-                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=EXPAND_MISSION_ATTEMPTS),
-                ),
-            )
+            # Enrichment is best-effort: if the activity fails or times out, fall back to the
+            # prepared bundle rather than failing a brief prepare_mission already produced.
+            try:
+                bundle = cast(
+                    MissionBundleDict,
+                    await temporalio.workflow.execute_activity(
+                        expand_mission_activity,
+                        ExpandMissionInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),
+                        start_to_close_timeout=EXPAND_MISSION_TIMEOUT,
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=EXPAND_MISSION_ATTEMPTS),
+                    ),
+                )
+            except temporalio.exceptions.ActivityError:
+                temporalio.workflow.logger.warning("pulse_expand_activity_failed, proceeding un-enriched")
         result: dict = await temporalio.workflow.execute_activity(
             run_agent_activity,
             RunAgentInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),

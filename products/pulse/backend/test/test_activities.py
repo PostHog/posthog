@@ -344,7 +344,9 @@ async def test_expand_mission_activity_appends_items(team, user) -> None:
         result = await env.run(
             expand_mission_activity, ExpandMissionInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
         )
-    assert [item["fingerprint_hint"] for item in result["seed_items"]] == ["abc:0", "expansion:a", "expansion:b"]
+    # Originals preserved and both expansion items folded in (order is priority-sorted, not append-order).
+    assert {item["fingerprint_hint"] for item in result["seed_items"]} == {"abc:0", "expansion:a", "expansion:b"}
+    assert len(result["seed_items"]) == 3
 
 
 async def test_expand_mission_activity_bounded(team, user) -> None:

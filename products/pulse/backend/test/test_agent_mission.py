@@ -9,7 +9,12 @@ from products.pulse.backend.agent.prompt import render_mission_prompt
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.models import ProductBrief
 from products.pulse.backend.sources.base import SourceItem
-from products.pulse.backend.temporal.inputs import MISSION_GOAL_STATUS_KEY, MISSION_SEED_ITEMS_KEY, QUIET_BRIEF_STATUS
+from products.pulse.backend.temporal.inputs import (
+    MISSION_FOCUS_PROMPT_KEY,
+    MISSION_GOAL_STATUS_KEY,
+    MISSION_SEED_ITEMS_KEY,
+    QUIET_BRIEF_STATUS,
+)
 
 
 def _item(hint: str = "signup-funnel") -> SourceItem:
@@ -92,4 +97,5 @@ class TestMissionBundle(BaseTest):
         # heavy mission module or the ProductBrief model; guard against silent drift on rename.
         assert MISSION_SEED_ITEMS_KEY in MissionBundle.model_fields
         assert MISSION_GOAL_STATUS_KEY in MissionBundle.model_fields
+        assert MISSION_FOCUS_PROMPT_KEY in MissionBundle.model_fields
         assert QUIET_BRIEF_STATUS == ProductBrief.Status.QUIET.value
