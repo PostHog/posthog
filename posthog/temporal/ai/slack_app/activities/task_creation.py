@@ -49,8 +49,7 @@ _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY = """Slack delivery constraints:
 - If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."""
 
 _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY = """Slack delivery constraints:
-- Slack artifact delivery is disabled. Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.
-- Return the useful result as text instead."""
+- Slack artifact delivery is disabled. Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths."""
 
 # Cap on how many messages a single follow-up update block can carry. Threads with
 # hundreds of intervening messages between interactions are an edge case (a chatty
