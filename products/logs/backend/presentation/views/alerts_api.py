@@ -672,9 +672,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(
-        choices=list(DestinationType), help_text="Destination type: Slack, Discord, webhook, or Microsoft Teams."
-    )
+    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Notification destination type.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )

@@ -649,7 +649,7 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type: Slack, Discord, webhook, or Microsoft Teams.
+    /** Notification destination type.
      *
      * * `slack` - slack
      * * `discord` - discord

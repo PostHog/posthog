@@ -32132,7 +32132,7 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type: Slack, Discord, webhook, or Microsoft Teams.
+      /** Notification destination type.
        *
        * * `slack` - slack
        * * `discord` - discord

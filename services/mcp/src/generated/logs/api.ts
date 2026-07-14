@@ -2484,7 +2484,7 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .enum(['slack', 'discord', 'webhook', 'teams'])
         .describe('* `slack` - slack\n* `discord` - discord\n* `webhook` - webhook\n* `teams` - teams')
         .describe(
-            'Destination type: Slack, Discord, webhook, or Microsoft Teams.\n\n* `slack` - slack\n* `discord` - discord\n* `webhook` - webhook\n* `teams` - teams'
+            'Notification destination type.\n\n* `slack` - slack\n* `discord` - discord\n* `webhook` - webhook\n* `teams` - teams'
         ),
     slack_workspace_id: zod
         .number()
