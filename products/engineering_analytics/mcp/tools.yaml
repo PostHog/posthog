@@ -41,6 +41,9 @@ tools:
     engineering-analytics-ci-signals-config-update:
         operation: engineering_analytics_ci_signals_config_update
         enabled: false
+    engineering-analytics-current-branch-health:
+        operation: engineering_analytics_current_branch_health
+        enabled: false
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true

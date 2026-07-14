@@ -120,6 +120,17 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface CurrentBranchHealthApi {
+    /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
+    default_branch: string
+    /** Workflows with at least one completed run in the last 24 hours. */
+    settled_workflows: number
+    /** Workflows whose latest completed run in the last 24 hours failed or timed out. */
+    failing_workflows: number
+    /** Alphabetical preview of failing workflow names, capped at 20; use failing_workflows for the complete count. */
+    failing_workflow_names: string[]
+}
+
 export interface FlakyTestItemApi {
     /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
@@ -997,6 +1008,13 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

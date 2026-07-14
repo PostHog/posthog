@@ -7,6 +7,7 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``ci_cards`` — backlog headline counts.
 - ``pull_requests`` — PR list with head-SHA CI rollup.
 - ``workflow_health`` — per-workflow CI health over a window.
+- ``current_branch_health`` — complete current default-branch CI verdict.
 - ``pr_lifecycle`` — a single PR's header plus its ordered CI timeline.
 - ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
@@ -37,6 +38,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     CIFailureLogsSerializer,
     CISignalsConfigSerializer,
     CISignalsConfigUpdateSerializer,
+    CurrentBranchHealthSerializer,
     FlakyTestListSerializer,
     GitHubSourceSerializer,
     MasterFailureGroupSerializer,
@@ -173,6 +175,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "flaky_tests",
         "repo_overview",
         "repo_run_activity",
+        "current_branch_health",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
@@ -902,6 +905,31 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
         return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_current_branch_health",
+        parameters=[_SOURCE_ID],
+        responses={
+            200: CurrentBranchHealthSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "Current default-branch CI verdict over the fixed last-24-hours window. Counts every workflow whose "
+            "latest completed run failed or timed out; failing workflow names are a bounded preview. The default "
+            "branch is detected from the same window, independently of analytics date filters."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def current_branch_health(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_current_branch_health(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(CurrentBranchHealthSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_repo_run_activity",

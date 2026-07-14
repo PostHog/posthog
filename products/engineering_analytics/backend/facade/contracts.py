@@ -848,6 +848,19 @@ class RepoOverview:
 
 
 @dataclass(frozen=True)
+class CurrentBranchHealth:
+    """Current default-branch CI verdict over the last 24 hours.
+
+    Counts cover every workflow with a completed run; names are a bounded preview for UI copy.
+    """
+
+    default_branch: str
+    settled_workflows: int
+    failing_workflows: int
+    failing_workflow_names: list[str]
+
+
+@dataclass(frozen=True)
 class MasterFailureGroup:
     """One group of default-branch failures: a (workflow, de-sharded failing job) signature with
     its run count and first/last seen — the error-tracking-style triage row. ``failed_job`` is ''

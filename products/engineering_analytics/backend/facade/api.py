@@ -27,6 +27,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     CISignalsConfig,
+    CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
@@ -325,6 +326,15 @@ def get_repo_overview(
         date_from=date_from,
         date_to=date_to,
     )
+
+
+def get_current_branch_health(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CurrentBranchHealth:
+    return logic.build_current_branch_health(curated=_authorized_source(team, source_id, user_access_control))
 
 
 def get_repo_run_activity(
