@@ -2030,7 +2030,14 @@ export namespace Schemas {
       value?: string | string[] | null;
     }
 
+    export interface JsonValue {}
+
     export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    /**
+     * Event and person property filters, matching Activity > Explore events.
+     */
+    export type ActivityEventsListWidgetConfigProperties = {[key: string]: JsonValue}[] | null;
 
     export interface ActivityEventsListWidgetConfig {
       dateRange?: WidgetDateRange | null;
@@ -2044,6 +2051,8 @@ export namespace Schemas {
       limit?: number;
       /** Limit the feed to a single event name. Omit or null for all events. */
       eventName?: string | null;
+      /** Event and person property filters, matching Activity > Explore events. */
+      properties?: ActivityEventsListWidgetConfigProperties;
     }
 
     export interface ActivityEventsListWidgetAddRequestOpenApi {

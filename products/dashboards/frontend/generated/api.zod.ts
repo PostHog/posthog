@@ -411,6 +411,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 'Limit the feed to a single event name. Omit or null for all events.'
                                             ),
+                                        properties: zod
+                                            .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Event and person property filters, matching Activity > Explore events.'
+                                            ),
                                     }),
                                     zod.object({
                                         dateRange: zod
@@ -1184,6 +1190,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .describe('Configuration for the recent events widget.'),
                     }),
@@ -2076,6 +2086,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
+                                properties: zod
+                                    .union([zod.array(zod.record(zod.string(), zod.unknown())), zod.null()])
+                                    .optional()
+                                    .describe('Event and person property filters, matching Activity > Explore events.'),
                             })
                             .optional()
                             .describe('New configuration for the recent events widget. Omit to leave unchanged.'),

@@ -539,7 +539,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.limit, 12)
 
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
-    def test_activity_events_widget_applies_date_range_and_widget_filters(self, mock_runner_cls: MagicMock) -> None:
+    def test_activity_events_widget_applies_date_range_and_property_filters(self, mock_runner_cls: MagicMock) -> None:
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False}
         )
@@ -549,6 +549,14 @@ class TestDashboardRunWidgets(APIBaseTest):
             {
                 "limit": 5,
                 "dateRange": {"date_from": "-7d"},
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": "@posthog.com",
+                    }
+                ],
                 "widgetFilters": {
                     "filter-1": {
                         "filterId": "filter-1",
@@ -565,9 +573,11 @@ class TestDashboardRunWidgets(APIBaseTest):
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.after, "-7d")
         assert query.properties is not None
-        self.assertEqual(len(query.properties), 1)
-        self.assertEqual(query.properties[0].key, "$current_url")
-        self.assertEqual(query.properties[0].value, ["/checkout"])
+        self.assertEqual(len(query.properties), 2)
+        self.assertEqual(query.properties[0].key, "email")
+        self.assertEqual(query.properties[0].value, "@posthog.com")
+        self.assertEqual(query.properties[1].key, "$current_url")
+        self.assertEqual(query.properties[1].value, ["/checkout"])
 
     @parameterized.expand(
         [

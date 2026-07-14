@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator
+
+from posthog.types import AnyPropertyFilter
 
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
@@ -40,6 +42,8 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
+
+ACTIVITY_EVENTS_PROPERTY_FILTERS_ADAPTER = TypeAdapter(list[AnyPropertyFilter])
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -100,6 +104,18 @@ class ActivityEventsListWidgetConfig(WidgetListConfigBase):
         min_length=1,
         description="Limit the feed to a single event name. Omit or null for all events.",
     )
+    properties: list[dict[str, JsonValue]] | None = Field(
+        default=None,
+        description="Event and person property filters, matching Activity > Explore events.",
+    )
+
+    @field_validator("properties", mode="before")
+    @classmethod
+    def validate_properties(cls, value: object) -> list[dict[str, JsonValue]] | None:
+        if value is None:
+            return None
+        validated = ACTIVITY_EVENTS_PROPERTY_FILTERS_ADAPTER.validate_python(value)
+        return [property_filter.model_dump(mode="json", exclude_none=True) for property_filter in validated]
 
 
 class ExperimentsListWidgetConfig(BaseModel):

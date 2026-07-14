@@ -45,7 +45,12 @@ def _build_activity_events_query(
         if isinstance(date_from_value, str):
             after = date_from_value
 
-    property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+    configured_property_filters = config.get("properties")
+    widget_property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+    property_filters = [
+        *(configured_property_filters if isinstance(configured_property_filters, list) else []),
+        *(widget_property_filters or []),
+    ]
 
     event_name = config.get("eventName")
     event = event_name if isinstance(event_name, str) and event_name else None

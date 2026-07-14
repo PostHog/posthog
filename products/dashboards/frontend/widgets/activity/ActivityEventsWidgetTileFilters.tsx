@@ -2,6 +2,10 @@ import { useRef } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
+import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { NodeKind, type EventsQuery } from '~/queries/schema/schema-general'
+import type { AnyPropertyFilter } from '~/types'
+
 import { EventName } from 'products/actions/frontend/components/EventName'
 
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
@@ -27,10 +31,11 @@ export function ActivityEventsWidgetTileFilters({
     const parsed = parseActivityEventsWidgetConfig(config)
     const dateFrom = (parsed.dateRange?.date_from ?? '-24h') as WidgetDateFromValue
     const eventName = parsed.eventName ?? null
+    const properties = (parsed.properties ?? []) as AnyPropertyFilter[]
 
     const configRef = useRef(config)
     configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
 
     const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
@@ -47,13 +52,32 @@ export function ActivityEventsWidgetTileFilters({
         await persistConfigNow(nextConfig)
     }
 
+    const applyProperties = (value: AnyPropertyFilter[]): void => {
+        const nextConfig = patchActivityEventsWidgetFilterFields(configRef.current, { properties: value })
+        configRef.current = nextConfig
+        persistConfigDebounced(nextConfig)
+    }
+
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="activity-events-widget-tile-filters-readonly">
                 <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
                 {eventName ? <WidgetTileFilterReadOnlyLabel name="Event" value={eventName} /> : null}
+                {properties.length > 0 ? (
+                    <WidgetTileFilterReadOnlyLabel
+                        name="Properties"
+                        value={`${properties.length} ${properties.length === 1 ? 'filter' : 'filters'}`}
+                    />
+                ) : null}
             </WidgetTileFiltersBar>
         )
+    }
+
+    const propertyFilterQuery: EventsQuery = {
+        kind: NodeKind.EventsQuery,
+        select: [],
+        event: eventName ?? undefined,
+        properties,
     }
 
     return (
@@ -79,6 +103,17 @@ export function ActivityEventsWidgetTileFilters({
                     void applyEventName(value)
                 }}
             />
+            {canUpdate ? (
+                <EventPropertyFilters
+                    query={propertyFilterQuery}
+                    setQuery={(query) => applyProperties(query.properties ?? [])}
+                />
+            ) : properties.length > 0 ? (
+                <WidgetTileFilterReadOnlyLabel
+                    name="Properties"
+                    value={`${properties.length} ${properties.length === 1 ? 'filter' : 'filters'}`}
+                />
+            ) : null}
         </WidgetTileFiltersBar>
     )
 }

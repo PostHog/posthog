@@ -503,7 +503,14 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export interface JsonValueApi {}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
+
+/**
+ * Event and person property filters, matching Activity > Explore events.
+ */
+export type ActivityEventsListWidgetConfigApiProperties = { [key: string]: JsonValueApi }[] | null
 
 export interface ActivityEventsListWidgetConfigApi {
     dateRange?: WidgetDateRangeApi | null
@@ -517,6 +524,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsListWidgetConfigApiProperties
 }
 
 /**
