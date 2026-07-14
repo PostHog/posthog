@@ -5,18 +5,15 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
+import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
 import {
-    EventFiltersBatchContext,
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '~/ingestion/common/steps/event-filters-steps'
 import {
-    createParseHeadersStep,
-    createParseKafkaMessageStep,
-    createResolveTeamStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateHistoricalMigrationStep,
@@ -26,9 +23,6 @@ import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processi
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
 export interface ClientWarningsPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
@@ -55,45 +49,30 @@ export function createClientWarningsPipeline<
 >(config: ClientWarningsPipelineConfig) {
     const { outputs, teamManager, eventIngestionRestrictionManager, eventFilterManager, promiseScheduler } = config
 
-    const pipelineConfig: PipelineConfig = {
+    return newCommonIngestionPipeline<TInput, TContext>({
+        teamManager,
         outputs,
         promiseScheduler,
-    }
-
-    return newBatchingPipeline<TInput, EmitEventStepOutput, TContext, EventFiltersBatchContext, TContext>(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
-        (batch) =>
-            batch
-                .messageAware((b) =>
-                    b
-                        .sequentially((b) =>
-                            b
-                                .pipe(createParseHeadersStep())
-                                .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
-                                .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
-                                .pipe(createParseKafkaMessageStep())
-                                .pipe(createResolveTeamStep(teamManager))
-                                .pipe(createValidateHistoricalMigrationStep())
-                        )
-                        .filterMap(addTeamToContext, (b) =>
-                            b
-                                .teamAware((b) =>
-                                    b.sequentially((b) =>
-                                        b
-                                            .pipe(createValidateEventMetadataStep())
-                                            .pipe(createValidateEventPropertiesStep())
-                                            .pipe(createApplyEventFiltersStep(eventFilterManager))
-                                            .pipe(createDropOldEventsStep())
-                                            .pipe(createHandleClientIngestionWarningStep(outputs))
-                                            .pipe(createRecordIngestionLagStep())
-                                    )
-                                )
-                                .handleIngestionWarnings(outputs)
-                        )
-                )
-                .handleResults(pipelineConfig)
-                .handleSideEffects(promiseScheduler, { await: false }),
-        (afterBatch) => afterBatch.pipe(createFlushEventFiltersBatchAppMetricsStep()),
-        { concurrentBatches: 1 }
-    )
+        concurrentBatches: 1,
+    })
+        .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+        .preParse((b) =>
+            b
+                .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
+                .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+        )
+        .resolveTeam((b) => b.pipe(createValidateHistoricalMigrationStep()))
+        .perTeam<EmitEventStepOutput>((b) =>
+            b.sequentially((b) =>
+                b
+                    .pipe(createValidateEventMetadataStep())
+                    .pipe(createValidateEventPropertiesStep())
+                    .pipe(createApplyEventFiltersStep(eventFilterManager))
+                    .pipe(createDropOldEventsStep())
+                    .pipe(createHandleClientIngestionWarningStep(outputs))
+                    .pipe(createRecordIngestionLagStep())
+            )
+        )
+        .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
+        .build()
 }
