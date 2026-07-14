@@ -4,7 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization
+from posthog.models import Organization, PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.wizard.backend.models import WizardSession
 from products.wizard.backend.presentation.views import _wizard_sync_killswitch_enabled
@@ -37,6 +38,17 @@ class TestWizardSessionViewSet(APIBaseTest):
         payload.update(overrides)
         return payload
 
+    def _personal_api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Wizard test key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
     def test_create_session(self):
         response = self.client.post(self._url(), self._payload(), format="json")
 
@@ -52,7 +64,45 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
-    def test_repost_same_session_id_upserts(self):
+    def test_completed_session_requires_event_definition_write_scope(self):
+        wizard_only_headers = self._personal_api_key_headers(["wizard_session:write"])
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="completed"),
+            format="json",
+            **wizard_only_headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_running_session_accepts_wizard_write_scope(self):
+        wizard_only_headers = self._personal_api_key_headers(["wizard_session:write"])
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="running"),
+            format="json",
+            **wizard_only_headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+    def test_completed_session_accepts_event_definition_write_scope(self, _mock_sync):
+        headers = self._personal_api_key_headers(["wizard_session:write", "event_definition:write"])
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="completed"),
+            format="json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
+    def test_repost_same_session_id_upserts(self, _mock_sync):
         first = self.client.post(self._url(), self._payload(), format="json")
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
 

@@ -3,22 +3,19 @@ Business logic for Wizard sessions.
 """
 
 import logging
-from typing import Any
+from functools import partial
 
-from posthog.models import Team
+from django.db import transaction
 
-from products.event_definitions.backend.facade.api import create_placeholder_event_definition
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
+from products.wizard.backend.tasks import sync_wizard_event_definitions
 
 logger = logging.getLogger(__name__)
-
-MAX_PLANNED_EVENT_DEFINITIONS = 50
-MAX_EVENT_NAME_LENGTH = 400
 
 
 def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -30,69 +27,50 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
     a brand-new session_id can race the unique constraint and surface as a
     500; the CLI's normal HTTP retry handles that on the next attempt.
     """
-    previous_run_phase = (
-        WizardSession.objects.filter(team_id=params.team_id, session_id=params.session_id)
-        .values_list("run_phase", flat=True)
-        .first()
-    )
-    instance, created = WizardSession.objects.update_or_create(
-        team_id=params.team_id,
-        session_id=params.session_id,
-        defaults={
-            "workflow_id": params.workflow_id,
-            "skill_id": params.skill_id,
-            "started_at": params.started_at,
-            "run_phase": params.run_phase.value,
-            "tasks": [
-                {
-                    "id": task.id,
-                    "title": task.title,
-                    "status": task.status.value,
-                }
-                for task in params.tasks
-            ],
-            "event_plan": params.event_plan,
-            "error": params.error,
-        },
-    )
-    if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
-        _create_planned_event_definitions(params.team_id, instance.event_plan)
+    with transaction.atomic():
+        previous_run_phase = (
+            WizardSession.objects.select_for_update()
+            .filter(team_id=params.team_id, session_id=params.session_id)
+            .values_list("run_phase", flat=True)
+            .first()
+        )
+        instance, created = WizardSession.objects.update_or_create(
+            team_id=params.team_id,
+            session_id=params.session_id,
+            defaults={
+                "workflow_id": params.workflow_id,
+                "skill_id": params.skill_id,
+                "started_at": params.started_at,
+                "run_phase": params.run_phase.value,
+                "tasks": [
+                    {
+                        "id": task.id,
+                        "title": task.title,
+                        "status": task.status.value,
+                    }
+                    for task in params.tasks
+                ],
+                "event_plan": params.event_plan,
+                "error": params.error,
+            },
+        )
+        if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
+            transaction.on_commit(
+                partial(_enqueue_event_definition_sync, params.team_id, params.session_id),
+                robust=True,
+            )
+        dto = _to_dto(instance)
 
-    dto = _to_dto(instance)
     report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
     return dto, created
 
 
-def _create_planned_event_definitions(team_id: int, event_plan: dict[str, Any] | None) -> None:
-    events = event_plan.get("events") if isinstance(event_plan, dict) else None
-    if not isinstance(events, list):
-        return
-
+def _enqueue_event_definition_sync(team_id: int, session_id: str) -> None:
     try:
-        project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
+        sync_wizard_event_definitions.delay(team_id, session_id)
     except Exception:
-        logger.exception("Failed to resolve the project for a completed wizard session")
-        return
-
-    for planned_event in events[:MAX_PLANNED_EVENT_DEFINITIONS]:
-        if not isinstance(planned_event, dict):
-            continue
-
-        name = planned_event.get("name")
-        if not isinstance(name, str) or not name.strip() or name.startswith("$") or len(name) > MAX_EVENT_NAME_LENGTH:
-            continue
-
-        description = planned_event.get("description")
-        try:
-            create_placeholder_event_definition(
-                team_id=team_id,
-                project_id=project_id,
-                name=name,
-                description=description if isinstance(description, str) else None,
-            )
-        except Exception:
-            logger.exception("Failed to create an event definition from a completed wizard session")
+        logger.exception("Failed to enqueue event definition sync for a completed wizard session")
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
