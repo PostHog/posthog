@@ -19,6 +19,7 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 ### Common pitfalls
 
 - **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
+- **The `posthog.`-namespaced tables (`ai_events`, `trace_spans`, `metrics`) aren't in `information_schema` at all** — no `table_name` surfaces them, with or without the prefix; use the column lists documented below.
 
 ### Format SQL for readability
 
