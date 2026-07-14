@@ -76,6 +76,24 @@
                                         "minimum": 1,
                                         "type": "number"
                                     },
+                                    "properties": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Event and person property filters, matching Activity > Explore events."
+                                    },
                                     "widgetFilters": {
                                         "anyOf": [
                                             {
