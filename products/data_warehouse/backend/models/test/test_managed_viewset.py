@@ -286,13 +286,19 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
 
 class TestEngineeringAnalyticsManagedViewSet(BaseTest):
-    """sync_views for the non-materialized engineering-analytics kind: it must create a
-    query-time saved query (no materialization schedule, no managed DAG), stay idempotent, and
+    """sync_views for the non-materialized engineering-analytics kind: it must create the
+    query-time saved queries (no materialization schedule, no managed DAG), stay idempotent, and
     create nothing for a team without a qualifying GitHub source.
     """
 
     PREFIX = "myprefix"
-    VIEW_NAME = "engineering_analytics_job_costs"
+    # All engineering-analytics views share one qualifying-source gate, so they appear
+    # together or not at all (see products/engineering_analytics/SPEC.md §5).
+    VIEW_NAMES = {
+        "engineering_analytics_job_costs",
+        "engineering_analytics_ci_job_history",
+        "engineering_analytics_ci_failures",
+    }
 
     def _github_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -337,11 +343,10 @@ class TestEngineeringAnalyticsManagedViewSet(BaseTest):
         viewset.sync_views()
 
         views = self._views(viewset)
-        self.assertEqual(len(views), 1)
-        view = views[0]
-        self.assertEqual(view.name, self.VIEW_NAME)
-        self.assertFalse(view.is_materialized)
-        self.assertIsNone(view.sync_frequency_interval)
+        self.assertEqual({view.name for view in views}, self.VIEW_NAMES)
+        for view in views:
+            self.assertFalse(view.is_materialized)
+            self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
         # materialization, nor get a managed (revenue-analytics) DAG.
         mock_schedule.assert_not_called()
@@ -359,8 +364,8 @@ class TestEngineeringAnalyticsManagedViewSet(BaseTest):
         viewset.sync_views()
         second = self._views(viewset)
 
-        self.assertEqual(len(first), 1)
-        self.assertEqual([v.id for v in first], [v.id for v in second])
+        self.assertEqual({v.name for v in first}, self.VIEW_NAMES)
+        self.assertEqual(sorted(v.id for v in first), sorted(v.id for v in second))
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_creates_nothing_without_qualifying_source(self, _):
