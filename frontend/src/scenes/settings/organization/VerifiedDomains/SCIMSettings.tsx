@@ -12,6 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -77,32 +78,41 @@ export function SCIMSettings(): JSX.Element {
                             <>
                                 <IdentityProviderDomainPicker />
                                 {selectedDomains.length > 0 && (
-                                    <div className="rounded border p-4 space-y-3">
+                                    <div className="space-y-2">
                                         <h3>SCIM base URLs</h3>
-                                        {selectedDomains.map((domain) => {
-                                            const scimBaseUrl =
-                                                domain.scim_base_url ?? `${siteUrl}/scim/v2/${domain.id}`
-
-                                            return (
-                                                <div
-                                                    key={domain.id}
-                                                    className="flex flex-wrap items-center justify-between gap-2"
-                                                >
-                                                    <div>
-                                                        <div className="font-semibold">{domain.domain}</div>
-                                                        <CopyToClipboardInline>{scimBaseUrl}</CopyToClipboardInline>
-                                                    </div>
-                                                    {scimConfig.id && (
-                                                        <LemonButton
-                                                            size="small"
-                                                            onClick={() => setScimLogsModalId(domain.id)}
-                                                        >
-                                                            View logs
-                                                        </LemonButton>
-                                                    )}
-                                                </div>
-                                            )
-                                        })}
+                                        <LemonTable
+                                            dataSource={selectedDomains}
+                                            rowKey="id"
+                                            columns={[
+                                                {
+                                                    key: 'domain',
+                                                    title: 'Domain',
+                                                    render: (_, domain) => domain.domain,
+                                                },
+                                                {
+                                                    key: 'base_url',
+                                                    title: 'Base URL',
+                                                    render: (_, domain) => (
+                                                        <CopyToClipboardInline>
+                                                            {domain.scim_base_url ?? `${siteUrl}/scim/v2/${domain.id}`}
+                                                        </CopyToClipboardInline>
+                                                    ),
+                                                },
+                                                {
+                                                    key: 'actions',
+                                                    width: 0,
+                                                    render: (_, domain) =>
+                                                        scimConfig.id ? (
+                                                            <LemonButton
+                                                                size="small"
+                                                                onClick={() => setScimLogsModalId(domain.id)}
+                                                            >
+                                                                View logs
+                                                            </LemonButton>
+                                                        ) : null,
+                                                },
+                                            ]}
+                                        />
                                     </div>
                                 )}
                                 {scimPlaintextToken && (
