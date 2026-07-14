@@ -44,6 +44,7 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
    a retried `skill-list` then finds them), or — if you have this repo checked out — read the
    canonical straight from disk under `products/review_hog/skills/review-hog-*/SKILL.md` (the same
    source the seed mirrors). Either gets you a reference; don't author blind.
+
 2. **Interview the user.** Ask what the skill should focus on, and offer a few concrete directions
    the current set doesn't cover — grounded in what you saw in step 1 and, when useful, in the
    project itself. Don't start writing until the direction is picked.
