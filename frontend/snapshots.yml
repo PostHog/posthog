@@ -5654,6 +5654,10 @@ snapshots:
         hash: v1.k794b7964.0fe8332bfa26e030a0ff01303d1fcce2c57442e90e979ef0b7aa42530720119a.G2CN2Y5L8tUETotqOpviY8y6o9IAWJHCzYs9xYRc1Mw
     scenes-app-engineering-analytics-repo-overview--repo-overview-failing--light:
         hash: v1.k794b7964.4e1ed6c540fca8e95dad14c8d479a3ffc5b8a0eec6083ddddeed1e2ceabfe5b6.UC2p5Di8xVfGABNMYuqx6WqTIf5fC3pr8WsFSlB0J5o
+    scenes-app-engineering-analytics-run-activity-chart--default--dark:
+        hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
+    scenes-app-engineering-analytics-run-activity-chart--default--light:
+        hash: v1.k794b7964.f63752ff3ebf3bbee3be4ddc83d1ff657d9cdd11ee71e7283c30ce5a1aefde72.yTb8kpRqcG51TbM2CqgRmC5YvgE7-6pV1Trc7y5wuto
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--dark:
         hash: v1.k794b7964.8e887d3516448ca8544b66f54ec2b15c348c795f5eeb38121d8822614ab6895a.FSJv5vBtsNGzICpMzsq58FRQDj-CMLwqFPl9IVKY4A4
     scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--light:
