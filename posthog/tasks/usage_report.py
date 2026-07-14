@@ -549,6 +549,39 @@ def _execute_split_query(
         return combine_results_func(all_results)
 
 
+def _execute_calendar_aligned_split_query(
+    begin: datetime,
+    end: datetime,
+    query_template: str,
+    params: dict,
+    num_splits: int,
+) -> list[tuple[int, int]]:
+    total_days = (end.date() - begin.date()).days
+    split_boundaries = {begin, end}
+
+    for split_index in range(1, num_splits):
+        day_offset = (total_days * split_index + num_splits - 1) // num_splits
+        split_boundary = begin.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=day_offset)
+        if begin < split_boundary < end:
+            split_boundaries.add(split_boundary)
+
+    ordered_boundaries = sorted(split_boundaries)
+    all_results = []
+    for split_begin, split_end in zip(ordered_boundaries, ordered_boundaries[1:]):
+        split_params = params | {"begin": split_begin, "end": split_end}
+        all_results.append(
+            sync_execute(
+                query_template,
+                split_params,
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+        )
+
+    return _combine_team_count_results(all_results)
+
+
 def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     """
     Default function to combine results from multiple queries that return (team_id, count) tuples.
@@ -860,9 +893,10 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
         )
-        # This query stays unsplit so one billing deduplication key cannot be counted in multiple time windows.
-        metrics["mcp_tool_call_events"] = sync_execute(
-            """
+        metrics["mcp_tool_call_events"] = _execute_calendar_aligned_split_query(
+            begin=begin,
+            end=end,
+            query_template="""
             SELECT
                 team_id,
                 uniqExact(tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))) AS count
@@ -871,10 +905,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             WHERE event = '$mcp_tool_call'
             GROUP BY team_id
             """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
+            params={},
+            num_splits=12,
         )
         ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,

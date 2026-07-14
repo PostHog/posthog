@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from django.apps import apps
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
 
 import structlog
@@ -53,6 +53,7 @@ from posthog.tasks.usage_report import (
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
+    _execute_calendar_aligned_split_query,
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
@@ -5128,6 +5129,32 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         assert properties["total_orgs"] == 3
 
 
+class TestCalendarAlignedQuerySplitting(SimpleTestCase):
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_uses_midnight_boundaries(self, mock_sync_execute: MagicMock) -> None:
+        mock_sync_execute.side_effect = [[(1, 1)], [(1, 2)], [(1, 3)]]
+        begin = datetime(2023, 1, 1, 12, 0)
+        end = datetime(2023, 1, 3, 12, 0)
+
+        result = _execute_calendar_aligned_split_query(
+            begin=begin,
+            end=end,
+            query_template="SELECT team_id, count() FROM events",
+            params={},
+            num_splits=12,
+        )
+
+        self.assertEqual(result, [(1, 6)])
+        self.assertEqual(
+            [call.args[1] for call in mock_sync_execute.call_args_list],
+            [
+                {"begin": begin, "end": datetime(2023, 1, 2)},
+                {"begin": datetime(2023, 1, 2), "end": datetime(2023, 1, 3)},
+                {"begin": datetime(2023, 1, 3), "end": end},
+            ],
+        )
+
+
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -5402,29 +5429,34 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(result_distinct[0][1], 15)
 
     def test_mcp_tool_calls_are_deduplicated_and_remain_billable_events(self) -> None:
+        reporting_end = self.end + relativedelta(days=1)
         billable_result_before = get_teams_with_billable_event_count_in_period(
-            self.begin, self.end, count_distinct=True
+            self.begin, reporting_end, count_distinct=True
         )
         baseline_count = billable_result_before[0][1]
 
-        tool_call_event_uuids: list[str] = []
-        for index in range(2):
-            tool_call_event_uuids.append(
-                _create_event(
-                    event="$mcp_tool_call",
-                    team=self.team,
-                    distinct_id=f"mcp_user_{index}",
-                    timestamp=self.begin + relativedelta(hours=index + 1),
-                    properties={"$lib": "posthog-node-mcp"},
-                )
-            )
+        tool_call_event_uuid = _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$lib": "posthog-node-mcp"},
+        )
         _create_event(
             event="$mcp_tool_call",
             team=self.team,
-            distinct_id="mcp_user_0",
-            event_uuid=tool_call_event_uuids[0],
+            distinct_id="mcp_user",
+            event_uuid=tool_call_event_uuid,
             timestamp=self.begin + relativedelta(hours=1),
             properties={"$lib": "custom-mcp-client"},
+        )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            event_uuid=tool_call_event_uuid,
+            timestamp=self.end + relativedelta(hours=1),
+            properties={"$lib": "posthog-node-mcp"},
         )
         _create_event(
             event="$mcp_initialize",
@@ -5436,8 +5468,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         flush_persons_and_events()
 
-        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
-        event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
+        billable_result_after = get_teams_with_billable_event_count_in_period(
+            self.begin, reporting_end, count_distinct=True
+        )
+        event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
