@@ -59,8 +59,21 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
                     Ok(resp) => {
                         collector.writes.record_success(write_start.elapsed());
                         if resp.person.is_none() {
-                            collector.reads.record_failure();
-                            tracing::warn!(person_id, "person not returned from update");
+                            // The response contract is that updates return
+                            // the updated person; a bare ack is a violation,
+                            // not a skip.
+                            violation_count.fetch_add(1, Ordering::Relaxed);
+                            let mut v = violations.lock().await;
+                            if v.len() < 100 {
+                                v.push(ConsistencyViolation {
+                                    person_id,
+                                    key: "__ack_missing_person".to_string(),
+                                    expected: serde_json::json!(
+                                        "update response carries the person"
+                                    ),
+                                    actual: serde_json::Value::Null,
+                                });
+                            }
                             continue;
                         }
                     }
@@ -209,12 +222,19 @@ pub async fn run_probers(
                         continue;
                     }
                 };
-                let Some(person) = response.person else {
-                    continue;
-                };
                 let mut written = HashMap::new();
                 written.insert(key.clone(), serde_json::Value::String(marker.clone()));
-                state.record_write(person_id, person.version, written).await;
+                match response.person {
+                    Some(person) => {
+                        state.record_write(person_id, person.version, written).await;
+                    }
+                    None => {
+                        // Already flagged as a violation by the journal; the
+                        // keys still get end-of-run verification.
+                        state.record_ack_anomaly(person_id, written).await;
+                        continue;
+                    }
+                }
 
                 let read_start = Instant::now();
                 match client

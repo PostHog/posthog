@@ -74,7 +74,37 @@ impl PersonState {
         }
     }
 
-    /// Ack-version regressions observed while journaling.
+    /// Journal an ack whose response carried no person body. The write is
+    /// acked, so its keys must still be verified like any other — but the
+    /// response contract (updates return the updated person) broke, which
+    /// is itself flagged as a violation. With no version in the response,
+    /// the person's version high-water mark is left untouched.
+    pub async fn record_ack_anomaly(
+        &self,
+        person_id: i64,
+        properties: HashMap<String, serde_json::Value>,
+    ) {
+        let mut journal = self.inner.write().await;
+        journal.regressions.push(ConsistencyViolation {
+            person_id,
+            key: "__ack_missing_person".to_string(),
+            expected: serde_json::json!("update response carries the person"),
+            actual: serde_json::Value::Null,
+        });
+        let entry = journal
+            .persons
+            .entry(person_id)
+            .or_insert_with(|| ExpectedPerson {
+                written_properties: HashMap::new(),
+                last_version: 0,
+            });
+        for (k, v) in properties {
+            entry.written_properties.insert(k, v);
+        }
+    }
+
+    /// Ack-version regressions and response anomalies observed while
+    /// journaling.
     pub async fn take_regressions(&self) -> Vec<ConsistencyViolation> {
         mem::take(&mut self.inner.write().await.regressions)
     }
@@ -221,6 +251,22 @@ mod tests {
         let snapshot = state.snapshot().await;
         let person = &snapshot[&1];
         assert_eq!(person.last_version, 5);
+        assert!(person.written_properties.contains_key("k2"));
+    }
+
+    #[tokio::test]
+    async fn ack_without_person_is_flagged_and_its_keys_still_journaled() {
+        let state = PersonState::new();
+        state.record_write(1, 5, props(&[("k1", "v1")])).await;
+        state.record_ack_anomaly(1, props(&[("k2", "v2")])).await;
+
+        assert_eq!(
+            violation_keys(state.take_regressions().await),
+            vec!["__ack_missing_person"]
+        );
+        let snapshot = state.snapshot().await;
+        let person = &snapshot[&1];
+        assert_eq!(person.last_version, 5, "anomaly must not move the version");
         assert!(person.written_properties.contains_key("k2"));
     }
 

@@ -99,10 +99,13 @@ pub async fn run_traffic(
                 {
                     Ok(resp) => {
                         collector.writes.record_success(start.elapsed());
-                        if let Some(person) = resp.person {
-                            let mut written = HashMap::new();
-                            written.insert(key, serde_json::Value::String(value));
-                            state.record_write(person_id, person.version, written).await;
+                        let mut written = HashMap::new();
+                        written.insert(key, serde_json::Value::String(value));
+                        match resp.person {
+                            Some(person) => {
+                                state.record_write(person_id, person.version, written).await
+                            }
+                            None => state.record_ack_anomaly(person_id, written).await,
                         }
                     }
                     Err(e) => {
