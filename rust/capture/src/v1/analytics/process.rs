@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use common_pipelines::{ChunkStep, StepError, StepResult};
 use metrics::histogram;
 use uuid::Uuid;
 
@@ -22,6 +24,7 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
+use super::pipeline::{CaptureFx, CaptureOutputs, CapturePipeline};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -75,13 +78,14 @@ pub async fn process_batch(
     .await?;
 
     if let Some(ref service) = state.event_restriction_service {
-        apply_restrictions(
-            service,
-            &context.api_token,
-            context.server_received_at.timestamp(),
-            &mut events,
-        )
-        .await;
+        let pipeline = CapturePipeline::builder()
+            .chunk_step(ApplyRestrictions::new(
+                service.clone(),
+                context.api_token.clone(),
+                context.server_received_at.timestamp(),
+            ))
+            .build();
+        super::pipeline::run_in_place(&pipeline, &mut events).await;
     }
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
@@ -540,6 +544,48 @@ fn apply_overflow_stamping(
             }
             OverflowLimiterResult::NotLimited => {}
         }
+    }
+}
+
+/// Framework step wrapping [`apply_restrictions`]. Async (the restriction
+/// service is awaited per event), so it is a whole-chunk [`ChunkStep`]. The step
+/// is intrinsically infallible — it never returns `Err` and never removes an
+/// event; drops/redirects are stamped as per-event state (see
+/// [`super::pipeline`]). Fail-open lives inside `EventRestrictionService` (it
+/// returns an empty restriction set when its config is stale), so no
+/// `fail_open()` wrapper is needed or possible (`WrappedEvent` is not `Clone`).
+pub struct ApplyRestrictions {
+    service: EventRestrictionService,
+    token: String,
+    now_ts: i64,
+}
+
+impl ApplyRestrictions {
+    pub fn new(service: EventRestrictionService, token: String, now_ts: i64) -> Self {
+        Self {
+            service,
+            token,
+            now_ts,
+        }
+    }
+}
+
+#[async_trait]
+impl ChunkStep<WrappedEvent, CaptureFx> for ApplyRestrictions {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    async fn apply_chunk(
+        &self,
+        mut events: Vec<WrappedEvent>,
+        _fx: &mut CaptureFx,
+    ) -> Result<Vec<StepResult<WrappedEvent, CaptureOutputs>>, StepError> {
+        apply_restrictions(&self.service, &self.token, self.now_ts, &mut events).await;
+        Ok(events.into_iter().map(StepResult::Continue).collect())
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_restrictions"
     }
 }
 
