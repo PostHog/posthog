@@ -32,3 +32,11 @@ class CreatedSource(StrEnum):
 
     USER = "user"
     AI_GENERATED = "ai_generated"
+
+
+class CertificationStatus(StrEnum):
+    """Human-vouched trust mark on a warehouse table or view."""
+
+    PROPOSED = "proposed"
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
