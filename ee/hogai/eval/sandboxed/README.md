@@ -166,8 +166,34 @@ async def eval_my_thing(ctx: EvalContext) -> None:
     )
 ```
 
-The harness automatically adds the `ExitCodeZero` scorer to every experiment.
+The harness automatically adds the `ExitCodeZero` scorer to every sandboxed experiment.
 Do not add it to a suite's `scorers` list; the harness rejects duplicates.
+
+For a one-shot suite, declare the kind, build `BaseEvalCase`s, and pass a task function to `OneShotPrivateEval` / `OneShotPublicEval` — the task runs once per case under the global one-shot limiter and returns the scorer `output` dict directly:
+
+```python
+from ee.hogai.eval.sandboxed.config import BaseEvalCase
+from ee.hogai.eval.sandboxed.harness.context import EvalContext
+from ee.hogai.eval.sandboxed.harness.requirements import SuiteKind
+from ee.hogai.eval.sandboxed.one_shot import OneShotPrivateEval
+
+SUITE_KIND = SuiteKind.ONE_SHOT
+
+
+async def eval_my_generation(ctx: EvalContext) -> None:
+    async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
+        return {"answer": ...}  # one model invocation; JSON-serializable
+
+    await OneShotPrivateEval(
+        experiment_name="my-generation",
+        cases=[BaseEvalCase(name="my_case", prompt="...")],
+        scorers=[...],
+        task=task,
+        ctx=ctx,
+    )
+```
+
+The reference one-shot suite is [`mcp_benchmark/eval_mcp_sql.py`](mcp_benchmark/eval_mcp_sql.py), which ports the `sql` category of the MCP agent-experience benchmark (`services/mcp/evals/benchmark/tasks.yaml`): one Anthropic generation produces a HogQL query, executed in-process against the master Hedgebox team and judged against the benchmark's success criteria.
 
 Bundle related cases into one suite function rather than splitting them across many.
 One suite is one Braintrust experiment, which is what makes cross-case comparison and `--eval` filtering useful.
