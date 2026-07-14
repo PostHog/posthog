@@ -198,13 +198,29 @@ class TestFetchPageRetries:
         response = MagicMock()
         response.status_code = 404
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("404 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
 
         with pytest.raises(requests.HTTPError):
             vantage._fetch_page(session, f"{VANTAGE_BASE_URL}/cost_reports", {}, MagicMock())
         assert session.get.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("off_host", "https://evil.example.com/v2/cost_reports"),
+            ("subdomain_lookalike", "https://api.vantage.sh.evil.example.com/v2/cost_reports"),
+            ("plain_http", "http://api.vantage.sh/v2/cost_reports"),
+            ("wrong_path_prefix", "https://api.vantage.sh/internal/cost_reports"),
+        ]
+    )
+    def test_untrusted_url_is_refused_without_sending_token(self, _name: str, url: str) -> None:
+        # `links.next` is server-controlled; the bearer token must never leave Vantage's own host,
+        # so an off-host/non-HTTPS URL is refused before any request (and thus any auth header) goes out.
+        session = MagicMock()
+        with pytest.raises(vantage.VantageUntrustedURLError):
+            vantage._fetch_page(session, url, {"Authorization": "Bearer tok"}, MagicMock())
+        session.get.assert_not_called()
 
 
 class TestSourceResponse:

@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -16,7 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.se
     VantageEndpointConfig,
 )
 
-VANTAGE_BASE_URL = "https://api.vantage.sh/v2"
+VANTAGE_HOST = "api.vantage.sh"
+VANTAGE_BASE_URL = f"https://{VANTAGE_HOST}/v2"
 
 # The Vantage API caps `limit` at 1000; use the max to minimise the number of paginated requests
 # (and thus stay well under the ~1,000 requests/hour and ~20 requests/minute per-key rate limits).
@@ -25,6 +26,22 @@ PAGE_SIZE = 1000
 
 class VantageRetryableError(Exception):
     pass
+
+
+class VantageUntrustedURLError(Exception):
+    pass
+
+
+def _is_trusted_vantage_url(url: str) -> bool:
+    # `links.next` (and any resumed cursor derived from it) is server-controlled data. Before we
+    # attach the bearer token and fetch it, pin the URL to Vantage's own HTTPS host and `/v2/` API
+    # path so a spoofed or compromised response can't redirect the credential to an
+    # attacker-controlled origin.
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and parsed.hostname == VANTAGE_HOST and parsed.path.startswith("/v2/")
 
 
 @dataclasses.dataclass
@@ -47,7 +64,7 @@ def validate_credentials(api_key: str) -> bool:
     # Cost Report rate limits).
     url = f"{VANTAGE_BASE_URL}/ping"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -69,6 +86,11 @@ def validate_credentials(api_key: str) -> bool:
 def _fetch_page(
     session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> dict:
+    if not _is_trusted_vantage_url(page_url):
+        raise VantageUntrustedURLError(
+            f"Refusing to fetch untrusted Vantage URL: host must be {VANTAGE_HOST} over HTTPS"
+        )
+
     response = session.get(page_url, headers=headers, timeout=60)
 
     # 429 (rate limited) and 5xx are transient - retry with backoff. Vantage returns rate-limit
@@ -96,8 +118,10 @@ def get_rows(
     config = VANTAGE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # Reuse one session across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Reuse one session across every page so urllib3 keeps the connection alive. Redact the token
+    # from logged URLs/samples, and never follow redirects - a valid `links.next` that 3xx-redirects
+    # off-host would otherwise forward the bearer token to the redirect target.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
