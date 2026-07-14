@@ -1,4 +1,4 @@
-import { buildScatterData } from './scatterUtils'
+import { buildScatterData, describeSkippedRows } from './scatterUtils'
 
 describe('buildScatterData', () => {
     const columnIndexes = { org: 0, gb_ingested: 1, query_count: 2 }
@@ -15,8 +15,8 @@ describe('buildScatterData', () => {
         )
 
         expect(points).toEqual([
-            { x: 10, y: 100, label: 'Org A' },
-            { x: 20, y: 200, label: 'Org B' },
+            { x: 10, y: 100, label: 'Org A', xDisplay: '10', yDisplay: '100' },
+            { x: 20, y: 200, label: 'Org B', xDisplay: '20', yDisplay: '200' },
         ])
         expect(skippedRowCount).toBe(0)
     })
@@ -24,7 +24,15 @@ describe('buildScatterData', () => {
     it('coerces numeric strings to numbers', () => {
         const { points } = buildScatterData([['Org A', '10.5', '100']], settings, columnIndexes)
 
-        expect(points).toEqual([{ x: 10.5, y: 100, label: 'Org A' }])
+        expect(points).toEqual([{ x: 10.5, y: 100, label: 'Org A', xDisplay: '10.5', yDisplay: '100' }])
+    })
+
+    it('keeps exact digits for integers beyond the JS safe-integer range', () => {
+        // Int64/UInt64 aggregates arrive as numeric strings; Number() would round them
+        const { points } = buildScatterData([['Org A', '9007199254740993', 100]], settings, columnIndexes)
+
+        expect(points[0].xDisplay).toBe('9007199254740993')
+        expect(points[0].yDisplay).toBe('100')
     })
 
     test.each([
@@ -53,7 +61,7 @@ describe('buildScatterData', () => {
         expect(linear.skippedRowCount).toBe(0)
 
         const log = buildScatterData(rows, { ...settings, xLogScale: true }, columnIndexes)
-        expect(log.points).toEqual([{ x: 10, y: 300, label: 'Org C' }])
+        expect(log.points).toEqual([{ x: 10, y: 300, label: 'Org C', xDisplay: '10', yDisplay: '300' }])
         expect(log.skippedRowCount).toBe(2)
     })
 
@@ -75,6 +83,21 @@ describe('buildScatterData', () => {
             columnIndexes
         )
 
-        expect(points).toEqual([{ x: 10, y: 100, label: null }])
+        expect(points).toEqual([{ x: 10, y: 100, label: null, xDisplay: '10', yDisplay: '100' }])
+    })
+})
+
+describe('describeSkippedRows', () => {
+    test.each([
+        [0, false, ''],
+        [1, false, '1 row was skipped because the X or Y value is missing or not numeric.'],
+        [2, false, '2 rows were skipped because the X or Y value is missing or not numeric.'],
+        [
+            2,
+            true,
+            '2 rows were skipped because the X or Y value is missing or not numeric, or not positive on a logarithmic scale.',
+        ],
+    ])('describes %d skipped rows (log scale: %s)', (count, hasLogScale, expected) => {
+        expect(describeSkippedRows(count, hasLogScale)).toBe(expected)
     })
 })

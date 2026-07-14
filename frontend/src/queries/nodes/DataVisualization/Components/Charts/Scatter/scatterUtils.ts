@@ -4,6 +4,10 @@ export interface ScatterPoint {
     x: number
     y: number
     label: string | null
+    // exact source text for the tooltip — plotting coerces to a JS number, which loses precision
+    // for Int64/UInt64 aggregates beyond Number.MAX_SAFE_INTEGER
+    xDisplay: string
+    yDisplay: string
 }
 
 export interface ScatterData {
@@ -23,6 +27,25 @@ const parseNumericValue = (value: unknown): number | null => {
     }
 
     return numericValue
+}
+
+const formatDisplayValue = (value: unknown, numericValue: number): string => {
+    // Int64/UInt64 columns arrive as numeric strings; keep their exact digits when the magnitude
+    // exceeds the JS safe-integer range, otherwise Number(value) has already rounded them
+    if (typeof value === 'string' && Math.abs(numericValue) > Number.MAX_SAFE_INTEGER) {
+        return value.trim()
+    }
+    return numericValue.toLocaleString()
+}
+
+export const describeSkippedRows = (skippedRowCount: number, hasLogScale: boolean): string => {
+    if (skippedRowCount === 0) {
+        return ''
+    }
+
+    return `${skippedRowCount} row${skippedRowCount === 1 ? ' was' : 's were'} skipped because the X or Y value is missing or not numeric${
+        hasLogScale ? ', or not positive on a logarithmic scale' : ''
+    }.`
 }
 
 export const buildScatterData = (
@@ -62,6 +85,8 @@ export const buildScatterData = (
             x,
             y,
             label: labelValue === null || labelValue === undefined ? null : String(labelValue),
+            xDisplay: formatDisplayValue(row[xIndex], x),
+            yDisplay: formatDisplayValue(row[yIndex], y),
         })
     })
 
