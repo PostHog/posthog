@@ -81,6 +81,7 @@ The chosen provider must reach `settings.SANDBOX_PROVIDER` **before `django.setu
 `products.tasks` resolves the sandbox class from that setting exactly once and caches it in module globals, so the first `Sandbox` access wins for the whole process.
 `.env` ships `SANDBOX_PROVIDER=docker`, so setting it late let a `--provider modal` run cache `DockerSandbox` and execute the agent in a local container while still pointing it at the ngrok URLs.
 Docker mode hid this because the cached value already matched.
+Modal evals use the `MODAL_EVALS` backend, whose sandbox class is pinned to the `posthog-sandbox-evals` Modal app.
 
 `PERSONHOG_ADDR` follows the same rule for the same reason: the personhog client is a cached singleton keyed off settings at its first call, and bootstrap-phase reads run before the async-phase `override_settings`.
 `__main__` therefore sets it in the environment before `django.setup()`, pointing at the harness's own router on 15052 — which also shields the run from a `PERSONHOG_ADDR` leaked out of a sourced dev `.env`, where reads would silently hit the dev persons DB.

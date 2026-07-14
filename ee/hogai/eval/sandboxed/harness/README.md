@@ -73,7 +73,7 @@ The Temporal worker keeps its own loop on a daemon thread, and the two communica
 
 |                     | docker                        | modal                     |
 | ------------------- | ----------------------------- | ------------------------- |
-| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_DOCKER`            |
+| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`             |
 | Service URLs        | `host.docker.internal:<port>` | ngrok public URLs         |
 | `start()`           | base-image freshness check    | ngrok tunnels             |
 | Local skills        | bind-mounted                  | baked into the image      |
@@ -82,6 +82,6 @@ The Temporal worker keeps its own loop on a daemon thread, and the two communica
 | Per-case safety net | container sweep               | task-tagged sandbox sweep |
 | End-of-run cleanup  | container sweep               | task-tagged sandbox sweep |
 
-`MODAL_DOCKER` is the same `ModalSandbox` class under a dedicated Modal app name, so local DEBUG image builds do not pollute the production app's image cache.
+`MODAL_EVALS` is the same `ModalSandbox` class under the dedicated `posthog-sandbox-evals` app, so eval image builds do not share an image cache with production or local development sandboxes.
 
 The modal TTL override exists because under `TEST=1` the sandbox TTL equals the default per-case timeout, which would let Modal reap a slow case's sandbox exactly as it was finishing.

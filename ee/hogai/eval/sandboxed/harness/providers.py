@@ -18,11 +18,11 @@ SandboxProvider = Literal["docker", "modal"]
 
 SANDBOX_PROVIDER_SETTING: dict[SandboxProvider, str] = {
     "docker": "docker",
-    "modal": "MODAL_DOCKER",
+    "modal": "MODAL_EVALS",
 }
 """Value each provider writes to ``settings.SANDBOX_PROVIDER``, which selects the
-sandbox class in ``products.tasks``. ``modal`` maps to ``MODAL_DOCKER``: a
-``ModalSandbox`` subclass pinned to a dedicated Modal app.
+sandbox class in ``products.tasks``. ``modal`` maps to ``MODAL_EVALS``: a
+``ModalSandbox`` subclass pinned to the ``posthog-sandbox-evals`` Modal app.
 
 ``__main__`` sets this in the environment before ``django.setup()``. It must be
 correct before the *first* ``Sandbox`` access, because ``products.tasks`` resolves
@@ -78,12 +78,12 @@ def cleanup_case_containers(task_id: str) -> None:
 
 def _modal_eval_app_name() -> str:
     """Name of the dedicated Modal app the eval sandboxes run under (the
-    ``MODAL_DOCKER`` provider), read from its source of truth in ``products.tasks``."""
+    ``MODAL_EVALS`` provider), read from its source of truth in ``products.tasks``."""
     from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — Django import, kept off the harness import path
         get_sandbox_class_for_backend,
     )
 
-    app_name = getattr(get_sandbox_class_for_backend("MODAL_DOCKER"), "DEFAULT_APP_NAME", "")
+    app_name = getattr(get_sandbox_class_for_backend("MODAL_EVALS"), "DEFAULT_APP_NAME", "")
     return app_name if isinstance(app_name, str) else ""
 
 
@@ -234,10 +234,9 @@ class DockerProviderStrategy(SandboxProviderStrategy):
 class ModalProviderStrategy(SandboxProviderStrategy):
     """Remote Modal sandboxes, reached from Modal's network through ngrok tunnels.
 
-    Runs under the ``MODAL_DOCKER`` provider — the same ``ModalSandbox`` class
-    against a dedicated Modal app, so the DEBUG-mode local image builds (which
-    bake the freshly built local skills into the image) don't pollute the
-    production app's image cache.
+    Runs under the ``MODAL_EVALS`` provider — the same ``ModalSandbox`` class
+    against the ``posthog-sandbox-evals`` app, so DEBUG-mode eval image builds
+    don't share an image cache with production or local development sandboxes.
     """
 
     name: ClassVar[SandboxProvider] = "modal"
