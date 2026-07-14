@@ -139,17 +139,17 @@ def run_wizard_audit(input: RunWizardAuditInput) -> None:
 
             if result.exit_code != 0:
                 detail = (result.stdout or "").strip()[-2000:] or (result.stderr or "").strip()[-2000:]
-                emit_agent_log(ctx.run_id, "warning", f"Setup audit failed (exit {result.exit_code}): {detail}")
+                emit_agent_log(ctx.run_id, "warn", f"Setup audit failed (exit {result.exit_code}): {detail}")
                 return
 
             ledger = sandbox.execute(f"cat {shlex.quote(f'{repo_path}/{AUDIT_CHECKS_FILE}')} 2>/dev/null || true")
             checks = _parse_checks(ledger.stdout) if ledger.stdout.strip() else []
             if not checks:
-                emit_agent_log(ctx.run_id, "warning", "Setup audit produced no check ledger")
+                emit_agent_log(ctx.run_id, "warn", "Setup audit produced no check ledger")
                 return
 
             _persist_checks(ctx.run_id, checks)
             emit_agent_log(ctx.run_id, "info", f"Setup audit completed with {len(checks)} checks")
         except Exception:
             logger.warning("run_wizard_audit_failed", exc_info=True)
-            emit_agent_log(ctx.run_id, "warning", "Setup audit did not complete; skipping setup-review signals")
+            emit_agent_log(ctx.run_id, "warn", "Setup audit did not complete; skipping setup-review signals")
