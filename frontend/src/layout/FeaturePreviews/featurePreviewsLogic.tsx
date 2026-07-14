@@ -28,7 +28,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [supportLogic, ['submitZendeskTicket'], teamLogic, ['addProductIntentForCrossSell']],
+        actions: [supportLogic, ['submitSupportTicket'], teamLogic, ['addProductIntentForCrossSell']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -63,14 +63,19 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                     if (!values.activeFeedbackFlagKey) {
                         throw new Error('Cannot submit early access feature feedback without an active flag key')
                     }
-                    await supportLogic.asyncActions.submitZendeskTicket({
+                    const feature = values.rawEarlyAccessFeatures.find(
+                        (f) => f.flagKey === values.activeFeedbackFlagKey
+                    )
+                    await supportLogic.asyncActions.submitSupportTicket({
                         name: values.user.first_name,
                         email: values.user.email,
                         kind: 'feedback',
                         // NOTE: We don't know which area the flag should be - for now we just override it to be the key...
                         target_area: values.activeFeedbackFlagKey as any,
                         severity_level: 'low',
-                        message,
+                        // The feature identity must live in the message itself: conversations tickets
+                        // carry no target_area, so without this the feedback arrives context-free
+                        message: `Feedback on feature preview "${feature?.name ?? values.activeFeedbackFlagKey}":\n\n${message}`,
                     })
                     return null
                 },
