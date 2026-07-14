@@ -23,6 +23,9 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     CLASS_DATA_LEVEL_SETUP = True
 
+    current_a: datetime
+    current_b: datetime
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
