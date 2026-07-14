@@ -34,12 +34,6 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -50,12 +44,6 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -66,28 +54,6 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
-})
-
-export const domainsVerifyCreateBodyDomainMax = 128
-
-export const domainsVerifyCreateBodySsoEnforcementMax = 28
-
-export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
-    domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
-    jit_provisioning_enabled: zod.boolean().optional(),
-    sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const identityProviderConfigsCreateBodyNameMax = 255
@@ -241,6 +207,20 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .array(zod.string().max(identityProviderConfigsPartialUpdateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+})
+
+export const IdentityProviderConfigsDomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    kind: zod
+        .enum(['saml', 'scim', 'id_jag'])
+        .describe('\* `saml` - SAML\n\* `scim` - SCIM\n\* `id_jag` - XAA')
+        .optional()
+        .describe(
+            'IdP feature the selected domains use this config for.\n\n\* `saml` - SAML\n\* `scim` - SCIM\n\* `id_jag` - XAA'
+        ),
+    domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs to assign to this config for the selected feature.'),
 })
 
 export const invitesCreateBodyTargetEmailMax = 254

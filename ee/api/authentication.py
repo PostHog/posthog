@@ -4,6 +4,7 @@ import base64
 from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from django.http.response import HttpResponse
 from django.urls.base import reverse
 
@@ -34,6 +35,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.models.identity_provider_config import IdentityProviderConfigKind
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -132,8 +134,21 @@ class MultitenantSAMLAuth(SAMLAuth):
         # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
         matches = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
-            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
+            OrganizationDomain.objects.verified_domains()
+            .filter(
+                Q(
+                    identity_provider_config_mappings__kind=IdentityProviderConfigKind.SAML,
+                    identity_provider_config_mappings__identity_provider_config__saml_entity_id=issuer,
+                )
+                | Q(identity_provider_config__saml_entity_id=issuer)
+            )
+            .distinct()
         )
+        if len(matches) > 1:
+            email = self._extract_response_email(saml_response)
+            if email:
+                email_domain = email.rsplit("@", 1)[-1].lower()
+                matches = [domain for domain in matches if domain.domain.lower() == email_domain]
         if len(matches) != 1:
             if len(matches) > 1:
                 saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(matches))
@@ -181,6 +196,30 @@ class MultitenantSAMLAuth(SAMLAuth):
             return None
         return (OneLogin_Saml2_XML.element_text(issuer_nodes[0]) or "").strip() or None
 
+    @staticmethod
+    def _extract_response_email(saml_response_b64: str) -> str | None:
+        try:
+            document = OneLogin_Saml2_XML.to_etree(base64.b64decode(saml_response_b64))
+        except Exception:
+            return None
+
+        email_attribute_names = {"email", "mail", OID_MAIL}
+        for attribute in document.xpath("//*[local-name()='Attribute']"):
+            if (attribute.get("Name") or "").lower() not in email_attribute_names:
+                continue
+            values = attribute.xpath("./*[local-name()='AttributeValue']")
+            if values:
+                email = (OneLogin_Saml2_XML.element_text(values[0]) or "").strip()
+                if "@" in email:
+                    return email
+
+        name_ids = document.xpath("//*[local-name()='NameID']")
+        if name_ids:
+            email = (OneLogin_Saml2_XML.element_text(name_ids[0]) or "").strip()
+            if "@" in email:
+                return email
+        return None
+
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
         if organization_domain_or_id is None:
             saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
@@ -208,7 +247,9 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
-        idp_config = organization_domain.idp_config
+        idp_config = organization_domain.saml_config
+        if idp_config is None or not idp_config.has_saml:
+            raise AuthFailed(self, "SAML is not configured for this domain.")
         return SAMLIdentityProvider(
             self,
             str(organization_domain.id),

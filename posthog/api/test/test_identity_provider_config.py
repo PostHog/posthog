@@ -3,7 +3,14 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import IdentityProviderConfig, Organization, OrganizationMembership
+from posthog.models import (
+    IdentityProviderConfig,
+    IdentityProviderConfigDomain,
+    IdentityProviderConfigKind,
+    Organization,
+    OrganizationDomain,
+    OrganizationMembership,
+)
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
@@ -70,6 +77,61 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertTrue(response.json()["has_saml"])
         config.refresh_from_db()
         self.assertEqual(config.saml_entity_id, "entity-id")
+
+    def test_can_assign_feature_configs_to_multiple_domains(self):
+        self._make_admin()
+        first_domain = OrganizationDomain.objects.create(organization=self.organization, domain="posthog.com")
+        second_domain = OrganizationDomain.objects.create(organization=self.organization, domain="posthog.dev")
+        saml_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert",
+        )
+        xaa_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            id_jag_issuer_url="https://idp.example.com",
+        )
+
+        saml_response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{saml_config.id}/domains/",
+            {"kind": IdentityProviderConfigKind.SAML, "domain_ids": [first_domain.id, second_domain.id]},
+        )
+        xaa_response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{xaa_config.id}/domains/",
+            {"kind": IdentityProviderConfigKind.ID_JAG, "domain_ids": [first_domain.id]},
+        )
+
+        self.assertEqual(saml_response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(saml_response.json()["saml_domain_ids"], [str(first_domain.id), str(second_domain.id)])
+        self.assertEqual(xaa_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(xaa_response.json()["id_jag_domain_ids"], [str(first_domain.id)])
+        self.assertEqual(
+            IdentityProviderConfigDomain.objects.get(
+                organization_domain=first_domain, kind=IdentityProviderConfigKind.SAML
+            ).identity_provider_config,
+            saml_config,
+        )
+        self.assertEqual(
+            IdentityProviderConfigDomain.objects.get(
+                organization_domain=first_domain, kind=IdentityProviderConfigKind.ID_JAG
+            ).identity_provider_config,
+            xaa_config,
+        )
+
+    def test_domain_assignment_rejects_other_organization(self):
+        self._make_admin()
+        other_org = Organization.objects.create(name="Other")
+        other_domain = OrganizationDomain.objects.create(organization=other_org, domain="other.example.com")
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/domains/",
+            {"kind": IdentityProviderConfigKind.SAML, "domain_ids": [other_domain.id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(IdentityProviderConfigDomain.objects.exists())
 
     # SCIM
 

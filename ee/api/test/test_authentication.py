@@ -21,7 +21,11 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import (
+    IdentityProviderConfig,
+    IdentityProviderConfigDomain,
+    IdentityProviderConfigKind,
+)
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.authentication import CustomGoogleOAuth2
@@ -513,6 +517,36 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_idp_initiated_saml_selects_matching_domain_for_shared_config(self) -> None:
+        config = self.organization_domain.identity_provider_config
+        IdentityProviderConfigDomain.objects.create(
+            organization=self.organization,
+            identity_provider_config=config,
+            organization_domain=self.organization_domain,
+            kind=IdentityProviderConfigKind.SAML,
+        )
+        other_domain = OrganizationDomain.objects.create(
+            domain="example.com",
+            verified_at=timezone.now(),
+            organization=self.organization,
+        )
+        IdentityProviderConfigDomain.objects.create(
+            organization=self.organization,
+            identity_provider_config=config,
+            organization_domain=other_domain,
+            kind=IdentityProviderConfigKind.SAML,
+        )
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as response_file:
+            saml_response = response_file.read()
+
+        response = self.client.post("/complete/saml/", {"SAMLResponse": saml_response}, follow=True, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(user.pk))
 
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):

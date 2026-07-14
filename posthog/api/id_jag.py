@@ -280,7 +280,9 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    idp_config = org_domain.idp_config
+    idp_config = org_domain.id_jag_config
+    if idp_config is None:
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = org_domain.domain
 

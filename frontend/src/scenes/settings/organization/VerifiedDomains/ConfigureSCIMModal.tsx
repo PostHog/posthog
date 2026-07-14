@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { Form } from 'kea-forms'
 
 import { IconRefresh } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -8,139 +8,100 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 
+import { IdentityProviderDomainPicker } from './IdentityProviderDomainPicker'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureSCIMModal(): JSX.Element {
-    const { configureSCIMModalId, scimConfig, scimConfigLoading } = useValues(verifiedDomainsLogic)
-    const { setConfigureSCIMModalId, enableScim, disableScim, regenerateScimToken } = useActions(verifiedDomainsLogic)
-    const [tokenJustRevealed, setTokenJustRevealed] = useState(false)
-
-    const handleClose = (): void => {
-        setConfigureSCIMModalId(null)
-        setTokenJustRevealed(false)
-    }
-
-    const handleToggleScim = async (): Promise<void> => {
-        if (!configureSCIMModalId) {
-            return
-        }
-
-        if (scimConfig.scim_enabled) {
-            LemonDialog.open({
-                title: 'Disable SCIM?',
-                description:
-                    'Your identity provider will no longer be able to manage users. SAML authentication will continue to work.',
-                primaryButton: {
-                    status: 'danger',
-                    children: 'Disable SCIM',
-                    onClick: async () => {
-                        await disableScim(configureSCIMModalId)
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
-        } else {
-            await enableScim(configureSCIMModalId)
-            setTokenJustRevealed(true)
-        }
-    }
-
-    const handleRegenerateToken = async (): Promise<void> => {
-        if (!configureSCIMModalId) {
-            return
-        }
-
-        LemonDialog.open({
-            title: 'Regenerate SCIM token?',
-            description:
-                'This will invalidate the current token. You will need to update your identity provider with the new token.',
-            primaryButton: {
-                status: 'danger',
-                children: 'Regenerate token',
-                onClick: async () => {
-                    await regenerateScimToken(configureSCIMModalId)
-                    setTokenJustRevealed(true)
-                },
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
-
-    const showToken = tokenJustRevealed && scimConfig.scim_bearer_token
+    const { configureSCIMModalId, isScimConfigSubmitting, scimConfig, scimPlaintextToken, verifiedDomainsList } =
+        useValues(verifiedDomainsLogic)
+    const { regenerateScimToken, setConfigureSCIMModalId } = useActions(verifiedDomainsLogic)
+    const selectedDomains = verifiedDomainsList.filter(({ id }) => scimConfig.domain_ids.includes(id))
 
     return (
-        <LemonModal onClose={handleClose} isOpen={!!configureSCIMModalId} title="" simple>
-            <div className="LemonModal__layout">
+        <LemonModal onClose={() => setConfigureSCIMModalId(null)} isOpen={!!configureSCIMModalId} title="" simple>
+            <Form logic={verifiedDomainsLogic} formKey="scimConfig" enableFormOnSubmit className="LemonModal__layout">
                 <LemonModal.Header>
-                    <h3>Configure SCIM provisioning</h3>
+                    <h3>{scimConfig.id ? 'Edit SCIM configuration' : 'Add SCIM configuration'}</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="space-y-2">
+                <LemonModal.Content className="deprecated-space-y-2">
                     <p>
-                        <Link to="https://posthog.com/docs/data/sso#setting-up-scim" target="_blank" targetBlankIcon>
+                        Use one bearer token for every domain provisioned by this SCIM connection.{' '}
+                        <Link to="https://posthog.com/docs/data/sso/scim" target="_blank" targetBlankIcon>
                             Read the docs
                         </Link>
                     </p>
-
-                    <LemonSwitch
-                        checked={scimConfig.scim_enabled ?? false}
-                        onChange={handleToggleScim}
-                        disabled={scimConfigLoading}
-                        label="Enable SCIM"
-                    />
-
-                    {scimConfig.scim_enabled && (
-                        <>
-                            <div>
-                                <LemonLabel className="block mb-1">SCIM Base URL</LemonLabel>
-                                <CopyToClipboardInline description="SCIM base URL">
-                                    {scimConfig.scim_base_url || ''}
-                                </CopyToClipboardInline>
+                    <LemonField name="name" label="Configuration name">
+                        <LemonInput placeholder="Okta provisioning" />
+                    </LemonField>
+                    <IdentityProviderDomainPicker />
+                    <LemonField name="scim_enabled" label="Provisioning status">
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value || false}
+                                onChange={onChange}
+                                label={value ? 'SCIM provisioning enabled' : 'SCIM provisioning disabled'}
+                            />
+                        )}
+                    </LemonField>
+                    {selectedDomains.length > 0 && (
+                        <div className="rounded border p-3 space-y-2">
+                            <h4>SCIM base URLs</h4>
+                            {selectedDomains.map((domain) => (
+                                <div key={domain.id} className="flex flex-col gap-1">
+                                    <span className="font-semibold">{domain.domain}</span>
+                                    {domain.scim_base_url ? (
+                                        <CopyToClipboardInline>{domain.scim_base_url}</CopyToClipboardInline>
+                                    ) : (
+                                        <span className="text-muted">
+                                            Save and enable this configuration to generate the URL.
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {scimPlaintextToken && (
+                        <LemonBanner type="success">
+                            <div className="space-y-2">
+                                <p>Copy this bearer token now. It will not be shown again.</p>
+                                <CopyToClipboardInline>{scimPlaintextToken}</CopyToClipboardInline>
                             </div>
-
-                            <div>
-                                <LemonLabel className="block mb-1">Bearer Token</LemonLabel>
-                                {showToken ? (
-                                    <>
-                                        <CopyToClipboardInline description="Bearer token">
-                                            {scimConfig.scim_bearer_token || ''}
-                                        </CopyToClipboardInline>
-                                        <LemonBanner type="warning" className="my-2">
-                                            Save this token, it will only be shown once.
-                                        </LemonBanner>
-                                    </>
-                                ) : (
-                                    <>
-                                        <p className="text-muted">
-                                            The bearer token is only displayed once when generated.
-                                        </p>
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={handleRegenerateToken}
-                                            icon={<IconRefresh />}
-                                            loading={scimConfigLoading}
-                                        >
-                                            Regenerate token
-                                        </LemonButton>
-                                    </>
-                                )}
-                            </div>
-                        </>
+                        </LemonBanner>
+                    )}
+                    {scimConfig.id && scimConfig.scim_enabled && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: 'Regenerate SCIM bearer token?',
+                                    description: 'The current token will stop working immediately.',
+                                    primaryButton: {
+                                        children: 'Regenerate token',
+                                        onClick: () => regenerateScimToken(scimConfig.id as string),
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }
+                        >
+                            Regenerate token
+                        </LemonButton>
                     )}
                 </LemonModal.Content>
                 <LemonModal.Footer>
-                    <LemonButton type="secondary" onClick={handleClose}>
+                    <LemonButton type="secondary" onClick={() => setConfigureSCIMModalId(null)}>
                         Close
                     </LemonButton>
+                    <LemonButton loading={isScimConfigSubmitting} type="primary" htmlType="submit">
+                        Save configuration
+                    </LemonButton>
                 </LemonModal.Footer>
-            </div>
+            </Form>
         </LemonModal>
     )
 }

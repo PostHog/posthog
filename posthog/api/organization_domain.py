@@ -5,20 +5,19 @@ from django.db.models import Q, QuerySet
 
 import django_filters
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
-from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
@@ -26,12 +25,6 @@ from ee.api.scim.utils import get_scim_base_url, mask_email, mask_string
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
-
-
-class _OrgScopedIdentityProviderConfigField(OrgScopedPrimaryKeyRelatedField):
-    # IdentityProviderConfig has a direct `organization` FK (not via team), so scope on it
-    # directly. Scoping prevents linking a domain to (or probing) another org's config.
-    scope_field = "organization"
 
 
 def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, properties: dict | None = None) -> None:
@@ -61,11 +54,14 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
     }
 
     scim_base_url = serializers.SerializerMethodField()
-    identity_provider_config = _OrgScopedIdentityProviderConfigField(
-        queryset=IdentityProviderConfig.objects.all(),
-        required=False,
-        allow_null=True,
-        help_text="Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.",
+    saml_identity_provider_config_id = serializers.UUIDField(
+        source="saml_config.id", read_only=True, allow_null=True, help_text="SAML config assigned to this domain."
+    )
+    scim_identity_provider_config_id = serializers.UUIDField(
+        source="scim_config.id", read_only=True, allow_null=True, help_text="SCIM config assigned to this domain."
+    )
+    id_jag_identity_provider_config_id = serializers.UUIDField(
+        source="id_jag_config.id", read_only=True, allow_null=True, help_text="XAA config assigned to this domain."
     )
 
     class Meta:
@@ -82,7 +78,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_scim",
             "scim_base_url",
             "has_id_jag",
-            "identity_provider_config",
+            "saml_identity_provider_config_id",
+            "scim_identity_provider_config_id",
+            "id_jag_identity_provider_config_id",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
@@ -208,8 +206,13 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
-    queryset = OrganizationDomain.objects.order_by("domain").all()
+    queryset = (
+        OrganizationDomain.objects.select_related("identity_provider_config")
+        .prefetch_related("identity_provider_config_mappings__identity_provider_config")
+        .order_by("domain")
+    )
 
+    @extend_schema(request=None, responses=OrganizationDomainSerializer)
     @action(methods=["POST"], detail=True)
     def verify(self, request: request.Request, **kw) -> response.Response:
         instance = self.get_object()
@@ -274,6 +277,22 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         instance.delete()
         return response.Response(status=204)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("status_min", OpenApiTypes.INT, description="Minimum response status."),
+            OpenApiParameter("status_max", OpenApiTypes.INT, description="Maximum response status."),
+            OpenApiParameter("search", OpenApiTypes.STR, description="Search request paths and masked request bodies."),
+            OpenApiParameter(
+                "after", OpenApiTypes.DATETIME, description="Only include requests at or after this time."
+            ),
+            OpenApiParameter(
+                "before", OpenApiTypes.DATETIME, description="Only include requests at or before this time."
+            ),
+            OpenApiParameter("page", OpenApiTypes.INT, description="Page number."),
+            OpenApiParameter("page_size", OpenApiTypes.INT, description="Results per page, up to 100."),
+        ],
+        responses=SCIMRequestLogSerializer(many=True),
+    )
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs) -> response.Response:
         membership = OrganizationMembership.objects.filter(

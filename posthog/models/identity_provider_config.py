@@ -1,4 +1,5 @@
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 from django.db import models
 
 import structlog
@@ -9,14 +10,20 @@ from posthog.models.utils import UUIDModel
 logger = structlog.get_logger(__name__)
 
 
+class IdentityProviderConfigKind(models.TextChoices):
+    SAML = "saml", "SAML"
+    SCIM = "scim", "SCIM"
+    ID_JAG = "id_jag", "XAA"
+
+
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.
 
     Groups IdP-specific settings — SAML, SCIM, and ID-JAG (XAA) today, custom SSO in the
     future — in one place, decoupled from any single domain. One config can be mapped to
-    multiple `OrganizationDomain` rows (via `OrganizationDomain.identity_provider_config`),
-    and an organization can have zero, one, or many configs.
+    multiple `OrganizationDomain` rows through typed `IdentityProviderConfigDomain` mappings,
+    and an organization can have zero, one, or many configs for each supported feature.
 
     This model is the sole read/write interface for IdP settings (SAML/SCIM/ID-JAG). The legacy
     IdP columns on `OrganizationDomain` are no longer written to — they're frozen.
@@ -35,8 +42,8 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     # ---- SAML attributes ----
-    # Field shapes intentionally mirror `OrganizationDomain` (including nullability) so
-    # values can be copied verbatim while domains remain the source of truth.
+    # Field shapes intentionally mirror the legacy `OrganizationDomain` fields so existing
+    # values can be copied without lossy transformations during the rollout.
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
@@ -95,3 +102,38 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         Returns whether ID-JAG (XAA) is configured.
         """
         return bool(self.id_jag_issuer_url)
+
+
+class IdentityProviderConfigDomain(UUIDModel):
+    organization = models.ForeignKey(
+        "posthog.Organization", on_delete=models.CASCADE, related_name="identity_provider_config_domain_mappings"
+    )
+    identity_provider_config = models.ForeignKey(
+        IdentityProviderConfig, on_delete=models.CASCADE, related_name="domain_mappings"
+    )
+    organization_domain = models.ForeignKey(
+        "posthog.OrganizationDomain", on_delete=models.CASCADE, related_name="identity_provider_config_mappings"
+    )
+    kind = models.CharField(max_length=16, choices=IdentityProviderConfigKind.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "identity provider config domain mapping"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization_domain", "kind"), name="unique_idp_config_kind_per_organization_domain"
+            ),
+        ]
+
+    def clean(self) -> None:
+        errors: dict[str, str] = {}
+        if self.identity_provider_config_id and self.identity_provider_config.organization_id != self.organization_id:
+            errors["identity_provider_config"] = "The identity provider config must belong to this organization."
+        if self.organization_domain_id and self.organization_domain.organization_id != self.organization_id:
+            errors["organization_domain"] = "The organization domain must belong to this organization."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
