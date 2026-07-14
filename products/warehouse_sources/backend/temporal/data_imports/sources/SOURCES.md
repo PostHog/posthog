@@ -402,6 +402,7 @@ the row lists both.
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| vantage                 | HTTP                        | requests                                                        | ✅                          |
 | vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -838,7 +839,6 @@ doesn't conflict with concurrent PRs.
 - uptick
 - us_census
 - uservoice
-- vantage
 - vapi
 - veeqo
 - vespa

@@ -3939,7 +3939,7 @@ class VWOSourceConfig(config.Config):
 
 @config.config
 class VantageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
