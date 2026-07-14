@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     PostgresDiscoveredSchema,
@@ -10866,6 +10867,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _LINKEDIN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10887,6 +10889,16 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             config={},
             sensitive_config={"access_token": "token", "refresh_token": "refresh"},
             integration_id="bing_test",
+            created_by=self.user,
+        )
+
+    def _linkedin_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="linkedin-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="linkedin_test",
             created_by=self.user,
         )
 
@@ -11005,6 +11017,70 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect your account" in str(response.json()).lower()
+
+    def test_linkedin_success_maps_ad_accounts_to_accounts(self):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.return_value = [{"id": 5123, "name": "Acme Ads", "status": "ACTIVE"}]
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "5123",
+                "display_name": "Acme Ads",
+                "is_primary": False,
+                "badges": ["ACTIVE"],
+                "group": None,
+                "secondary_text": None,
+            }
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_linkedin_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.side_effect = LinkedinAdsApiError(f"LinkedIn API error ({status_code}): nope", status_code)
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-authorize" in str(response.json()).lower()
+
+    def test_linkedin_non_auth_api_error_is_not_swallowed(self):
+        integration = self._linkedin_integration()
+        client = MagicMock()
+        client.get_accounts.side_effect = LinkedinAdsApiError("LinkedIn API error (400): bad", 400)
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration", return_value=client):
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_integration_of_another_kind_is_rejected(self):
+        # Same team, so the (id, team_id) lookup each source does would accept it: only the kind check
+        # stops this Bing token from being sent to LinkedIn's API.
+        integration = self._bing_integration()
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
+
+    def test_integration_from_another_team_is_rejected(self):
+        other_team = Team.objects.create(organization=self.organization)
+        integration = Integration.objects.create(
+            team=other_team,
+            kind="linkedin-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="linkedin_other_team",
+        )
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
 
     @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
     def test_bing_success_returns_accounts(self):
