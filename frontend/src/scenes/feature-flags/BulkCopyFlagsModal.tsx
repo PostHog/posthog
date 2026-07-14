@@ -117,9 +117,14 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
     } = useActions(flagSelectionLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
+    // Gate the sort on visibility (rather than skipping the hook) so it doesn't redo this work
+    // on every render of the parent scene while the modal is closed.
     const teams = useMemo(
-        () => [...(currentOrganization?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
-        [currentOrganization?.teams]
+        () =>
+            bulkCopyModalVisible
+                ? [...(currentOrganization?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+                : [],
+        [bulkCopyModalVisible, currentOrganization?.teams]
     )
     const teamNameById = useMemo(() => new Map(teams.map((team) => [team.id, team.name])), [teams])
     const destinationOptions = useMemo(
