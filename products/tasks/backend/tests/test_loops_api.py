@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import timedelta
 
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
 from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
+from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
 
 
 class LoopsAPITestCase(TestCase):
@@ -347,3 +349,45 @@ class LoopFeatureGateAPITest(LoopsAPITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+
+class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):
+    def _psak_trigger(self, loop_id: str, payload: dict):
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="loop trigger key",
+            secure_value=hash_key_value(raw_token),
+            scopes=["loop:write"],
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        return APIClient().post(
+            f"{self._loop_url(loop_id)}trigger/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {raw_token}"},
+        )
+
+    @parameterized.expand(
+        [
+            ("header_reports_true_size", False),
+            ("header_absent_chunked_transport", True),
+        ]
+    )
+    def test_oversized_trigger_payload_is_rejected_without_creating_a_task(self, _name, simulate_missing_header):
+        loop_id = self._create_loop(self.owner_client, triggers=[{"type": "api", "config": {}}])["id"]
+        oversized = {"context": "x" * MAX_LOOP_TRIGGER_PAYLOAD_BYTES}
+        # The WSGI test client always sends an accurate Content-Length and its stream is
+        # bounded by it, so the chunked/ASGI condition (header absent, body parses in full)
+        # is simulated by zeroing the header read.
+        header_ctx = (
+            patch("products.tasks.backend.presentation.views.loops._content_length", return_value=0)
+            if simulate_missing_header
+            else nullcontext()
+        )
+
+        with header_ctx:
+            response = self._psak_trigger(loop_id, oversized)
+
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(Task.objects.count(), 0)

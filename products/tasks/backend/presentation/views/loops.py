@@ -1,3 +1,5 @@
+import json
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -246,6 +248,11 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if _content_length(request) > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
             return Response({"detail": "Request body exceeds 64 KB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         payload = request.data if isinstance(request.data, dict) else {}
+        # Content-Length can be absent (chunked transfer, ASGI), so the parsed payload is the
+        # authoritative cap; parse pressure stays bounded by DATA_UPLOAD_MAX_MEMORY_SIZE.
+        payload_size = len(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode())
+        if payload_size > MAX_LOOP_TRIGGER_PAYLOAD_BYTES:
+            return Response({"detail": "Request body exceeds 64 KB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         result = loops_facade.fire_loop_api(pk, self.team_id, payload, idempotency_key=_idempotency_key(request))
         if result is None:
             raise NotFound()
