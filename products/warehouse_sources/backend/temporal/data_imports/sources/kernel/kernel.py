@@ -68,11 +68,12 @@ def _extract_items(body: Any) -> list[dict[str, Any]]:
     raise KernelUnexpectedResponseError(f"Unexpected Kernel list response shape: {type(body).__name__}")
 
 
-def _redact_sensitive_fields(item: dict[str, Any]) -> dict[str, Any]:
+def _redact_sensitive_fields(item: Any) -> Any:
     """Drop credential-bearing fields (see SENSITIVE_FIELDS) before a row is batched.
 
     Kernel objects are written to the warehouse verbatim, so env vars and token-bearing
-    live-view / CDP URLs would otherwise be queryable by any project user.
+    live-view / CDP URLs would otherwise be queryable by any project user. `item` is untyped
+    JSON, so non-dict rows pass through untouched.
     """
     if not isinstance(item, dict):
         return item
