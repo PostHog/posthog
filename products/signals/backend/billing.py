@@ -49,6 +49,8 @@ from dateutil.relativedelta import relativedelta
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -116,18 +118,32 @@ BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
 }
 
 
+def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
+    """Whether the team's row for `skill_name` is still the PostHog-shipped scout, byte for byte.
+
+    `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
+    place and the diverged row keeps its canonical name, which would let a repurposed fork mint
+    permanent exemptions. `scout_skill_row_origin` settles it by content hash against the
+    fingerprint stamped at seed time. Fails closed — no row, no proof → billable.
+    """
+    skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
+    return skill is not None and scout_skill_row_origin(skill) == "canonical"
+
+
 def system_billing_exempt_reason(team_id: int, report_id: str | uuid.UUID) -> str | None:
     """The exemption reason system policy assigns to a report, or None for normal reports.
 
     Pure Postgres (no ClickHouse), so it is usable under the auto-start row lock: a report is
-    exempt-origin when an exempt scout skill's run authored it via `emit_report`.
+    exempt-origin when an exempt scout skill's run authored it via `emit_report` — and the
+    team's row for that skill is still the canonical PostHog-shipped content (a team-edited
+    fork keeps the name but is no longer PostHog's system, so its reports stay billable).
     """
     for skill_name, reason in BILLING_EXEMPT_SCOUT_SKILLS.items():
         if (
             SignalScoutRun.objects.for_team(team_id)
             .filter(skill_name=skill_name, emitted_report_ids__contains=[str(report_id)])
             .exists()
-        ):
+        ) and _scout_skill_is_canonical(team_id, skill_name):
             return reason
     return None
 

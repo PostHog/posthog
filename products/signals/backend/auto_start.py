@@ -35,13 +35,13 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
-from products.signals.backend.temporal.signal_queries import fetch_source_products_for_reports
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)

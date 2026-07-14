@@ -30,6 +30,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_generation.research import Priority
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
+from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -283,6 +284,8 @@ def test_create_implementation_task_freezes_billing_exemption(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
     if authoring_scout_skill is not None:
+        # Exemption policy requires the emitting skill row to still be the canonical seeded content.
+        _seed_canonical_scout_skill(team, authoring_scout_skill)
         scout_task = Task.objects.create(team=team, title="scout", description="d")
         scout_task_run = TaskRun.objects.create(team=team, task=scout_task)
         with team_scope(team.id):

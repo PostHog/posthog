@@ -20,6 +20,8 @@ from products.signals.backend.billing import (
     system_billing_exempt_reason,
 )
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
+from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import (
@@ -47,6 +49,24 @@ def _task_model() -> type["TaskModel"]:
 
 def _task_run_model() -> type["TaskRunModel"]:
     return apps.get_model("tasks", "TaskRun")
+
+
+def _seed_canonical_scout_skill(team: Team, skill_name: str) -> LLMSkill:
+    """A team skill row that classifies as canonical: harness-seeded metadata whose stored
+    canonical_hash matches the row's current content hash (like lazy seeding stamps it)."""
+    skill = LLMSkill.objects.create(
+        team=team,
+        name=skill_name,
+        description="d",
+        body="canonical body",
+        allowed_tools=[],
+        metadata={"seeded_by": HARNESS_SEEDED_BY},
+        version=1,
+        is_latest=True,
+    )
+    skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+    skill.save(update_fields=["metadata"])
+    return skill
 
 
 def _make_report(team: Team, *, status: str = SignalReport.Status.READY) -> SignalReport:
@@ -427,9 +447,21 @@ class TestBillingExemptions(BaseTest):
         self._scout_run("signals-scout-health-checks", [str(health_check_report.id)])
         self._scout_run("signals-scout-general", [str(other_scout_report.id)])
 
+        # No skill row for the team: origin unprovable → fail closed, stays billable.
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, health_check_report.id))
+
+        skill = _seed_canonical_scout_skill(self.team, "signals-scout-health-checks")
         self.assertEqual(
             system_billing_exempt_reason(self.team.id, health_check_report.id),
             SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
         )
         self.assertIsNone(system_billing_exempt_reason(self.team.id, other_scout_report.id))
         self.assertIsNone(system_billing_exempt_reason(self.team.id, pipeline_report.id))
+
+        # A team-edited fork keeps the canonical name but is no longer PostHog's system:
+        # the diverged row must stop minting exemptions.
+        skill.body = "team-edited body"
+        skill.save(update_fields=["body"])
+        forked_report = _make_report(self.team)
+        self._scout_run("signals-scout-health-checks", [str(forked_report.id)])
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, forked_report.id))
