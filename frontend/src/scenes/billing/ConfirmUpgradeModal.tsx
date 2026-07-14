@@ -15,17 +15,11 @@ import { ConfirmAddonChargeModal } from './ConfirmAddonChargeModal'
  */
 export function ConfirmUpgradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
     const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing } = useValues(billingLogic)
-    const { currentAndUpgradePlans, confirmUpgradeModalOpen, proratedAmount } = useValues(
-        billingProductLogic({ product })
-    )
+    const { currentAndUpgradePlans, confirmUpgradeModalOpen, proratedAmount, appliedCreditBalance, amountDueToday } =
+        useValues(billingProductLogic({ product }))
     const { hideConfirmUpgradeModal, confirmProductUpgrade } = useActions(billingProductLogic({ product }))
 
     const targetPlan = currentAndUpgradePlans?.upgradePlan
-    const amountDueBeforeCredits = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
-    const availableCreditBalance = billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0
-    const appliedBalance = Math.min(amountDueBeforeCredits, availableCreditBalance)
-    const amountDue = Math.max(0, amountDueBeforeCredits - appliedBalance)
-
     const periodEnd = billing?.billing_period?.current_period_end
 
     if (!confirmUpgradeModalOpen || !targetPlan || !currentPlatformAddon) {
@@ -49,16 +43,16 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
         },
     ]
 
-    if (appliedBalance > 0) {
+    if (appliedCreditBalance > 0) {
         rows.push({
             description: 'Applied balance',
-            amount: `-$${appliedBalance.toFixed(2)}`,
+            amount: `-$${appliedCreditBalance.toFixed(2)}`,
         })
     }
 
     rows.push({
         description: 'Amount due today',
-        amount: `$${amountDue.toFixed(2)}`,
+        amount: `$${amountDueToday.toFixed(2)}`,
         isBold: true,
     })
 
@@ -69,7 +63,7 @@ export function ConfirmUpgradeModal({ product }: { product: BillingProductV2Addo
             productName={product.name}
             isLoading={switchPlanLoading === product.type}
             rows={rows}
-            amountDue={amountDue}
+            amountDue={amountDueToday}
             periodEndLabel={periodEnd?.format('MMM D')}
             onCancel={hideConfirmUpgradeModal}
             onConfirm={confirmProductUpgrade}

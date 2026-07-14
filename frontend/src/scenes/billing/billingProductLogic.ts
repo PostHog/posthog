@@ -96,6 +96,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'platformAddons',
                 'timeRemainingInSeconds',
                 'timeTotalInSeconds',
+                'unusedPlatformAddonAmount',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -355,6 +356,30 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed)
             },
+        ],
+        // Single source of truth for what an add-on purchase/switch costs. Cards show
+        // amountDueBeforeCredits (the price of the transaction); the confirmation modals
+        // additionally itemize the credit balance and show amountDueToday (what hits the card).
+        availableCreditBalance: [
+            (s) => [s.billing],
+            (billing): number => (billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0),
+        ],
+        amountDueBeforeCredits: [
+            (s) => [s.proratedAmount, s.unusedPlatformAddonAmount, s.isSubscribedToAnotherAddon],
+            (proratedAmount, unusedPlatformAddonAmount, isSubscribedToAnotherAddon): number =>
+                // Unused time on the current platform add-on only offsets a switch to another
+                // one; a fresh purchase has nothing to trade in.
+                Math.max(0, proratedAmount - (isSubscribedToAnotherAddon ? unusedPlatformAddonAmount : 0)),
+        ],
+        appliedCreditBalance: [
+            (s) => [s.amountDueBeforeCredits, s.availableCreditBalance],
+            (amountDueBeforeCredits, availableCreditBalance): number =>
+                Math.min(amountDueBeforeCredits, availableCreditBalance),
+        ],
+        amountDueToday: [
+            (s) => [s.amountDueBeforeCredits, s.appliedCreditBalance],
+            (amountDueBeforeCredits, appliedCreditBalance): number =>
+                Math.max(0, amountDueBeforeCredits - appliedCreditBalance),
         ],
         customLimitUsd: [
             (s, p) => [s.billing, p.product],

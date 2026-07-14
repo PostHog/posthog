@@ -24,16 +24,17 @@ export function ConfirmPurchaseModal({
     onConfirm?: () => void
 }): JSX.Element | null {
     const { billing } = useValues(billingLogic)
-    const { currentAndUpgradePlans, confirmPurchaseModalOpen, proratedAmount, billingProductLoading } = useValues(
-        billingProductLogic({ product })
-    )
+    const {
+        currentAndUpgradePlans,
+        confirmPurchaseModalOpen,
+        proratedAmount,
+        appliedCreditBalance,
+        amountDueToday,
+        billingProductLoading,
+    } = useValues(billingProductLogic({ product }))
     const { hideConfirmPurchaseModal, confirmProductPurchase } = useActions(billingProductLogic({ product }))
 
     const targetPlan = currentAndUpgradePlans?.upgradePlan
-    const availableCreditBalance = billing?.discount_amount_usd ? parseFloat(billing.discount_amount_usd) : 0
-    const appliedBalance = Math.min(proratedAmount, availableCreditBalance)
-    const amountDue = Math.max(0, proratedAmount - appliedBalance)
-
     const periodEnd = billing?.billing_period?.current_period_end
 
     // Require a loaded billing period: without it proratedAmount falls back to 0, which would
@@ -52,16 +53,16 @@ export function ConfirmPurchaseModal({
         },
     ]
 
-    if (appliedBalance > 0) {
+    if (appliedCreditBalance > 0) {
         rows.push({
             description: 'Applied balance',
-            amount: `-$${appliedBalance.toFixed(2)}`,
+            amount: `-$${appliedCreditBalance.toFixed(2)}`,
         })
     }
 
     rows.push({
         description: 'Amount due today',
-        amount: `$${amountDue.toFixed(2)}`,
+        amount: `$${amountDueToday.toFixed(2)}`,
         isBold: true,
     })
 
@@ -72,7 +73,7 @@ export function ConfirmPurchaseModal({
             productName={product.name}
             isLoading={billingProductLoading === product.type}
             rows={rows}
-            amountDue={amountDue}
+            amountDue={amountDueToday}
             periodEndLabel={periodEnd.format('MMM D')}
             onCancel={hideConfirmPurchaseModal}
             onConfirm={() => {

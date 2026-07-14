@@ -79,8 +79,8 @@ export function ConfirmAddonChargeModal({
             <div className="max-w-140">
                 <p>
                     You'll get access to all {productName} features right away. ${amountDue.toFixed(2)} will be charged
-                    now for the remaining period until {periodEndLabel}, and ${targetPlan.unit_amount_usd} every{' '}
-                    {targetPlan.unit} thereafter.
+                    now{periodEndLabel ? ` for the remaining period until ${periodEndLabel}` : ''}, and $
+                    {targetPlan.unit_amount_usd} every {targetPlan.unit} thereafter.
                 </p>
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
             </div>

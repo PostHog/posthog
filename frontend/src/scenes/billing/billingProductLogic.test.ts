@@ -1,6 +1,7 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel so the spy below
 // replaces `.error` on the same `lemonToast` singleton the logic calls at runtime (see the same
 // note in paymentEntryLogic.test.ts).
@@ -82,6 +83,53 @@ describe('billingProductLogic — confirm purchase modal', () => {
         await expectLogic(logic, () => logic.actions.confirmProductPurchase())
             .toFinishAllListeners()
             .toMatchValues({ confirmPurchaseModalOpen: false })
+    })
+
+    describe('credit-aware amount selectors', () => {
+        // Halfway through a billing period, so the $750 Scale plan prorates to ~$375.
+        const seedBillingMidPeriod = async (discountAmountUsd?: string): Promise<void> => {
+            await seedBilling({
+                customer_id: 'cus_test',
+                subscription_level: 'paid',
+                products: [],
+                discount_amount_usd: discountAmountUsd,
+                billing_period: {
+                    current_period_start: dayjs().subtract(12, 'hour').toISOString(),
+                    current_period_end: dayjs().add(12, 'hour').toISOString(),
+                    interval: 'month',
+                },
+            } as Partial<BillingType>)
+        }
+
+        it('applies the credit balance against the amount due', async () => {
+            await seedBillingMidPeriod('100')
+            logic = billingProductLogic({ product: scaleAddon })
+            logic.mount()
+
+            expect(logic.values.amountDueBeforeCredits).toBeCloseTo(375, 1)
+            expect(logic.values.appliedCreditBalance).toBe(100)
+            expect(logic.values.amountDueToday).toBeCloseTo(275, 1)
+        })
+
+        it('clamps the amount due at zero when the credit balance exceeds the charge', async () => {
+            await seedBillingMidPeriod('1000')
+            logic = billingProductLogic({ product: scaleAddon })
+            logic.mount()
+
+            // Only the amount due is applied — never more (no negative totals).
+            expect(logic.values.appliedCreditBalance).toBeCloseTo(375, 1)
+            expect(logic.values.appliedCreditBalance).toBe(logic.values.amountDueBeforeCredits)
+            expect(logic.values.amountDueToday).toBe(0)
+        })
+
+        it('applies no credit when the customer has no balance', async () => {
+            await seedBillingMidPeriod(undefined)
+            logic = billingProductLogic({ product: scaleAddon })
+            logic.mount()
+
+            expect(logic.values.appliedCreditBalance).toBe(0)
+            expect(logic.values.amountDueToday).toBe(logic.values.amountDueBeforeCredits)
+        })
     })
 
     it('does nothing when the product has no upgrade plan', async () => {
