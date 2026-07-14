@@ -521,6 +521,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_idp_initiated_saml_selects_matching_domain_for_shared_config(self) -> None:
         config = self.organization_domain.identity_provider_config
+        assert config is not None
         IdentityProviderConfigDomain.objects.create(
             organization=self.organization,
             identity_provider_config=config,

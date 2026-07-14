@@ -673,6 +673,7 @@ rules:
                           (?x)(
                               CIMDVerificationToken
                               |IdentityProviderConfig
+                              |IdentityProviderConfigDomain
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -741,6 +742,7 @@ rules:
                     (?x)(
                         CIMDVerificationToken
                         |IdentityProviderConfig
+                        |IdentityProviderConfigDomain
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain

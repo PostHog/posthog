@@ -280,7 +280,6 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return bool(self.verified_at)
 
-    @property
     def get_identity_provider_config(self, kind: IdentityProviderConfigKind) -> IdentityProviderConfig | None:
         for mapping in self.identity_provider_config_mappings.all():
             if mapping.kind == kind:
