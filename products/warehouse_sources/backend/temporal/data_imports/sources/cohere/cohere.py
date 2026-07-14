@@ -174,5 +174,5 @@ def cohere_source(
         partition_size=1 if partitioned else None,
         partition_mode="datetime" if partitioned else None,
         partition_format="month" if partitioned else None,
-        partition_keys=[config.partition_key] if partitioned else None,
+        partition_keys=[config.partition_key] if config.partition_key is not None else None,
     )
