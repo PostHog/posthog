@@ -101,17 +101,16 @@ export type PreParseCallback<TInput, TContext, CBatch, THeaders, ROut extends st
     builder: PipelineBuilder<
         BatchElement<TInput, CBatch>,
         BatchElement<TInput, CBatch> & { headers: EventHeaders },
-        BatchContext<TContext>,
-        ROut
+        BatchContext<TContext>
     >
 ) => PipelineBuilder<BatchElement<TInput, CBatch>, THeaders, BatchContext<TContext>, ROut>
 
 export type ResolveTeamCallback<TCurrent, TContext, TPost, ROut extends string> = (
-    builder: PipelineBuilder<TCurrent, TeamResolved<TCurrent>, BatchContext<TContext>, ROut>
+    builder: PipelineBuilder<TCurrent, TeamResolved<TCurrent>, BatchContext<TContext>>
 ) => PipelineBuilder<TCurrent, TPost, BatchContext<TContext>, ROut>
 
 export type PerTeamCallback<TPost, TContext, TFinal, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TPost, TPost, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
+    builder: ChunkPipelineBuilder<TPost, TPost, TeamAwareContext<TContext>, TeamAwareContext<TContext>>
 ) => ChunkPipelineBuilder<TPost, TFinal, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
 
 /**
