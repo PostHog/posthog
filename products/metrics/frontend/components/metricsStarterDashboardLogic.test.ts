@@ -93,9 +93,44 @@ describe('metricsStarterDashboardLogic', () => {
                 },
             ],
         })
+        // The node schema has no 'p95' — the recommended shorthand maps to quantile + 0.95.
         expect(histogramInsight.query).toMatchObject({
-            clauses: [expect.objectContaining({ aggregation: 'p95', metricType: 'histogram' })],
+            clauses: [expect.objectContaining({ aggregation: 'quantile', quantile: 0.95, metricType: 'histogram' })],
         })
+    })
+
+    it('navigates to the partially built dashboard when an insight create fails mid-loop', async () => {
+        // The dashboard exists after a mid-loop failure — the flow must say so and go
+        // there, not claim total failure and invite a duplicate-creating retry.
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
+        logic.actions.setDashboardName('Billing service')
+        logic.actions.setSelectedMetrics(['billing.invoices.processed', 'billing.job.duration'])
+        mockInsightCreate
+            .mockResolvedValueOnce({ id: 101, short_id: 'abc' } as any)
+            .mockRejectedValueOnce(new Error('boom'))
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        expect(apiCreateSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.isModalOpen).toBe(false)
+    })
+
+    it('drops non-enum metric types instead of sending raw ingest strings', async () => {
+        mockNames.mockResolvedValue({ results: [{ name: 'legacy.metric', metric_type: 'counter' }] })
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
+        logic.actions.setDashboardName('Legacy')
+        logic.actions.setSelectedMetrics(['legacy.metric'])
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        const [insight] = mockInsightCreate.mock.calls[0]
+        expect((insight.query as any).clauses[0].metricType).toBeUndefined()
     })
 
     it('guards against double submission while the create is in flight', async () => {

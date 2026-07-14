@@ -23,6 +23,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
         <LemonModal
             isOpen={isModalOpen}
             onClose={closeModal}
+            closable={!creating}
             title="New service dashboard"
             description="One insight per metric, charted with its recommended aggregation."
             footer={
@@ -56,7 +57,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                 <LemonInput
                     value={dashboardName}
                     onChange={setDashboardName}
-                    placeholder="e.g. Billing worker"
+                    placeholder="Dashboard name, e.g. Billing worker"
                     autoFocus
                     data-attr="metrics-starter-dashboard-name"
                 />

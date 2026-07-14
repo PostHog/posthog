@@ -8,13 +8,15 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
+import type { MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 import type { DashboardType } from '~/types'
 
 import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { metricsStarterDashboardLogicType } from './metricsStarterDashboardLogicType'
-import { RECOMMENDED_AGGREGATION_BY_TYPE } from './metricsViewerLogic'
+import { RECOMMENDED_AGGREGATION_BY_TYPE, toKnownMetricType } from './metricsViewerLogic'
 
 // One dashboard, one insight per picked metric, each charted with the
 // aggregation its type recommends and scoped to the picked service — the
@@ -36,9 +38,13 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
     }),
     reducers({
         isModalOpen: [false, { openModal: () => true, closeModal: () => false }],
-        dashboardName: ['' as string, { setDashboardName: (_, { dashboardName }) => dashboardName }],
+        // The whole form resets on close so a reopen can't silently mint a near-duplicate.
+        dashboardName: [
+            '' as string,
+            { setDashboardName: (_, { dashboardName }) => dashboardName, closeModal: () => '' },
+        ],
         // '' = all services: the insights get no service filter.
-        serviceName: ['' as string, { setServiceName: (_, { serviceName }) => serviceName }],
+        serviceName: ['' as string, { setServiceName: (_, { serviceName }) => serviceName, closeModal: () => '' }],
         selectedMetrics: [
             [] as string[],
             { setSelectedMetrics: (_, { selectedMetrics }) => selectedMetrics, closeModal: () => [] },
@@ -92,47 +98,63 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 return
             }
             cache.creatingDashboard = true
+            // Snapshot the form before the first await: a modal dismissed or edited
+            // mid-create must not change (or empty) what gets created.
+            const name = values.dashboardName.trim()
+            const selectedMetrics = [...values.selectedMetrics]
+            const serviceName = values.serviceName
+            const typeByName: Record<string, string> = Object.fromEntries(
+                values.metricOptions.map((option) => [option.name, option.metric_type])
+            )
+            let dashboard: DashboardType | null = null
+            let created = 0
             try {
-                const name = values.dashboardName.trim()
-                if (!name || !values.selectedMetrics.length) {
+                if (!name || !selectedMetrics.length) {
                     actions.createDashboardFailure('Pick a dashboard name and at least one metric')
                     return
                 }
-                const typeByName = Object.fromEntries(
-                    values.metricOptions.map((option) => [option.name, option.metric_type])
-                )
-                const dashboard = await api.create<DashboardType>(
-                    `api/environments/${values.currentTeamId}/dashboards/`,
-                    { name }
-                )
-                for (const metricName of values.selectedMetrics) {
-                    const metricType = typeByName[metricName]
-                    const aggregation = (metricType && RECOMMENDED_AGGREGATION_BY_TYPE[metricType]) || 'avg'
+                dashboard = await api.create<DashboardType>(`api/environments/${values.currentTeamId}/dashboards/`, {
+                    name,
+                })
+                for (const metricName of selectedMetrics) {
+                    const rawType = typeByName[metricName]
+                    // The names endpoint reports raw ingest strings; only enum members
+                    // may reach the API — mirrors the viewer's metricsQueryNode.
+                    const metricType = toKnownMetricType(rawType)
+                    const recommended = (rawType && RECOMMENDED_AGGREGATION_BY_TYPE[rawType]) || 'avg'
+                    const clause: MetricsQueryClause = {
+                        name: 'a',
+                        metricName,
+                        // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
+                        aggregation: recommended === 'p95' ? 'quantile' : recommended,
+                        ...(recommended === 'p95' ? { quantile: 0.95 } : {}),
+                        ...(metricType ? { metricType } : {}),
+                        ...(serviceName
+                            ? { filters: [{ key: 'service.name', op: 'eq' as const, value: serviceName }] }
+                            : {}),
+                    }
+                    const query: MetricsQuery = { kind: NodeKind.MetricsQuery, clauses: [clause] }
                     await insightsApi.create({
-                        name: `${metricName} (${aggregation})`,
+                        name: `${metricName} (${recommended})`,
                         saved: true,
                         dashboards: [dashboard.id],
-                        query: {
-                            kind: 'MetricsQuery',
-                            clauses: [
-                                {
-                                    name: 'a',
-                                    metricName,
-                                    aggregation,
-                                    ...(metricType ? { metricType } : {}),
-                                    ...(values.serviceName
-                                        ? {
-                                              filters: [{ key: 'service.name', op: 'eq', value: values.serviceName }],
-                                          }
-                                        : {}),
-                                },
-                            ],
-                        } as any,
+                        query,
                     })
+                    created++
                 }
                 actions.createDashboardSuccess(dashboard)
-            } catch {
-                actions.createDashboardFailure('Failed to create the dashboard')
+            } catch (error: any) {
+                if (dashboard) {
+                    // The dashboard exists with a partial insight set — say so and take
+                    // the user there rather than implying nothing happened (a retry
+                    // from the modal would mint a duplicate dashboard).
+                    lemonToast.warning(
+                        `Dashboard "${dashboard.name}" created, but only ${created} of ${selectedMetrics.length} insights could be added`
+                    )
+                    actions.createDashboardSuccess(dashboard)
+                } else {
+                    actions.createDashboardFailure(error?.detail || error?.message || 'Failed to create the dashboard')
+                }
             } finally {
                 cache.creatingDashboard = false
             }
