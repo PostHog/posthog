@@ -236,6 +236,8 @@ export type SettingId =
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-analytics-goals'
     | 'revenue-base-currency'
+    | 'saml'
+    | 'scim'
     | 'session-join-mode'
     | 'session-table-version'
     | 'sidebar-auto-suggest'
@@ -254,6 +256,7 @@ export type SettingId =
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
     | 'workflows-engagement-events'
+    | 'xaa'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IdentityProviderDomainPicker } from './IdentityProviderDomainPicker'
+import { ScimLogsModal } from './ScimLogsModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function SCIMSettings(): JSX.Element {
@@ -159,6 +160,7 @@ export function SCIMSettings(): JSX.Element {
                     </Form>
                 )}
             </div>
+            <ScimLogsModal />
         </section>
     )
 }

@@ -147,6 +147,9 @@ import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonal
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
+import { IdJagSettings } from './organization/VerifiedDomains/IdJagSettings'
+import { SAMLSettings } from './organization/VerifiedDomains/SAMLSettings'
+import { SCIMSettings } from './organization/VerifiedDomains/SCIMSettings'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -1654,10 +1657,31 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'authentication-domains',
-                title: 'Authentication Domains',
+                title: 'Authentication domains',
                 docsUrl: 'https://posthog.com/docs/settings/sso',
                 component: <VerifiedDomains />,
-                keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
+                keywords: ['sso', 'single sign-on', 'domain verification', 'automatic provisioning', 'enforce'],
+            },
+            {
+                id: 'saml',
+                title: 'SAML',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
+                component: <SAMLSettings />,
+                keywords: ['saml', 'sso', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'scim',
+                title: 'SCIM',
+                docsUrl: 'https://posthog.com/docs/data/sso/scim',
+                component: <SCIMSettings />,
+                keywords: ['scim', 'provisioning', 'identity provider', 'user provisioning'],
+            },
+            {
+                id: 'xaa',
+                title: 'XAA',
+                component: <IdJagSettings />,
+                flag: 'XAA_AUTHENTICATION',
+                keywords: ['xaa', 'id-jag', 'identity assertion', 'identity provider'],
             },
         ],
     },

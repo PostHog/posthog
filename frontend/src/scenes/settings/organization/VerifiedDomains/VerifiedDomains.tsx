@@ -22,10 +22,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, SSOProvider } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
-import { IdJagSettings } from './IdJagSettings'
-import { SAMLSettings } from './SAMLSettings'
-import { ScimLogsModal } from './ScimLogsModal'
-import { SCIMSettings } from './SCIMSettings'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
@@ -40,32 +36,26 @@ export function VerifiedDomains(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
-            <div className="space-y-8">
-                <section className="space-y-3">
-                    <div>
-                        <h2>Authentication domains</h2>
-                        <p className="text-muted">
-                            Verify domains, control automatic provisioning, and choose whether users must sign in with
-                            SSO. Identity provider credentials are managed separately below.
-                        </p>
-                    </div>
-                    <DomainsTable />
-                    <LemonButton
-                        type="primary"
-                        onClick={showAddDomainModal}
-                        disabledReason={
-                            verifiedDomainsLoading || updatingDomainLoading ? 'Loading domains' : restrictionReason
-                        }
-                    >
-                        Add domain
-                    </LemonButton>
-                </section>
-                <SAMLSettings />
-                <SCIMSettings />
-                <IdJagSettings />
-            </div>
+            <section className="space-y-3">
+                <div>
+                    <h2>Authentication domains</h2>
+                    <p className="text-muted">
+                        Verify domains, control automatic provisioning, and choose whether users must sign in with SSO.
+                        Identity provider credentials are managed in the SAML, SCIM, and XAA settings.
+                    </p>
+                </div>
+                <DomainsTable />
+                <LemonButton
+                    type="primary"
+                    onClick={showAddDomainModal}
+                    disabledReason={
+                        verifiedDomainsLoading || updatingDomainLoading ? 'Loading domains' : restrictionReason
+                    }
+                >
+                    Add domain
+                </LemonButton>
+            </section>
             <AddDomainModal />
-            <ScimLogsModal />
             <VerifyDomainModal />
         </PayGateMini>
     )
