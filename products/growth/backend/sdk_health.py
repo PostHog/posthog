@@ -645,7 +645,7 @@ def _build_reason(
 
 LEGACY_JAVA_VERSION_LABEL = "Not reported"
 LEGACY_JAVA_MIGRATION_REASON = (
-    "The legacy com.posthog.java:posthog SDK is archived. Migrate to com.posthog:posthog-server."
+    "The com.posthog.java:posthog SDK has been archived. Migrate to com.posthog:posthog-server."
 )
 
 
