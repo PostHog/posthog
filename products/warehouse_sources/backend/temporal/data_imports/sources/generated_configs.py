@@ -2890,7 +2890,8 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlatformShSourceConfig(config.Config):
-    pass
+    api_token: str
+    platform: Literal["platform_sh", "upsun"] = config.value(default="platform_sh")
 
 
 @config.config
