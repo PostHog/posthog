@@ -764,6 +764,41 @@ mod tests {
         }
     }
 
+    #[derive(Debug, thiserror::Error, PartialEq)]
+    #[error("batch structurally invalid")]
+    struct GateError;
+
+    // Rejects the whole chunk when any item is negative (gate semantics).
+    struct RejectingGate;
+    impl Step<i32, ()> for RejectingGate {
+        type Out = i32;
+        type Outputs = TestOut;
+        fn apply(&self, event: i32, _fx: &mut ()) -> Result<StepResult<i32, TestOut>, StepError> {
+            if event < 0 {
+                Err(StepError::reject(GateError))
+            } else {
+                Ok(StepResult::Continue(event))
+            }
+        }
+        fn name(&self) -> &'static str {
+            "rejecting_gate"
+        }
+    }
+
+    #[tokio::test]
+    async fn reject_aborts_chunk_and_surfaces_typed_error() {
+        let pipeline = Pipeline::<i32, i32, (), TestOut>::builder()
+            .step(RejectingGate)
+            .build();
+        let mut fx = ();
+        let err = pipeline
+            .run_chunk(vec![1, -2, 3], &mut fx)
+            .await
+            .unwrap_err();
+        let recovered: GateError = err.try_into_reject().expect("typed reject");
+        assert_eq!(recovered, GateError);
+    }
+
     #[tokio::test]
     async fn chunk_step_length_mismatch_is_error() {
         let pipeline = Pipeline::<String, String, (), TestOut>::builder()

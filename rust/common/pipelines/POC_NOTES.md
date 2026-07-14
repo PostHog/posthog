@@ -201,6 +201,7 @@ functions:
 `process_batch` now reads as: validate → provenance → quota → **one composed
 policy pipeline** (restrictions → historical → overflow → token:distinct_id
 limits) → serialize → publish.
+
 ## Consumer preprocess pipeline (Phase B2)
 
 Lives entirely in `rust/ingestion-consumer/src/preprocess/` (`headers.rs`,
@@ -290,3 +291,16 @@ counter (present = truthy, mirroring Node). Not ported: `sanitizeString` on
 verbatim. `now` is kept as the raw header string (not parsed to a timestamp); the
 restriction `EventContext.now_ts` uses `Utc::now()` since the static manager
 never consults it.
+
+## Request-level rejection (`StepError::Reject`)
+
+Design §3.9 sketches a "gate" phase for request-scoped fallible steps (decode,
+auth, quota) that reject the whole request rather than a single event. The POC
+realizes this as a second `StepError` variant rather than a separate `Gate`
+trait: `StepError::Reject(anyhow::Error)` aborts the chunk exactly like
+`Unexpected`, but is documented as an *expected, policy-driven* outcome, and the
+caller recovers its own typed error via `StepError::try_into_reject::<E>()`
+(anyhow downcast). This keeps the step vocabulary at one trait and one error
+enum; a dedicated `Gate` trait with typed request/response phases remains open
+for the real implementation if the reject-vs-unexpected distinction proves too
+thin in practice.

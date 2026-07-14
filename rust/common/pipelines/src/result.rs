@@ -97,22 +97,54 @@ impl<T: fmt::Debug, O: Outputs> fmt::Debug for StepResult<T, O> {
     }
 }
 
-/// The "unexpected error" channel — the Rust equivalent of a thrown exception
-/// in the Node framework. A step returning `Err(StepError)` signals an
-/// unrecoverable, non-per-event failure: in the consumer profile this fails the
-/// whole batch (process exits, Kafka redelivers). Expected per-event failures
-/// use `Drop`/`Dlq` verdicts instead, never this.
+/// The non-per-event error channel of a pipeline. A step returning
+/// `Err(StepError)` aborts the whole chunk; the two variants differ in what
+/// that abort *means*:
+///
+/// - [`StepError::Unexpected`] — the Rust equivalent of a thrown exception in
+///   the Node framework: an unrecoverable failure. In the consumer profile this
+///   fails the whole batch (process exits, Kafka redelivers). Expected
+///   per-event failures use `Drop`/`Dlq` verdicts instead, never this.
+/// - [`StepError::Reject`] — a *request-level rejection* (the "gate" outcome of
+///   design §3.9): an expected, policy-driven abort of the whole request, e.g.
+///   a structurally invalid batch or a billing limit that rejects the request
+///   with a specific HTTP status. The caller recovers its typed error with
+///   [`StepError::try_into_reject`].
 #[derive(Debug, thiserror::Error)]
 pub enum StepError {
     /// An unexpected error that should poison the batch.
     #[error("pipeline step error: {0}")]
     Unexpected(#[from] anyhow::Error),
+    /// An expected request-level rejection carrying the caller's typed error.
+    #[error("request rejected: {0}")]
+    Reject(anyhow::Error),
 }
 
 impl StepError {
     /// Build a [`StepError::Unexpected`] from any displayable message.
     pub fn msg(msg: impl Into<String>) -> Self {
         StepError::Unexpected(anyhow::anyhow!(msg.into()))
+    }
+
+    /// Build a [`StepError::Reject`] carrying a typed error the caller can
+    /// recover with [`StepError::try_into_reject`].
+    pub fn reject<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        StepError::Reject(anyhow::Error::new(err))
+    }
+
+    /// If this is a [`StepError::Reject`] carrying an `E`, unwrap it; otherwise
+    /// hand the error back unchanged.
+    pub fn try_into_reject<E>(self) -> Result<E, Self>
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        match self {
+            StepError::Reject(err) => err.downcast::<E>().map_err(StepError::Reject),
+            other => Err(other),
+        }
     }
 }
 
@@ -175,5 +207,37 @@ mod tests {
     fn step_error_from_anyhow() {
         let e = StepError::msg("boom");
         assert!(e.to_string().contains("boom"));
+    }
+
+    #[derive(Debug, thiserror::Error, PartialEq)]
+    enum CallerError {
+        #[error("billing limit exceeded")]
+        BillingLimit,
+    }
+
+    #[test]
+    fn reject_roundtrips_typed_error() {
+        let e = StepError::reject(CallerError::BillingLimit);
+        assert!(e.to_string().contains("request rejected"));
+        let recovered: CallerError = e.try_into_reject().expect("downcast succeeds");
+        assert_eq!(recovered, CallerError::BillingLimit);
+    }
+
+    #[test]
+    fn try_into_reject_passes_through_unexpected() {
+        let e = StepError::msg("boom");
+        let back = e.try_into_reject::<CallerError>().unwrap_err();
+        assert!(matches!(back, StepError::Unexpected(_)));
+    }
+
+    #[test]
+    fn try_into_reject_wrong_type_stays_reject() {
+        #[derive(Debug, thiserror::Error)]
+        #[error("other")]
+        struct Other;
+
+        let e = StepError::reject(Other);
+        let back = e.try_into_reject::<CallerError>().unwrap_err();
+        assert!(matches!(back, StepError::Reject(_)));
     }
 }
