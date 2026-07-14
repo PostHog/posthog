@@ -66,10 +66,17 @@ export function calculateAxisRange(results: (NewExperimentQueryResponse | undefi
  */
 function sectionHasChartableResult(results: (NewExperimentQueryResponse | undefined | null)[]): boolean {
     return results.some((result) => {
-        const variants: ExperimentVariantResult[] = [
-            ...(result?.variant_results ?? []),
-            ...(result?.breakdown_results?.flatMap((breakdown) => breakdown?.variants ?? []) ?? []),
-        ]
+        // Collect via push() like calculateAxisRange: variant_results is a union of arrays, which
+        // breaks array-literal spread + flatMap type inference.
+        const variants: ExperimentVariantResult[] = []
+        if (result?.variant_results) {
+            variants.push(...result.variant_results)
+        }
+        result?.breakdown_results?.forEach((breakdown) => {
+            if (breakdown?.variants) {
+                variants.push(...breakdown.variants)
+            }
+        })
         return variants.some((variant) => getVariantInterval(variant) !== null)
     })
 }
