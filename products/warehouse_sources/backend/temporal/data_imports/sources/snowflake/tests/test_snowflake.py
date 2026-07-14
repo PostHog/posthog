@@ -557,6 +557,12 @@ class TestGetPrimaryKeysForTable:
         with pytest.raises(ValueError, match="column_name"):
             impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t")
 
+    def test_returns_none_when_show_fails(self, impl, cursor):
+        # A transient/permission SHOW failure must degrade to None so the pipeline falls back to a
+        # persisted or `id`-column PK, instead of crashing the incremental merge intermittently.
+        cursor.execute.side_effect = Exception("does not exist or not authorized")
+        assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+
 
 class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):

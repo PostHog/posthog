@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 import structlog
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -14,9 +15,8 @@ from posthog.schema import (
     StickinessActorsQuery,
 )
 
-from posthog.hogql.ai import hit_openai
-
 from posthog.event_usage import groups
+from posthog.llm.completions import hit_openai
 from posthog.models import Team
 
 from products.product_analytics.backend.api.ai_billing import billable_ai_properties
@@ -484,7 +484,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
             'Return ONLY a JSON object: {"name": "...", "description": "..."}'
         )
 
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (

@@ -483,7 +483,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Decide whether selection can be trusted
               id: fallback
@@ -687,7 +687,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -931,7 +931,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -1054,7 +1054,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -1090,7 +1090,7 @@ jobs:
         # (otherwise-empty) check suite rather than floating under a random
         # run in the crowded github-actions suite. The job's GITHUB_TOKEN
         # therefore no longer needs checks:write. pull-requests:write is still
-        # required for the migration SQL comment steps below.
+        # required for the migration sections in the CI report.
         permissions:
             contents: read
             pull-requests: write
@@ -1144,7 +1144,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1258,16 +1258,28 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Check migrations and post SQL comment
+            - name: Check migrations and post SQL to CI report
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
+                    echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                     exit 0
                   fi
 
@@ -1279,8 +1291,9 @@ jobs:
                   fi
 
                   # Initialize comment body for SQL changes
-                  COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+                  COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
                   HAS_NEW_MIGRATIONS=false
+                  MIGRATION_COUNT=0
 
                   # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
@@ -1306,35 +1319,22 @@ jobs:
                       fi
 
                       HAS_NEW_MIGRATIONS=true
+                      MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
                       echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
 
                       # Add to comment body
-                      COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
 
-                  # Get existing comments (needed for both update and cleanup)
-                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
-
-                  # Extract comment ID if exists
-                  SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
-
-                  # If no new migrations, clean up any stale comment and exit
                   if [ "$HAS_NEW_MIGRATIONS" = false ]; then
-                    echo "No new migrations to show (all changed files already exist on base branch)"
-                    if [ -n "$SQL_COMMENT_ID" ]; then
-                      echo "Deleting stale SQL comment $SQL_COMMENT_ID"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID"
-                    fi
-                    exit 0
+                      echo "No new migrations to show (all changed files already exist on base branch)"
+                      echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                      exit 0
                   fi
 
                   # Add timestamp and commit SHA to SQL changes
@@ -1345,27 +1345,15 @@ jobs:
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
-                  COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
-
-                  if [ -n "$SQL_COMMENT_ID" ]; then
-                    # Update existing comment
-                    echo "Updating existing SQL comment $SQL_COMMENT_ID"
-                    curl -X PATCH \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID" \
-                      -d "$COMMENT_BODY_JSON"
+                  printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
+                  if [ "$MIGRATION_COUNT" -eq 1 ]; then
+                    MIGRATION_SUMMARY="1 new migration to review"
                   else
-                    # Post new SQL comment to PR
-                    echo "Posting new SQL comment to PR"
-                    curl -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$COMMENT_BODY_JSON"
+                    MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
                   fi
+                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
 
-            - name: Run migration risk analysis and post comment
+            - name: Run migration risk analysis and update CI report
               if: github.event_name == 'pull_request'
               # Step timeout: an analyzer hang fails THIS step (a failure, which
               # !cancelled() still publishes as a definitive verdict) instead of
@@ -1376,6 +1364,16 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # Get risk analysis for all unapplied migrations (including third-party).
                   # --output-json gives downstream consumers (the check-run step
                   # below, and any other tool) a stable structured shape to read.
@@ -1389,49 +1387,25 @@ jobs:
                     echo "$RISK_ANALYSIS" > migration_analysis.md
                   fi
 
-                  # Get existing comments
-                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
-
-                  # Extract comment ID if exists
-                  COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
-
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Add timestamp and commit SHA to analysis
                     TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
                     COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
                     COMMIT_SHORT="${COMMIT_SHA:0:7}"
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
+                    RISK_COMMENT="We've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
-                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
-
-                    if [ -n "$COMMENT_ID" ]; then
-                      # Update existing comment
-                      echo "Updating existing risk analysis comment $COMMENT_ID"
-                      curl -X PATCH \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
-                        -d "$RISK_COMMENT_JSON"
+                    printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
+                    if [ $EXIT_CODE -ne 0 ]; then
+                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
                     else
-                      # Create new comment if none exists
-                      echo "Posting new risk analysis comment to PR"
-                      curl -X POST \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                        -d "$RISK_COMMENT_JSON"
+                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
                     fi
-                  elif [ -n "$COMMENT_ID" ]; then
-                    # No migrations to analyze but comment exists - delete it
-                    echo "Deleting risk analysis comment (no migrations to analyze)"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID"
+                  elif [ $EXIT_CODE -ne 0 ]; then
+                    echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
+                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
                   else
-                    echo "No migrations to analyze and no existing comment"
+                    echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
+                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -1555,10 +1529,10 @@ jobs:
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
 
                   # Truncate the human report to fit the check-run output
-                  # limit (~64KB); the full markdown is also posted as a PR
-                  # comment for humans. The marker stays at the top so it's
+                  # limit (~64KB); the full markdown is also posted in the CI
+                  # report for humans. The marker stays at the top so it's
                   # never lost to truncation.
-                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the CI report")
                   SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
 
                   jq -n \
@@ -1665,7 +1639,7 @@ jobs:
               # `settings.CLOUD_DEPLOYMENT` (e.g. cloud-only Kafka tables). Render the SQL each
               # environment will execute so reviewers can spot per-env divergence and verify gated
               # branches don't sneak in ON CLUSTER or other forbidden patterns. We render once per
-              # environment and reuse the output both for the Actions log groups and the PR comment
+              # environment and reuse the output both for the Actions log groups and the CI report
               # (environment -> node type(s) -> SQL). Environments that render identically are
               # grouped together; if all environments match, the environment level is collapsed.
               id: render_ch_sql
@@ -1807,7 +1781,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2252,7 +2226,7 @@ jobs:
               id: setup-uv-tests
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -3031,7 +3005,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -3168,7 +3142,7 @@ jobs:
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
@@ -3245,7 +3219,7 @@ jobs:
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: steps.reporter.outputs.available == 'true'
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Build coverage report
               # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'
