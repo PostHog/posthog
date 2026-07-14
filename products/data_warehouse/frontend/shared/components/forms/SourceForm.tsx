@@ -127,8 +127,8 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Only run queries live against this database connection — nothing is synced. Data
-                                    from this source can&apos;t be joined with PostHog data.
+                                    Only run queries live against this database connection, without syncing anything.
+                                    Data from this source can&apos;t be joined with PostHog data.
                                 </div>
                             </div>
                         ),
