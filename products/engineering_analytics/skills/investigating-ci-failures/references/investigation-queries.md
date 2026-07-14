@@ -104,19 +104,35 @@ against `git log` before naming it).
 
 ## 6. Deterministic or retry-passing?
 
-Same fingerprint across retry attempts of the same run: still failing on high attempts =
-deterministic; clearing on attempt 2 = flake signal.
+Track the investigated fingerprint itself across retry attempts, not just the job's conclusion — a
+different failure can keep the job red after this fingerprint cleared. Only runs where the
+fingerprint ever appeared are considered.
 
 ```sql
-SELECT run_attempt, countIf(conclusion = 'failure') AS failed, countIf(conclusion = 'success') AS passed
-FROM engineering_analytics_ci_job_history
-WHERE head_branch = 'master'
-  AND job_name = '<failing job name>'
-  AND created_at >= now() - INTERVAL 7 DAY
-  AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
-GROUP BY run_attempt
-ORDER BY run_attempt
+SELECT
+    h.run_id,
+    h.run_attempt,
+    h.conclusion AS job_conclusion,
+    f.run_id != 0 AS fingerprint_present
+FROM engineering_analytics_ci_job_history AS h
+LEFT JOIN (
+    SELECT DISTINCT run_id, run_attempt
+    FROM engineering_analytics_ci_failures
+    WHERE timestamp >= now() - INTERVAL 7 DAY AND fingerprint = '<fingerprint from query 1>'
+) AS f ON h.run_id = f.run_id AND h.run_attempt = f.run_attempt
+WHERE h.job_name = '<failing job name>'
+  AND h.created_at >= now() - INTERVAL 7 DAY
+  AND h.created_at_raw >= '<8 days ago, YYYY-MM-DD>'
+  AND h.run_id IN (
+    SELECT DISTINCT run_id FROM engineering_analytics_ci_failures
+    WHERE timestamp >= now() - INTERVAL 7 DAY AND fingerprint = '<fingerprint from query 1>'
+  )
+ORDER BY h.run_id, h.run_attempt
 ```
+
+Reading: `fingerprint_present` dropping on a later attempt while the job goes green = retry-passed
+(flake signal). Fingerprint present through the last attempt = deterministic. Fingerprint absent but
+the job still red = a different failure holds the job red — don't attribute it to this one.
 
 The `created_at_raw` floor lets the warehouse scan prune — the parsed `created_at` filter alone hits
 a computed column and forces a full jobs scan. It's coarse (a whole-day, string floor a day below the

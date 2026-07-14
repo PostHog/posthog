@@ -51,7 +51,9 @@ def _job_row(job_id: int, run_id: int, name: str) -> dict[str, Any]:
     }
 
 
-def _run_row(run_id: int, head_sha: str, pull_requests: list[dict], head_commit: dict) -> dict[str, Any]:
+def _run_row(
+    run_id: int, head_sha: str, pull_requests: list[dict], head_commit: dict, run_attempt: int = 1
+) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": "Backend CI",
@@ -62,7 +64,7 @@ def _run_row(run_id: int, head_sha: str, pull_requests: list[dict], head_commit:
         "created_at": _BASE,
         "run_started_at": _BASE,
         "updated_at": _LATER,
-        "run_attempt": 1,
+        "run_attempt": run_attempt,
         "pull_requests": json.dumps(pull_requests),
         "repository": json.dumps({"full_name": "PostHog/posthog"}),
         "head_commit": json.dumps(head_commit),
@@ -104,6 +106,9 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 # A job whose run row is missing — the LEFT JOIN must keep it with NULL attribution.
                 _job_row(3, run_id=999, name="job-c"),
                 _job_row(4, run_id=300, name="job-d"),
+                # A first-attempt job whose run row was upserted by a re-run (run_attempt 2): the
+                # run_id-only join must still attach the run's attribution.
+                _job_row(5, run_id=400, name="job-e"),
             ],
         )
         runs_table = self._create_table(
@@ -137,6 +142,15 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                         "author": {"name": "Carol"},
                         "message": 'Revert "feat(ci): thing (#4242)" (#4300)\n\nThis reverts commit abc.',
                     },
+                ),
+                # The runs snapshot keeps only the newest attempt's row per id — this run was re-run,
+                # so its row carries run_attempt 2 while the seeded job above is attempt 1.
+                _run_row(
+                    400,
+                    head_sha="runsha400",
+                    pull_requests=[],
+                    head_commit={"author": {"name": "Dave"}, "message": "fix: rerun me"},
+                    run_attempt=2,
                 ),
             ],
         )
@@ -189,6 +203,12 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         assert "job-c" in by_job
         assert value("job-c", "repo_owner") == ""
         assert value("job-c", "commit_pr_number") is None
+
+        # Re-run: the runs row was upserted to attempt 2 while this job is attempt 1 — the
+        # run_id-only join must still carry the run's attribution (an attempt-equality join blanks it).
+        assert value("job-e", "run_attempt") == 1
+        assert value("job-e", "commit_author_name") == "Dave"
+        assert value("job-e", "head_sha") == "runsha400"
 
     def test_union_all_of_two_sources_parses_and_stacks(self) -> None:
         # build_team_view stitches per-source SELECTs with UNION ALL; the columns must line up across
@@ -254,6 +274,9 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
                 # Contains FAILED but no '::' node id (runner env-dump noise seen in real CI logs) —
                 # must not produce a junk fingerprint.
                 self._log("E2E_TESTS: FAILED [1] (stage: build)", attrs, minute=3),
+                # A parameterized id with a space inside [...] — the extraction must keep the full
+                # node id (not truncate at the space) and normalize only the signature, never the id.
+                self._log("FAILED tests/test_api.py::test_status[user 123] - AssertionError: boom", attrs, minute=4),
             ]
         )
 
@@ -263,11 +286,16 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         by_test = {row[list(ci_failures.FIELDS).index("test_id")]: row for row in rows}
         field_index = {name: i for i, name in enumerate(ci_failures.FIELDS)}
 
-        # The PASSED line is excluded; only the two FAILED lines survive.
+        # The PASSED line is excluded; only the real FAILED node ids survive — including the
+        # parameterized one, whose id keeps the space inside [...] untruncated and unnormalized.
         assert set(by_test) == {
             "posthog/api/test_foo.py::TestFoo::test_bar",
             "posthog/api/test_baz.py::test_qux",
+            "tests/test_api.py::test_status[user 123]",
         }
+        assert by_test["tests/test_api.py::test_status[user 123]"][field_index["error_signature"]] == (
+            "AssertionError: boom"
+        )
 
         detailed = by_test["posthog/api/test_foo.py::TestFoo::test_bar"]
 

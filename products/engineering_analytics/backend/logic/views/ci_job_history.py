@@ -7,16 +7,20 @@ what lets a caller answer "master went red at SHA X, authored by Y, via PR Z" �
 analysis the CI-breakage investigation skill runs.
 
 ``build_query`` renders the SELECT for one GitHub source; ``build_team_view`` unions every
-qualifying source. The jobs↔runs join is a LEFT JOIN on ``(run_id, run_attempt)`` (matching
-``job_costs``) so a job attempt is never dropped when its run row is missing. ClickHouse fills the
-unmatched run side with type defaults (empty repo/sha, ``pr_number`` 0), not NULL — HogQL doesn't set
-``join_use_nulls`` — so a missing run reads as empty attribution rather than a real repo.
+qualifying source. The jobs↔runs join is a LEFT JOIN on ``run_id`` alone: the runs warehouse
+snapshot upserts by ``id`` and keeps only the newest attempt's row per run, so requiring
+``run_attempt`` equality would blank attribution for every earlier-attempt job after a re-run.
+Attribution is attempt-invariant (a re-run is the same commit), so joining on ``run_id`` is
+correct; ``run_attempt`` in the output comes from the jobs side. A LEFT JOIN so a job attempt is
+never dropped when its run row is missing. ClickHouse fills the unmatched run side with type
+defaults (empty repo/sha, ``pr_number`` 0), not NULL — HogQL doesn't set ``join_use_nulls`` — so a
+missing run reads as empty attribution rather than a real repo.
 
 Commit attribution comes from the run's ``head_commit`` Nullable-JSON column, which the shared
 ``workflow_runs`` builder deliberately does not surface (other embedders — cost, health, PR list —
 don't need it, and the builder stays lean). Rather than widen the shared builder, this module reads
 the commit fields through its own minimal projection over the raw runs table and LEFT JOINs it on
-``(run_id, run_attempt)`` — the ``head_commit`` JSON is ``ifNull``-unwrapped before ``JSONExtractString``
+``run_id`` — the ``head_commit`` JSON is ``ifNull``-unwrapped before ``JSONExtractString``
 because a Nullable column can't feed the extractor.
 
 Two PR keys, by design: ``pr_number`` is the runs builder's association-derived number (0 when the
@@ -78,7 +82,7 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 def _head_commit_query(runs_table: str) -> str:
-    """The run's commit attribution, keyed on ``(run_id, run_attempt)`` to match the runs grain.
+    """The run's commit attribution, keyed on ``run_id`` alone — attribution is attempt-invariant.
 
     ``ifNull``-unwraps the Nullable ``head_commit`` JSON to ``'{}'`` before extracting, so a run
     with no landed commit object yields empty strings rather than a Nullable-into-extractor error.
@@ -86,14 +90,12 @@ def _head_commit_query(runs_table: str) -> str:
     return f"""
         SELECT
             run_id,
-            run_attempt,
             JSONExtractString(head_commit, 'author', 'name') AS commit_author_name,
             JSONExtractString(head_commit, 'author', 'email') AS commit_author_email,
             JSONExtractString(head_commit, 'message') AS commit_message
         FROM (
             SELECT
                 id AS run_id,
-                run_attempt,
                 ifNull(head_commit, '{{}}') AS head_commit
             FROM {runs_table}
         )
@@ -162,8 +164,8 @@ def build_query(*, jobs_table: str, runs_table: str) -> str:
                 hc.commit_author_email AS commit_author_email,
                 hc.commit_message AS commit_message
             FROM ({jobs}) AS j
-            LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
-            LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id AND j.run_attempt = hc.run_attempt
+            LEFT JOIN ({runs}) AS r ON j.run_id = r.id
+            LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id
         )
     """
 

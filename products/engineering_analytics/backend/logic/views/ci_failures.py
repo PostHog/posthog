@@ -81,7 +81,12 @@ _SELECT = """
             `timestamp`,
             -- The '::' requirement is what makes this pytest-specific: CI log lines containing FAILED
             -- in other contexts (env dumps, stage markers) carry no '::' node id and are dropped.
-            regexpExtract(body, 'FAILED ([^[:space:]]+::[^[:space:]]+)') AS test_id,
+            -- Primary: non-greedy capture up to the FIRST ' - ' separator (pytest short-summary format),
+            -- which keeps spaces inside parameterized ids like test_x[user 123]. Fallback: the no-space
+            -- form, for FAILED lines without a ' - ' detail suffix. Residual limitation: a param value
+            -- containing a literal ' - ' still truncates at it — regex can't disambiguate that from the
+            -- message separator.
+            coalesce(nullIf(regexpExtract(body, 'FAILED (.+?::.*?) - '), ''), regexpExtract(body, 'FAILED ([^[:space:]]+::[^[:space:]]+)')) AS test_id,
             substring(replaceRegexpAll(regexpExtract(body, ' - (.*)$'), '[0-9a-fA-F-]{8,}|[0-9]+', 'N'), 1, 200) AS signature,
             attributes['branch'] AS branch,
             attributes['head_sha'] AS head_sha,
