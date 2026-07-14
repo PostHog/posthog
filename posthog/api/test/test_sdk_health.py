@@ -1,7 +1,38 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
+
+from django.test import SimpleTestCase
 
 from rest_framework import status
+
+from posthog.api.sdk_health import get_team_data
+
+
+class TestGetTeamData(SimpleTestCase):
+    @patch("posthog.api.sdk_health.get_client")
+    def test_prefers_v2_team_cache(self, mock_get_client: MagicMock) -> None:
+        redis_client = MagicMock()
+        redis_client.get.return_value = b'{"posthog-java": []}'
+        mock_get_client.return_value = redis_client
+
+        result = get_team_data(7, force_refresh=False)
+
+        assert result == {"posthog-java": []}
+        redis_client.get.assert_called_once_with("sdk_versions:team:v2:7")
+
+    @patch("posthog.api.sdk_health.get_client")
+    def test_falls_back_to_legacy_team_cache(self, mock_get_client: MagicMock) -> None:
+        redis_client = MagicMock()
+        redis_client.get.side_effect = [None, b'{"web": []}']
+        mock_get_client.return_value = redis_client
+
+        result = get_team_data(7, force_refresh=False)
+
+        assert result == {"web": []}
+        assert redis_client.get.call_args_list == [
+            call("sdk_versions:team:v2:7"),
+            call("sdk_versions:team:7"),
+        ]
 
 
 class TestSdkHealthViewSet(APIBaseTest):
@@ -66,6 +97,36 @@ class TestSdkHealthViewSet(APIBaseTest):
         assert release["status_reason"].startswith("Released ")
         assert "posthog-node" in release["sql_query"]
         assert release["activity_page_url"].startswith(f"/project/{self.team.pk}/")
+
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
+    def test_legacy_java_without_version_returns_migration_assessment(self, mock_github, mock_team) -> None:
+        mock_team.return_value = {
+            "posthog-java": [
+                {
+                    "lib_version": None,
+                    "count": 42,
+                    "max_timestamp": "2026-07-09T00:00:00Z",
+                }
+            ]
+        }
+        mock_github.return_value = {
+            "posthog-java": {
+                "latestVersion": "1.2.0",
+                "releaseDates": {},
+            }
+        }
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        sdk = response.json()["sdks"][0]
+        assert sdk["lib"] == "posthog-java"
+        assert sdk["readable_name"] == "Java (legacy)"
+        assert sdk["latest_version"] == "1.2.0"
+        assert sdk["releases"][0]["version"] == "Not reported"
+        assert "com.posthog.java:posthog" in sdk["reason"]
+        assert "com.posthog:posthog-server" in sdk["reason"]
 
     @patch("posthog.api.sdk_health.get_team_data")
     @patch("posthog.api.sdk_health.get_github_sdk_data")
@@ -143,6 +204,25 @@ class TestSdkHealthLegacyEndpoint(APIBaseTest):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json() == {"error": "Failed to get GitHub SDK data. Please try again later."}
+
+    @patch("posthog.api.sdk_health.get_team_data")
+    @patch("posthog.api.sdk_health.get_github_sdk_data")
+    def test_partial_github_cache_skips_unknown_sdk(self, mock_github, mock_team) -> None:
+        mock_team.return_value = {
+            "posthog-node": [{"lib_version": "1.0.0", "count": 100, "max_timestamp": "2026-04-21T00:00:00Z"}],
+            "posthog-java": [{"lib_version": None, "count": 50, "max_timestamp": "2026-04-21T00:00:00Z"}],
+        }
+        mock_github.return_value = {
+            "posthog-node": {
+                "latestVersion": "2.0.0",
+                "releaseDates": {"1.0.0": "2025-10-01T00:00:00Z"},
+            }
+        }
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert list(response.json()) == ["posthog-node"]
 
     @patch("posthog.api.sdk_health.get_team_data")
     @patch("posthog.api.sdk_health.get_github_sdk_data")

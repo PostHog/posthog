@@ -15,5 +15,6 @@ class TestGetAndCacheTeamSdkVersions(SimpleTestCase):
         get_and_cache_team_sdk_versions(team_id=1, redis_client=mock_redis)
 
         mock_redis.setex.assert_called_once()
-        _key, ttl, _payload = mock_redis.setex.call_args[0]
+        key, ttl, _payload = mock_redis.setex.call_args[0]
+        assert key == "sdk_versions:team:v2:1"
         assert ttl == TEAM_SDK_CACHE_EXPIRY

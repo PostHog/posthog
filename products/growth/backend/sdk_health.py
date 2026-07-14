@@ -22,6 +22,8 @@ from urllib.parse import quote
 
 import humanize
 
+from products.growth.backend.constants import LEGACY_JAVA_SDK
+
 # --- SDK classification --------------------
 
 MOBILE_SDKS: frozenset[str] = frozenset(
@@ -41,6 +43,7 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-php",
         "posthog-ruby",
         "posthog-go",
+        "posthog-server",
         "posthog-dotnet",
         "posthog-elixir",
     }
@@ -56,11 +59,14 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-php": "PHP",
     "posthog-ruby": "Ruby",
     "posthog-go": "Go",
+    LEGACY_JAVA_SDK: "Java (legacy)",
+    "posthog-server": "Java",
     "posthog-flutter": "Flutter",
     "posthog-react-native": "React Native",
     "posthog-dotnet": ".NET",
     "posthog-elixir": "Elixir",
 }
+
 
 # --- Thresholds ----------------------------
 
@@ -315,41 +321,52 @@ def _is_safe_for_interpolation(value: str) -> bool:
     return bool(value) and bool(_SAFE_INTERPOLATION_RE.match(value))
 
 
-def _build_sql_query(sdk_type: str, version: str) -> str:
+def _build_sql_query(sdk_type: str, version: Optional[str]) -> str:
     """
-    SQL drill-in for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
+    SQL drill-in for SDK usage, rendered as-is by the SDK Health UI and MCP tool.
 
-    Returns an empty string when either `sdk_type` or `version` fails validation —
-    the skill instructs agents to surface the unexpected empty value rather than retry
+    Returns an empty string when `sdk_type` or a supplied `version` fails validation.
+    The skill instructs agents to surface the unexpected empty value rather than retry
     or patch in their own values, which closes the injection path via execute-sql.
     """
-    if not _is_safe_for_interpolation(sdk_type) or not _is_safe_for_interpolation(version):
+    if not _is_safe_for_interpolation(sdk_type):
         return ""
+    if version is not None and not _is_safe_for_interpolation(version):
+        return ""
+
     # Plain string interpolation (NOT parameterized) is intentional: the allowlist above
     # is the single security boundary for this surface. A well-meaning "fix" to use
     # psycopg.sql.SQL or similar would produce the wrong string for ClickHouse/HogQL, and
     # `posthog:execute-sql` parameterizes on its end anyway. The MCP agent receives the
     # raw SQL as a string to display or pipe to execute-sql — not as a prepared statement.
+    version_filter = f" AND properties.$lib_version = '{version}'" if version is not None else ""
     return (
         "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY "
-        f"AND properties.$lib = '{sdk_type}' AND properties.$lib_version = '{version}' "
+        f"AND properties.$lib = '{sdk_type}'{version_filter} "
         "ORDER BY timestamp DESC LIMIT 50"
     )
 
 
-def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: str) -> str:
+def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: Optional[str]) -> str:
     """
-    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
+    Activity > Explore drill-in URL for SDK usage, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns a relative path (no host) including /project/<id>/ prefix so MCP agents
     can combine it with the user's known PostHog host (e.g. us.posthog.com).
 
-    Returns an empty string when either `sdk_type` or `version` fails validation —
-    consistent with _build_sql_query, keeps the pair either both-populated or
-    both-empty so the skill's "if empty, surface it" guidance applies uniformly.
+    Returns an empty string when `sdk_type` or a supplied `version` fails validation.
+    This is consistent with _build_sql_query and keeps the pair either both populated
+    or both empty so the skill's "if empty, surface it" guidance applies uniformly.
     """
-    if not _is_safe_for_interpolation(sdk_type) or not _is_safe_for_interpolation(version):
+    if not _is_safe_for_interpolation(sdk_type):
         return ""
+    if version is not None and not _is_safe_for_interpolation(version):
+        return ""
+
+    properties: list[dict[str, Any]] = [{"key": "$lib", "value": [sdk_type], "operator": "exact", "type": "event"}]
+    if version is not None:
+        properties.append({"key": "$lib_version", "value": [version], "operator": "exact", "type": "event"})
+
     query: dict[str, Any] = {
         "kind": "DataTableNode",
         "columns": [
@@ -375,10 +392,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
             ],
             "orderBy": ["timestamp DESC"],
             "after": "-7d",
-            "properties": [
-                {"key": "$lib", "value": [sdk_type], "operator": "exact", "type": "event"},
-                {"key": "$lib_version", "value": [version], "operator": "exact", "type": "event"},
-            ],
+            "properties": properties,
         },
         "context": {"type": "team_columns"},
         "allowSorting": True,
@@ -629,6 +643,48 @@ def _build_reason(
     return " ".join(pieces) if pieces else f"{name} may need attention."
 
 
+LEGACY_JAVA_VERSION_LABEL = "Not reported"
+LEGACY_JAVA_MIGRATION_REASON = (
+    "The legacy com.posthog.java:posthog SDK is archived. Migrate to com.posthog:posthog-server."
+)
+
+
+def _assess_legacy_java_sdk(
+    latest_version: str,
+    usage: list[dict[str, Any]],
+    project_id: Optional[int] = None,
+) -> SdkAssessment:
+    """Represent the archived Java SDK without inventing version metadata it never sent."""
+    release = ReleaseAssessment(
+        version=LEGACY_JAVA_VERSION_LABEL,
+        count=sum(int(entry.get("count", 0)) for entry in usage),
+        max_timestamp=max((str(entry.get("max_timestamp") or "") for entry in usage), default=""),
+        release_date=None,
+        days_since_release=None,
+        released_ago=None,
+        is_outdated=True,
+        is_old=False,
+        needs_updating=True,
+        is_current_or_newer=False,
+        status_reason=LEGACY_JAVA_MIGRATION_REASON,
+        sql_query=_build_sql_query(LEGACY_JAVA_SDK, None),
+        activity_page_url=_build_activity_page_url(project_id, LEGACY_JAVA_SDK, None),
+    )
+    return SdkAssessment(
+        lib=LEGACY_JAVA_SDK,
+        readable_name=SDK_READABLE_NAME[LEGACY_JAVA_SDK],
+        latest_version=latest_version,
+        needs_updating=True,
+        is_outdated=True,
+        is_old=False,
+        severity="warning",
+        reason=LEGACY_JAVA_MIGRATION_REASON,
+        banners=[],
+        releases=[release],
+        outdated_traffic_alerts=[],
+    )
+
+
 def assess_sdk(
     sdk_type: str,
     latest_version_str: str,
@@ -723,18 +779,20 @@ def compute_sdk_health(
         if not latest_version_str or not usage_raw:
             continue
 
-        usage = [
-            UsageEntry(
-                lib_version=entry["lib_version"],
-                count=int(entry.get("count", 0)),
-                max_timestamp=entry.get("max_timestamp", ""),
-                release_date=entry.get("release_date"),
-                is_latest=bool(entry.get("is_latest", False)),
-            )
-            for entry in usage_raw
-        ]
-
-        assessment = assess_sdk(sdk_type, latest_version_str, usage, now=now, project_id=project_id)
+        if sdk_type == LEGACY_JAVA_SDK:
+            assessment = _assess_legacy_java_sdk(latest_version_str, usage_raw, project_id=project_id)
+        else:
+            usage = [
+                UsageEntry(
+                    lib_version=entry["lib_version"],
+                    count=int(entry.get("count", 0)),
+                    max_timestamp=entry.get("max_timestamp", ""),
+                    release_date=entry.get("release_date"),
+                    is_latest=bool(entry.get("is_latest", False)),
+                )
+                for entry in usage_raw
+            ]
+            assessment = assess_sdk(sdk_type, latest_version_str, usage, now=now, project_id=project_id)
         if assessment is not None:
             assessments.append(assessment)
 

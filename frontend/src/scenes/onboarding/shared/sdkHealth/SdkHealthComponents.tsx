@@ -68,7 +68,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                     {record.isOutdated ? (
                         <Tooltip placement="right" title={record.statusReason}>
                             <LemonTag type="danger" className="shrink-0 cursor-help">
-                                Outdated
+                                {record.type === 'posthog-java' ? 'Migration required' : 'Outdated'}
                             </LemonTag>
                         </Tooltip>
                     ) : record.isCurrentOrNewer ? (

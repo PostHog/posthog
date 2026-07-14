@@ -15,6 +15,8 @@ export type SdkType =
     | 'web'
     | 'posthog-ios'
     | 'posthog-android'
+    | 'posthog-java'
+    | 'posthog-server'
     | 'posthog-node'
     | 'posthog-python'
     | 'posthog-php'
