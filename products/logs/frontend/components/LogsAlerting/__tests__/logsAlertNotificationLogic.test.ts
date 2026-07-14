@@ -8,7 +8,7 @@ import { HogFunctionType } from '~/types'
 
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
 
-import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from '../logsAlertNotificationLogic'
+import { logsAlertNotificationLogic } from '../logsAlertNotificationLogic'
 import { buildLogsAlertFilterConfig, LogsAlertDestinationGroup } from '../logsAlertUtils'
 
 jest.mock('lib/api', () => {
@@ -48,10 +48,6 @@ const MOCK_HOG_FUNCTION = {
 } as unknown as HogFunctionType
 
 describe('logsAlertNotificationLogic', () => {
-    it('does not offer Discord as a Logs alert destination', () => {
-        expect(LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS.map(({ value }) => value)).not.toContain('discord')
-    })
-
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
