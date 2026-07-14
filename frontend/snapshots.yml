@@ -5003,21 +5003,21 @@ snapshots:
     scenes-app-ai-observability-conversation-display--anthropic--light:
         hash: v1.k794b7964.153d5fe9eafbb67eb746a3ff3f516c67e65a84542325171764b68f6effbc3393.1EGkU0sySBFFoIO7iHUB6iLLycQqtjlgq7wInrBMgLc
     scenes-app-ai-observability-conversation-display--basic--dark:
-        hash: v1.k794b7964.78f996e5b3fa17c9273ac0b919698921f80b86d7116879a94139cbcd28c2fcf0.z0zclhoP9A1J7cgadBSK6Y1KE1t39NkaqYffkTuXyzk
+        hash: v1.k794b7964.9ea11684de93cf0bf2fabc01d05a7b4fed8d0e540084b01ec27ab8a29d0f3823.vJCRxMCRSHVE9xVry1hOYTeYimJdH1PyeD0guOSQu4k
     scenes-app-ai-observability-conversation-display--basic--light:
-        hash: v1.k794b7964.d71dd9f0b151a925a9a984b79fb81295fe803800f909c2ae1091c8a89b6f339e.MPJYfBbGOyJlJwUaARyBMnrwC1Bl8ifBnXVICkivs48
+        hash: v1.k794b7964.3cb142d720e0576d3b92310d75f791cf42452f5f32d38674f79d434790589239.7q-Lw22M7R633hrsN-ZnuIgkAWP9l4i9iRbu5jpnOG8
     scenes-app-ai-observability-conversation-display--error--dark:
         hash: v1.k794b7964.477b40a99b407806f5a85839a94004a899be31370ea6861518dd11cf5c883c45.EQEZzP2enfzFprXAhyqSbD8Um6pvTD1cGa3yq6qn4VU
     scenes-app-ai-observability-conversation-display--error--light:
         hash: v1.k794b7964.ac8507542eecfdaec76482cb232e677a0d0abe4b4c6ecdbac613ec4757cbfacd.jWQdUiUTDBIvtwDA-nQxlWMkAnWRT2mFrGrtmr3q_ys
     scenes-app-ai-observability-conversation-display--markdown--dark:
-        hash: v1.k794b7964.e5be16b83690b4e4f1c275be8c9806440f882c7b8f28c3859529b9f46a0dd10b.o_k_Yq7HgYD7AO6ZREBAA2oK4USO5eXGZ-fwVCce11I
+        hash: v1.k794b7964.479524503d84d5795c027718559d41efcba3103a6a9e11a66854d4bedf300247.dkazWcFlzQhfdiEy_8W9vix5XwB2ROB6Z0k6S2vRKl4
     scenes-app-ai-observability-conversation-display--markdown--light:
-        hash: v1.k794b7964.a32669ce02fb47f7bb7ad3ae6484fe7327a847d1df1d1e28a0e8dcacdfe4000e.wAkd9vHYwtDzb0ieO_xo7BHCYQ7kIu5zGydHtqMVssc
+        hash: v1.k794b7964.031e91a251072760a2430dd98ba5e87374d77adebd27db1ed5ed08242d9b0537.FLdMLi2pEXuK08SP_gNnEB7gWrSV9iAYY6JMCD9xASI
     scenes-app-ai-observability-conversation-display--tools--dark:
-        hash: v1.k794b7964.2cfe071a064ceb24f0d335ede9776c5baf4f9bd29a4d0614054a2b0f9ab6323e.D-lly0WcYDtubBh1ijhde5QQ8-RFUMN9lsIIZqNblvY
+        hash: v1.k794b7964.c9cf0f699197f208ec18e3ad326c29d43b8034f37f5fc101a9e25773510895a5.f_qTgpzSlQlCRirQv0iD791ajpL-x8WnVi8T8qNYr1o
     scenes-app-ai-observability-conversation-display--tools--light:
-        hash: v1.k794b7964.8cef3e2b4016ddd7acd4573fc58711be40ebe7d669371df7b7d4a35324dfce8a.exvwcwzA0A82p-3LqqXM3F04g3shIirvtOlCd3H7Z8c
+        hash: v1.k794b7964.cc6f7770155f4b720ff0597c3dd5deff699a267cfbdd8fe76a131cb51740215d.lKCAOsQBSoBkK46EHSYdGmWxAi4CQ4wUrx2J1iRF_f0
     scenes-app-ai-observability-prompts--empty-state--dark:
         hash: v1.k794b7964.c8d83f25e82f659e199c0514b7eab4a0b1dab1e7a6a1c4e1de97a162a007b9f0.iR50GK7W2Ghw5_0tV7K5HMTfGuVyUSWQfYO-waZI_SA
     scenes-app-ai-observability-prompts--empty-state--light:
