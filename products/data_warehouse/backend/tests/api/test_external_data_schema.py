@@ -3546,6 +3546,16 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         schema.refresh_from_db()
         assert schema.masked_columns == ["password"]
 
+    def test_mask_rejected_when_source_columns_collide_after_normalization(self):
+        # `email` and `Email` both normalize to `email`; masking `Email` can't be disambiguated, so
+        # the intended column would sync plaintext. Reject rather than mask the wrong one.
+        schema = self._create()
+        schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "email"}, {"name": "Email"}, {"name": "id"}]}
+        schema.save(update_fields=["sync_type_config"])
+        response = self._patch(schema, ["Email"])
+        assert response.status_code == 400
+        assert "collide after normalization" in str(response.json())
+
     def test_incremental_field_change_onto_masked_column_rejected(self):
         schema = self._create(masked_columns=["password"], sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
         response = self.client.patch(

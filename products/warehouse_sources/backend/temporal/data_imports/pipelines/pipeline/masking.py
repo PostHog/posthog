@@ -29,6 +29,7 @@ Known limitations (accepted):
 import hmac
 import asyncio
 import hashlib
+from collections.abc import Iterable
 
 from django.conf import settings
 
@@ -70,6 +71,21 @@ def fold_column_name(name: str) -> str:
         return NamingConvention.normalize_identifier(name)
     except ValueError:
         return name
+
+
+def ambiguous_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:
+    """Masked entries whose folded name is shared by two or more source columns.
+
+    `normalize_table_column_names` disambiguates a real collision (e.g. `email` + `Email`) by
+    prefixing the later column, but `fold_column_name` folds each name in isolation and can't tell
+    which physical column a mask refers to. Masking would then hit the wrong column and leave the
+    intended one plaintext, so callers must reject these at config time (fail closed)."""
+    counts: dict[str, int] = {}
+    for name in source_columns:
+        folded = fold_column_name(name)
+        counts[folded] = counts.get(folded, 0) + 1
+    collisions = {folded for folded, count in counts.items() if count > 1}
+    return [c for c in masked_columns if fold_column_name(c) in collisions]
 
 
 def resolve_masked_columns(

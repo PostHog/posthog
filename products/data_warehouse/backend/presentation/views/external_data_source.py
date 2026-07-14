@@ -154,6 +154,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SQLSource,
     SSLRequiredError,
     WebhookSource,
+    ambiguous_masked_columns,
     build_default_schemas,
     cdc_pg_connection,
     draft_manifest_sync,
@@ -2349,11 +2350,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
-            # Reject masking a PK/incremental column at creation, mirroring the PATCH endpoint.
-            # `resolve_masked_columns` would otherwise drop these at sync time and the API would
-            # have reported the column as masked while it syncs in plaintext. Uses the PKs resolved
-            # into sync_type_config above (provided, discovered, or CDC-queried).
-            if masked_columns and not is_direct_query:
+            # Validate masked_columns at creation, mirroring the PATCH endpoint. Silently accepting
+            # (or dropping) a mask would report a column as masked while it syncs in plaintext.
+            if masked_columns:
+                if is_direct_query:
+                    # Direct-query sources query live and never sync, so a mask protects nothing.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Column masking is not supported for direct query sources (schema '{schema_name}')."
+                        },
+                    )
+                known_columns = [c[0] for c in (source_schema.columns if source_schema else [])]
+                # Two source columns that normalize to the same name (e.g. `email` + `Email`) can't be
+                # masked unambiguously — the engine would hit the wrong one. Fail closed.
+                ambiguous = ambiguous_masked_columns(masked_columns, known_columns)
+                if ambiguous:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)} for schema '{schema_name}'."
+                        },
+                    )
+                # PKs resolved into sync_type_config above (provided, discovered, or CDC-queried).
                 protected = {fold_column_name(c) for c in (sync_type_config.get("primary_key_columns") or [])}
                 if incremental_field:
                     protected.add(fold_column_name(incremental_field))

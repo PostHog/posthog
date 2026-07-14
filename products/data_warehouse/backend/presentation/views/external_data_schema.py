@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
+    ambiguous_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
@@ -641,6 +642,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         raise ValidationError(
                             f"Unknown columns in masked_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
+                        )
+                    # Two source columns that normalize to the same name (e.g. `email` + `Email`) can't
+                    # be masked unambiguously — the engine would hit the wrong one. Fail closed.
+                    ambiguous = ambiguous_masked_columns(masked_columns, known)
+                    if ambiguous:
+                        raise ValidationError(
+                            f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
+                            "Rename the source columns to differ by more than case."
                         )
                 # Fold names the same way the masking engine does (NamingConvention, via
                 # `fold_column_name`) so validation and runtime protection agree — `casefold` alone is a

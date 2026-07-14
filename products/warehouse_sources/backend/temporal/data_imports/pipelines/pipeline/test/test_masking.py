@@ -8,6 +8,7 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
+    ambiguous_masked_columns,
     mask_table_columns,
     mask_table_if_configured,
     mask_value,
@@ -55,6 +56,16 @@ class TestResolveMaskedColumns:
 
     def test_empty_when_unset(self):
         assert resolve_masked_columns(None) == set()
+
+
+class TestAmbiguousMaskedColumns:
+    def test_flags_mask_on_normalization_collision(self):
+        # `email` and `Email` both fold to `email`; masking `Email` can't be disambiguated from the
+        # `email` column, so the intended column would sync plaintext. Must be flagged for rejection.
+        assert ambiguous_masked_columns(["Email"], ["email", "Email", "id"]) == ["Email"]
+
+    def test_no_collision_passes(self):
+        assert ambiguous_masked_columns(["email"], ["email", "id", "name"]) == []
 
 
 class TestMaskTableColumns:
