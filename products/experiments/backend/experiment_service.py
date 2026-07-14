@@ -48,6 +48,8 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
@@ -2904,6 +2906,8 @@ class ExperimentService:
             self.validate_stats_config(effective_stats_config, variant_keys)
 
             # Web experiments keep requiring 'control' (see the matching guard in create).
+            # `type` is immutable on update (rejected by _validate_update_payload's
+            # allowlist), so the persisted value is the effective one.
             if update_variants is not None and experiment.type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
                 raise ValidationError("Web experiments require a variant with key 'control'")
 
@@ -3823,6 +3827,16 @@ class ExperimentService:
         has_evaluation_contexts: str | bool | None,
     ) -> QuerySet[FeatureFlag]:
         queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id).eligible_for_experiment()
+
+        # This action is experiment-scoped, so the flag resource's object-level access
+        # controls are not applied by the viewset — filter here like the flag list
+        # endpoint does, so private flags don't leak through the eligible-flags listing.
+        if isinstance(self.user, User):
+            queryset = UserAccessControl(user=self.user, team=self.team).filter_queryset_by_access_level(
+                queryset, include_all_if_admin=True
+            )
+        else:
+            queryset = queryset.none()
 
         if excluded_flag_ids:
             queryset = queryset.exclude(id__in=excluded_flag_ids)

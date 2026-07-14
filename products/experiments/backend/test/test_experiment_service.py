@@ -4966,6 +4966,41 @@ class TestExperimentService(APIBaseTest):
         assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
+    def test_get_eligible_feature_flags_excludes_flags_blocked_by_access_controls(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        self._create_flag(key="accessible-flag")
+        other_user = User.objects.create_and_join(self.organization, "flag-owner@posthog.com", None)
+        private_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=other_user,
+            key="private-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(private_flag.id), access_level="none"
+        )
+
+        result = self._service().get_eligible_feature_flags(order="key")
+
+        assert result["count"] == 1
+        assert [flag.key for flag in result["results"]] == ["accessible-flag"]
+
     # ------------------------------------------------------------------
     # Experiment list/querying
     # ------------------------------------------------------------------
