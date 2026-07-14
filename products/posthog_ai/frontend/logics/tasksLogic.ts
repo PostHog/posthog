@@ -139,21 +139,36 @@ export const tasksLogic = kea<tasksLogicType>([
     }),
 
     selectors({
+        // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
+        isStaffUser: [(s) => [s.user], (user): boolean => !!user?.is_staff],
         // Combined list filters: search term + the assignee toggle. "For you" scopes to the current
-        // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks.
+        // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks; "all team" (staff
+        // only) lists every task on the team, letting the server bypass the per-user visibility filter.
         taskListParams: [
             (s) => [s.searchQuery, s.assigneeFilter, s.user],
-            (searchQuery, assigneeFilter, user): TaskListParams => ({
-                search: searchQuery || undefined,
-                ...(assigneeFilter === 'for_you'
-                    ? { created_by: user?.id }
-                    : { origin_product: OriginProduct.SIGNALS_SCOUT }),
-            }),
+            (searchQuery, assigneeFilter, user): TaskListParams => {
+                const base: TaskListParams = { search: searchQuery || undefined }
+                // Guard here too: a non-staff user must never send `all_team_tasks` (the server ignores
+                // it, but this keeps the request honest and falls back to their own tasks).
+                if (assigneeFilter === 'all_team' && user?.is_staff) {
+                    return { ...base, all_team_tasks: true }
+                }
+                if (assigneeFilter === 'team_scouts') {
+                    return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT }
+                }
+                return { ...base, created_by: user?.id }
+            },
         ],
     }),
 
     listeners(({ actions, values }) => ({
         openTask: ({ taskId }) => {
+            // From the staff "all team" view, carry the ph_debug opt-in so the detail page and its run
+            // logs load for tasks the viewer doesn't own (the backend honors it for staff).
+            if (values.assigneeFilter === 'all_team' && values.isStaffUser) {
+                router.actions.push(`/tasks/${taskId}`, { ph_debug: 'true' })
+                return
+            }
             router.actions.push(`/tasks/${taskId}`)
         },
         // Debounce typing before hitting the server; the loader's own `breakpoint` then drops any

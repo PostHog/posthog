@@ -150,6 +150,14 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
+def _can_bypass_visibility(request, team_id: int | None) -> bool:
+    """Whether this request may read tasks it doesn't own, when it opts in via ``?ph_debug=true``.
+
+    Granted to staff users (support/debugging any team) and to members of an internal-debug team.
+    """
+    return bool(getattr(request.user, "is_staff", False)) or _is_internal_debug_team(team_id)
+
+
 class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
     """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
 
@@ -235,7 +243,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
-        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
+        # Staff can opt into seeing every team task; re-check server-side so a client can't
+        # forge the flag to bypass the per-user visibility gate.
+        all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
+        bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
+        tasks = tasks_facade._list_tasks_queryset(
+            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
+        )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
         return self.get_paginated_response(
@@ -248,7 +262,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _is_internal_debug_team(self.team_id) and request.query_params.get("ph_debug") == "true"
+        bypass_visibility = (
+            _can_bypass_visibility(request, self.team_id) and request.query_params.get("ph_debug") == "true"
+        )
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -783,13 +799,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
 
-        ``?ph_debug=true`` lets internal-debug teams read other members' runs through read-only
-        actions.
+        ``?ph_debug=true`` lets staff users and internal-debug teams read other members' runs
+        through read-only actions.
         """
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
-        is_internal_debug_read = (
-            _is_internal_debug_team(self.team_id)
+        is_debug_read = (
+            _can_bypass_visibility(self.request, self.team_id)
             and self.action
             in (
                 "list",
@@ -805,7 +821,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             self._user_id(),
-            bypass_visibility=is_internal_debug_read,
+            bypass_visibility=is_debug_read,
             for_control=not is_read_only,
         ):
             raise NotFound("Task not found")
