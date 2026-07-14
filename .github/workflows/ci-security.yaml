@@ -75,6 +75,8 @@ jobs:
                         - 'products/**'
                         - '.semgrep/rules/security/prefer-codegen-api.yaml'
                         - '.github/workflows/ci-security.yaml'
+                      # Keep these exclusions aligned with semgrep-general below.
+                      # .semgrep stays included so rule changes always trigger a scan.
                       general:
                         - '**'
                         - '!cli/**'
