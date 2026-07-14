@@ -3235,7 +3235,8 @@ class SafetyCultureSourceConfig(config.Config):
 
 @config.config
 class SageHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
