@@ -29,11 +29,11 @@ function shortExclusionsLabel(parts: string[]): string {
 
 const LEMON_SKIN_PROPS = { 'data-lemon-skin': 'true' }
 
-type InsightDateFilterComposerProps = {
+type InsightQuillDateFilterProps = {
     disabled: boolean
 }
 
-export function InsightDateFilterComposer({ disabled }: InsightDateFilterComposerProps): JSX.Element {
+export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { dateRange, trendsFilter, isTrends, isRetention } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -77,7 +77,7 @@ export function InsightDateFilterComposer({ disabled }: InsightDateFilterCompose
                         data-lemon-skin
                         disabled={disabled || !!editingDisabledReason}
                         title={editingDisabledReason ?? undefined}
-                        data-attr="insight-date-filter-composer"
+                        data-attr="insight-quill-date-filter"
                     />
                 }
             >
@@ -115,9 +115,9 @@ export function InsightDateFilterComposer({ disabled }: InsightDateFilterCompose
                     presetsFooter={
                         <>
                             <div className="flex h-8 items-center justify-between gap-2 px-2">
-                                <Label htmlFor="composer-exact-time">Exact time range</Label>
+                                <Label htmlFor="date-filter-exact-time">Exact time range</Label>
                                 <Switch
-                                    id="composer-exact-time"
+                                    id="date-filter-exact-time"
                                     size="sm"
                                     checked={dateRange?.explicitDate ?? false}
                                     onCheckedChange={(checked) => updateDateRange({ explicitDate: checked }, true)}

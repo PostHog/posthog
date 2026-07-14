@@ -11,15 +11,17 @@
 export { DataTable, type DataTableProps } from './data-table'
 export {
     DateTimePicker,
-    dateRangeSelectionLabel,
-    type DataAttributeProps,
     type DateFormatOrder,
-    type DateRangeChip,
-    type DateRangeSelection,
     type DateTimeApplyValue,
     type DateTimePickerProps,
     type DateTimeValue,
 } from './date-time-picker'
+export {
+    dateRangeSelectionLabel,
+    type DataAttributeProps,
+    type DateRangeChip,
+    type DateRangeSelection,
+} from './date-range-presets-panel'
 export { DatePicker, type DatePickerProps } from './date-picker'
 export { quickRanges, CUSTOM_RANGE, type DateTimeRange, type DateTimeRangeName } from './date-time-ranges'
 export { useCalendar, Day, Month, type UseCalendarOptions, type UseCalendarReturn } from './use-calendar'

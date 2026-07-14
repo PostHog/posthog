@@ -71,7 +71,7 @@ export function DateFilterExclusionsControl({
         <Popover>
             <PopoverTrigger
                 render={<Button variant="default" size="sm" left className="w-full" />}
-                data-attr="date-composer-exclusions"
+                data-attr="date-filter-exclusions"
             >
                 {summary || 'Exclude'}
                 <IconChevronRight className="ms-auto" />
@@ -79,9 +79,9 @@ export function DateFilterExclusionsControl({
             <PopoverContent side="right" align="end" {...panelProps} className="w-64 gap-0 p-0">
                 {showIncomplete && (
                     <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                        <Label htmlFor="composer-exclude-incomplete">Incomplete period</Label>
+                        <Label htmlFor="date-filter-exclude-incomplete">Incomplete period</Label>
                         <Switch
-                            id="composer-exclude-incomplete"
+                            id="date-filter-exclude-incomplete"
                             size="sm"
                             checked={exclusions.incomplete}
                             onCheckedChange={(incomplete) => onChange({ ...exclusions, incomplete })}

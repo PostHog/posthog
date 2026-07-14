@@ -1,28 +1,19 @@
-import {
-    endOfDay,
-    endOfMonth,
-    endOfWeek,
-    format,
-    getMonth,
-    getYear,
-    startOfDay,
-    startOfMonth,
-    startOfWeek,
-    startOfYear,
-    subDays,
-    subHours,
-    subMonths,
-    subWeeks,
-    subYears,
-} from 'date-fns'
-import { ArrowRight, ChevronRight, SettingsIcon } from 'lucide-react'
+import { endOfDay, format, getMonth, getYear, startOfDay, subMonths } from 'date-fns'
+import { ArrowRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, ScrollArea, Separator, Switch, Text, cn } from '@posthog/quill-primitives'
+import { Badge, Button, ScrollArea, Separator, Switch, cn } from '@posthog/quill-primitives'
 
 import { Calendar } from './calendar-grid'
+import {
+    DateRangePresetsPanel,
+    selectionKeyOf,
+    valueForSelection,
+    type DataAttributeProps,
+    type DateRangeChip,
+    type DateRangeSelection,
+} from './date-range-presets-panel'
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
-import { RelativeRangeInput, type RelativeRangeUnit, type RelativeRangeValue } from './relative-range-input'
 import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
 import { Day } from './use-calendar'
 
@@ -67,123 +58,6 @@ export interface DateTimeApplyValue extends DateTimeValue {
     includesTime?: boolean
 }
 
-export type DateRangeSelection =
-    | { kind: 'rolling'; count: number; unit: RelativeRangeUnit }
-    | { kind: 'fixed'; name: string }
-    | { kind: 'custom'; start: Date; end: Date; includesTime?: boolean }
-
-type PresetSelection = Extract<DateRangeSelection, { kind: 'rolling' } | { kind: 'fixed' }>
-
-export interface DateRangeChip {
-    label: string
-    selection: PresetSelection
-}
-
-/** Portaled surfaces escape wrapper-scoped selectors, so skin opt-in rides in as data attributes. */
-export type DataAttributeProps = React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, string>
-
-const DEFAULT_SHORT_CHIPS: DateRangeChip[] = [
-    { label: '1h', selection: { kind: 'rolling', count: 1, unit: 'hours' } },
-    { label: '24h', selection: { kind: 'rolling', count: 24, unit: 'hours' } },
-    { label: '7d', selection: { kind: 'rolling', count: 7, unit: 'days' } },
-    { label: '14d', selection: { kind: 'rolling', count: 14, unit: 'days' } },
-    { label: '30d', selection: { kind: 'rolling', count: 30, unit: 'days' } },
-    { label: '90d', selection: { kind: 'rolling', count: 90, unit: 'days' } },
-    { label: '1w', selection: { kind: 'rolling', count: 1, unit: 'weeks' } },
-    { label: '1m', selection: { kind: 'rolling', count: 1, unit: 'months' } },
-    { label: '1y', selection: { kind: 'rolling', count: 1, unit: 'years' } },
-]
-const DEFAULT_NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'Year to date', 'All time']
-
-export function dateRangeSelectionLabel(selection: DateRangeSelection): string {
-    if (selection.kind === 'rolling') {
-        const unit = selection.count === 1 ? selection.unit.slice(0, -1) : selection.unit
-        return `Last ${selection.count} ${unit}`
-    }
-    if (selection.kind === 'fixed') {
-        return selection.name
-    }
-    return `${format(selection.start, 'MMM d')} – ${format(selection.end, 'MMM d')}`
-}
-
-function rollingStart(count: number, unit: RelativeRangeUnit, now: Date): Date {
-    switch (unit) {
-        case 'minutes':
-            return new Date(now.getTime() - count * 60_000)
-        case 'hours':
-            return subHours(now, count)
-        case 'days':
-            return subDays(now, count)
-        case 'weeks':
-            return subWeeks(now, count)
-        case 'months':
-            return subMonths(now, count)
-        case 'years':
-            return subYears(now, count)
-    }
-}
-
-function fixedRange(name: string, now: Date, weekStartsOn: 0 | 1): { start: Date; end: Date } {
-    switch (name) {
-        case 'Today':
-            return { start: startOfDay(now), end: now }
-        case 'Yesterday':
-            return { start: startOfDay(subDays(now, 1)), end: endOfDay(subDays(now, 1)) }
-        case 'This week':
-            return { start: startOfWeek(now, { weekStartsOn }), end: now }
-        case 'Last week': {
-            const lastWeek = subWeeks(now, 1)
-            return { start: startOfWeek(lastWeek, { weekStartsOn }), end: endOfWeek(lastWeek, { weekStartsOn }) }
-        }
-        case 'This month':
-            return { start: startOfMonth(now), end: now }
-        case 'Last month':
-            return { start: startOfMonth(subMonths(now, 1)), end: endOfMonth(subMonths(now, 1)) }
-        case 'Year to date':
-            return { start: startOfYear(now), end: now }
-        default:
-            return { start: subYears(now, 10), end: now }
-    }
-}
-
-function valueForSelection(selection: DateRangeSelection, now: Date, weekStartsOn: 0 | 1): DateTimeValue {
-    if (selection.kind === 'custom') {
-        return { start: selection.start, end: selection.end, range: CUSTOM_RANGE }
-    }
-    if (selection.kind === 'rolling') {
-        return { start: rollingStart(selection.count, selection.unit, now), end: now, range: CUSTOM_RANGE }
-    }
-    return { ...fixedRange(selection.name, now, weekStartsOn), range: CUSTOM_RANGE }
-}
-
-function selectionKeyOf(selection: DateRangeSelection): string {
-    if (selection.kind === 'custom') {
-        return `custom-${selection.start.getTime()}-${selection.end.getTime()}`
-    }
-    if (selection.kind === 'rolling') {
-        return `rolling-${selection.count}-${selection.unit}`
-    }
-    return `fixed-${selection.name}`
-}
-
-const CHIP_CLASSES =
-    'h-5 px-1 text-[0.6875rem] border-border bg-transparent aria-selected:border-primary aria-selected:bg-primary/10 aria-selected:font-semibold aria-selected:text-primary'
-
-function chipSelected(chip: PresetSelection, selection: DateRangeSelection): boolean {
-    if (chip.kind === 'rolling') {
-        return selection.kind === 'rolling' && selection.count === chip.count && selection.unit === chip.unit
-    }
-    return selection.kind === 'fixed' && selection.name === chip.name
-}
-
-function chipTitle(chip: PresetSelection, now: Date, weekStartsOn: 0 | 1): string {
-    if (chip.kind === 'rolling') {
-        return `${format(rollingStart(chip.count, chip.unit, now), 'MMM d, yyyy')} – now`
-    }
-    const { start, end } = fixedRange(chip.name, now, weekStartsOn)
-    return `${format(start, 'MMM d, yyyy')} – ${format(end, 'MMM d, yyyy')}`
-}
-
 export interface DateTimePickerProps {
     /** Staged range seed; not needed when `selection` drives the picker. */
     value?: DateTimeValue
@@ -205,8 +79,7 @@ export interface DateTimePickerProps {
     shortChips?: DateRangeChip[]
     namedChips?: string[]
     presetsSide?: 'left' | 'right'
-    /** When true (default) the calendar hides behind the panel's "Custom range…" row; when false it
-     *  is always visible and the panel renders in a narrow single-column style. */
+    /** When true (default) the calendar hides behind the panel's "Custom range…" row. */
     collapsibleCalendar?: boolean
     /** Extra host rows at the bottom of the presets panel (under "Custom range…"). */
     presetsFooter?: React.ReactNode
@@ -221,7 +94,6 @@ export interface DateTimePickerProps {
     className?: string
 }
 
-
 export function DateTimePicker({
     value: valueProp,
     onApply,
@@ -235,8 +107,8 @@ export function DateTimePicker({
     ranges = quickRanges,
     selection,
     onSelectionChange,
-    shortChips = DEFAULT_SHORT_CHIPS,
-    namedChips = DEFAULT_NAMED_CHIPS,
+    shortChips,
+    namedChips,
     presetsSide = 'left',
     collapsibleCalendar = true,
     presetsFooter,
@@ -410,74 +282,19 @@ export function DateTimePicker({
     const presentationalStart = format(start, dateTimeFormat)
     const presentationalEnd = format(end, dateTimeFormat)
 
-    const rolling: RelativeRangeValue =
-        selection?.kind === 'rolling' ? { count: selection.count, unit: selection.unit } : { count: 7, unit: 'days' }
-
     const presetsPanel = selection && (
-        <div className="flex h-full w-56 flex-col">
-            <div className={cn('gap-1 px-2 pt-2 pb-1.5', 'grid grid-cols-3')}>
-                {shortChips.map(({ label, selection: chip }) => (
-                    <Button
-                        key={label}
-                        variant="outline"
-                        size="sm"
-                        className={CHIP_CLASSES}
-                        aria-selected={chipSelected(chip, selection)}
-                        title={chipTitle(chip, panelNow, weekStart01)}
-                        onClick={() => onSelectionChange?.(chip)}
-                        data-attr={`date-composer-short-${label.toLowerCase()}`}
-                    >
-                        {label}
-                    </Button>
-                ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
-                <Text size="sm" className="whitespace-nowrap" render={<span />}>
-                    Last
-                </Text>
-                <RelativeRangeInput
-                    className="gap-1.5 [&_[data-slot=input-group]]:w-[5.5rem] [&_[data-slot=input-group]_input]:px-0"
-                    value={rolling}
-                    onChange={({ count, unit }) => onSelectionChange?.({ kind: 'rolling', count, unit })}
-                    selectContentProps={portalProps}
-                />
-            </div>
-            <div className="grid grid-cols-2 gap-1 px-2 pt-1.5 pb-2">
-                {namedChips.map((name) => (
-                    <Button
-                        key={name}
-                        variant="outline"
-                        size="sm"
-                        className={CHIP_CLASSES}
-                        aria-selected={selection.kind === 'fixed' && selection.name === name}
-                        title={chipTitle({ kind: 'fixed', name }, panelNow, weekStart01)}
-                        onClick={() => onSelectionChange?.({ kind: 'fixed', name })}
-                        data-attr={`date-composer-fixed-${name.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                        {name}
-                    </Button>
-                ))}
-            </div>
-            {(collapsibleCalendar || presetsFooter) && (
-                <div className="mt-auto flex flex-col gap-px border-t border-border p-1">
-                    {collapsibleCalendar && (
-                        <Button
-                            variant="default"
-                            size="sm"
-                            left
-                            className="w-full"
-                            aria-expanded={calendarOpen}
-                            onClick={() => setCalendarOpen((open) => !open)}
-                            data-attr="date-composer-custom-range"
-                        >
-                            Custom range…
-                            <ChevronRight className={cn('ms-auto transition-transform', calendarOpen && 'rotate-90')} />
-                        </Button>
-                    )}
-                    {presetsFooter}
-                </div>
-            )}
-        </div>
+        <DateRangePresetsPanel
+            selection={selection}
+            onSelectionChange={onSelectionChange}
+            shortChips={shortChips}
+            namedChips={namedChips}
+            now={panelNow}
+            weekStartsOn={weekStart01}
+            calendarOpen={calendarOpen}
+            onCalendarOpenChange={collapsibleCalendar ? setCalendarOpen : undefined}
+            footer={presetsFooter}
+            portalProps={portalProps}
+        />
     )
 
     return (
@@ -493,34 +310,53 @@ export function DateTimePicker({
             {!compact && showHeader && calendarOpen && (
                 <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                            Choose date range
+                        </span>
                         {(minDate || hasExplicitMaxDate) && (
                             <div className="flex items-center gap-1 ml-auto">
-                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
-                                {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {minDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Min: {format(minDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
+                                {minDate && hasExplicitMaxDate && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        <ArrowRight className="size-3" />
+                                    </span>
+                                )}
+                                {hasExplicitMaxDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Max: {format(maxDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
                             </div>
                         )}
                     </div>
                     {hasPresets && (
                         <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                Quick ranges
+                            </span>
                         </div>
                     )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={panelMode
-                ? calendarOpen
-                    ? presetsSide === 'left'
-                        ? 'flex flex-col lg:grid lg:grid-cols-[auto_minmax(0,1fr)]'
-                        : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_auto]'
-                    : 'flex flex-col'
-                : compact || !hasPresets
-                    ? 'flex flex-col'
-                    : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
-            }>
+            <div
+                className={
+                    panelMode
+                        ? calendarOpen
+                            ? presetsSide === 'left'
+                                ? 'flex flex-col lg:grid lg:grid-cols-[auto_minmax(0,1fr)]'
+                                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_auto]'
+                            : 'flex flex-col'
+                        : compact || !hasPresets
+                          ? 'flex flex-col'
+                          : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
+                }
+            >
                 {/* Presets panel — DOM-first so it stacks on top below lg; `order` places it at lg */}
                 {presetsPanel && (
                     <div
@@ -549,9 +385,21 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={start}
+                                    maxDate={maxDate}
+                                    onChange={handleStartChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={end}
+                                    maxDate={maxDate}
+                                    onChange={handleEndChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 {showTime && (
                                     <Button
                                         variant="link"
@@ -568,10 +416,11 @@ export function DateTimePicker({
                     )}
 
                     {/* Calendars */}
-                    <div className={compact
-                        ? 'flex flex-col justify-between'
-                        : 'flex flex-col lg:flex-row justify-between'
-                    }>
+                    <div
+                        className={
+                            compact ? 'flex flex-col justify-between' : 'flex flex-col lg:flex-row justify-between'
+                        }
+                    >
                         {!compact && (
                             <div className="p-2 hidden lg:block">
                                 <Calendar
@@ -605,38 +454,45 @@ export function DateTimePicker({
 
                 {/* Quick ranges column */}
                 {hasPresets && (
-                <div className={compact
-                    ? 'order-0 border-b border-border'
-                    : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
-                }>
-                    <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                        <ul className={compact
-                            ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                            : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
-                        }>
-                            {presetRanges.map((quick) => (
-                                <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        left
-                                        className={compact
-                                            ? 'whitespace-nowrap'
-                                            : 'whitespace-nowrap lg:w-full lg:justify-start'
-                                        }
-                                        aria-selected={range.id === quick.id}
-                                        aria-label={`Choose ${quick.name.toLowerCase()}`}
-                                        title={quick.name}
-                                        onClick={() => handleQuickRange(quick)}
-                                        data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                    >
-                                        {quick.name}
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
-                    </ScrollArea>
-                </div>
+                    <div
+                        className={
+                            compact
+                                ? 'order-0 border-b border-border'
+                                : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                        }
+                    >
+                        <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                            <ul
+                                className={
+                                    compact
+                                        ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                        : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                                }
+                            >
+                                {presetRanges.map((quick) => (
+                                    <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            left
+                                            className={
+                                                compact
+                                                    ? 'whitespace-nowrap'
+                                                    : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                            }
+                                            aria-selected={range.id === quick.id}
+                                            aria-label={`Choose ${quick.name.toLowerCase()}`}
+                                            title={quick.name}
+                                            onClick={() => handleQuickRange(quick)}
+                                            data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                        >
+                                            {quick.name}
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </ScrollArea>
+                    </div>
                 )}
             </div>
 
@@ -660,10 +516,22 @@ export function DateTimePicker({
             {/* Actions */}
             <div className={cn('flex justify-end px-3 py-2 items-center gap-2 bg-muted/30', !calendarOpen && 'hidden')}>
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
+                    {range.id === CUSTOM_RANGE.id ? (
+                        <>
+                            {presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}
+                        </>
+                    ) : (
+                        range.name
+                    )}
                 </span>
                 {panelMode || onCancel ? (
-                    <Button variant="outline" size="sm" onClick={handleCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancel}
+                        aria-label="Cancel"
+                        data-attr="date-time-picker-cancel"
+                    >
                         Cancel
                     </Button>
                 ) : null}

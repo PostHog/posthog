@@ -15,12 +15,8 @@ import * as React from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
-import {
-    DateTimePicker,
-    dateRangeSelectionLabel,
-    type DateRangeSelection,
-    type DateTimeValue,
-} from './date-time-picker'
+import { dateRangeSelectionLabel, type DateRangeSelection } from './date-range-presets-panel'
+import { DateTimePicker, type DateTimeValue } from './date-time-picker'
 import { CUSTOM_RANGE, type DateTimeRange } from './date-time-ranges'
 import { quickRanges } from './date-time-ranges'
 import { Day } from './use-calendar'

@@ -84,7 +84,7 @@ Passing `selection` (a `DateRangeSelection`: rolling / fixed / custom) replaces 
 />
 ```
 
-- The picker previews the selection on the calendar (the open calendar follows chip clicks live) but never interprets it — map selections to your own range vocabulary in the host. The reference host is `InsightDateFilterComposer` in the app (PostHog date-strings mapping); its Exclude flyout lives in `frontend/src/lib/components/DateFilter/DateFilterExclusionsControl.tsx`.
+- The picker previews the selection on the calendar (the open calendar follows chip clicks live) but never interprets it — map selections to your own range vocabulary in the host. The reference host is `InsightQuillDateFilter` in the app (PostHog date-strings mapping); its Exclude flyout lives in `frontend/src/lib/components/DateFilter/DateFilterExclusionsControl.tsx`.
 - Two commit paths: `onSelectionChange` fires immediately for chips and the stepper; calendar picks stage until Apply, which fires `onApply` (with `includesTime` when the toggle is on).
 - `value` is not needed in panel mode (the staged range derives from `selection`); `ranges` is ignored.
 - `shortChips` / `namedChips` override the default chip vocabularies; `portalProps` spreads onto the stepper's portaled unit dropdown (skin opt-in attributes).

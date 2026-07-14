@@ -86,9 +86,9 @@ function DateFilterConcept({ lemonSkin }: { lemonSkin?: boolean }): JSX.Element 
                     presetsFooter={
                         <>
                             <div className="flex h-8 items-center justify-between gap-2 px-2">
-                                <QuillLabel htmlFor="composer-exact-time">Exact time range</QuillLabel>
+                                <QuillLabel htmlFor="date-filter-exact-time">Exact time range</QuillLabel>
                                 <QuillSwitch
-                                    id="composer-exact-time"
+                                    id="date-filter-exact-time"
                                     size="sm"
                                     checked={exactTime}
                                     onCheckedChange={setExactTime}

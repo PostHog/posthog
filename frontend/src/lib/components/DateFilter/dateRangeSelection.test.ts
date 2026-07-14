@@ -21,7 +21,7 @@ describe('date range selection mapping', () => {
         expect(dateRangeForSelection(selection)).toEqual({ date_from: dateFrom, date_to: dateTo })
     })
 
-    // Strings the composer can't express must resolve to concrete custom ranges via the
+    // Strings the picker can't express must resolve to concrete custom ranges via the
     // canonical parser — never be mislabeled as a fabricated preset like "Last 7 days".
     it.each([
         ['-2q', null], // quarters, emitted by the classic rolling filter

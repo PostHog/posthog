@@ -13,7 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { InsightDateFilterComposer } from 'scenes/insights/filters/InsightDateFilter/InsightDateFilterComposer'
+import { InsightQuillDateFilter } from 'scenes/insights/filters/InsightDateFilter/InsightQuillDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -83,7 +83,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!isRetention && (
                     <ConfigFilter>
                         {useQuillDateComposer ? (
-                            <InsightDateFilterComposer disabled={isFunnels && !!isEmptyFunnel} />
+                            <InsightQuillDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                         ) : (
                             <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                         )}
