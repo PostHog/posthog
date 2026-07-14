@@ -19,6 +19,11 @@ class FlyIoEndpointConfig:
     partition_key: Optional[str] = None
     # True when the endpoint returns a `next_cursor` and accepts a `cursor` query param.
     paginated: bool = False
+    # True when rows can embed deployment secrets (a machine's `config` carries env vars,
+    # per-process env, and inline file contents). Such a stream is reduced to a safe
+    # operational allowlist before it's yielded and excluded from HTTP sample capture, so
+    # secrets never reach the warehouse or the sample-capture pipeline.
+    redact_secrets: bool = False
 
 
 # Fly.io streams. We use the org-level aggregate endpoints for machines and volumes
@@ -41,6 +46,7 @@ FLY_IO_ENDPOINTS: dict[str, FlyIoEndpointConfig] = {
         response_data_path="machines",
         partition_key="created_at",
         paginated=True,
+        redact_secrets=True,
     ),
     "volumes": FlyIoEndpointConfig(
         name="volumes",

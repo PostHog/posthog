@@ -30,7 +30,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "state": "Current lifecycle state (e.g. started, stopped, suspended, destroyed).",
             "region": "Fly.io region the machine runs in (e.g. iad, lhr, syd).",
             "private_ip": "The machine's private IPv6 address on the app's network.",
-            "config": "The machine configuration overview (guest resources, image, and metadata).",
+            "config": "The machine configuration overview (guest resources, image, services, and metadata). Secret-bearing fields such as environment variables and inline file contents are excluded.",
             "version": "Version identifier of the machine's current configuration.",
             "created_at": "Timestamp the machine was created (RFC 3339).",
             "updated_at": "Timestamp the machine was last updated (RFC 3339).",

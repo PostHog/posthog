@@ -21,9 +21,60 @@ _PAGE_SIZE = 1000
 # Hard cap on pages walked per stream so a misbehaving cursor can't loop forever.
 _MAX_PAGES = 1000
 
+# A Fly machine's `config` can embed deployment secrets, so we sync only an operational
+# allowlist (the "overview" the canonical description promises) rather than the raw object.
+# Anything not listed here — notably `env`, `files` (whose entries carry inline file
+# contents in `raw_value`), and `secrets` — is dropped before the row reaches the warehouse.
+_SAFE_MACHINE_CONFIG_KEYS = frozenset(
+    {
+        "guest",
+        "image",
+        "metadata",
+        "services",
+        "checks",
+        "restart",
+        "mounts",
+        "metrics",
+        "init",
+        "processes",
+        "auto_destroy",
+        "schedule",
+        "dns",
+        "size",
+        "standbys",
+        "statics",
+        "stop_config",
+    }
+)
+
+# A machine's per-process config entries repeat the same secret vectors as the top level.
+_PROCESS_SECRET_KEYS = frozenset({"env", "secrets"})
+
 
 class FlyIoRetryableError(Exception):
     pass
+
+
+def _sanitize_machine_config(config: dict[str, Any]) -> dict[str, Any]:
+    safe = {key: value for key, value in config.items() if key in _SAFE_MACHINE_CONFIG_KEYS}
+    # `processes` is operational (cmd/entrypoint/guest) but each entry can carry its own
+    # `env`/`secrets`, so strip those while keeping the rest of the process definition.
+    processes = safe.get("processes")
+    if isinstance(processes, list):
+        safe["processes"] = [
+            {key: value for key, value in process.items() if key not in _PROCESS_SECRET_KEYS}
+            if isinstance(process, dict)
+            else process
+            for process in processes
+        ]
+    return safe
+
+
+def _sanitize_machine(row: dict[str, Any]) -> dict[str, Any]:
+    config = row.get("config")
+    if isinstance(config, dict):
+        return {**row, "config": _sanitize_machine_config(config)}
+    return row
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -122,7 +173,9 @@ def get_rows(
     config = FLY_IO_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across pages so urllib3 keeps the connection alive between requests.
-    session = make_tracked_session()
+    # A stream whose bodies can carry secrets opts out of HTTP sample capture (still logged
+    # and metered) so those secrets never land in the sample-capture pipeline.
+    session = make_tracked_session(capture=not config.redact_secrets)
 
     params: dict[str, Any] = {"limit": _PAGE_SIZE} if config.paginated else {}
     url = _build_url(config, org_slug, params)
@@ -132,6 +185,8 @@ def get_rows(
         data = _fetch_page(session, url, headers, logger)
 
         items = data.get(config.response_data_path) or []
+        if config.redact_secrets:
+            items = [_sanitize_machine(item) for item in items]
         if items:
             yield items
 

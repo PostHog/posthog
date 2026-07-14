@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly_io import (
     FLY_IO_ENDPOINTS,
     _build_url,
+    _sanitize_machine,
     fly_io_source,
     get_rows,
     validate_credentials,
@@ -167,6 +168,83 @@ class TestGetRows:
             "https://api.machines.dev/v1/orgs/acme/volumes?limit=1000": {"volumes": [], "next_cursor": None},
         }
         assert self._collect("volumes", pages) == []
+
+
+class TestMachineSecretRedaction:
+    def test_sanitize_strips_secret_bearing_config_fields(self) -> None:
+        # env, files (inline file contents), and secrets would land deployment credentials in the
+        # warehouse where any project member with query access could read them — they must be dropped.
+        row = {
+            "id": "m1",
+            "config": {
+                "image": "flyio/app:latest",
+                "guest": {"cpus": 1, "memory_mb": 256},
+                "env": {"DATABASE_URL": "postgres://user:pass@host/db"},
+                "secrets": [{"name": "STRIPE_KEY"}],
+                "files": [{"guest_path": "/etc/cert.pem", "raw_value": "c3VwZXItc2VjcmV0"}],
+                "processes": [
+                    {"cmd": ["run"], "env": {"TOKEN": "shhh"}, "secrets": [{"name": "X"}]},
+                ],
+            },
+        }
+        sanitized = _sanitize_machine(row)
+        config = sanitized["config"]
+        assert config["image"] == "flyio/app:latest"
+        assert config["guest"] == {"cpus": 1, "memory_mb": 256}
+        assert "env" not in config
+        assert "secrets" not in config
+        assert "files" not in config
+        # Processes stay (cmd is operational) but their nested secret vectors are stripped.
+        assert config["processes"] == [{"cmd": ["run"]}]
+        # The original row is not mutated in place.
+        assert "env" in row["config"]
+
+    def test_sanitize_leaves_row_without_config_untouched(self) -> None:
+        row = {"id": "m1", "state": "started"}
+        assert _sanitize_machine(row) == row
+
+    def test_machines_stream_sanitizes_rows_and_disables_sample_capture(self) -> None:
+        # End-to-end wiring: the machines stream must both redact secrets from every yielded row and
+        # opt out of HTTP sample capture, so secrets reach neither the warehouse nor the sample pipeline.
+        pages = {
+            "https://api.machines.dev/v1/orgs/acme/machines?limit=1000": {
+                "machines": [{"id": "m1", "config": {"image": "app", "env": {"SECRET": "x"}}}],
+                "next_cursor": None,
+            },
+        }
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            return pages[url]
+
+        rows: list[dict] = []
+        with patch.object(fly_io, "make_tracked_session", return_value=MagicMock()) as mock_session:
+            with patch.object(fly_io, "_fetch_page", side_effect=fake_fetch):
+                for batch in get_rows(api_token="tok", endpoint="machines", org_slug="acme", logger=MagicMock()):
+                    rows.extend(batch)
+
+        assert rows == [{"id": "m1", "config": {"image": "app"}}]
+        mock_session.assert_called_once_with(capture=False)
+
+    def test_non_secret_stream_keeps_sample_capture_and_rows_verbatim(self) -> None:
+        # Volumes carry no secrets, so their session must keep capture on and rows pass through unchanged.
+        pages = {
+            "https://api.machines.dev/v1/orgs/acme/volumes?limit=1000": {
+                "volumes": [{"id": "v1", "encrypted": True}],
+                "next_cursor": None,
+            },
+        }
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            return pages[url]
+
+        rows: list[dict] = []
+        with patch.object(fly_io, "make_tracked_session", return_value=MagicMock()) as mock_session:
+            with patch.object(fly_io, "_fetch_page", side_effect=fake_fetch):
+                for batch in get_rows(api_token="tok", endpoint="volumes", org_slug="acme", logger=MagicMock()):
+                    rows.extend(batch)
+
+        assert rows == [{"id": "v1", "encrypted": True}]
+        mock_session.assert_called_once_with(capture=True)
 
 
 class TestFlyIoSourceResponse:
