@@ -25,6 +25,17 @@ def test_insert_with_http_client():
         sync_execute("DROP TABLE IF EXISTS _test_http_insert")
 
 
+def test_http_client_forwards_external_tables():
+    with get_http_client(database="default") as client:
+        result = sync_execute(
+            "SELECT id FROM _test_ext ORDER BY id",
+            flush=False,
+            sync_client=client,
+            external_tables=[{"name": "_test_ext", "structure": [("id", "Int64")], "data": [{"id": 2}, {"id": 5}]}],
+        )
+    assert result == [(2,), (5,)]
+
+
 def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 

@@ -23,6 +23,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.models import Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
@@ -114,6 +115,15 @@ _Cursor = tuple[str, int]
 _FIRST_PAGE: _Cursor = ("", 0)
 
 
+def _opted_in_teams_external_table(team_ids: list[int]) -> ClickHouseExternalTable:
+    """Build a query-scoped team table that keeps the rendered SQL bounded."""
+    return {
+        "name": export_sql.OPTED_IN_TEAMS_EXTERNAL_TABLE,
+        "structure": export_sql.OPTED_IN_TEAMS_EXTERNAL_STRUCTURE,
+        "data": [{"team_id": team_id} for team_id in team_ids],
+    }
+
+
 def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor) -> list[_ScoredRow]:
     return cast(
         list[_ScoredRow],
@@ -122,7 +132,6 @@ def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor)
             {
                 "of_chunks": spec.of_chunks,
                 "chunk_id": spec.chunk_id,
-                "team_ids": team_ids,
                 "day_start": f"{spec.day} 00:00:00",
                 "cursor_session_id": cursor[0],
                 "cursor_team_id": cursor[1],
@@ -132,6 +141,7 @@ def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor)
                 "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
                 "max_memory_usage": CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
             },
+            external_tables=[_opted_in_teams_external_table(team_ids)],
         ),
     )
 

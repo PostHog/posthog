@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -13,6 +14,9 @@ from clickhouse_pool import ChPool
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
+    from clickhouse_connect.driver.external import ExternalData
+
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
@@ -132,6 +136,34 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
 
 
+def _to_clickhouse_connect_external_data(
+    external_tables: list["ClickHouseExternalTable"] | None,
+) -> "ExternalData | None":
+    """Encode clickhouse-driver external tables for clickhouse-connect's HTTP transport."""
+    if not external_tables:
+        return None
+
+    from clickhouse_connect.driver.external import ExternalData  # noqa: PLC0415
+
+    external_data = ExternalData()
+    for table in external_tables:
+        columns = [column for column, _ in table["structure"]]
+        payload = b"\n".join(
+            json.dumps(
+                {column: row[column] for column in columns},
+                separators=(",", ":"),
+            ).encode()
+            for row in table["data"]
+        )
+        external_data.add_file(
+            file_name=table["name"],
+            data=payload,
+            fmt="JSONEachRow",
+            structure=[f"{column} {ch_type}" for column, ch_type in table["structure"]],
+        )
+    return external_data
+
+
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
@@ -151,7 +183,13 @@ class ProxyClient:
             if settings is None:
                 settings = {}
             settings["query_id"] = query_id
-        result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
+        result = self._client.query(
+            query=query,
+            parameters=params,
+            settings=settings,
+            column_oriented=columnar,
+            external_data=_to_clickhouse_connect_external_data(external_tables),
+        )
 
         # we must play with result summary here
         written_rows = int(result.summary.get("written_rows", 0))
