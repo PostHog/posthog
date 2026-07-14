@@ -4827,9 +4827,9 @@ snapshots:
     replay-tabs-home-failure--not-found--light:
         hash: v1.k794b7964.63f4edcf1afa31941d7fd4fe1cf6b2233335e5396691f5abfbeb5f32a5e77079.fT5YLbBCAptU85nyVbgAYp7DeiCCV6_bPb894JVNQFU
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
-        hash: v1.k794b7964.9ee25b6594b07076cff0c2d285096a7e2d2031e3d30e58d4d043c8e3e0d44447.0wsqTslGRLqaidPoW0-teojry4FMwKSiOqo9E6i6AG8
+        hash: v1.k794b7964.e43831aab10f34ebb833d39856c8285ca3ec054b018c07a8eea2dc6551d12119.w0JYkgk5ujwBybY8356Xe93bi6ky_z7Skt5wuoRPX1g
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
-        hash: v1.k794b7964.9e6e0a6b500bea8a289281eaadb397a36a19381074a6d72291d186c7dbc89837.O2Q9Dv4VQBJqT5IlxRTwoYrGw7cXNkhGd2ikmDmIrZc
+        hash: v1.k794b7964.3455a8a462eb913f7d478672c16b5fa56fd4591efcc09b5ad1119707842f80b3.FMUgEs84D1HWKB2fVtRZP_Dsk6HYgaz604k3bLZqwFI
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
         hash: v1.k794b7964.c4cc11f519896f1493409b60c0a04da6023d71a83374094c29c2666c65c205cf.aabEMRgGPdgSlwx4q2x34yULwzqiBwz2CI6LUyV5eak
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
@@ -6599,9 +6599,9 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.b1ae6dbc8feb673159fcc13f4a8fd5ee856c63ad1204e839a1b55ef70d109c81.W5sqRIJDHcdkKlYg4ghfwpbKS2FmlQKF_N-1C83h9Mg
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.a0125503884f0d49a6eba7c118e0db43af03da0857b5bc1837df7201ccb9d602.6rTAKIz6E2uU0hDWTI7EqZ7q2MbsHXNrCDdTL7pvWnA
+        hash: v1.k794b7964.6d79045511b327a6a7d51be34aad50c55e95bc56441b3660d15e7e1a26695ccd.gdS6GhCcaI83ICgSnEDzB9fAl0Zl2zfHAdSOZWsb60M
     scenes-app-settings-environment--settings-environment-access-control--light:
-        hash: v1.k794b7964.da4e21b370f25af16cc80f6feb3cc9e44714290ca057df0e39633baa9be87400.lHR_PFoDZHI1Ndl69I4QdieG0059wkrcdR_HGEVT7Us
+        hash: v1.k794b7964.dac31f88f14cfa0f87a413b02b05e644dd2e46518776f9f3c2fdfe302c65f2f8.WWpgaT6Er6EvLe8GM_C16iGLClvZIGfcvzdS4kkTpE4
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.2183cf0082a1556d6df553572df4ab3813c96288a8b9a80e669c005908230c3e.-ybX8d6KyxaSa-yJDVccZm2CkK8Fl8qLSbw9jGhSIx4
     scenes-app-settings-environment--settings-environment-autocapture--light:
