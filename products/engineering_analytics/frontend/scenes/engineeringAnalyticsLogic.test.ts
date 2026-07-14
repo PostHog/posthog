@@ -2,7 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -237,6 +239,14 @@ describe('engineeringAnalyticsLogic', () => {
         initKeaTests()
         ApiConfig.setCurrentProjectId(1)
         jest.clearAllMocks()
+        // The scene only loads when the client has the engineering-analytics flag (afterMount gate).
+        // Set it explicitly — the featureFlags reducer is kea-persisted, so an unset flag would leak
+        // the previous test's value.
+        const ffLogic = featureFlagLogic()
+        ffLogic.mount()
+        ffLogic.actions.setFeatureFlags([FEATURE_FLAGS.ENGINEERING_ANALYTICS], {
+            [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true,
+        })
         // Happy-path defaults; individual tests override before mounting where needed.
         mockCiCards.mockResolvedValue(CARDS)
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
@@ -470,6 +480,18 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
+    })
+
+    it('does not call its gated endpoints when the client lacks the engineering-analytics flag', async () => {
+        featureFlagLogic().actions.setFeatureFlags([], {})
+        logic = engineeringAnalyticsLogic()
+        // The endpoints are flag-gated server-side; without the client flag they would reject and
+        // land in error tracking, so afterMount must not fire them at all.
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toNotHaveDispatchedActions(['loadGithubSources', 'loadCards'])
+        expect(mockSources).not.toHaveBeenCalled()
+        expect(mockCiCards).not.toHaveBeenCalled()
     })
 
     it.each([

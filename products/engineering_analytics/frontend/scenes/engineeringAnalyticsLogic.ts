@@ -5,7 +5,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -546,7 +548,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'branchHealthParams']],
+            values: [
+                engineeringAnalyticsFiltersLogic,
+                ['dateFrom', 'dateTo', 'branchHealthParams'],
+                featureFlagLogic,
+                ['featureFlags'],
+            ],
         })),
 
         actions({
@@ -1131,7 +1138,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             }
         }),
 
-        afterMount(({ actions }) => {
+        afterMount(({ actions, values }) => {
+            // The product's endpoints are gated by the engineering-analytics flag server-side, and the
+            // nav entry is gated by the same flag (see products.tsx). Mirror that here so the scene
+            // doesn't call its gated endpoints when the client doesn't have access — e.g. reached via a
+            // direct URL while the flag is off. Otherwise the loaders reject and pollute error tracking.
+            if (!values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                return
+            }
             actions.loadGithubSources()
             actions.refresh()
         }),
