@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import asyncio
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -89,6 +91,27 @@ def test_eval_live_server_routes_event_ingest_through_asgi() -> None:
 
     assert response.status_code == 401
     assert response.json() == {"error": "Missing authorization bearer token"}
+
+
+def test_setup_django_disables_self_capture_before_settings_load() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from ee.hogai.eval.sandboxed.harness.django_env import setup_django\n"
+                "setup_django()\n"
+                "from django.conf import settings\n"
+                "assert settings.SELF_CAPTURE is False\n"
+            ),
+        ],
+        env={**os.environ, "SELF_CAPTURE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.asyncio

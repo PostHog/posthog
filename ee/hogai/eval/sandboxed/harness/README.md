@@ -41,7 +41,7 @@ Discovery happens first, before anything is provisioned, so a typo'd selector co
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
-1. `__main__` creates the run transcript, then loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals:sandboxed` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, then `django.setup()` and `setup_test_environment()`.
+1. `__main__` creates the run transcript, then loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals:sandboxed` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, forces `SELF_CAPTURE=0`, and runs `django.setup()` and `setup_test_environment()`. Eval telemetry still uses the explicit regional client configured by the harness.
    The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
@@ -64,7 +64,8 @@ The reporter emits plain-text records with stable labels so terminals and agents
 Only the final overall run status uses `PASS` or `FAIL`.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
-The transcript and terminal both end with that log's unlabeled absolute path, and `logs/harness/latest.log` points to it.
+An explanatory line identifies the full run transcript, followed by the log's unlabeled absolute path as the final line in both the transcript and terminal.
+`logs/harness/latest.log` points to it.
 Discovery-only `--list` invocations and argument errors do not write transcripts.
 
 ## Concurrency model

@@ -33,6 +33,7 @@ Its callbacks are called synchronously by `EvalAsync` and must not be coroutines
 
 `RunTranscript` owns the outer stdout/stderr tee for every real run.
 It must contain the complete plain-text terminal stream, and both the terminal and transcript must end with the same unlabeled absolute transcript path.
+The preceding line must identify that path as the full stdout/stderr run transcript.
 Keep final summary rendering after suite teardown and call `logging.shutdown()` before `RunTranscript.finish()`, so cleanup or buffered logging cannot write after the path.
 `--list` and argparse errors intentionally bypass transcript creation.
 
@@ -99,6 +100,8 @@ Modal evals use the `MODAL_EVALS` backend, whose sandbox class is pinned to the 
 
 Env loading follows the same before-`django.setup()` rule: `__main__` loads the repo-root `.env` via `env_preflight.load_env_file()` (dotenv, because hogli's line-based parser cannot represent `.env`'s quoted multiline PEM keys), never overriding variables the shell or hogli's env loading already exported.
 The explicit `SANDBOX_PROVIDER` / `PERSONHOG_ADDR` assignments come after the load, so they trump any env file on every path.
+
+`setup_django()` also forces `SELF_CAPTURE=0` before `django.setup()`. The ASGI app must not re-enable the global SDK with the local development personal API key during evals; eval trace emission uses the harness's explicit regional client instead.
 Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the `RequiredEvalEnv` model there, not as ad-hoc checks scattered through bootstrap.
 
 ## pytest

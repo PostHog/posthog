@@ -27,9 +27,18 @@ def test_run_transcript_captures_both_streams_and_prints_its_path_last(
     captured = capsys.readouterr()
     transcript_lines = transcript.path.read_text(encoding="utf-8").splitlines()
 
-    assert captured.out.splitlines() == ["stdout line", str(transcript.path)]
+    assert captured.out.splitlines() == [
+        "stdout line",
+        "Full run transcript (stdout and stderr):",
+        str(transcript.path),
+    ]
     assert captured.err.splitlines() == ["stderr line"]
-    assert transcript_lines == ["stderr line", "stdout line", str(transcript.path)]
+    assert transcript_lines == [
+        "stderr line",
+        "stdout line",
+        "Full run transcript (stdout and stderr):",
+        str(transcript.path),
+    ]
     assert (tmp_path / "latest.log").resolve() == transcript.path
 
 
