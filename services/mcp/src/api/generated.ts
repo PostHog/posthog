@@ -9411,6 +9411,76 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed
+     */
+    export type AlertConfigFrequencyEnum = typeof AlertConfigFrequencyEnum[keyof typeof AlertConfigFrequencyEnum];
+
+
+    export const AlertConfigFrequencyEnum = {
+      EveryMatch: 'every_match',
+      OnBreach: 'on_breach',
+    } as const;
+
+    /**
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertMetricEnum = typeof VisionAlertMetricEnum[keyof typeof VisionAlertMetricEnum];
+
+
+    export const VisionAlertMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days
+     */
+    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
+
+
+    export const WindowDaysEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+    } as const;
+
+    /**
+     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+     * threshold over a rolling window and notifies on the transition into breach.
+     */
+    export interface AlertConfig {
+      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+       *
+       * * `every_match` - Every new match
+       * * `on_breach` - When a threshold is crossed */
+      frequency?: AlertConfigFrequencyEnum;
+      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
+       *
+       * * `count` - Count of matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      threshold?: number;
+      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
+       *
+       * * `1` - 1 day
+       * * `3` - 3 days
+       * * `7` - 7 days
+       * * `14` - 14 days
+       * * `30` - 30 days */
+      window_days?: WindowDaysEnum;
+    }
+
     export interface AlertSimulate {
       /** Insight ID to simulate the detector on. */
       insight: number;
@@ -12998,6 +13068,49 @@ export namespace Schemas {
       WidgetApi: 'widget_api',
       GithubIssue: 'github_issue',
     } as const;
+
+    export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
+
+    /**
+     * Response shape for one system announcement in a channel's feed.
+     */
+    export interface ChannelFeedMessageDTO {
+      id: string;
+      channel: string;
+      author?: TaskUserBasicInfo | null;
+      author_kind: string;
+      event: string;
+      payload: ChannelFeedMessageDTOPayload;
+      content: string;
+      created_at: string;
+    }
+
+    /**
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building
+     */
+    export type EventEnum = typeof EventEnum[keyof typeof EventEnum];
+
+
+    export const EventEnum = {
+      ContextCreated: 'context_created',
+      ContextMdBuilding: 'context_md_building',
+    } as const;
+
+    /**
+     * Request body for posting a system announcement into a channel's feed.
+     */
+    export interface ChannelFeedMessageWrite {
+      /** Lifecycle event key.
+       *
+       * * `context_created` - context_created
+       * * `context_md_building` - context_md_building */
+      event: EventEnum;
+      /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+      payload?: unknown;
+      /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+      created_at?: string;
+    }
 
     /**
      * * `widget` - Widget
@@ -26102,7 +26215,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -26151,6 +26264,7 @@ export namespace Schemas {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard
+     * * `self_driving` - self_driving
      */
     export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
 
@@ -26160,6 +26274,7 @@ export namespace Schemas {
       Api: 'api',
       Mcp: 'mcp',
       Wizard: 'wizard',
+      SelfDriving: 'self_driving',
     } as const;
 
     /**
@@ -26170,12 +26285,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
@@ -34126,6 +34242,7 @@ export namespace Schemas {
      * * `delegated` - Delegated to teammate
      * * `later` - Skipped for later
      * * `other` - Other
+     * * `provisioned` - Account provisioned by a partner
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -34134,6 +34251,7 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+      Provisioned: 'provisioned',
     } as const;
 
     /**
@@ -34964,6 +35082,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChannelDTO[];
+    }
+
+    export interface PaginatedChannelFeedMessageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelFeedMessageDTO[];
     }
 
     export interface PaginatedClickhouseEventList {
@@ -38466,12 +38593,17 @@ export namespace Schemas {
       results: TaskSummaryDTO[];
     }
 
+    export type TaskThreadMessageDTOPayload = { [key: string]: unknown };
+
     /**
      * Response shape for one message in a task's thread.
      */
     export interface TaskThreadMessageDTO {
       id: string;
       task: string;
+      author_kind: string;
+      event: string;
+      payload: TaskThreadMessageDTOPayload;
       content: string;
       created_at: string;
       author?: TaskUserBasicInfo | null;
@@ -39128,6 +39260,11 @@ export namespace Schemas {
       readonly is_impersonated_until: string | null;
       /** @nullable */
       readonly is_impersonated_read_only: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
       readonly team: TeamBasic;
@@ -39277,6 +39414,7 @@ export namespace Schemas {
 
     /**
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation
      */
     export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
@@ -39284,6 +39422,7 @@ export namespace Schemas {
 
     export const VisionActionModeEnum = {
       GroupSummary: 'group_summary',
+      Alert: 'alert',
       PerObservation: 'per_observation',
     } as const;
 
@@ -39360,6 +39499,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -39368,6 +39508,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -41773,12 +41915,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
@@ -46499,6 +46642,11 @@ export namespace Schemas {
       readonly is_impersonated_until?: string | null;
       /** @nullable */
       readonly is_impersonated_read_only?: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
       readonly team?: TeamBasic;
@@ -46652,6 +46800,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -46660,6 +46809,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -51588,13 +51739,13 @@ export namespace Schemas {
     }
 
     export interface RepoOverview {
-      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
-      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
@@ -51614,6 +51765,10 @@ export namespace Schemas {
       rerun_cycles: number;
       /** Re-run cycles over the previous window. */
       rerun_cycles_prev: number;
+      /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+      merged_pr_count: number;
+      /** Merged-PR count over the previous window. */
+      merged_pr_count_prev: number;
       /**
          * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
          * @nullable
@@ -69212,6 +69367,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
@@ -74138,6 +74297,17 @@ export namespace Schemas {
     };
 
     export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskChannelsFeedListParams = {
     /**
      * Number of results to return per page.
      */
