@@ -51,7 +51,7 @@ export function SAMLSettings(): JSX.Element {
                     {samlReady ? 'Ready' : samlConfig.id ? 'Needs attention' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5">
+            <LemonCard className="p-5" hoverEffect={false}>
                 {!isSAMLAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure SAML.

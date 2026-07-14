@@ -56,7 +56,7 @@ export function SCIMSettings(): JSX.Element {
                     {scimConfig.scim_enabled ? 'Provisioning enabled' : scimConfig.id ? 'Disabled' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5">
+            <LemonCard className="p-5" hoverEffect={false}>
                 {!isSCIMAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure SCIM.

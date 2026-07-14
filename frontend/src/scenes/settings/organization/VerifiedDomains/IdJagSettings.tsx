@@ -48,7 +48,7 @@ export function IdJagSettings(): JSX.Element | null {
                     {idJagConfig.id_jag_issuer_url ? 'Ready' : idJagConfig.id ? 'Needs attention' : 'Not configured'}
                 </LemonTag>
             </div>
-            <LemonCard className="p-5">
+            <LemonCard className="p-5" hoverEffect={false}>
                 {!isXAAAuthenticationAvailable ? (
                     <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                         Upgrade your plan to configure XAA.
