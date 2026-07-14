@@ -158,8 +158,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def snapshot_retention_value(self) -> int:
-        # Default matches the frontend's default (keep the newest 3 snapshots). A missing/invalid value
-        # must not fall back to 1, which would prune down to a single snapshot and defeat the sub-mode.
+        # Defensive fallback when append is enabled but no valid value is stored: keep the newest 3
+        # snapshots. Must not fall back to 1, which would prune down to a single snapshot and defeat
+        # the sub-mode.
         if self.sync_type_config:
             value = self.sync_type_config.get("snapshot_retention_value")
             if isinstance(value, int) and not isinstance(value, bool) and value > 0:

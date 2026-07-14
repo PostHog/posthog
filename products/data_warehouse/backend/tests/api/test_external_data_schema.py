@@ -462,13 +462,13 @@ class TestExternalDataSchema(APIBaseTest):
             source_type=ExternalDataSourceType.STRIPE,
             job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
+        kwargs.setdefault("sync_type", ExternalDataSchema.SyncType.FULL_REFRESH)
         return ExternalDataSchema.objects.create(
             name="BalanceTransaction",
             team=self.team,
             source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
             **kwargs,
         )
 
