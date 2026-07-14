@@ -379,14 +379,31 @@ class TestEndpointMapping(BaseTest):
         assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
-        # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
-        # completed_count, latest_failed, latest_conclusion, rerun_cycles.
+        # Columns: owner, name, workflow, run_count, successful_run_count, success_rate, p50, p95,
+        # last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id,
+        # latest_run_attempt, rerun_cycles.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0, "success", 3),
+            (
+                "PostHog",
+                "posthog",
+                "CI",
+                10,
+                9,
+                0.9,
+                120.0,
+                600.0,
+                _dt("2026-01-20T00:00:00"),
+                8,
+                0,
+                "success",
+                4321,
+                1,
+                3,
+            ),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
             # latest_run_failed is None (the completed_count guard), and latest_run_conclusion is None too
             # despite argMaxIf's '' default.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0, "", 0),
+            ("PostHog", "posthog", "Deploy", 2, 0, None, float("nan"), float("nan"), None, 0, 0, "", 0, 0, 0),
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
@@ -401,6 +418,8 @@ class TestEndpointMapping(BaseTest):
         assert items[0].granularity == "day"
         assert items[0].latest_run_failed is False
         assert items[0].latest_run_conclusion == "success"
+        assert items[0].latest_run_id == 4321 and items[0].latest_run_attempt == 1
+        assert items[1].latest_run_id is None and items[1].latest_run_attempt is None
         assert items[0].rerun_cycles == 3
         assert items[0].success_rate_prev == 0.95
         assert items[1].success_rate_prev is None
