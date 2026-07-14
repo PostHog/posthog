@@ -748,10 +748,11 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
 
 
 class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
-    """Staff users get the same visibility bypass as internal-debug teams, on any team:
-    the ``all_team_tasks=true`` list filter and the ``?ph_debug=true`` read opt-in for a
-    single task/run. Non-staff users can't reach either, and writes stay creator-scoped.
-    The internal-debug-team path is covered by ``TestTaskVisibilityInternalDebugTeamBypass``."""
+    """Staff users can READ any task/run on the team, unconditionally — no ``?ph_debug=true`` opt-in
+    (unlike internal-debug teams), because the frontend can't reliably thread a query param through
+    every read (the SSE stream carries none). The ``all_team_tasks=true`` list filter stays opt-in so
+    the default list is unchanged. Non-staff users can't reach either, and writes stay creator-scoped.
+    The internal-debug-team ``?ph_debug=true`` path is covered by ``TestTaskVisibilityInternalDebugTeamBypass``."""
 
     def setUp(self):
         super().setUp()
@@ -788,34 +789,37 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         ids = {item["id"] for item in response.json()["results"]}
         assert str(theirs.id) not in ids
 
-    def test_staff_retrieve_other_user_task_with_ph_debug(self):
+    def test_staff_retrieve_other_user_task_needs_no_ph_debug(self):
+        # No opt-in param — a staff user opening a teammate's task by URL just works.
         task = self.create_task(created_by=self.other_user)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task.id))
 
-    def test_staff_retrieve_other_user_task_without_ph_debug_still_404s(self):
+    def test_non_staff_retrieve_other_user_task_still_404s(self):
+        self.user.is_staff = False
+        self.user.save(update_fields=["is_staff"])
         task = self.create_task(created_by=self.other_user)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_staff_list_runs_for_other_user_task_with_ph_debug(self):
+    def test_staff_list_runs_for_other_user_task_needs_no_ph_debug(self):
         task = self.create_task(created_by=self.other_user)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {item["id"] for item in response.json()["results"]}
         self.assertEqual(ids, {str(run.id)})
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_staff_write_on_other_user_task_still_404s(self, _mock_workflow):
-        # ph_debug is a read-only opt-in — staff still can't drive another member's task.
+        # Read-only bypass — staff still can't drive another member's task.
         task = self.create_task(created_by=self.other_user)
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/?ph_debug=true")
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
