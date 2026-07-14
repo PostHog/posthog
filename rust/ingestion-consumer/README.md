@@ -13,7 +13,7 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 | --- | --- | --- |
 | Commits are contiguous, monotonic, non-empty per partition | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
 | Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
-| Per-key sends are in offset order, never re-sent after ACK | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys` |
+| Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
 
 Commit success can't be observed via rdkafka's `commit_callback` — librdkafka drops the result of manual async commits (no conf-level `offset_commit_cb` is ever registered by rust-rdkafka, and only sync commits attach a reply queue).
@@ -25,6 +25,7 @@ The rebalance metrics from the consumer context stay on regardless, and the `con
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
+Null-key messages (e.g. overflow rerouting) are excluded from the consumer-side key checks: the producer deliberately spreads such a routing key across partitions, forfeiting per-key order, so offsets from different partitions are not comparable and there is no invariant to check. The worker-side check is unaffected — it scopes keys per partition, an invariant that holds for all traffic.
 
 ## Testing
 

@@ -17,6 +17,11 @@
 //! behavior and are counted separately (`ingestion_consumer_key_replays_total`)
 //! rather than flagged. Checked in the dispatcher at assignment time — the
 //! point that defines the intended per-key order — under the pin-table lock.
+//! Only messages produced with a Kafka key participate: null-key production
+//! (e.g. overflow rerouting) spreads a routing key across partitions,
+//! deliberately forfeiting per-key order, so there is no invariant to check
+//! and offsets from different partitions are not comparable. Skipped messages
+//! are counted in `ingestion_consumer_key_sentinel_unkeyed_total`.
 //!
 //! **Commit confirmation**: "commits are actually made" cannot be observed via
 //! `ConsumerContext::commit_callback` — librdkafka drops the result of manual
@@ -373,7 +378,9 @@ impl KeyOrderSentinel {
     /// Record that `messages` for `routing_key` are being handed to a worker
     /// (fresh assignment or deferred flush). Call at assignment time, under the
     /// dispatcher's pin-table lock, so the check order matches the intended
-    /// per-key send order. Emits metrics and logs; returns violations for tests.
+    /// per-key send order. Null-key messages are skipped — they carry no
+    /// per-key order promise (see module docs). Emits metrics and logs;
+    /// returns violations for tests.
     pub fn note_sent(
         &self,
         routing_key: &str,
@@ -382,15 +389,21 @@ impl KeyOrderSentinel {
         if !self.enabled.load(Ordering::Relaxed) {
             return Vec::new();
         }
-        let Some(first) = messages.first() else {
+        let keyed: Vec<&SerializedKafkaMessage> =
+            messages.iter().filter(|m| m.key.is_some()).collect();
+        let unkeyed = messages.len() - keyed.len();
+        if unkeyed > 0 {
+            counter!("ingestion_consumer_key_sentinel_unkeyed_total").increment(unkeyed as u64);
+        }
+        let Some(first) = keyed.first() else {
             return Vec::new();
         };
-        let last = messages.last().expect("non-empty");
+        let last = keyed.last().expect("non-empty");
         let mut violations = Vec::new();
 
         // Offsets within an assigned group must be strictly ascending: groups
         // are built in batch order, and a batch preserves partition order.
-        for pair in messages.windows(2) {
+        for pair in keyed.windows(2) {
             if pair[1].partition == pair[0].partition && pair[1].offset <= pair[0].offset {
                 violations.push(KeyOrderViolation {
                     kind: KeyOrderViolationKind::IntraGroupDisorder,
@@ -415,10 +428,11 @@ impl KeyOrderSentinel {
             }
             Some(state) => {
                 if state.partition != first.partition {
-                    // A key hashing to a new partition mid-flight shouldn't
-                    // happen for real traffic (partitioning is by key); count it
-                    // and rebaseline rather than comparing offsets across
-                    // partitions, which would be meaningless.
+                    // With null-key messages filtered out, a key's messages all
+                    // come from the partition its Kafka key hashes to; a move
+                    // mid-flight is a real anomaly (e.g. partition-count
+                    // change). Count it and rebaseline rather than comparing
+                    // offsets across partitions, which would be meaningless.
                     counter!("ingestion_consumer_key_partition_moves_total").increment(1);
                     *state = KeyState {
                         partition: first.partition,
@@ -601,9 +615,16 @@ mod tests {
             partition,
             offset,
             timestamp: 0,
-            key: None,
+            key: Some("t:a".to_string()),
             value: None,
             headers: HashMap::new(),
+        }
+    }
+
+    fn unkeyed_msg_at(partition: i32, offset: i64) -> SerializedKafkaMessage {
+        SerializedKafkaMessage {
+            key: None,
+            ..msg_at(partition, offset)
         }
     }
 
@@ -834,5 +855,33 @@ mod tests {
         sentinel.note_sent("t:a", &[msg_at(0, 100)]);
         // Same key on a different partition: offsets aren't comparable.
         assert!(sentinel.note_sent("t:a", &[msg_at(3, 1)]).is_empty());
+    }
+
+    #[test]
+    fn null_key_messages_are_ignored() {
+        let sentinel = KeyOrderSentinel::new();
+        // Null-key production round-robins a key across partitions; there is
+        // no per-key order to check, even when offsets regress across sends.
+        assert!(sentinel
+            .note_sent("t:a", &[unkeyed_msg_at(1, 5000)])
+            .is_empty());
+        assert_eq!(sentinel.key_count(), 0, "unkeyed sends hold no state");
+        assert!(sentinel
+            .note_sent("t:a", &[unkeyed_msg_at(0, 3)])
+            .is_empty());
+    }
+
+    #[test]
+    fn null_key_offsets_do_not_inflate_watermarks() {
+        // A mixed group (keyed traffic that overflowed mid-stream): the
+        // unkeyed message's offset comes from another partition and must not
+        // advance the key's send/ACK watermarks — otherwise the next keyed
+        // send would fire a false resend_after_ack.
+        let sentinel = KeyOrderSentinel::new();
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 100), unkeyed_msg_at(1, 5000)])
+            .is_empty());
+        sentinel.note_acked("t:a", 100);
+        assert!(sentinel.note_sent("t:a", &[msg_at(0, 101)]).is_empty());
     }
 }
