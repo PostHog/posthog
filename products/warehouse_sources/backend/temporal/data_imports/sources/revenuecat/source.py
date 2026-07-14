@@ -329,7 +329,7 @@ class RevenueCatSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
@@ -350,6 +350,7 @@ class RevenueCatSource(
             # the partition layer treats bare ints as seconds, so this gives
             # us correctly-bucketed weekly partitions.
             partition_keys=["created_at"],
+            webhook_only=True,
         )
 
     def _api_source_response(

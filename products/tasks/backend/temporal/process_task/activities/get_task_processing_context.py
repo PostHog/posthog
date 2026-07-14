@@ -196,6 +196,10 @@ class TaskProcessingContext:
         value = (self.state or {}).get("branch")
         return value if isinstance(value, str) else None
 
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
+
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
         return {
@@ -348,11 +352,20 @@ def _is_modal_vm_sandbox_enabled(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
+    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
@@ -373,13 +386,15 @@ def _is_modal_vm_sandbox_enabled(
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
-    result = origin_product in allowed_origins
+    origin_allowed = origin_product in allowed_origins
+    result = origin_allowed
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
         flag_enabled=bool(allowed_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
     return result
@@ -666,6 +681,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
     emit_agent_log(

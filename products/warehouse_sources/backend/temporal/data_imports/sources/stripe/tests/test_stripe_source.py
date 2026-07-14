@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import stripe as stripe_lib
 from stripe import ListObject
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     StripeAuthMethodConfig,
     StripeSourceConfig,
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
@@ -545,6 +547,40 @@ class TestWebhookEventMapping:
         # CustomerPaymentMethod keeps its mapping, so payment_method.* events stay subscribed.
         assert RESOURCE_TO_STRIPE_WEBHOOK_EVENT[CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME] == "payment_method"
         assert any(e.startswith("payment_method.") for e in _all_known_webhook_events())
+
+
+class TestWebhookOnlyResponseWiring:
+    def _make_manager(self, enabled: bool) -> MagicMock:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        return manager
+
+    def _source(self, endpoint: str, manager: MagicMock) -> Any:
+        return stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+
+    def test_discount_response_is_webhook_only(self) -> None:
+        # Discount has no list endpoint, so its SourceResponse must carry webhook_only=True —
+        # otherwise a re-enable reset wipes the table with no poll able to rebuild it (data loss).
+        manager = self._make_manager(enabled=False)
+        response = self._source(DISCOUNT_RESOURCE_NAME, manager)
+        assert response.webhook_only is True
+        manager.webhook_enabled.assert_awaited_once_with(webhook_only=True)
+
+    def test_pollable_response_is_not_webhook_only(self) -> None:
+        manager = self._make_manager(enabled=False)
+        response = self._source(CUSTOMER_RESOURCE_NAME, manager)
+        assert response.webhook_only is False
+        manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
 
 class TestSchemaWebhookCapability:

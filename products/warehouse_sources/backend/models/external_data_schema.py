@@ -266,6 +266,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_vacuum_version(self) -> int | None:
+        # Delta version of the schema's snapshot table at its last vacuum (cadence watermark).
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version", None)
+
+        return None
+
+    @property
+    def last_vacuum_version_cdc(self) -> int | None:
+        # Same watermark for the _cdc companion table — a separate delta table whose versions
+        # are unrelated to the snapshot's, so it can't share last_vacuum_version.
+        if self.sync_type_config:
+            return self.sync_type_config.get("last_vacuum_version_cdc", None)
+
+        return None
+
+    @property
     def partition_count_override(self) -> int | None:
         # Operator-pinned partition_count set via the admin repartition action. Unlike
         # `partition_count` (which is auto-detected and wiped on every reset), this key

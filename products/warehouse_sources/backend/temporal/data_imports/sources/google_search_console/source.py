@@ -75,7 +75,10 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Search Console sites are few, so `search` is ignored here and the endpoint filters the list.
         try:
             session = google_search_console_session(integration_id, team_id)
         except Integration.DoesNotExist:

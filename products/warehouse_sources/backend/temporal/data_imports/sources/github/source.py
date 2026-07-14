@@ -34,6 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -221,6 +225,30 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            # get_oauth_integration raises ValueError for a missing/foreign integration id — an
+            # actionable customer-side state (disconnected/deleted), not a server bug.
+            raise IntegrationAccountListingError(
+                "The linked GitHub integration could not be found. Please reconnect your GitHub account."
+            ) from e
+
+        # `repository` is `owner/repo`. Repo lists can be large, so push the search down to the cache
+        # query (server-side) and cap the page — the picker searches as the user types rather than
+        # loading every repo at once.
+        repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
+            search=search or "", limit=100, offset=0
+        )
+        return [
+            IntegrationAccount(value=repo["full_name"], display_name=repo["full_name"])
+            for repo in repositories
+            if repo.get("full_name")
+        ]
+
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
             if not config.auth_method.personal_access_token:
@@ -253,11 +281,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     @staticmethod
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:
         webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
-        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-        # i.e. workflow_jobs and reviews) can only ever be populated by the webhook: the
-        # per-parent fan-out is too expensive to backfill at volume. Offer it as webhook-only
-        # so users can't pick a poll mode that would sync an empty table forever. workflow_runs
-        # keeps its poll backfill; the webhook just replaces re-polling for it.
+        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0:
+        # workflow_jobs, workflow_runs, reviews) can only ever be populated by the webhook —
+        # backfilling the full history is too expensive against a shared, rate-limited budget.
+        # Offer it as webhook-only so users can't pick a poll mode that would sync an empty table
+        # forever; the webhook replaces both re-polling and the initial history crawl.
         webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
         supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
         return SourceSchema(
