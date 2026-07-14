@@ -1,9 +1,6 @@
 import { useValues } from 'kea'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
@@ -96,12 +93,6 @@ export function WebAnalyticsTileSkeletonGate({
     skeleton,
     children,
 }: WebAnalyticsTileSkeletonGateProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS]) {
-        return children
-    }
-
     return createElement(WebAnalyticsTileSkeletonLoader, { dataNodeLogicProps, skeleton }, children)
 }
 

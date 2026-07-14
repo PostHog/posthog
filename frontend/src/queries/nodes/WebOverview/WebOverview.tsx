@@ -48,7 +48,7 @@ export function WebOverview(props: {
 
     const preComputeStrategy = webOverviewQueryResponse?.preComputeStrategy
 
-    const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
+    const showWarning = hasReverseProxy === false
 
     // Convert WebOverviewItem to OverviewItem
     // Handle both `results` (from direct query response) and `result` (from cached insight)

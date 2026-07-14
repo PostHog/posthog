@@ -842,7 +842,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isPathCleaningEnabled,
                 filterTestAccounts,
                 shouldStripQueryParams,
-                includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
+                includeHostPath,
                 // `null` (untouched) → omitted, so the backend's per-team default decides.
                 // Explicit `false` (opt-out) → always sent, even if the flag is later killed.
                 // Explicit `true` (opt-in) → only sent while the flag is on; with the flag off we
@@ -1381,15 +1381,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
-                const includeHostMenuItem: LemonMenuItem | null =
-                    useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
-                        ? {
-                              label: 'Include host',
-                              tooltip: 'Show the full host + path (e.g. example.com/about) instead of just the path',
-                              active: includeHostPath,
-                              onClick: () => actions.setIncludeHostPath(!includeHostPath),
-                          }
-                        : null
+                const includeHostMenuItem: LemonMenuItem | null = useTileHeaderV2
+                    ? {
+                          label: 'Include host',
+                          tooltip: 'Show the full host + path (e.g. example.com/about) instead of just the path',
+                          active: includeHostPath,
+                          onClick: () => actions.setIncludeHostPath(!includeHostPath),
+                      }
+                    : null
 
                 const pathTabExtras = useTileHeaderV2
                     ? { extraMenuItems: includeHostMenuItem ? [includeHostMenuItem] : undefined }
