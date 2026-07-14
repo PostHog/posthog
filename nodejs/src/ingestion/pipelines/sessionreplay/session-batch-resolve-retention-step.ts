@@ -22,16 +22,16 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * deleted is dropped; a corrupt/invalid stored value instead throws (crashes) rather than recording
  * against a wrong retention. A transient failure (e.g. Redis) is thrown by the service so the
  * pipeline's retry wrapper can re-run the step. A dropped message still commits its offset — the
- * drop result flows out of the pipeline carrying its source message, so the single offset-tracking
- * stage picks it up (see {@link runSessionReplayPipeline}).
+ * drop result flows out of the pipeline as a record-phase result carrying its source message, which
+ * the consumer's offset tracking picks up on the next drain.
  */
 export function createResolveRetentionStep<
     T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
 >(retentionService: RetentionService): BatchProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
     return async function resolveRetentionStep(values) {
-        // Reuse retention already resolved for sessions still in the current (unflushed) recorder,
-        // carried on every element by the pipeline's beforeBatch; resolve the rest. Collecting into
-        // a SessionSet dedupes repeated sessions so each is looked up only once.
+        // Reuse retention already resolved for sessions still in this cycle's (unflushed) recorder;
+        // resolve the rest. The recorder is minted per cycle and carried on every element.
+        // Collecting into a SessionSet dedupes repeated sessions so each is looked up only once.
         const batchRetentions = values.map((value) =>
             value.sessionBatchRecorder.getRetention(value.team.teamId, value.headers.session_id)
         )

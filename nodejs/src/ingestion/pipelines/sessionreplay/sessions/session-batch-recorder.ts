@@ -2,7 +2,6 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import {
     SessionFeatureBlock,
@@ -83,7 +82,6 @@ export class SessionBatchRecorder {
     private readonly rateLimiter: SessionRateLimiter
 
     constructor(
-        private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataSink,
         private readonly consoleLogStore: SessionConsoleLogStore,
@@ -225,7 +223,8 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Flushes the session recordings to storage and commits Kafka offsets
+     * Flushes the session recordings to storage. Offsets are tracked in the pipeline's afterBatch
+     * and committed by the consumer after a successful flush.
      *
      * @throws If the flush operation fails
      */
@@ -238,7 +237,6 @@ export class SessionBatchRecorder {
         // If no sessions, commit offsets but skip writing the file. Sessions can still have been
         // recorded then dropped (e.g. rate limited), leaving batch state to reset.
         if (this.sessions.size === 0) {
-            await this.offsetManager.commit()
             this._size = 0
             this.rateLimiter.clear()
             logger.info('🔁', 'session_batch_recorder_flushed_no_sessions')
@@ -343,7 +341,6 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
-            await this.offsetManager.commit()
 
             // Update metrics
             SessionBatchMetrics.incrementBatchesFlushed()

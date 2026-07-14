@@ -1,9 +1,11 @@
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 
 /**
- * The recorder a session replay message folds into, carried on every pipeline input element. The layer
- * above the pipeline (the consumer, later the accumulating pipeline) owns the recorder and stamps it on
- * the messages it feeds, so steps read it from their element instead of reaching into shared batch state.
+ * Batch context attached to every element of an accumulation cycle and to the flush units.
+ * Carries the recorder that the record step folds into and that the flush step drains.
+ *
+ * This is a pipeline-level concern (the unit the accumulating pipeline threads through its steps),
+ * not a recorder concern — the recorder is just what it happens to carry.
  */
 export interface SessionBatchContext {
     sessionBatchRecorder: SessionBatchRecorder

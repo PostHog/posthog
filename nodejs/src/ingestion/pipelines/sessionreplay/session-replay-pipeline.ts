@@ -6,16 +6,22 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
+import {
+    AccumulatedFlushInput,
+    AccumulatingPipeline,
+    AccumulationContext,
+} from '~/ingestion/framework/accumulating-pipeline'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { BatchPipelineBuilder, newAccumulatingPipeline, newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch } from '~/ingestion/framework/helpers'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
+import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
+import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
+import { SessionBatchFactory } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-factory'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -24,17 +30,24 @@ import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
-import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
-import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
+import {
+    TrimmedReplayElement,
+    createPostProcessStep,
+    createProjectReplayOutputStep,
+    createReplayBeforeBatchStep,
+} from './session-batch-post-process-step'
+import { createRecordMetricsStep } from './session-batch-record-metrics-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
+import { createCreateSessionBatchStep } from './session-batch-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
+import { createWriteStep } from './session-batch-write-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
-export interface SessionReplayPipelineInput extends SessionBatchContext {
+export interface SessionReplayPipelineInput {
     message: Message
 }
 
@@ -44,25 +57,51 @@ export interface SessionReplayPipelineOutput {
 }
 
 /**
- * The session replay pipeline: a batching pipeline whose input elements each carry the session batch
- * recorder they fold into ({@link SessionBatchContext}). The layer above (the consumer, later the
- * accumulating pipeline) owns the recorder and stamps it on the messages it feeds, so the steps stay
- * decoupled from batch creation and flushing.
+ * The per-message inner pipeline wrapped by the session replay pipeline: a batching pipeline whose
+ * afterBatch tracks each message's offset and trims the recorded results down to a lightweight row.
+ * Its input carries the batch context (the recorder) tagged on by the accumulating pipeline, which
+ * the retention and record steps read.
  */
-export type SessionReplayPipeline = BatchingPipeline<
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
-    MessageContext,
-    Record<never, object>,
-    MessageContext & BatchingContext,
-    OverflowOutput
+export type SessionReplayInnerPipeline = BatchingPipeline<
+    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput: raw input + batch recorder + batch id
+    SessionReplayPipelineOutput, // TOutput: element out of the sub-pipeline (before the afterBatch trim)
+    { message: Message }, // CInput: per-element context in (the Kafka message)
+    Record<never, object>, // CBatch: the batching pipeline's own batch context (empty — beforeBatch is a passthrough)
+    { message: Message } & BatchingContext, // COutput: sub-pipeline context out (the Kafka message + messageId)
+    OverflowOutput, // R: redirect output names this pipeline can emit
+    TrimmedReplayElement, // TPostOut: trimmed element the afterBatch emits
+    { messageId: number } // CPostOut: trimmed context the afterBatch emits
 >
 
-export interface SessionReplayPipelineConfig {
+/**
+ * The value the flush pipeline threads through its steps: the accumulated (trimmed) elements plus the
+ * batch context, with the written block metadata tacked on by the write step.
+ */
+export type SessionReplayFlushOutput = AccumulatedFlushInput<
+    TrimmedReplayElement,
+    { messageId: number },
+    SessionBatchContext,
+    OverflowOutput
+> & { blockMetadata: SessionBlockMetadata[] }
+
+export type SessionReplayPipeline = AccumulatingPipeline<
+    SessionReplayPipelineInput, // TRecordIn: element fed in per message (batch context is added internally)
+    TrimmedReplayElement, // TRecordOut: trimmed element out of the inner pipeline's afterBatch
+    { message: Message }, // CRecordIn: inner-pipeline context in (the Kafka message)
+    { messageId: number }, // CRecordOut: trimmed inner-pipeline context out
+    SessionBatchContext, // CBatch: batch context minted per cycle (the recorder), tagged on every element and the flush unit
+    SessionReplayFlushOutput, // TFlushOut: value threaded out of the flush pipeline (elements + batch context + block metadata)
+    Record<string, never>, // CFlushOut: flush-pipeline context out (empty — the flush unit carries no context)
+    OverflowOutput // R: redirect output names this pipeline can emit
+>
+
+export interface SessionReplayInnerPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowMode: IngestionOverflowMode
     promiseScheduler: PromiseScheduler
+    /** Offsets are tracked here in the afterBatch, for every fed message (recorded, dropped, or DLQ'd). */
+    offsetManager: KafkaOffsetManager
     teamService: TeamService
     /** Resolves per-session retention before recording, so keys and storage route correctly */
     retentionService: RetentionService
@@ -80,23 +119,39 @@ export interface SessionReplayPipelineConfig {
     isDebugLoggingEnabled: ValueMatcher<number>
 }
 
+export interface SessionReplayPipelineConfig {
+    recordPipeline: SessionReplayInnerPipeline
+    sessionBatchFactory: SessionBatchFactory
+    /** Offsets are tracked in the inner pipeline's afterBatch; the consumer commits them after a flush */
+    offsetManager: KafkaOffsetManager
+    /** Maximum raw size (before compression) of a batch in bytes before it is flushed */
+    maxBatchSizeBytes: number
+    /** Maximum age of a batch in milliseconds before it is flushed */
+    maxBatchAgeMs: number
+}
+
 /**
- * Creates the session replay pipeline.
+ * Creates the session replay inner (per-message) pipeline.
  *
- * Each feed() is one batch: every element already carries the recorder it folds into (stamped by the
- * layer above), and the per-message sub-pipeline processes messages through these phases:
+ * The pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
- * 2. Team Filter - Validate team ownership and enrich with team context
- * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
- * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Record - Record parsed messages to the batch's recorder
+ * 2. Validate headers - Enforce the capture guarantees (DLQ if missing) and narrow the type
+ * 3. Team Filter - Validate team ownership and enrich with team context
+ * 4. Resolve retention - one batched lookup, keyed on the session_id header, before parse; drop
+ *    sessions with unresolvable retention
+ * 5. Resolve session key - track the session, rate-limit/block new sessions, and resolve its
+ *    encryption key, off the S3 write path; drop blocked/deleted sessions
+ * 6. Parse - Parse Kafka messages into structured session recording data (inside teamAware)
+ * 7. Version Monitor - Check library version and emit warnings for old versions
+ * 8. Record - Fold parsed messages into the cycle's recorder (using the resolved retention and key)
  */
-export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
+export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipelineConfig): SessionReplayInnerPipeline {
     const {
         outputs,
         eventIngestionRestrictionManager,
         overflowMode,
         promiseScheduler,
+        offsetManager,
         teamService,
         retentionService,
         sessionTracker,
@@ -115,189 +170,166 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
     const topHogWrapper = createTopHogWrapper(topHog)
 
     return newBatchingPipeline<
-        SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
-        MessageContext,
-        Record<never, object>,
-        MessageContext,
-        OverflowOutput
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput
+        SessionReplayPipelineOutput, // TOutput
+        { message: Message }, // CInput
+        Record<never, object>, // CBatch (empty — beforeBatch is a passthrough)
+        { message: Message }, // COutput
+        OverflowOutput, // R
+        TrimmedReplayElement, // TPostOut
+        { messageId: number } // CPostOut
     >(
         (beforeBatch) =>
-            beforeBatch.pipe(function passThroughBeforeBatch(input) {
-                return Promise.resolve(ok(input))
-            }),
-        (batch) =>
-            batch
-                .messageAware((b) =>
+            beforeBatch.pipe(
+                createReplayBeforeBatchStep<
+                    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+                    { message: Message }
+                >()
+            ),
+        (batch) => {
+            const processed = batch
+                .sequentially((b) =>
                     b
-                        .sequentially((b) =>
-                            b
-                                // Parse headers and apply restrictions (drop/overflow)
-                                .pipe(createParseHeadersStep())
-                                .pipe(
-                                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowMode,
-                                        preservePartitionLocality: true, // Sessions must stay on the same partition
-                                    })
-                                )
-                                // Validate the headers capture guarantees (DLQ if missing) and narrow the type
-                                .pipe(createValidateSessionReplayHeadersStep())
-                                // Validate team ownership and enrich with team context
-                                .pipe(createTeamFilterStep(teamService))
+                        // Parse headers and apply restrictions (drop/overflow)
+                        .pipe(createParseHeadersStep())
+                        .pipe(
+                            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                overflowMode,
+                                preservePartitionLocality: true, // Sessions must stay on the same partition
+                            })
                         )
-                        // Resolve retention for the whole batch in one call, before the message is parsed and
-                        // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
-                        // retention are dropped before any parse or write.
-                        .gather()
-                        .pipeBatch(createResolveRetentionStep(retentionService), {
-                            retry: { tries: 3, sleepMs: 100 },
-                        })
-                        // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
-                        // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
-                        // downstream acts on them). Its own retry scope means a later key-resolution failure never
-                        // re-runs the rate limiter and double-charges the budget.
-                        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
-                            retry: { tries: 3, sleepMs: 100 },
-                        })
-                        // Resolve each session's encryption key. Grouped by session so it runs once per session
-                        // (the cached keystore fans the key to its other messages) and concurrently across
-                        // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
-                        // keystore blip to that one session. Deleted sessions are dropped here.
-                        .concurrentlyPerGroup(
-                            (element) => `${element.team.teamId}:${element.headers.session_id}`,
-                            (group) =>
-                                group.sequentially((b) =>
-                                    b.pipe(createResolveKeyStep(keyStore), {
-                                        retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
-                                    })
-                                ),
-                            { maxConcurrency: sessionKeyResolutionMaxConcurrency }
-                        )
-                        // Re-collect the per-session groups into one batch — both to mark the whole batch seen
-                        // in a single Redis write and as the barrier that guarantees every key is resolved first.
-                        .gather()
-                        // Mark the surviving new sessions seen, now that every key is durably resolved.
-                        .pipeBatch(createMarkSeenStep(sessionTracker))
-                        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
-                        .filterMap(
-                            (element) => ({
-                                result: element.result,
-                                context: {
-                                    ...element.context,
-                                    team: { id: element.result.value.team.teamId },
-                                },
-                            }),
-                            (b) =>
-                                b
-                                    .teamAware((b) =>
-                                        b
-                                            .sequentially((b) =>
-                                                b
-                                                    // Parse message content
-                                                    .pipe(
-                                                        topHogWrapper(createParseMessageStep(), [
-                                                            timer('parse_time_ms_by_session_id', (input) => ({
-                                                                token: input.headers.token ?? 'unknown',
-                                                                session_id: input.headers.session_id ?? 'unknown',
-                                                            })),
-                                                        ])
-                                                    )
-                                                    // Monitor library version and emit warnings for old versions
-                                                    .pipe(createLibVersionMonitorStep())
-                                                    .pipe(
-                                                        topHogWrapper(
-                                                            createRecordSessionEventStep({
-                                                                isDebugLoggingEnabled,
-                                                            }),
-                                                            [
-                                                                sum(
-                                                                    'message_size_by_session_id',
-                                                                    (input) => ({
-                                                                        token: input.parsedMessage.token ?? 'unknown',
-                                                                        session_id: input.parsedMessage.session_id,
-                                                                    }),
-                                                                    (input) => input.parsedMessage.metadata.rawSize
-                                                                ),
-                                                                timer('consume_time_ms_by_session_id', (input) => ({
-                                                                    token: input.parsedMessage.token ?? 'unknown',
-                                                                    session_id: input.parsedMessage.session_id,
-                                                                })),
-                                                            ]
-                                                        )
-                                                    )
-                                            )
-                                            .gather()
-                                    )
-                                    .handleIngestionWarnings(outputs)
-                        )
+                        // Validate the headers capture guarantees (DLQ if missing) and narrow the type
+                        .pipe(createValidateSessionReplayHeadersStep())
+                        // Validate team ownership and enrich with team context
+                        .pipe(createTeamFilterStep(teamService))
                 )
-                .handleResults(pipelineConfig)
-                .handleSideEffects(promiseScheduler, { await: false })
-                .gather(),
-        (afterBatch) =>
-            afterBatch.pipe(function passThroughAfterBatch(input) {
-                return Promise.resolve(ok(input))
-            }),
-        // One batch in flight at a time (also the framework default): a feed's elements carry the
-        // recorder current when it was fed, so a concurrent batch could span a flush and record into a
-        // stale recorder.
+                // Resolve retention for the whole batch in one call, before the message is parsed and
+                // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
+                // retention are dropped before any parse or write.
+                .gather()
+                .pipeBatch(createResolveRetentionStep(retentionService), {
+                    retry: { tries: 3, sleepMs: 100 },
+                })
+                // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
+                // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
+                // downstream acts on them). Its own retry scope means a later key-resolution failure never
+                // re-runs the rate limiter and double-charges the budget.
+                .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                    retry: { tries: 3, sleepMs: 100 },
+                })
+                // Resolve each session's encryption key. Grouped by session so it runs once per session
+                // (the cached keystore fans the key to its other messages) and concurrently across
+                // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
+                // keystore blip to that one session. Deleted sessions are dropped here.
+                .concurrentlyPerGroup(
+                    (element) => `${element.team.teamId}:${element.headers.session_id}`,
+                    (group) =>
+                        group.sequentially((b) =>
+                            b.pipe(createResolveKeyStep(keyStore), {
+                                retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
+                            })
+                        ),
+                    { maxConcurrency: sessionKeyResolutionMaxConcurrency }
+                )
+                // Re-collect the per-session groups into one batch — both to mark the whole batch seen
+                // in a single Redis write and as the barrier that guarantees every key is resolved first.
+                .gather()
+                // Mark the surviving new sessions seen, now that every key is durably resolved.
+                .pipeBatch(createMarkSeenStep(sessionTracker))
+                // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
+                .filterMap(
+                    (element) => ({
+                        result: element.result,
+                        context: {
+                            ...element.context,
+                            team: { id: element.result.value.team.teamId },
+                        },
+                    }),
+                    (b) =>
+                        b
+                            .teamAware((b) =>
+                                b
+                                    .sequentially((b) =>
+                                        b
+                                            // Parse message content
+                                            .pipe(
+                                                topHogWrapper(createParseMessageStep(), [
+                                                    timer('parse_time_ms_by_session_id', (input) => ({
+                                                        token: input.headers.token ?? 'unknown',
+                                                        session_id: input.headers.session_id ?? 'unknown',
+                                                    })),
+                                                ])
+                                            )
+                                            // Monitor library version and emit warnings for old versions
+                                            .pipe(createLibVersionMonitorStep())
+                                            // Record to the cycle's recorder (uses the resolved retention and key)
+                                            .pipe(
+                                                topHogWrapper(
+                                                    createRecordSessionEventStep({
+                                                        isDebugLoggingEnabled,
+                                                    }),
+                                                    [
+                                                        sum(
+                                                            'message_size_by_session_id',
+                                                            (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            }),
+                                                            (input) => input.parsedMessage.metadata.rawSize
+                                                        ),
+                                                        timer('consume_time_ms_by_session_id', (input) => ({
+                                                            token: input.parsedMessage.token ?? 'unknown',
+                                                            session_id: input.parsedMessage.session_id,
+                                                        })),
+                                                    ]
+                                                )
+                                            )
+                                            // Narrow to the declared output; the afterBatch trims further.
+                                            .pipe(createProjectReplayOutputStep())
+                                    )
+                                    .gather()
+                            )
+                            .handleIngestionWarnings(outputs)
+                )
+
+            // Route non-OK results (DLQ/overflow/drop) into produce side effects, but do NOT schedule
+            // them — leave them on each result's context so the afterBatch can surface them to the
+            // accumulating pipeline. The builder's handleResults() forces handleSideEffects (which would
+            // consume them), so wrap the result handler directly.
+            return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather()
+        },
+        (afterBatch) => afterBatch.pipe(createPostProcessStep(offsetManager)),
         { concurrentBatches: 1 }
     )
 }
 
 /**
- * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
- * reached per partition.
- *
- * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
- * and each result still carries its source message in the context. Draining them here and taking the
- * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
- * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
- * the returned offsets to the offset manager, which commits them on the next flush.
- *
- * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
- * yields exactly one terminal result here.
- *
- * Element side effects (DLQ/overflow produces) are already scheduled inside the sub-pipeline, but
- * side effects returned by the batching pipeline's before/afterBatch hooks ride on each BatchResult.
- * They go onto the same scheduler here, so the consumer's pre-flush drain awaits them before any
- * offset commits — the hooks are pure today, but a driver must not silently drop them.
+ * Builds the session replay pipeline: an accumulating pipeline wrapping the per-message inner
+ * pipeline. The inner pipeline resolves retention and session keys off the S3 write path, then folds
+ * events into a recorder minted per cycle by the factory; the flush pipeline writes the recorder to
+ * storage and records the flush metrics, on a size or age trigger. Offset commits stay with the
+ * consumer, which commits after the flush (and its side effects) are durable.
  */
-export async function runSessionReplayPipeline(
-    pipeline: SessionReplayPipeline,
-    messages: Message[],
-    sessionBatchRecorder: SessionBatchRecorder,
-    promiseScheduler: PromiseScheduler
-): Promise<Map<number, number>> {
-    const maxOffsetByPartition = new Map<number, number>()
-    if (messages.length === 0) {
-        return maxOffsetByPartition
-    }
+export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
+    const { recordPipeline, sessionBatchFactory, maxBatchSizeBytes, maxBatchAgeMs } = config
 
-    // Stamp the caller's current recorder onto every message, so the record step folds into the batch
-    // the layer above owns for this cycle.
-    const batch = createBatch(messages.map((message) => ({ message, sessionBatchRecorder })))
-    // The consumer drains each batch fully before feeding the next and the hooks always succeed,
-    // so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
-    if (!feedResult.ok) {
-        throw new Error(`session replay pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
-    }
-
-    let batchResult = await pipeline.next()
-    while (batchResult !== null) {
-        for (const sideEffect of batchResult.sideEffects ?? []) {
-            void promiseScheduler.schedule(sideEffect)
-        }
-        for (const { context } of batchResult.elements) {
-            const { partition, offset } = context.message
-            const current = maxOffsetByPartition.get(partition)
-            if (current === undefined || offset > current) {
-                maxOffsetByPartition.set(partition, offset)
-            }
-        }
-        batchResult = await pipeline.next()
-    }
-
-    return maxOffsetByPartition
+    return newAccumulatingPipeline<
+        SessionReplayPipelineInput,
+        TrimmedReplayElement,
+        { message: Message },
+        { messageId: number },
+        SessionBatchContext,
+        SessionReplayFlushOutput,
+        Record<string, never>,
+        OverflowOutput
+    >({
+        beforeBatch: (builder) => builder.pipe(createCreateSessionBatchStep(sessionBatchFactory)),
+        pipeline: recordPipeline,
+        // The flush lifecycle: write to storage (retention and keys already resolved at record time),
+        // then record the flush metrics from the write step's block metadata. Offsets are committed by
+        // the consumer after the flush and its surfaced side effects are durable.
+        flush: (builder) => builder.sequentially((b) => b.pipe(createWriteStep()).pipe(createRecordMetricsStep())),
+        shouldFlush: (batchContext) => batchContext.sessionBatchRecorder.size >= maxBatchSizeBytes,
+        maxBatchAgeMs,
+    })
 }

@@ -57,7 +57,7 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
-        // Record to the batch's recorder, carried on the element by the pipeline's beforeBatch.
+        // Record to the batch's recorder, minted for this accumulation cycle and carried on the element.
         const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
         await sessionBatchRecorder.record(messageWithTeam, retentionPeriod, sessionKey)
 
