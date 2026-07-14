@@ -18,7 +18,7 @@ import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/re
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
-import { SessionBatchFactory } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-factory'
+import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
@@ -121,7 +121,7 @@ export interface SessionReplayInnerPipelineConfig {
 
 export interface SessionReplayPipelineConfig {
     recordPipeline: SessionReplayInnerPipeline
-    sessionBatchFactory: SessionBatchFactory
+    sessionBatchManager: SessionBatchManager
     /** Offsets are tracked in the inner pipeline's afterBatch; the consumer commits them after a flush */
     offsetManager: KafkaOffsetManager
     /** Maximum raw size (before compression) of a batch in bytes before it is flushed */
@@ -306,12 +306,12 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
 /**
  * Builds the session replay pipeline: an accumulating pipeline wrapping the per-message inner
  * pipeline. The inner pipeline resolves retention and session keys off the S3 write path, then folds
- * events into a recorder minted per cycle by the factory; the flush pipeline writes the recorder to
+ * events into a recorder minted per cycle by the manager; the flush pipeline writes the recorder to
  * storage and records the flush metrics, on a size or age trigger. Offset commits stay with the
  * consumer, which commits after the flush (and its side effects) are durable.
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
-    const { recordPipeline, sessionBatchFactory, maxBatchSizeBytes, maxBatchAgeMs } = config
+    const { recordPipeline, sessionBatchManager, maxBatchSizeBytes, maxBatchAgeMs } = config
 
     return newAccumulatingPipeline<
         SessionReplayPipelineInput,
@@ -323,7 +323,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         Record<string, never>,
         OverflowOutput
     >({
-        beforeBatch: (builder) => builder.pipe(createCreateSessionBatchStep(sessionBatchFactory)),
+        beforeBatch: (builder) => builder.pipe(createCreateSessionBatchStep(sessionBatchManager)),
         pipeline: recordPipeline,
         // The flush lifecycle: write to storage (retention and keys already resolved at record time),
         // then record the flush metrics from the write step's block metadata. Offsets are committed by

@@ -43,8 +43,8 @@ import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
-import { SessionBatchFactory } from './sessions/session-batch-factory'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
+import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
@@ -89,7 +89,7 @@ export class SessionRecordingIngester {
 
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
-    private readonly sessionBatchFactory: SessionBatchFactory
+    private readonly sessionBatchManager: SessionBatchManager
     private readonly offsetManager: KafkaOffsetManager
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
@@ -224,7 +224,7 @@ export class SessionRecordingIngester {
             )
         this.encryptor = collaborators.encryptor ?? getBlockEncryptor(this.keyStore)
 
-        this.sessionBatchFactory = new SessionBatchFactory({
+        this.sessionBatchManager = new SessionBatchManager({
             maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
             featuresRolloutPercentage: this.config.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
             fileStorage: this.fileStorage,
@@ -348,7 +348,7 @@ export class SessionRecordingIngester {
 
         this.pipeline = createSessionReplayPipeline({
             recordPipeline,
-            sessionBatchFactory: this.sessionBatchFactory,
+            sessionBatchManager: this.sessionBatchManager,
             offsetManager: this.offsetManager,
             maxBatchSizeBytes: this.maxBatchSizeBytes,
             maxBatchAgeMs: this.maxBatchAgeMs,

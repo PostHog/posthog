@@ -6,7 +6,7 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 
-export interface SessionBatchFactoryConfig {
+export interface SessionBatchManagerConfig {
     /** Maximum number of events per session per batch before rate limiting */
     maxEventsPerSessionPerBatch: number
     /** Rollout percentage (0-100) for the per-session ML feature recorder */
@@ -24,10 +24,10 @@ export interface SessionBatchFactoryConfig {
 }
 
 /**
- * Stateless factory for session batch recorders.
+ * Stateless minting of session batch recorders.
  *
  * Each accumulation cycle of the session replay pipeline gets a fresh recorder from here. The
- * factory holds no current-batch state — the live recorder lives in the pipeline's batch context —
+ * manager holds no current-batch state — the live recorder lives in the pipeline's batch context —
  * which keeps batch lifecycle entirely inside the session replay pipeline and leaves room for it to
  * run concurrent batches later.
  *
@@ -39,7 +39,7 @@ export interface SessionBatchFactoryConfig {
  *
  * ```
  * SessionReplayPipeline (an AccumulatingPipeline)
- * ├── beforeBatch  → SessionBatchFactory.create()       ── mints the recorder for this cycle
+ * ├── beforeBatch  → SessionBatchManager.createBatch()       ── mints the recorder for this cycle
  * ├── pipeline     → resolveRetention + resolveSessionKey + record
  * │                                                      ── steps resolve retention/keys, then fold
  * │                                                         events into the recorder
@@ -50,7 +50,7 @@ export interface SessionBatchFactoryConfig {
  * Offsets are tracked in the inner pipeline's afterBatch and committed by the consumer after a flush.
  * ```
  */
-export class SessionBatchFactory {
+export class SessionBatchManager {
     private readonly maxEventsPerSessionPerBatch: number
     private readonly featuresRolloutPercentage: number
     private readonly fileStorage: SessionBatchFileStorage
@@ -59,7 +59,7 @@ export class SessionBatchFactory {
     private readonly featureStore: SessionFeatureStore
     private readonly encryptor: RecordingEncryptor
 
-    constructor(config: SessionBatchFactoryConfig) {
+    constructor(config: SessionBatchManagerConfig) {
         this.maxEventsPerSessionPerBatch = config.maxEventsPerSessionPerBatch
         this.featuresRolloutPercentage = config.featuresRolloutPercentage ?? 100
         this.fileStorage = config.fileStorage
@@ -69,7 +69,7 @@ export class SessionBatchFactory {
         this.encryptor = config.encryptor
     }
 
-    public create(): SessionBatchRecorder {
+    public createBatch(): SessionBatchRecorder {
         return new SessionBatchRecorder(
             this.fileStorage,
             this.metadataStore,

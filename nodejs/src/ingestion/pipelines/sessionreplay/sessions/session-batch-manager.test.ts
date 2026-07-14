@@ -3,21 +3,21 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { createMockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
-import { SessionBatchFactory, SessionBatchFactoryConfig } from './session-batch-factory'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
+import { SessionBatchManager, SessionBatchManagerConfig } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 
 jest.mock('./session-batch-recorder')
 
-describe('SessionBatchFactory', () => {
+describe('SessionBatchManager', () => {
     let mockFileStorage: jest.Mocked<SessionBatchFileStorage>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
-    function makeConfig(overrides: Partial<SessionBatchFactoryConfig> = {}): SessionBatchFactoryConfig {
+    function makeConfig(overrides: Partial<SessionBatchManagerConfig> = {}): SessionBatchManagerConfig {
         return {
             maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
             fileStorage: mockFileStorage,
@@ -43,10 +43,10 @@ describe('SessionBatchFactory', () => {
     })
 
     it('create returns a fresh, independent recorder each call', () => {
-        const factory = new SessionBatchFactory(makeConfig())
+        const manager = new SessionBatchManager(makeConfig())
 
-        const first = factory.create()
-        const second = factory.create()
+        const first = manager.createBatch()
+        const second = manager.createBatch()
 
         expect(first).not.toBe(second)
         expect(SessionBatchRecorder).toHaveBeenCalledTimes(2)
@@ -55,11 +55,11 @@ describe('SessionBatchFactory', () => {
     it.each([0, 250, Number.MAX_SAFE_INTEGER])(
         'create passes maxEventsPerSessionPerBatch=%p and the feature rollout to the recorder',
         (maxEventsPerSessionPerBatch) => {
-            const factory = new SessionBatchFactory(
+            const manager = new SessionBatchManager(
                 makeConfig({ maxEventsPerSessionPerBatch, featuresRolloutPercentage: 42 })
             )
 
-            factory.create()
+            manager.createBatch()
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
                 mockFileStorage,
@@ -74,9 +74,9 @@ describe('SessionBatchFactory', () => {
     )
 
     it('defaults the feature rollout to 100 when unset', () => {
-        const factory = new SessionBatchFactory(makeConfig())
+        const manager = new SessionBatchManager(makeConfig())
 
-        factory.create()
+        manager.createBatch()
 
         expect(SessionBatchRecorder).toHaveBeenCalledWith(
             expect.anything(),
