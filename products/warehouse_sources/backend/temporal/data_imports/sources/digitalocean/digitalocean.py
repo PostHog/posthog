@@ -1,5 +1,9 @@
+from collections.abc import Callable
+from typing import Any
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -43,18 +47,34 @@ def get_resource(endpoint_config: DigitalOceanEndpointConfig) -> EndpointResourc
     }
 
 
+def _strip_sensitive_fields(sensitive_fields: frozenset[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # Drop credential-bearing keys from each record before it's stored. Runs as a resource
+    # map, so it's the last thing to touch a record before persistence.
+    def _strip(record: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in record.items() if key not in sensitive_fields}
+
+    return _strip
+
+
 def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Resource:
     endpoint_config = DIGITALOCEAN_ENDPOINTS[endpoint]
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": DIGITALOCEAN_BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            "paginator": _paginator(),
+    client_config: ClientConfig = {
+        "base_url": DIGITALOCEAN_BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": api_key,
         },
+        "paginator": _paginator(),
+    }
+    # Endpoints that return secrets (e.g. `databases`) must not have their raw responses
+    # captured into HTTP samples, which happens before resource maps run. Opt them out of
+    # sample capture while keeping the request metered, logged, and token-redacted.
+    if endpoint_config.sensitive_fields:
+        client_config["session"] = make_tracked_session(redact_values=(api_key,), capture=False)
+
+    config: RESTAPIConfig = {
+        "client": client_config,
         "resource_defaults": {
             "write_disposition": "replace",
         },
@@ -62,7 +82,10 @@ def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) 
     }
 
     # No incremental support, so `db_incremental_field_last_value` is always None.
-    return rest_api_resource(config, team_id, job_id, None)
+    resource = rest_api_resource(config, team_id, job_id, None)
+    if endpoint_config.sensitive_fields:
+        resource.add_map(_strip_sensitive_fields(endpoint_config.sensitive_fields))
+    return resource
 
 
 def validate_credentials(api_key: str) -> tuple[bool, int | None]:

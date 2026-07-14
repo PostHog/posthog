@@ -8,6 +8,7 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean import (
     _paginator,
+    digitalocean_source,
     get_resource,
     validate_credentials,
 )
@@ -85,6 +86,56 @@ class TestDigitalOceanGetResource:
         # image — huge and identical for every account.
         resource = get_resource(DIGITALOCEAN_ENDPOINTS["images"])
         assert _endpoint(resource)["params"]["private"] == "true"
+
+
+class TestDigitalOceanSensitiveFields:
+    _DATABASE_RECORD = {
+        "id": "db-1",
+        "name": "prod-pg",
+        "engine": "pg",
+        "region": "nyc1",
+        "connection": {"uri": "postgresql://doadmin:secret@host:25060/defaultdb", "password": "secret"},
+        "private_connection": {"uri": "postgresql://doadmin:secret@priv-host:25060/defaultdb"},
+        "standby_connection": {"password": "secret"},
+        "standby_private_connection": {"password": "secret"},
+        "users": [{"name": "doadmin", "password": "secret"}],
+    }
+
+    def test_databases_strips_credential_bearing_fields(self) -> None:
+        # /v2/databases embeds live connection URIs, passwords, and the users list in every
+        # record; without stripping they'd land in a queryable warehouse table.
+        resource = digitalocean_source("dop_v1_token", "databases", team_id=1, job_id="job-1")
+        [transformed] = resource._apply_transforms([dict(self._DATABASE_RECORD)])
+
+        assert transformed == {"id": "db-1", "name": "prod-pg", "engine": "pg", "region": "nyc1"}
+
+    def test_non_sensitive_endpoint_keeps_every_field(self) -> None:
+        # Only endpoints that declare sensitive_fields get filtered; everything else must round-trip
+        # untouched or the strip would silently drop real data.
+        record = {"id": 1, "name": "web-1", "networks": {"v4": [{"ip_address": "1.2.3.4"}]}}
+        resource = digitalocean_source("dop_v1_token", "droplets", team_id=1, job_id="job-1")
+
+        assert resource._apply_transforms([dict(record)]) == [record]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
+    )
+    def test_databases_opts_out_of_sample_capture(self, mock_session: MagicMock) -> None:
+        # Sample capture records the raw response before resource maps run, so the secrets would be
+        # captured even though they're stripped from storage; the endpoint must disable capture.
+        digitalocean_source("dop_v1_token", "databases", team_id=1, job_id="job-1")
+
+        mock_session.assert_called_once_with(redact_values=("dop_v1_token",), capture=False)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
+    )
+    def test_non_sensitive_endpoint_keeps_capture_on(self, mock_session: MagicMock) -> None:
+        # Non-sensitive endpoints must not build their own session here, leaving the tracked client's
+        # default (capture on) in place so their traffic stays in HTTP samples.
+        digitalocean_source("dop_v1_token", "droplets", team_id=1, job_id="job-1")
+
+        mock_session.assert_not_called()
 
 
 class TestDigitalOceanValidateCredentials:

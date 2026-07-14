@@ -24,6 +24,10 @@ class DigitalOceanEndpointConfig:
     partition_key: Optional[str] = None
     # Extra query params merged into every request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Top-level response keys carrying secrets (connection URIs, passwords). These are
+    # dropped from every record before it's stored, and their presence also disables HTTP
+    # sample capture for the endpoint so the raw response can't leak into HTTP samples.
+    sensitive_fields: frozenset[str] = frozenset()
 
 
 # DigitalOcean's list endpoints all share the same page-based pagination
@@ -48,11 +52,23 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         data_selector="kubernetes_clusters",
         partition_key="created_at",
     ),
+    # `GET /v2/databases` embeds live cluster credentials (connection URIs + passwords and
+    # the per-database `users` list) alongside the metadata we want. Strip those fields so
+    # they never land in a queryable warehouse table.
     "databases": DigitalOceanEndpointConfig(
         name="databases",
         path="/v2/databases",
         data_selector="databases",
         partition_key="created_at",
+        sensitive_fields=frozenset(
+            {
+                "connection",
+                "private_connection",
+                "standby_connection",
+                "standby_private_connection",
+                "users",
+            }
+        ),
     ),
     "volumes": DigitalOceanEndpointConfig(
         name="volumes",
