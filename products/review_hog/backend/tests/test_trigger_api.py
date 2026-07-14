@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 
 TRIGGER_URL = "/api/review_hog/trigger/"
@@ -18,9 +19,12 @@ _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
 class TestReviewHogTriggerApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # The class-level REVIEWHOG_RUN_USER_ID=42 must point at a real active user: the trigger
-        # rejects disabled/missing run users (their sandbox credentials 403 and the review hangs).
+        # The class-level REVIEWHOG_TEAM_ID=99 / REVIEWHOG_RUN_USER_ID=42 must be a real team and an
+        # active member of its org: the trigger rejects unauthorized run users (their sandbox
+        # credentials 403 and the review hangs).
+        self.trigger_team = Team.objects.create(id=99, organization=self.organization, name="reviewhog trigger")
         self.run_user = User.objects.create(id=42, email="run-user-42@posthog.com")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
 
     @patch(_START, return_value="wf-1")
     def test_valid_trigger_starts_workflow_and_publishes_by_default(self, mock_start):
@@ -166,9 +170,18 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
 
+    @parameterized.expand(
+        [
+            ("deactivated", True),
+            ("active_but_not_org_member", False),
+        ]
+    )
     @patch(_START, return_value="wf-1")
-    def test_disabled_configured_run_user_rejected(self, mock_start):
-        User.objects.filter(id=42).update(is_active=False)
+    def test_unauthorized_configured_run_user_rejected(self, _name, deactivate, mock_start):
+        if deactivate:
+            User.objects.filter(id=42).update(is_active=False)
+        else:
+            OrganizationMembership.objects.filter(user_id=42).delete()
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": "PostHog/posthog", "pr_number": 1},

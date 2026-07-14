@@ -12,7 +12,6 @@ from rest_framework.response import Response
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.user import User
 
 from products.review_hog.backend.temporal.client import start_review_pr_workflow
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL
@@ -156,11 +155,16 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
                 {"error": "No active run user found for the team (no GitHub integration creator or org member)"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Fail loud here rather than silently downstream: a disabled run user makes every sandbox
-        # credential 403 and the review hang until its poll budget expires.
-        if not User.objects.filter(id=user_id, is_active=True).exists():
+        # Fail loud here rather than silently downstream: sandbox credentials are authorized against
+        # active org membership, so an unauthorized run user hangs the review until its poll budget expires.
+        run_user_is_authorized = OrganizationMembership.objects.filter(
+            organization__team__id=team_id,
+            user_id=user_id,
+            user__is_active=True,
+        ).exists()
+        if not run_user_is_authorized:
             return Response(
-                {"error": f"Configured run user {user_id} is disabled or missing"},
+                {"error": f"Configured run user {user_id} is not an active member of the team's organization"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
