@@ -862,7 +862,54 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
     return column_data.tolist()
 
 
+def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str]]:
+    """JSON-serialize columns whose non-None values are all dicts, before any Arrow work.
+
+    Such a column ends up stored as a JSON string either way, but letting it reach `pa.array()`
+    first builds a unified struct type whose field count is the union of every row's key paths.
+    For heterogeneous nested documents (e.g. a MongoDB collection where each document's structure
+    varies) that union grows with the batch, making conversion superlinear in rows — batches of a
+    few hundred documents can take minutes and starve activity heartbeats. The struct round-trip
+    also injects the union's null-filled fields into every serialized row, bloating the stored
+    JSON with keys the original document never had. Serializing the source dicts up front keeps
+    conversion linear and preserves each document exactly.
+
+    The caller's rows are left untouched — rows needing serialization are shallow-copied — so
+    reusing or retrying with the same batch stays safe. Returns the (possibly new) row list and
+    the serialized column names so a provided schema can be coerced to string for them.
+    """
+    dict_columns: set[str] = set()
+    non_dict_columns: set[str] = set()
+    for row in table_data:
+        for key, value in row.items():
+            if value is None or key in non_dict_columns:
+                continue
+            if isinstance(value, dict):
+                dict_columns.add(key)
+            else:
+                non_dict_columns.add(key)
+                dict_columns.discard(key)
+
+    if not dict_columns:
+        return table_data, dict_columns
+
+    serialized_rows: list[dict] = []
+    for row in table_data:
+        replaced: Optional[dict] = None
+        for key in dict_columns:
+            value = row.get(key)
+            if value is not None:
+                if replaced is None:
+                    replaced = dict(row)
+                replaced[key] = _json_dumps(value)
+        serialized_rows.append(replaced if replaced is not None else row)
+
+    return serialized_rows, dict_columns
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+    table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
@@ -918,6 +965,16 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             field = arrow_schema.field_by_name(str(field_name))
             field_index = arrow_schema.get_field_index(str(field_name))
+
+            # A serialized dict column holds JSON strings now; a provided schema may still declare
+            # the source's original non-string type for it, which from_pydict would fail to cast.
+            if (
+                field_name in serialized_dict_columns
+                and not pa.types.is_string(field.type)
+                and not pa.types.is_large_string(field.type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, field.with_type(pa.string()))
+                field = arrow_schema.field_by_name(str(field_name))
 
             # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
             if pa.types.is_decimal(field.type) and (float in unique_types_in_column or str in unique_types_in_column):

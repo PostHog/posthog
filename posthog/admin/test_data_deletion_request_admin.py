@@ -8,12 +8,12 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin
+from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -883,3 +883,38 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         else:
             # No original notes — the copy note stands alone, no trailing separator.
             self.assertFalse(copy.notes.endswith("\n"))
+
+
+class TestDagsterRunLink(SimpleTestCase):
+    RUN_ID = "f5f3a611-4be8-48bc-9b29-ff8b06d01189"
+
+    @parameterized.expand(
+        [
+            ("cloud_us", None, "US", f"https://posthog.dagster.cloud/prod-us/runs/{RUN_ID}"),
+            ("cloud_eu", None, "EU", f"https://posthog.dagster.cloud/prod-eu/runs/{RUN_ID}"),
+            ("dev", None, "DEV", f"https://posthog.dagster.cloud/dev/runs/{RUN_ID}"),
+            ("lowercase_deployment", None, "eu", f"https://posthog.dagster.cloud/prod-eu/runs/{RUN_ID}"),
+            ("domain_takes_precedence", "dagster.example.com", "EU", f"https://dagster.example.com/runs/{RUN_ID}"),
+            ("local", None, None, None),
+            ("unknown_deployment", None, "E2E", None),
+        ]
+    )
+    def test_dagster_run_url(self, _name, dagster_domain, cloud_deployment, expected):
+        with override_settings(DAGSTER_DOMAIN=dagster_domain, CLOUD_DEPLOYMENT=cloud_deployment):
+            self.assertEqual(dagster_run_url(self.RUN_ID), expected)
+
+    @override_settings(DAGSTER_DOMAIN=None, CLOUD_DEPLOYMENT="EU")
+    def test_admin_renders_run_id_as_link(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        rendered = admin_obj.last_dagster_run(DataDeletionRequest(last_dagster_run_id=self.RUN_ID))
+        self.assertIn(f'href="https://posthog.dagster.cloud/prod-eu/runs/{self.RUN_ID}"', rendered)
+
+    @override_settings(DAGSTER_DOMAIN=None, CLOUD_DEPLOYMENT=None)
+    def test_admin_renders_bare_run_id_when_deployment_unknown(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        rendered = admin_obj.last_dagster_run(DataDeletionRequest(last_dagster_run_id=self.RUN_ID))
+        self.assertEqual(rendered, self.RUN_ID)
+
+    def test_admin_renders_placeholder_when_never_executed(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")

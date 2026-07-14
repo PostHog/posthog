@@ -43,7 +43,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import (
@@ -568,11 +568,31 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').",
+    )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        read_only=True,
+        help_text="'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.",
+    )
+    supports_hogql = serializers.SerializerMethodField(
+        help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_hogql(self, source: ExternalDataSource) -> bool:
+        # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+        from posthog.hogql.direct_sql.capability import direct_supports_hogql  # noqa: PLC0415
+
+        return direct_supports_hogql(source)
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine"]
-        read_only_fields = ["id", "prefix", "engine"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -752,7 +772,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
-            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
+            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
             "Ignored on update."
         ),
     )
@@ -760,7 +781,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         required=False,
         help_text=(
             "Whether this synced source is also live-queryable via direct connection. "
-            "Defaults to true for new sources; ignored for pure direct-query sources."
+            "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
 
@@ -1258,17 +1279,28 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        choices=ExternalDataSource.CreatedVia.values,
+        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
+        # client self-label as wizard-created). It is derived server-side by upgrading a
+        # machine-injected `mcp` value when the request comes from the wizard transport.
+        choices=[
+            ExternalDataSource.CreatedVia.WEB,
+            ExternalDataSource.CreatedVia.API,
+            ExternalDataSource.CreatedVia.MCP,
+        ],
         required=False,
         default=ExternalDataSource.CreatedVia.API,
-        help_text="Where the request came from",
+        help_text=(
+            "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
+            "server-side for wizard-driven MCP calls. Defaults to `api`."
+        ),
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1306,10 +1338,10 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1758,7 +1790,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
 
     @extend_schema(
@@ -1852,13 +1884,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
-        direct_query_enabled: bool = True,
+        direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
+
+        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
+        # before the request reaches us — the agent can't set the field itself. Upgrade that
+        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
+            created_via = ExternalDataSource.CreatedVia.WIZARD
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -2442,9 +2481,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent. They usually agree but are kept separate so a transport
-        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
+        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
+        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
+        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
+        # attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
@@ -3038,7 +3079,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
@@ -4142,11 +4183,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         queryset = (
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
                 source_type__in=direct_capable_source_types(),
             )
+            # Pure-direct sources are always live; synced sources only when the toggle is on.
+            .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "connection_metadata")
+            .only("id", "prefix", "connection_metadata", "source_type", "access_method")
             .order_by(self.ordering)
         )
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)

@@ -219,6 +219,10 @@ rules:
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |ReviewReport
+                              |ReviewReportArtefact
+                              |ReviewSkillConfig
+                              |ReviewUserSettings
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -503,6 +507,10 @@ rules:
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |ReviewReport
+                        |ReviewReportArtefact
+                        |ReviewSkillConfig
+                        |ReviewUserSettings
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition

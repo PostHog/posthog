@@ -8,17 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `user` - user
- * * `ai_generated` - ai_generated
- */
-export type CreatedSourceEnumApi = (typeof CreatedSourceEnumApi)[keyof typeof CreatedSourceEnumApi]
-
-export const CreatedSourceEnumApi = {
-    User: 'user',
-    AiGenerated: 'ai_generated',
-} as const
-
-/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -74,6 +63,17 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `user` - user
+ * * `ai_generated` - ai_generated
+ */
+export type CreatedSourceEnumApi = (typeof CreatedSourceEnumApi)[keyof typeof CreatedSourceEnumApi]
+
+export const CreatedSourceEnumApi = {
+    User: 'user',
+    AiGenerated: 'ai_generated',
+} as const
+
+/**
  * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
  * @nullable
  */
@@ -118,13 +118,18 @@ export interface DataCatalogMetricApi {
     readonly referenced_table_names: unknown
     /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
     readonly status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted: boolean
     /** @nullable */
     readonly approved_at: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by: UserBasicApi | null
     /**
-     * Short ID of the insight this metric was created from, for drift detection.
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
      * @nullable
      */
-    readonly source_insight_short_id: string | null
+    source_insight_short_id?: string | null
     /**
      * When the metric was last run (30-minute throttle).
      * @nullable
@@ -208,13 +213,18 @@ export interface PatchedDataCatalogMetricApi {
     readonly referenced_table_names?: unknown
     /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
     readonly status?: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+    readonly is_drifted?: boolean
     /** @nullable */
     readonly approved_at?: string | null
+    /** User who approved this metric as canonical, or null. */
+    readonly approved_by?: UserBasicApi | null
     /**
-     * Short ID of the insight this metric was created from, for drift detection.
+     * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+     * @maxLength 12
      * @nullable
      */
-    readonly source_insight_short_id?: string | null
+    source_insight_short_id?: string | null
     /**
      * When the metric was last run (30-minute throttle).
      * @nullable
@@ -244,6 +254,92 @@ export interface PatchedDataCatalogMetricApi {
     readonly updated_at?: string | null
 }
 
+/**
+ * * `second` - second
+ * * `minute` - minute
+ * * `hour` - hour
+ * * `day` - day
+ * * `week` - week
+ * * `month` - month
+ * * `quarter` - quarter
+ * * `year` - year
+ */
+export type DataCatalogMetricRunRequestIntervalEnumApi =
+    (typeof DataCatalogMetricRunRequestIntervalEnumApi)[keyof typeof DataCatalogMetricRunRequestIntervalEnumApi]
+
+export const DataCatalogMetricRunRequestIntervalEnumApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+/**
+ * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
+ */
+export interface DataCatalogMetricRunRequestApi {
+    /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+    date_from?: string
+    /** Override the end of the query window. */
+    date_to?: string
+    /** Override the bucket interval. Rejected for HogQLQuery metrics.
+     *
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year */
+    interval?: DataCatalogMetricRunRequestIntervalEnumApi
+    /** Client-supplied id to correlate or cancel the run. */
+    query_id?: string
+}
+
+/**
+ * Normalized envelope returned by the metric-run endpoint.
+ */
+export interface DataCatalogMetricRunApi {
+    /** Lifecycle state of the metric that produced these results. */
+    status: string
+    /** True when the definition has drifted from its linked source insight (or the insight is gone). Only status 'approved' with is_drifted false is canonical. */
+    is_drifted: boolean
+    /**
+     * Unit of the result, e.g. usd, percent.
+     * @nullable
+     */
+    unit: string | null
+    /**
+     * Query kind that was executed.
+     * @nullable
+     */
+    kind: string | null
+    /** The query results, for an executable metric. Null for a markdown metric. */
+    results: unknown
+    /**
+     * The compiled HogQL, when available.
+     * @nullable
+     */
+    compiled_query: string | null
+    /** Async query status, when the run is not blocking. */
+    query_status: unknown
+    /**
+     * Deep link to open the query in the app (SQL editor or insight).
+     * @nullable
+     */
+    posthog_url: string | null
+    /**
+     * For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.
+     * @nullable
+     */
+    instructions: string | null
+}
+
 export type DataCatalogMetricsListParams = {
     /**
      * Number of results to return per page.
@@ -254,3 +350,30 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
 }
+
+export type DataCatalogMetricsRunCreateParams = {
+    /**
+     * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
+     *
+     * * `blocking` - blocking
+     * * `async` - async
+     * * `lazy_async` - lazy_async
+     * * `force_blocking` - force_blocking
+     * * `force_async` - force_async
+     * * `force_cache` - force_cache
+     * @minLength 1
+     */
+    refresh?: DataCatalogMetricsRunCreateRefresh
+}
+
+export type DataCatalogMetricsRunCreateRefresh =
+    (typeof DataCatalogMetricsRunCreateRefresh)[keyof typeof DataCatalogMetricsRunCreateRefresh]
+
+export const DataCatalogMetricsRunCreateRefresh = {
+    Blocking: 'blocking',
+    Async: 'async',
+    LazyAsync: 'lazy_async',
+    ForceBlocking: 'force_blocking',
+    ForceAsync: 'force_async',
+    ForceCache: 'force_cache',
+} as const
