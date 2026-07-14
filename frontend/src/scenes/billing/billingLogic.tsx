@@ -31,10 +31,12 @@ import {
 } from '~/types'
 
 import {
+    BillingLimits,
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
     getMinimumBillingAccessLevel,
+    mergeLimitsForProduct,
 } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -177,6 +179,10 @@ export const billingLogic = kea<billingLogicType>([
         setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
         setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
+        updateBillingLimit: (productType: string, amount: number | null) => ({ productType, amount }),
+        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
+        updateBillingLimitSuccess: (productType: string, limits: BillingLimits) => ({ productType, limits }),
+        updateBillingLimitFailure: (productType: string) => ({ productType }),
     }),
     connect(() => ({
         values: [
@@ -306,7 +312,7 @@ export const billingLogic = kea<billingLogicType>([
         billing: [
             null as BillingType | null,
             {
-                loadBilling: async () => {
+                loadBilling: async (payload: { discardIfSuperseded: boolean } | void, breakpoint) => {
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
@@ -314,22 +320,14 @@ export const billingLogic = kea<billingLogicType>([
                     const response = await api.get(
                         'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                     )
+                    // Concurrent limit saves each trigger a refresh; those opt in to discarding superseded
+                    // responses so a stale one can't overwrite newer state. Discarding stays opt-in because
+                    // `asyncActions.loadBilling()` awaiters rely on fresh state once the promise resolves.
+                    if (payload?.discardIfSuperseded) {
+                        breakpoint()
+                    }
 
                     return parseBillingResponse(response)
-                },
-
-                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
-                    try {
-                        const response = await api.update('api/billing', { custom_limits_usd: limits })
-                        lemonToast.success('Billing limits updated')
-                        actions.loadBilling()
-                        return parseBillingResponse(response)
-                    } catch (error: any) {
-                        lemonToast.error(
-                            'There was an error updating your billing limits. Please try again or contact support.'
-                        )
-                        throw error
-                    }
                 },
 
                 deactivateProduct: async (key: string, breakpoint) => {
@@ -516,6 +514,72 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     })),
+    reducers({
+        // `billingSource` is the reducer behind the lazy `billing` selector (kea-loaders lazy mode
+        // stores state in `<key>Source`), and is the only way to extend lazy loader state.
+        billingSource: {
+            // The state param is annotated because typegen sees lazy loader state as `any`.
+            updateBillingLimitSuccess: (state: BillingType | null, { productType, limits }) =>
+                mergeLimitsForProduct(state, productType, limits),
+        },
+        limitUpdatesInFlight: [
+            {} as Record<string, true>,
+            {
+                updateBillingLimit: (state, { productType }) => ({ ...state, [productType]: true as const }),
+                removeBillingLimitNextPeriod: (state, { productType }) => ({
+                    ...state,
+                    [productType]: true as const,
+                }),
+                updateBillingLimitSuccess: (state, { productType }) => {
+                    const { [productType]: _discarded, ...rest } = state
+                    return rest
+                },
+                updateBillingLimitFailure: (state, { productType }) => {
+                    const { [productType]: _discarded, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+    }),
+    listeners(({ actions }) => {
+        // Single write path for billing limits. The PATCH response echoes the server's decision for the
+        // saved product (a limit below current usage is clamped and deferred to next period), so the
+        // success payload carries both maps for the per-key merge above.
+        const patchLimits = async (
+            body: Record<string, unknown>,
+            productType: string,
+            successMessage: string,
+            errorMessage: string
+        ): Promise<void> => {
+            try {
+                const limits: BillingLimits = await api.update('api/billing', body)
+                lemonToast.success(successMessage)
+                actions.updateBillingLimitSuccess(productType, limits)
+                // Background refresh of usage-derived fields; never gates the editors.
+                actions.loadBilling({ discardIfSuperseded: true })
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error(`${errorMessage} Please try again or contact support.`)
+                actions.updateBillingLimitFailure(productType)
+            }
+        }
+        return {
+            updateBillingLimit: ({ productType, amount }) =>
+                patchLimits(
+                    { custom_limits_usd: { [productType]: amount } },
+                    productType,
+                    'Billing limit updated',
+                    'There was an error updating your billing limit.'
+                ),
+            removeBillingLimitNextPeriod: ({ productType }) =>
+                patchLimits(
+                    { reset_limit_next_period: productType },
+                    productType,
+                    'Billing limit for next period has been removed.',
+                    'There was an error removing your billing limit for next period.'
+                ),
+        }
+    }),
     selectors({
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],

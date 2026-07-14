@@ -713,3 +713,51 @@ export function buildUsageLimitApproachingMessage(
         message,
     }
 }
+
+export type BillingLimits = Pick<BillingType, 'custom_limits_usd' | 'next_period_custom_limits_usd'>
+
+/** Returns `map` with `key` set to `value`, or with `key` removed when `value` is null/undefined. */
+const withLimit = (
+    map: Record<string, number | null> | undefined,
+    key: string,
+    value: number | null | undefined
+): Record<string, number | null> => {
+    const { [key]: _discarded, ...rest } = map ?? {}
+    return value == null ? rest : { ...rest, [key]: value }
+}
+
+/**
+ * A response that omits a whole limit map carries no information about it — keep the current one.
+ * A present map is authoritative for the product's key (key absent from it = no limit).
+ */
+const mergeLimitMap = (
+    current: Record<string, number | null> | undefined,
+    key: string,
+    response: Record<string, number | null> | undefined
+): Record<string, number | null> => (response ? withLimit(current, key, response[key]) : (current ?? {}))
+
+/**
+ * Pure per-key merge of a limits PATCH response for one product into billing state.
+ * Merging only the saved product's key keeps concurrent saves for different products
+ * commutative under any response arrival order — a response never overwrites another
+ * product's limit with a stale echo. Responses for the *same* product must be applied
+ * in commit order; the UI guarantees this by disabling a product's editor while its
+ * save is in flight.
+ */
+export function mergeLimitsForProduct(
+    billing: BillingType | null,
+    productType: string,
+    limits: BillingLimits
+): BillingType | null {
+    return (
+        billing && {
+            ...billing,
+            custom_limits_usd: mergeLimitMap(billing.custom_limits_usd, productType, limits.custom_limits_usd),
+            next_period_custom_limits_usd: mergeLimitMap(
+                billing.next_period_custom_limits_usd,
+                productType,
+                limits.next_period_custom_limits_usd
+            ),
+        }
+    )
+}

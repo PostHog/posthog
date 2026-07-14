@@ -96,6 +96,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'platformAddons',
                 'timeRemainingInSeconds',
                 'timeTotalInSeconds',
+                'limitUpdatesInFlight',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -103,8 +104,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         actions: [
             billingLogic,
             [
-                'updateBillingLimits',
-                'updateBillingLimitsSuccess',
+                'updateBillingLimit',
+                'updateBillingLimitSuccess',
+                'removeBillingLimitNextPeriod',
                 'loadBilling',
                 'loadBillingSuccess',
                 'deactivateProduct',
@@ -154,7 +156,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
-        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
         showConfirmUpgradeModal: true,
         hideConfirmUpgradeModal: true,
         confirmProductUpgrade: true,
@@ -353,6 +354,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
                 return usageKeyLimit ? Number(usageKeyLimit) : null
             },
+        ],
+        isLimitUpdateInFlight: [
+            (s, p) => [s.limitUpdatesInFlight, p.product],
+            (limitUpdatesInFlight, product): boolean => !!limitUpdatesInFlight[product.type],
         ],
         visibleAddons: [
             (s, p) => [s.featureFlags, p.product],
@@ -598,8 +603,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
-        updateBillingLimitsSuccess: () => {
-            actions.billingLoaded()
+        updateBillingLimitSuccess: ({ productType }) => {
+            if (productType === props.product.type) {
+                actions.billingLoaded()
+            }
         },
         billingLoaded: () => {
             function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
@@ -771,19 +778,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 await breakpoint(200)
             }
         },
-        removeBillingLimitNextPeriod: async ({ productType }) => {
-            try {
-                await api.update('api/billing', { reset_limit_next_period: productType })
-                lemonToast.success('Billing limit for next period has been removed.')
-            } catch (e) {
-                console.error(e)
-                lemonToast.error(
-                    'There was an error removing your billing limit for next period. Please try again or contact support.'
-                )
-            } finally {
-                actions.loadBilling()
-            }
-        },
     })),
     forms(({ actions, props }) => ({
         billingLimitInput: {
@@ -805,10 +799,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         primaryButton: {
                             status: 'danger',
                             children: 'Yes, I understand',
-                            onClick: () =>
-                                actions.updateBillingLimits({
-                                    [props.product.type]: input,
-                                }),
+                            onClick: () => actions.updateBillingLimit(props.product.type, input),
                         },
                         secondaryButton: {
                             children: 'No, I changed my mind',
@@ -826,10 +817,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         primaryButton: {
                             status: 'danger',
                             children: 'Yes, I understand',
-                            onClick: () =>
-                                actions.updateBillingLimits({
-                                    [props.product.type]: input,
-                                }),
+                            onClick: () => actions.updateBillingLimit(props.product.type, input),
                         },
                         secondaryButton: {
                             children: 'No, I changed my mind',
@@ -837,9 +825,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     })
                     return
                 }
-                actions.updateBillingLimits({
-                    [props.product.type]: input,
-                })
+                actions.updateBillingLimit(props.product.type, input)
             },
             options: {
                 alwaysShowErrors: true,

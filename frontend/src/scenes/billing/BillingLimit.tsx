@@ -14,9 +14,15 @@ import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
-    const { billing, billingLoading } = useValues(billingLogic)
-    const { isEditingBillingLimit, customLimitUsd, hasCustomLimitSet, currentAndUpgradePlans, billingLimitNextPeriod } =
-        useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
+    const { billing } = useValues(billingLogic)
+    const {
+        isEditingBillingLimit,
+        isLimitUpdateInFlight,
+        customLimitUsd,
+        hasCustomLimitSet,
+        currentAndUpgradePlans,
+        billingLimitNextPeriod,
+    } = useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
     const { setIsEditingBillingLimit, setBillingLimitInput, submitBillingLimitInput, removeBillingLimitNextPeriod } =
         useActions(billingProductLogic({ product }))
 
@@ -98,7 +104,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                             data-attr={`billing-limit-input-${product.type}`}
                                             onChange={onChange}
                                             prefix={<b>$</b>}
-                                            disabled={billingLoading}
+                                            disabled={isLimitUpdateInFlight}
                                             min={0}
                                             step={1}
                                             suffix={<>/ {billing?.billing_period?.interval}</>}
@@ -108,7 +114,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 </LemonField>
 
                                 <LemonButton
-                                    loading={billingLoading}
+                                    loading={isLimitUpdateInFlight}
                                     type="primary"
                                     size="small"
                                     htmlType="submit"
@@ -120,7 +126,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     onClick={() => {
                                         setIsEditingBillingLimit(false)
                                     }}
-                                    disabled={billingLoading}
+                                    disabled={isLimitUpdateInFlight}
                                     type="secondary"
                                     size="small"
                                 >
@@ -130,6 +136,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     <LemonButton
                                         status="danger"
                                         size="small"
+                                        disabled={isLimitUpdateInFlight}
                                         data-attr={`remove-billing-limit-${product.type}`}
                                         tooltip="Remove billing limit"
                                         onClick={() => {
@@ -151,6 +158,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             <LemonButton
                                 size="small"
                                 status="danger"
+                                loading={isLimitUpdateInFlight}
                                 onClick={() => removeBillingLimitNextPeriod(product.type)}
                                 data-attr={`remove-billing-limit-next-period-${product.type}`}
                             >
