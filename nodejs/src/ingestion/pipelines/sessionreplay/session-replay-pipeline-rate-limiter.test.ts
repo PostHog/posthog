@@ -48,7 +48,9 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
+import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -61,7 +63,7 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { RedisPool } from '~/types'
 
-import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
+import { createSessionReplayInnerPipeline } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -147,6 +149,7 @@ function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
     return {
         record: jest.fn().mockResolvedValue(undefined),
         getRetention: jest.fn().mockReturnValue(undefined),
+        size: 0,
     } as unknown as jest.Mocked<SessionBatchRecorder>
 }
 
@@ -171,6 +174,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     let sessionFilter: SessionFilter
     let keyStore: jest.Mocked<KeyStore>
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
@@ -211,11 +215,12 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             }),
         } as unknown as RetentionService
 
-        return createSessionReplayPipeline({
+        return createSessionReplayInnerPipeline({
             outputs,
             eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
             overflowMode: 'disabled',
             promiseScheduler: new PromiseScheduler(),
+            offsetManager: mockOffsetManager,
             teamService: {
                 getTeamByToken: jest.fn().mockResolvedValue(team),
                 getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
@@ -256,13 +261,19 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         } as Message
     }
 
+    // Feeds a single message through the inner pipeline with the batch recorder tagged on (as the
+    // accumulating pipeline does) and drains it — the tracker/filter over the shared fake Redis carry
+    // the seen/block state across batches.
     async function runBatch(sessionId: string, offset: number): Promise<void> {
-        await runSessionReplayPipeline(
-            buildPipeline(),
-            [createMessage(sessionId, offset)],
-            mockBatchRecorder,
-            new PromiseScheduler()
-        )
+        const message = createMessage(sessionId, offset)
+        const pipeline = buildPipeline()
+        await pipeline.feed([
+            createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message }),
+        ])
+        let batch = await pipeline.next()
+        while (batch !== null) {
+            batch = await pipeline.next()
+        }
     }
 
     // Assert a one-shot fault armed with failNext() actually fired — guards against a silently-inert fault
@@ -314,6 +325,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
         mockBatchRecorder = createMockBatchRecorder()
+        mockOffsetManager = { trackOffset: jest.fn() } as unknown as jest.Mocked<KafkaOffsetManager>
         outputs = createMockIngestionOutputs()
 
         countedSessions = []

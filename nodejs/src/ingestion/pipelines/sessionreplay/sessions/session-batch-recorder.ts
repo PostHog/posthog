@@ -13,7 +13,6 @@ import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-m
 import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
@@ -341,12 +340,6 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
-
-            // Update metrics
-            SessionBatchMetrics.incrementBatchesFlushed()
-            SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
-            SessionBatchMetrics.incrementEventsFlushed(totalEvents)
-            SessionBatchMetrics.incrementBytesWritten(totalBytes)
 
             // Clear sessions, total size, and rate limiter state after successful flush
             this.sessions = new SessionMap()

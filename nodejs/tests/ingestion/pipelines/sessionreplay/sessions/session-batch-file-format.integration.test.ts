@@ -27,7 +27,6 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
@@ -97,7 +96,6 @@ const enum EventType {
 
 describe('session recording integration', () => {
     let recorder: SessionBatchRecorder
-    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
@@ -134,12 +132,6 @@ describe('session recording integration', () => {
             checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
-        mockOffsetManager = {
-            trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
-            commit: jest.fn(),
-        } as unknown as jest.Mocked<KafkaOffsetManager>
-
         mockMetadataStore = {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
@@ -156,7 +148,6 @@ describe('session recording integration', () => {
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
-            mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
@@ -271,7 +262,6 @@ describe('session recording integration', () => {
 
         // Verify the batch was properly finalized
         expect(mockWriter.finish).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(metadata)
     })
 })

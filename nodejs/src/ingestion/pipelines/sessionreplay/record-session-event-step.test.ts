@@ -52,7 +52,7 @@ describe('createRecordSessionEventStep', () => {
         parsedMessage: createParsedMessage(overrides),
         retentionPeriod: '30d',
         sessionKey: createMockSessionKey(),
-        // The recorder is tagged onto the element by the pipeline's beforeBatch.
+        // The recorder is minted per accumulation cycle and carried on the element by the pipeline.
         sessionBatchRecorder: mockBatchRecorder,
     })
 

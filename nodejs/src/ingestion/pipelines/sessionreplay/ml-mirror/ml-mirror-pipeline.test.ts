@@ -4,14 +4,12 @@ import { Message } from 'node-rdkafka'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
-import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
-import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
+import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -35,19 +33,6 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
 
-// The pipeline's parse+anonymize step runs inside the native addon; scrub-dependent tests need it built.
-let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
-try {
-    rustAddon = require('@posthog/replay-anonymizer')
-    rustAddon!.initAnonymizer(defaultAllowLists().entries())
-} catch (e) {
-    if (process.env.CI) {
-        throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
-    }
-    logger.warn('🙈', 'replay_anonymizer_addon_not_built_skipping_pipeline_scrub_tests')
-}
-const itAddon = rustAddon ? it : it.skip
-
 function createMockTopHog(): TopHogRegistry {
     const recorder = { record: jest.fn() }
     return {
@@ -57,15 +42,27 @@ function createMockTopHog(): TopHogRegistry {
     } as unknown as TopHogRegistry
 }
 
+let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
+try {
+    rustAddon = require('@posthog/replay-anonymizer')
+} catch (e) {
+    if (process.env.CI) {
+        throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
+    }
+}
+// Scrub-content tests need the native anonymizer addon; skip them locally when it isn't built.
+const itAddon = rustAddon ? it : it.skip
+
 describe('ml-mirror-pipeline', () => {
     let recordMock: jest.Mock
-    let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let recorder: jest.Mocked<SessionBatchRecorder>
     let mockTeamService: TeamService
     let topHog: TopHogRegistry
     let promiseScheduler: PromiseScheduler
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
+    const now = DateTime.now()
 
     // Resolves every session to 30d so messages flow through to recording.
     const retentionService = {
@@ -94,7 +91,6 @@ describe('ml-mirror-pipeline', () => {
         isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
     } as unknown as SessionFilter
     const keyStore = createMockKeyStore()
-    const now = DateTime.now()
 
     const team = (aiTrainingOptedIn: boolean): TeamForReplay => ({
         teamId: 1,
@@ -108,9 +104,10 @@ describe('ml-mirror-pipeline', () => {
         outputs = createMockIngestionOutputs()
 
         recordMock = jest.fn().mockResolvedValue(undefined)
-        mockBatchRecorder = {
+        recorder = {
             record: recordMock,
             getRetention: jest.fn().mockReturnValue(undefined),
+            size: 0,
         } as unknown as jest.Mocked<SessionBatchRecorder>
 
         topHog = createMockTopHog()
@@ -134,6 +131,7 @@ describe('ml-mirror-pipeline', () => {
             eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
             overflowMode: 'disabled',
             promiseScheduler,
+            offsetManager: { trackOffset: jest.fn() } as unknown as KafkaOffsetManager,
             teamService: mockTeamService,
             retentionService,
             sessionTracker,
@@ -143,6 +141,22 @@ describe('ml-mirror-pipeline', () => {
             topHog,
             isDebugLoggingEnabled: () => false,
         })
+    }
+
+    // Feeds messages through the inner pipeline with the batch recorder tagged on each element
+    // (as the accumulating pipeline does), then drains it.
+    async function runPipeline(
+        pipeline: ReturnType<typeof createMlMirrorReplayPipeline>,
+        messages: Message[]
+    ): Promise<void> {
+        await pipeline.feed(
+            messages.map((message) =>
+                createOkContext({ message, sessionBatchRecorder: recorder, batchId: 0 }, { message })
+            )
+        )
+        while ((await pipeline.next()) !== null) {
+            // drain
+        }
     }
 
     function message(sessionId: string): Message {
@@ -226,29 +240,18 @@ describe('ml-mirror-pipeline', () => {
         } as unknown as Message
     }
 
-    // The fused step emits pre-serialized JSONL lines of [windowId, event].
-    function recordedEvents(): [string, any][] {
-        const lines: Buffer = recordMock.mock.calls[0][0].message.preSerialized.lines
-        return lines
-            .toString()
-            .split('\n')
-            .filter((l) => l.length > 0)
-            .map((l) => parseJSON(l))
-    }
-
     itAddon('anonymizes events before recording for an opted-in team', async () => {
         mockTeamService = {
             getTeamByToken: jest.fn().mockResolvedValue(team(true)),
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')], mockBatchRecorder, promiseScheduler)
+        await runPipeline(buildPipeline(), [message('sess-1')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
-        const [windowId, event] = recordedEvents()[0]
-        expect(windowId).toBe('window-1')
+        const recorded = recordMock.mock.calls[0][0]
         // The Input event's text was scrubbed before it reached the recorder.
-        expect(event.data.text).toBe('Hello **********')
+        expect(recorded.message.eventsByWindowId['window-1'][0].data.text).toBe('Hello **********')
     })
 
     it('drops sessions for a team that did not opt into AI training', async () => {
@@ -257,7 +260,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')], mockBatchRecorder, promiseScheduler)
+        await runPipeline(buildPipeline(), [message('sess-2')])
 
         expect(recordMock).not.toHaveBeenCalled()
     })
@@ -268,15 +271,10 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(
-            buildPipeline(),
-            [fullSnapshotMessage('sess-3')],
-            mockBatchRecorder,
-            promiseScheduler
-        )
+        await runPipeline(buildPipeline(), [fullSnapshotMessage('sess-3')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
-        const node = recordedEvents()[0][1].data.node.childNodes[0]
+        const node = recordMock.mock.calls[0][0].message.eventsByWindowId['window-1'][0].data.node.childNodes[0]
         expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
         expect(node.attributes.href).toContain('https://example.com/') // authority kept...
         expect(node.attributes.href).not.toContain('abc') // ...path segments redacted

@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -11,7 +10,6 @@ import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines
 import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
@@ -197,7 +195,6 @@ jest.mock('./snappy-session-recorder', () => ({
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
-    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
@@ -229,11 +226,6 @@ describe('SessionBatchRecorder', () => {
             finish: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionBatchFileWriter>
 
-        mockOffsetManager = {
-            trackOffset: jest.fn(),
-            commit: jest.fn(),
-        } as unknown as jest.Mocked<KafkaOffsetManager>
-
         mockMetadataStore = {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
@@ -254,7 +246,6 @@ describe('SessionBatchRecorder', () => {
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
-            mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
@@ -383,8 +374,6 @@ describe('SessionBatchRecorder', () => {
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const lines = parseLines(writtenData[0])
             expect(lines).toEqual([['window1', message.message.eventsByWindowId.window1[0]]])
         })
@@ -414,8 +403,6 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines1 = parseLines(writtenData[0])
             const lines2 = parseLines(writtenData[1])
@@ -447,8 +434,6 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines = parseLines(writtenData[0])
             expect(lines).toEqual([
@@ -464,8 +449,6 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData[0]).toBe('')
             expect(bytesWritten).toBe(0)
@@ -509,8 +492,6 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines1 = parseLines(writtenData[0])
             const lines2 = parseLines(writtenData[1])
@@ -590,8 +571,6 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             const lines1 = parseLines(writtenData[0])
             const lines2 = parseLines(writtenData[1])
@@ -956,12 +935,9 @@ describe('SessionBatchRecorder', () => {
             expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
             expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
-
-            // Should still commit offsets
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(2)
         })
 
-        it('should not increment metrics when no events are flushed', async () => {
+        it('should not write anything when there are no sessions to flush', async () => {
             await recorder.flush()
 
             // Should not create a new batch or write any data
@@ -969,18 +945,9 @@ describe('SessionBatchRecorder', () => {
             expect(mockWriter.finish).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
-
-            // Should still commit offsets
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-
-            // Should not increment any metrics
-            expect(SessionBatchMetrics.incrementBatchesFlushed).not.toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementSessionsFlushed).not.toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementEventsFlushed).not.toHaveBeenCalled()
-            expect(SessionBatchMetrics.incrementBytesWritten).not.toHaveBeenCalled()
         })
 
-        it('should store metadata after s3 write completes, but before offsets are committed', async () => {
+        it('should store metadata after the s3 write completes', async () => {
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -992,35 +959,24 @@ describe('SessionBatchRecorder', () => {
             let finishCalled = false
             let metadataStoreCalled = false
             let consoleLogFlushCalled = false
-            let commitCalled = false
 
             mockWriter.finish.mockImplementation(() => {
                 finishCalled = true
                 expect(metadataStoreCalled).toBe(false)
                 expect(consoleLogFlushCalled).toBe(false)
-                expect(commitCalled).toBe(false)
                 return Promise.resolve()
             })
 
             mockConsoleLogStore.flush.mockImplementation(() => {
                 expect(finishCalled).toBe(true)
                 expect(metadataStoreCalled).toBe(false)
-                expect(commitCalled).toBe(false)
                 consoleLogFlushCalled = true
                 return Promise.resolve()
             })
 
             mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
                 expect(consoleLogFlushCalled).toBe(true)
-                expect(commitCalled).toBe(false)
                 metadataStoreCalled = true
-                return Promise.resolve()
-            })
-
-            mockOffsetManager.commit.mockImplementation(() => {
-                expect(metadataStoreCalled).toBe(true)
-                expect(commitCalled).toBe(false)
-                commitCalled = true
                 return Promise.resolve()
             })
 
@@ -1054,10 +1010,9 @@ describe('SessionBatchRecorder', () => {
                     snapshotLibrary: null,
                 }),
             ])
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
 
-        it('should not commit offsets if metadata storage fails', async () => {
+        it('should throw if metadata storage fails', async () => {
             const error = new Error('Metadata store failed')
             mockMetadataStore.storeSessionBlocks.mockRejectedValueOnce(error)
 
@@ -1075,10 +1030,9 @@ describe('SessionBatchRecorder', () => {
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
-        it('should not commit offsets if console log flush fails', async () => {
+        it('should throw if console log flush fails', async () => {
             const error = new Error('Console log flush failed')
             mockConsoleLogStore.flush.mockRejectedValueOnce(error)
 
@@ -1096,7 +1050,6 @@ describe('SessionBatchRecorder', () => {
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
         it('should store metadata for all sessions in batch', async () => {
@@ -1218,104 +1171,6 @@ describe('SessionBatchRecorder', () => {
             expect(lines2).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe('metrics', () => {
-        it('should increment metrics on flush', async () => {
-            const messages = [
-                createMessage('session1', [
-                    {
-                        type: EventType.FullSnapshot,
-                        timestamp: 1000,
-                        data: { source: 1 },
-                    },
-                    {
-                        type: EventType.IncrementalSnapshot,
-                        timestamp: 2000,
-                        data: { source: 2 },
-                    },
-                ]),
-                createMessage('session2', [
-                    {
-                        type: EventType.Meta,
-                        timestamp: 1500,
-                        data: { href: 'https://example.com' },
-                    },
-                ]),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(2) // Two sessions
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(3) // Three events total
-        })
-
-        it('should not increment metrics when no events are flushed', async () => {
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(0)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(0)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(0)
-        })
-
-        it('should not count sessions again on subsequent flushes', async () => {
-            const messages = [
-                createMessage('session1', [
-                    {
-                        type: EventType.FullSnapshot,
-                        timestamp: 1000,
-                        data: { source: 1 },
-                    },
-                ]),
-                createMessage('session2', [
-                    {
-                        type: EventType.Meta,
-                        timestamp: 1500,
-                        data: { href: 'https://example.com' },
-                    },
-                ]),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(2) // Two sessions
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(2) // Two events
-
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-
-            const message3 = createMessage('session3', [
-                {
-                    type: EventType.Custom,
-                    timestamp: 2000,
-                    data: { custom: 'data' },
-                },
-            ])
-            await record(message3)
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
         })
     })
 
@@ -1368,7 +1223,6 @@ describe('SessionBatchRecorder', () => {
             ])
 
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1547,7 +1401,6 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockWriter.finish).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
         it('should handle writer errors', async () => {
@@ -1561,14 +1414,12 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockWriter.finish).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
     })
 
     describe('rate limiting', () => {
         it('should allow events up to the limit', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1595,7 +1446,6 @@ describe('SessionBatchRecorder', () => {
 
         it('should block events after limit is exceeded', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1625,7 +1475,6 @@ describe('SessionBatchRecorder', () => {
 
         it('should delete session recorders when rate limited', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1648,7 +1497,6 @@ describe('SessionBatchRecorder', () => {
 
         it('should rate limit sessions independently', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1684,7 +1532,6 @@ describe('SessionBatchRecorder', () => {
 
         it('should clear rate limiter state after flush', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1720,7 +1567,6 @@ describe('SessionBatchRecorder', () => {
 
         it('should handle rate limiting with different team IDs', async () => {
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1752,7 +1598,6 @@ describe('SessionBatchRecorder', () => {
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1781,7 +1626,6 @@ describe('SessionBatchRecorder', () => {
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1809,7 +1653,6 @@ describe('SessionBatchRecorder', () => {
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
@@ -1838,7 +1681,6 @@ describe('SessionBatchRecorder', () => {
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
-                mockOffsetManager,
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
