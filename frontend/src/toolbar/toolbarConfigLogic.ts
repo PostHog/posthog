@@ -593,15 +593,14 @@ function initInstrumentation(
     })
 }
 
+// Classify a genuine fetch rejection (non-ok HTTP responses are handled separately
+// and tagged 'http_error' directly).
 function classifyFetchError(error: unknown): string {
     if (error instanceof DOMException && error.name === 'AbortError') {
         return 'timeout'
     }
     if (error instanceof TypeError) {
         return 'network_or_cors'
-    }
-    if (error instanceof Error && error.message.startsWith('HTTP ')) {
-        return 'http_error'
     }
     return 'unknown'
 }
@@ -642,7 +641,10 @@ function verifyUiHostReachability(
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                onCheckFailed('http_error', checkStart, checkBaseProps, uiHostSource, actions, authParams, {
+                    httpStatus: response.status,
+                })
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
@@ -656,21 +658,50 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
-            actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'error',
-                error_type: classifyFetchError(error),
-                duration_ms: Date.now() - checkStart,
-            })
-
-            if (authParams) {
-                actions.openUiHostConfigModal()
-            }
+            onCheckFailed(classifyFetchError(error), checkStart, checkBaseProps, uiHostSource, actions, authParams)
         })
+}
+
+/**
+ * Handle a failed reachability check. The failure is always recorded as the
+ * `toolbar ui host check` analytics event, so we do NOT double-report expected
+ * outcomes to error tracking: a reverse-proxied or misconfigured uiHost that
+ * doesn't serve `/toolbar_oauth/check` returns a 4xx (dominated by 404) or fails
+ * CORS/network/timeout — all expected. Only a 5xx from a host that IS serving the
+ * route points at a real backend regression, so that's the only case we capture as
+ * an exception, tagged with `ui_host_source` and the status so it's diagnosable
+ * rather than lumped into one noisy `HTTP 404` issue.
+ */
+function onCheckFailed(
+    errorType: string,
+    checkStart: number,
+    checkBaseProps: Record<string, unknown>,
+    uiHostSource: string,
+    actions: CheckActions,
+    authParams: { code: string; clientId: string } | null,
+    { httpStatus }: { httpStatus?: number } = {}
+): void {
+    actions.setAuthStatus('error')
+
+    if (errorType === 'http_error' && httpStatus !== undefined && httpStatus >= 500) {
+        captureToolbarException(new Error(`HTTP ${httpStatus}`), 'ui_host_check', {
+            error_type: errorType,
+            http_status: httpStatus,
+            ui_host_source: uiHostSource,
+        })
+    }
+
+    toolbarPosthogJS.capture('toolbar ui host check', {
+        ...checkBaseProps,
+        status: 'error',
+        error_type: errorType,
+        http_status: httpStatus,
+        duration_ms: Date.now() - checkStart,
+    })
+
+    if (authParams) {
+        actions.openUiHostConfigModal()
+    }
 }
 
 /** Exchange an OAuth authorization code for access + refresh tokens. */

@@ -25,15 +25,24 @@ Fired once when the toolbar finishes initialization.
 
 Fired after the CORS reachability check to the PostHog app.
 
-| Property           | Type              | Description                                                          |
-| ------------------ | ----------------- | -------------------------------------------------------------------- |
-| `ui_host`          | `string`          | Host being checked                                                   |
-| `api_host`         | `string`          | API host for reference                                               |
-| `ui_host_source`   | `string`          | How the UI host was resolved                                         |
-| `is_authenticated` | `boolean`         | Auth state at time of check                                          |
-| `status`           | `'ok' \| 'error'` | Check result                                                         |
-| `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
-| `duration_ms`      | `number`          | Time taken for the check                                             |
+| Property           | Type                  | Description                                                          |
+| ------------------ | --------------------- | -------------------------------------------------------------------- |
+| `ui_host`          | `string`              | Host being checked                                                   |
+| `api_host`         | `string`              | API host for reference                                               |
+| `ui_host_source`   | `string`              | How the UI host was resolved                                         |
+| `is_authenticated` | `boolean`             | Auth state at time of check                                          |
+| `status`           | `'ok' \| 'error'`     | Check result                                                         |
+| `error_type`       | `string`              | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
+| `http_status`      | `number \| undefined` | Only on `http_error`: the HTTP status code returned by the host      |
+| `duration_ms`      | `number`              | Time taken for the check                                             |
+
+This analytics event records every reachability outcome, including expected failures
+from reverse-proxied or misconfigured hosts.
+Only an unexpected server error (a 5xx `http_error`) is additionally captured as an
+exception via `captureToolbarException` — tagged with `ui_host_source` and `http_status`
+— so a genuine backend regression is diagnosable.
+Expected client errors (4xx) and network/CORS/timeout failures are intentionally not
+sent to error tracking to avoid double-reporting an outcome already recorded here.
 
 **File:** `toolbarConfigLogic.ts`
 
