@@ -403,6 +403,7 @@ the row lists both.
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | unleash                 | HTTP                        | requests                                                        | ✅                          |
+| upstash                 | HTTP                        | requests                                                        | ✅                          |
 | vantage                 | HTTP                        | requests                                                        | ✅                          |
 | vellum                  | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
@@ -835,7 +836,6 @@ doesn't conflict with concurrent PRs.
 - unleash
 - unstructured
 - uppromote
-- upstash
 - uptick
 - us_census
 - uservoice
