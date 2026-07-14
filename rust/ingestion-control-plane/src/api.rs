@@ -50,6 +50,13 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -94,6 +101,11 @@ async fn create_analysis(
         })?;
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
+    }
+    if !state.jobs.admits_new_job() {
+        return Err(ApiError::too_many_requests(
+            "too many pending analyses; wait for current jobs to finish or cancel one",
+        ));
     }
 
     let job_id = state

@@ -19,6 +19,9 @@ use crate::teams::TeamResolver;
 
 /// Finished jobs kept around for the UI; older ones are evicted on insert.
 const MAX_RETAINED_JOBS: usize = 20;
+/// Running-plus-queued cap; submissions beyond it are rejected up front,
+/// before any Kafka metadata work.
+const MAX_PENDING_JOBS: usize = 8;
 const MAX_JOB_AGE: Duration = Duration::from_secs(3600);
 const TOP_K: usize = 50;
 
@@ -187,6 +190,16 @@ impl JobRegistry {
         let mut views: Vec<JobView> = self.jobs.iter().map(|entry| entry.value().view()).collect();
         views.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         views
+    }
+
+    /// Whether a new submission is admitted right now (running + queued jobs
+    /// below the cap).
+    pub fn admits_new_job(&self) -> bool {
+        self.jobs
+            .iter()
+            .filter(|entry| !entry.value().is_finished())
+            .count()
+            < MAX_PENDING_JOBS
     }
 
     pub fn cancel(&self, id: &Uuid) -> bool {

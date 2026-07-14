@@ -11,6 +11,9 @@ pub const INSPECTOR_GROUP_ID: &str = "ingestion-control-plane-inspector";
 fn base_client_config(config: &Config) -> ClientConfig {
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", &config.kafka_hosts);
+    // Certificate verification is disabled against MSK across the whole
+    // workspace (see common-kafka and ingestion-consumer's kafka_config);
+    // stay consistent with the fleet.
     if config.kafka_tls {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");

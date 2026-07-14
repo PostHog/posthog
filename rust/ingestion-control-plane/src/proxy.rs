@@ -1,18 +1,41 @@
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{header, StatusCode};
 use axum::response::Response;
 
 use crate::api::ApiError;
 use crate::state::AppState;
 
-/// Proxy `GET /api/pods/:name/debug/<rest>` to the pod's debug API. The
-/// upstream body is piped through as a byte stream, which also carries SSE
+/// The wildcard path is interpolated into the upstream URL; dot segments
+/// could otherwise be normalized out of the `/debug/` prefix and reach other
+/// endpoints on the pod.
+fn is_safe_debug_path(rest: &str) -> bool {
+    !rest.is_empty()
+        && !rest.contains('\\')
+        && rest
+            .split('/')
+            .all(|segment| segment != ".." && segment != ".")
+}
+
+fn build_upstream_url(target: &str, rest: &str, query: Option<&str>) -> String {
+    match query {
+        Some(query) => format!("http://{target}/debug/{rest}?{query}"),
+        None => format!("http://{target}/debug/{rest}"),
+    }
+}
+
+/// Proxy `GET /pods/:name/debug/<rest>` to the pod's debug API. The upstream
+/// body is piped through as a byte stream, which also carries SSE
 /// (`/debug/events`) without buffering.
 pub async fn proxy_debug(
     State(state): State<AppState>,
     Path((name, rest)): Path<(String, String)>,
+    RawQuery(query): RawQuery,
 ) -> Result<Response, ApiError> {
+    if !is_safe_debug_path(&rest) {
+        return Err(ApiError::bad_request("invalid debug path"));
+    }
+
     let target = state
         .pods
         .resolve_proxy_target(&state.config, &name)
@@ -20,7 +43,7 @@ pub async fn proxy_debug(
         .map_err(|e| ApiError::unavailable(format!("pod discovery unavailable: {e:#}")))?
         .ok_or_else(|| ApiError::not_found(format!("no matching pod '{name}'")))?;
 
-    let url = format!("http://{target}/debug/{rest}");
+    let url = build_upstream_url(&target, &rest, query.as_deref());
     let upstream =
         state.http.get(&url).send().await.map_err(|e| {
             ApiError::upstream(format!("debug API request to '{name}' failed: {e}"))
@@ -37,4 +60,34 @@ pub async fn proxy_debug(
     builder
         .body(Body::from_stream(upstream.bytes_stream()))
         .map_err(|e| ApiError::upstream(format!("failed to build proxy response: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_dot_segments_and_empty_paths() {
+        assert!(is_safe_debug_path("state"));
+        assert!(is_safe_debug_path("events"));
+        assert!(is_safe_debug_path("some/nested/path"));
+        assert!(!is_safe_debug_path(""));
+        assert!(!is_safe_debug_path(".."));
+        assert!(!is_safe_debug_path("../metrics"));
+        assert!(!is_safe_debug_path("state/../../admin"));
+        assert!(!is_safe_debug_path("./state"));
+        assert!(!is_safe_debug_path("..\\metrics"));
+    }
+
+    #[test]
+    fn forwards_query_string() {
+        assert_eq!(
+            build_upstream_url("10.0.0.7:3301", "events", Some("limit=10")),
+            "http://10.0.0.7:3301/debug/events?limit=10"
+        );
+        assert_eq!(
+            build_upstream_url("10.0.0.7:3301", "state", None),
+            "http://10.0.0.7:3301/debug/state"
+        );
+    }
 }

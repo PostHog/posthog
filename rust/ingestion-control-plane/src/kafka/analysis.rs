@@ -196,20 +196,33 @@ impl Aggregator {
             });
         }
 
-        let sizes = SizeStats {
-            count: self.sizes.len(),
-            min: if self.sizes.is_empty() {
-                0
-            } else {
-                self.sizes.min()
-            },
-            max: self.sizes.max(),
-            mean: self.sizes.mean(),
-            p50: self.sizes.value_at_quantile(0.5),
-            p90: self.sizes.value_at_quantile(0.9),
-            p99: self.sizes.value_at_quantile(0.99),
-            total_bytes: self.total_bytes,
-            histogram,
+        // Zero out stats for an empty analysis (e.g. a committed offset
+        // already at the high watermark) rather than deriving them from an
+        // empty histogram.
+        let sizes = if self.sizes.is_empty() {
+            SizeStats {
+                count: 0,
+                min: 0,
+                max: 0,
+                mean: 0.0,
+                p50: 0,
+                p90: 0,
+                p99: 0,
+                total_bytes: self.total_bytes,
+                histogram,
+            }
+        } else {
+            SizeStats {
+                count: self.sizes.len(),
+                min: self.sizes.min(),
+                max: self.sizes.max(),
+                mean: self.sizes.mean(),
+                p50: self.sizes.value_at_quantile(0.5),
+                p90: self.sizes.value_at_quantile(0.9),
+                p99: self.sizes.value_at_quantile(0.99),
+                total_bytes: self.total_bytes,
+                histogram,
+            }
         };
 
         let tokens_tracked = self.tokens.len() as u64;
@@ -383,6 +396,10 @@ mod tests {
         let result = Aggregator::new().finish(10);
         assert_eq!(result.messages, 0);
         assert_eq!(result.sizes.count, 0);
+        assert_eq!(result.sizes.mean, 0.0);
+        assert_eq!(result.sizes.p99, 0);
         assert!(result.top_tokens.is_empty());
+        // The result must stay JSON-serializable (no NaN from empty stats).
+        assert!(serde_json::to_string(&result).is_ok());
     }
 }
