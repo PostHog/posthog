@@ -53,15 +53,22 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             {
                 loadRemoteConfig: async () => {
                     const endpoint = '/api/users/@me/hedgehog_config'
-                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (mountedToolbarConfigLogic) {
-                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
-                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
-                            return null
+                    try {
+                        const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                        if (mountedToolbarConfigLogic) {
+                            // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                            if (!mountedToolbarConfigLogic.values.isAuthenticated) {
+                                return null
+                            }
+                            return await (await toolbarFetch(endpoint, 'GET')).json()
                         }
-                        return await (await toolbarFetch(endpoint, 'GET')).json()
+                        return await api.get<Partial<HedgehogConfig>>(endpoint)
+                    } catch (e) {
+                        // A failed config load should degrade to defaults, not throw an uncaught
+                        // rejection out of the loader (kea-loaders re-throws otherwise).
+                        console.error('Failed to load hedgehog remote config', e)
+                        return values.remoteConfig
                     }
-                    return await api.get<Partial<HedgehogConfig>>(endpoint)
                 },
 
                 updateRemoteConfig: async ({ config }) => {

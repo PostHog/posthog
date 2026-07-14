@@ -18,17 +18,26 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
 
-// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
-// site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
-// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
-// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
+// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. Two things
+// can otherwise break downstream `.status` access: the browser rejecting the request at the network
+// layer (offline, DNS failure, CORS block, ad-blocker) with a `TypeError: Failed to fetch`, or a
+// site-level `window.fetch` wrapper on the customer page resolving to `undefined`/`null` (or another
+// non-object). Turn both into a synthetic failed response so the toolbar's OAuth chain and its
 // callers can treat it as an ordinary request failure rather than crashing.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const response = await fetch(input, init)
+    // Markers are booleans, not a `detail` string: `toolbarApi` surfaces any `detail`/string field
+    // on an error body as the user-facing toast, so an internal token here would override the
+    // caller's intended message. Keeping them non-string lets that fallback message win.
+    let response: Response
+    try {
+        response = await fetch(input, init)
+    } catch {
+        return new Response(JSON.stringify({ results: [], networkError: true }), { status: 502 })
+    }
     if (response && typeof response === 'object') {
         return response
     }
-    return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+    return new Response(JSON.stringify({ results: [], invalidResponse: true }), { status: 502 })
 }
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
