@@ -56,7 +56,6 @@ class PlatformShSource(ResumableSource[PlatformShSourceConfig, PlatformShResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Platform.sh",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Platform.sh (or Upsun) API token to sync your organizations, projects, environments, and deploy activity into the PostHog Data warehouse.
 
 Create an API token in the Console under **My profile > API tokens** ([Platform.sh](https://docs.platform.sh/administration/cli/api-tokens.html) / [Upsun](https://docs.upsun.com/administration/cli/api-tokens.html)). The token has the same access as your user account, so no extra scopes are needed. Pick the API endpoint matching the product you use — a Platform.sh token does not work against the Upsun API, and vice versa.

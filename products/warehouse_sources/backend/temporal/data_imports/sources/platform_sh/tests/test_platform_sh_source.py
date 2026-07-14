@@ -27,7 +27,6 @@ class TestPlatformShSourceConfig:
         config = PlatformShSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/platform-sh"
 
     def test_token_and_platform_fields(self) -> None:
