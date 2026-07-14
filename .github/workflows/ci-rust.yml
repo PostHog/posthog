@@ -471,10 +471,13 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Spawns a real personhog stack (replica, writer, leaders, leader-mode
-    # router) against dockerized Postgres/Kafka/etcd and asserts that every
+    # routers) against dockerized Postgres/Kafka/etcd and asserts that every
     # write acked by the leader path is visible afterwards — in strong reads
-    # and in Postgres at the acked version — including under chaos (leader
-    # kill + scale-up mid-traffic). Not a required check while it soaks.
+    # and in Postgres at the acked version — including under chaos: leader
+    # kill (lease-revoked and TTL-expiry), scale-up, graceful drain, zombie
+    # (SIGSTOP/SIGCONT), writer crash and lag, same-identity restart,
+    # coordinator failover, and a mid-handoff target kill. Not a required
+    # check while it soaks.
     personhog-gate:
         name: PersonHog e2e gate
         needs: changes
@@ -543,6 +546,11 @@ jobs:
             - name: Build the personhog stack and harness
               run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
 
+            # Unit tests for the harness's own verification logic — a
+            # false-negative verifier would pass gates that lost data.
+            - name: Test the harness verification logic
+              run: cargo test -p personhog-test-harness
+
             - name: Run the e2e gate
               env:
                   RUST_BACKTRACE: 1
@@ -550,13 +558,39 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
 
-            - name: Run the e2e gate under chaos
+            - name: Run the e2e gate under chaos (kill + scale-up)
               env:
                   RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 15s \
                     --kill-after 5s --scale-up-after 8s
+
+            - name: Run the e2e gate under chaos (drain + zombie + writer lag)
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
+                    --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
+            - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
+                    --leader-lease-ttl 5 --kill-after 4s --kill-fast false \
+                    --writer-crash-after 9s --restart-after 12s
+
+            - name: Run the e2e gate under chaos (coordinator failover + mid-handoff kill)
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 
             - name: Dump service logs on failure
               if: failure()
