@@ -101,8 +101,19 @@ class TestDigitalOceanValidateCredentials:
         "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
     )
     def test_maps_status_to_validity(self, mock_session: MagicMock, status_code: int, expected: bool) -> None:
+        # The status code is returned alongside validity so the caller can tell an auth rejection
+        # (401/403) apart from a transient failure (429/5xx) it must not report as an invalid token.
         mock_session.return_value.get.return_value = _make_response(status_code=status_code)
-        assert validate_credentials("dop_v1_token") is expected
+        assert validate_credentials("dop_v1_token") == (expected, status_code)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
+    )
+    def test_transport_error_reports_no_status(self, mock_session: MagicMock) -> None:
+        # A network failure must not surface as "token invalid"; it yields (False, None) so the
+        # caller can distinguish it from a real auth rejection.
+        mock_session.return_value.get.side_effect = ConnectionError("boom")
+        assert validate_credentials("dop_v1_token") == (False, None)
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"

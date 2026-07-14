@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
@@ -22,8 +22,10 @@ class TestDigitalOceanSourceConfig:
     def test_config_exposes_single_password_token_field(self) -> None:
         config = DigitalOceanSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key"]
-        assert config.fields[0].type == SourceFieldInputConfigType.PASSWORD
-        assert config.fields[0].required is True
+        field = config.fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.type == SourceFieldInputConfigType.PASSWORD
+        assert field.required is True
 
     def test_stays_gated_in_alpha(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha until it's validated
@@ -61,19 +63,36 @@ class TestDigitalOceanGetSchemas:
 class TestDigitalOceanValidateCredentials:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials",
-        return_value=True,
+        return_value=(True, 200),
     )
     def test_accepts_valid_token(self, _mock: MagicMock) -> None:
         assert DigitalOceanSource().validate_credentials(_config(), team_id=1) == (True, None)
 
+    @pytest.mark.parametrize("status_code", [401, 403])
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials",
-        return_value=False,
+        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials"
     )
-    def test_rejects_invalid_token(self, _mock: MagicMock) -> None:
+    def test_auth_rejection_says_token_invalid(self, mock_validate: MagicMock, status_code: int) -> None:
+        mock_validate.return_value = (False, status_code)
         valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
         assert not valid
         assert error is not None
+        assert "rejected the API token" in error
+
+    @pytest.mark.parametrize("status_code", [429, 500, 503, None])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source.validate_digitalocean_credentials"
+    )
+    def test_transient_failure_does_not_blame_the_token(
+        self, mock_validate: MagicMock, status_code: int | None
+    ) -> None:
+        # A rate limit, server error, or transport failure is not proof the token is bad; the
+        # message must ask the user to retry rather than tell them to regenerate a good token.
+        mock_validate.return_value = (False, status_code)
+        valid, error = DigitalOceanSource().validate_credentials(_config(), team_id=1)
+        assert not valid
+        assert error is not None
+        assert "rejected the API token" not in error
 
 
 class TestDigitalOceanSourceForPipeline:

@@ -83,13 +83,23 @@ class DigitalOceanSource(SimpleSource[DigitalOceanSourceConfig]):
     def validate_credentials(
         self, config: DigitalOceanSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_digitalocean_credentials(config.api_key):
+        ok, status_code = validate_digitalocean_credentials(config.api_key)
+        if ok:
             return True, None
 
+        if status_code in (401, 403):
+            return (
+                False,
+                "DigitalOcean rejected the API token. Check that the personal access token is correct, has read "
+                "scope, and has not expired.",
+            )
+
+        # A transient response (429, 5xx) or transport error (status_code is None) is not proof the
+        # token is bad, so don't tell the user it is — ask them to retry.
         return (
             False,
-            "DigitalOcean rejected the API token. Check that the personal access token is correct, has read "
-            "scope, and has not expired.",
+            "Couldn't reach DigitalOcean to verify the API token. This is usually temporary — wait a moment and "
+            "try again.",
         )
 
     @property

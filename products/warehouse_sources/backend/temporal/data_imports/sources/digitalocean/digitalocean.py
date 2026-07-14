@@ -65,12 +65,21 @@ def digitalocean_source(api_key: str, endpoint: str, team_id: int, job_id: str) 
     return rest_api_resource(config, team_id, job_id, None)
 
 
-def validate_credentials(api_key: str) -> bool:
-    # `/v2/account` is the cheapest authenticated probe and every token can read it, so it
-    # confirms the token is genuine without depending on any resource-specific scope.
-    response = make_tracked_session().get(
-        f"{DIGITALOCEAN_BASE_URL}/v2/account",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=10,
-    )
-    return response.status_code == 200
+def validate_credentials(api_key: str) -> tuple[bool, int | None]:
+    """Probe `/v2/account` to confirm the token is genuine.
+
+    `/v2/account` is the cheapest authenticated probe and every token can read it, so it
+    confirms the token without depending on any resource-specific scope. Returns
+    ``(ok, status_code)``; ``status_code`` is ``None`` on a transport error. The caller
+    distinguishes an auth rejection (401/403) from a transient failure so it never tells the
+    user their token is invalid when DigitalOcean was merely rate-limited or unavailable.
+    """
+    try:
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/account",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+    except Exception:
+        return False, None
+    return response.status_code == 200, response.status_code
