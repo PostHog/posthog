@@ -344,7 +344,23 @@ fn emit_validation_drop_warnings(
     for (warning, (count, single_event)) in grouped {
         let mut details = warning_context_details(context);
         if let Some((distinct_id, uuid)) = single_event {
-            details.insert("distinctId".to_string(), serde_json::json!(distinct_id));
+            // A public request can submit a `distinct_id` far larger than
+            // CAPTURE_V1_DISTINCT_ID_MAX_SIZE (that oversized value is exactly
+            // what triggers `distinct_id_too_large`), so bound what enters the
+            // warning: a fixed-size prefix keeps it useful for debugging while
+            // the length preserves how large the real value was.
+            let char_count = distinct_id.chars().count();
+            let prefix: String = distinct_id
+                .chars()
+                .take(CAPTURE_V1_DISTINCT_ID_MAX_SIZE)
+                .collect();
+            details.insert("distinctId".to_string(), serde_json::json!(prefix));
+            if char_count > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+                details.insert(
+                    "distinctIdLength".to_string(),
+                    serde_json::json!(char_count),
+                );
+            }
             details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
         }
         emitter.emit(
@@ -3341,6 +3357,45 @@ mod tests {
         assert_eq!(
             emitted[0].extra_details.get("libVersion"),
             Some(&serde_json::json!("1.0.0"))
+        );
+    }
+
+    /// A public request can submit a `distinct_id` far larger than
+    /// CAPTURE_V1_DISTINCT_ID_MAX_SIZE — that's exactly what makes it
+    /// `distinct_id_too_large`. The warning must never copy the raw oversized
+    /// value into `details`: it stores a bounded prefix plus the true length
+    /// instead, so a flood of such requests can't inflate warning payload
+    /// size proportional to attacker-controlled input.
+    #[tokio::test]
+    async fn warnings_oversized_distinct_id_is_truncated_in_details() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let huge_id = "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE * 100);
+        let bad = Event {
+            distinct_id: huge_id.clone(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![bad]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::DistinctIdTooLarge);
+        let stored = emitted[0]
+            .extra_details
+            .get("distinctId")
+            .and_then(|v| v.as_str())
+            .expect("distinctId must be present");
+        assert_eq!(
+            stored.len(),
+            CAPTURE_V1_DISTINCT_ID_MAX_SIZE,
+            "stored distinctId must be bounded regardless of the offending value's size"
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("distinctIdLength"),
+            Some(&serde_json::json!(huge_id.chars().count())),
+            "the true length must still be observable for debugging"
         );
     }
 
