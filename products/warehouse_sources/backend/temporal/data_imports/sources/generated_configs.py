@@ -2046,7 +2046,9 @@ class LangSmithSourceConfig(config.Config):
 
 @config.config
 class LangfuseSourceConfig(config.Config):
-    pass
+    public_key: str
+    secret_key: str
+    host: str | None = None
 
 
 @config.config
