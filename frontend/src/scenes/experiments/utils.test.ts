@@ -566,55 +566,41 @@ describe('checkFeatureFlagEligibility', () => {
         evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
-    it('throws an error for a remote configuration feature flag', () => {
+    const withVariants = (variantKeys: string[]): FeatureFlagType => ({
+        ...baseFeatureFlag,
+        filters: {
+            ...baseFeatureFlag.filters,
+            multivariate: {
+                variants: variantKeys.map((key) => ({ key, rollout_percentage: 100 / variantKeys.length })),
+            },
+        },
+    })
+
+    it('throws an error for a remote configuration feature flag (no variants)', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
         expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must use multiple variants with control as the first variant.'
-        )
-    })
-    it('throws an error for a feature flag without control as the first variant', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: {
-                    variants: [
-                        { key: 'foobar', rollout_percentage: 50 },
-                        { key: 'control', rollout_percentage: 50 },
-                    ],
-                },
-            },
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must have control as the first variant.'
+            'Feature flag must have at least 2 variants (a baseline and at least one test variant).'
         )
     })
     it('throws an error for a feature flag with only one variant', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: { variants: [{ key: 'test', rollout_percentage: 50 }] },
-            },
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must use multiple variants with control as the first variant.'
+        expect(() => featureFlagEligibleForExperiment(withVariants(['test']))).toThrow(
+            'Feature flag must have at least 2 variants (a baseline and at least one test variant).'
+        )
+    })
+    it('throws an error for a feature flag with more than 20 variants', () => {
+        const manyVariants = Array.from({ length: 21 }, (_, i) => `variant-${i}`)
+        expect(() => featureFlagEligibleForExperiment(withVariants(manyVariants))).toThrow(
+            'Feature flag must have at most 20 variants.'
         )
     })
     it('returns true for a feature flag with control and test variants', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            filters: {
-                ...baseFeatureFlag.filters,
-                multivariate: {
-                    variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
-                    ],
-                },
-            },
-        }
-        expect(featureFlagEligibleForExperiment(featureFlag)).toEqual(true)
+        expect(featureFlagEligibleForExperiment(withVariants(['control', 'test']))).toEqual(true)
+    })
+    it('returns true for a feature flag without a control variant', () => {
+        expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'test']))).toEqual(true)
+    })
+    it('returns true for a feature flag with control not as the first variant', () => {
+        expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'control']))).toEqual(true)
     })
 })
 
