@@ -15,6 +15,7 @@ Files: `products/dashboards/backend/widget_specs/` + `widgets/<widget_type>.py`
 - [ ] **`widget_specs/configs.py`** — new `*WidgetConfig` Pydantic model + `*_WIDGET_TYPE` constant; extend shared fields via `common.py` when appropriate
 - [ ] **`widgets/<widget_type>.py`** — `run_<type>_widget` calling `validate_widget_config(TYPE, config)` then the **same** product query runner (no parallel query path); pass `resolve_filter_test_accounts(config, team)` when supported
 - [ ] **`widget_specs/registry.py`** — add one `WidgetSpec` to `_load_widget_specs()` (lazy-import `run_*`): `config_model`, scopes, `group_id`/`group_label`/`label`/`description`, `required_product_access`, `product_access_denied_message`, `availability_requirements`
+- [ ] **Live / self-updating tile?** Set `is_live=True` (+ usually `creation_flag`), return `generatedAt` from the seed query, and keep `dateRange`/`filterTestAccounts` off the config model — full contract in [live-widgets.md](live-widgets.md)
 - [ ] `EXPECTED_WIDGET_TYPES`, OpenAPI polymorphic serializers, and Zod codegen inputs update automatically from `WIDGET_SPECS` + `configs.py` — enforced in `test_run_widgets.py`
 - [ ] Use `DEFAULT_WIDGET_LIST_LIMIT` from `backend/constants.py` unless this type needs a different default
 - [ ] List widgets with `orderDirection`: use `WidgetOrderDirection` literal in Pydantic (`ASC` / `DESC`)
@@ -112,6 +113,7 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 - [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
 - [ ] **Adoption CTA on the "no entities yet" empty state** — when the product has nothing to show yet (no surveys, no experiments), render a primary `LemonButton` (`targetBlank`) to the product's create flow and fire `posthog.capture('dashboard widget create <product> clicked', { widget_type, tile_id })` on click. Measures adoption driven _from_ the widget, distinct from the platform `dashboard widget added` event. See [§ Product-adoption tracking](#product-adoption-tracking).
 - [ ] **List widgets:** follow [list-widget-patterns.md](list-widget-patterns.md) — `hasMore`, footer, tile filter bar, `titleHref`
+- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`liveWidgetStream`, `LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:

@@ -32,6 +32,7 @@ import type {
     WidgetIssueMetadataContext,
     WidgetIssueMetadataDelta,
 } from '../../widgets/error_tracking/applyWidgetIssueMetadataChange'
+import { isLiveDashboardWidgetType } from '../../widgets/live/liveWidgetTypes'
 import {
     getDashboardWidgetDefinition,
     type DashboardWidgetComponentProps,
@@ -229,6 +230,7 @@ function DashboardWidgetItemContent({
                 description={description}
                 showDescription={showDescription}
                 loading={loading}
+                isLive={isLiveDashboardWidgetType(widget.widget_type)}
                 showEditingControls={showEditingControls}
                 isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}

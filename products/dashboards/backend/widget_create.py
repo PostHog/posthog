@@ -8,10 +8,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
+from products.dashboards.backend.feature_flags import dashboard_widgets_enabled, widget_flag_enabled
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access
-from products.dashboards.backend.widget_registry import get_widget_registry_entry, validate_widget_config
+from products.dashboards.backend.widget_registry import validate_widget_config
+from products.dashboards.backend.widget_specs.registry import get_widget_spec
 
 
 def prepare_widget_tile_create(
@@ -25,8 +26,13 @@ def prepare_widget_tile_create(
     if not dashboard_widgets_enabled(team=team, user=user):
         raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
 
-    if get_widget_registry_entry(widget_type) is None:
+    spec = get_widget_spec(widget_type)
+    if spec is None:
         raise serializers.ValidationError({"widget_type": f"Unknown widget type: {widget_type}"})
+
+    # Adds-only kill switch (already-placed tiles keep rendering when the flag is off).
+    if spec.creation_flag and not widget_flag_enabled(spec.creation_flag, team=team, user=user):
+        raise serializers.ValidationError({"widget_type": f"{spec.label} widgets are not enabled for this project."})
 
     if not isinstance(config, dict):
         raise serializers.ValidationError({"config": "Config must be an object."})

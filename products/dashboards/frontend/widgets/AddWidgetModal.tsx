@@ -29,6 +29,7 @@ import {
     getAddWidgetDisabledReason,
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
+import { isLiveDashboardWidgetType } from './live/liveWidgetTypes'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
 export type { AddWidgetPayload }
@@ -65,6 +66,7 @@ function AddWidgetCatalogPicker({
             badge={entry.badge}
             description={entry.description}
             selected={selected}
+            live={isLiveDashboardWidgetType(widgetType)}
             preview={WidgetPreview ? <WidgetPreview /> : <div />}
             onSelect={handleSelect}
         />

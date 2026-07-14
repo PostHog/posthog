@@ -13,6 +13,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
+import { LiveWidgetIndicator } from '../../widgets/live/LiveWidgetIndicator'
 import type { DashboardWidgetSlot } from '../../widgets/registry'
 
 /** Props a widget type's optional TopHeading override receives so it can compose its own
@@ -40,6 +41,8 @@ export type WidgetCardHeaderProps = {
     description?: string
     showDescription?: boolean
     loading?: boolean
+    /** Live (self-updating) widget type — shows a pulsing "Live" marker where the date range would go. */
+    isLive?: boolean
     showEditingControls?: boolean
     /** When true, title is plain text so drag on the header does not compete with navigation. */
     isDashboardEditMode?: boolean
@@ -174,6 +177,7 @@ export function WidgetCardHeader({
     description,
     showDescription = true,
     loading,
+    isLive,
     showEditingControls,
     isDashboardEditMode,
     shouldHideMoreButton,
@@ -188,10 +192,10 @@ export function WidgetCardHeader({
             ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
             : null
     const derivedTopHeading =
-        widgetTypeLabel && (showWidgetType || dateText) ? (
+        widgetTypeLabel && (showWidgetType || dateText || isLive) ? (
             // A widget type can supply its own top heading row (e.g. session replay surfaces the active
             // saved filter name in place of the now-overridden date range); otherwise fall back to the
-            // type + date range.
+            // type + date range (or the live marker — live widgets have no date range).
             TopHeading ? (
                 <Suspense fallback={null}>
                     <TopHeading
@@ -202,7 +206,14 @@ export function WidgetCardHeader({
                     />
                 </Suspense>
             ) : (
-                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText}>
+                    {isLive ? (
+                        <>
+                            {showWidgetType && widgetTypeLabel ? <span>•</span> : null}
+                            <LiveWidgetIndicator />
+                        </>
+                    ) : null}
+                </CardTopHeadingRow>
             )
         ) : null
     const resolvedTopHeading = topHeading !== undefined ? topHeading : derivedTopHeading

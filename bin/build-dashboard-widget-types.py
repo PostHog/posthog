@@ -101,6 +101,13 @@ def main() -> int:
             )
             return 1
 
+        if spec.is_live and "dateRange" in spec.form_fields:
+            print(
+                f"{widget_type}: live widgets show a fixed real-time window; remove dateRange from form_fields",
+                file=sys.stderr,
+            )
+            return 1
+
         config_model_name = spec.config_model.__name__
         config_schema_export = _friendly_config_schema_export(config_model_name)
         form_fields_manifest[widget_type] = {
@@ -108,6 +115,7 @@ def main() -> int:
             "configTypeExport": _friendly_config_type_export(config_model_name),
             "formSchemaExport": config_schema_export.replace("ConfigSchema", "FormSchema"),
             "formFields": list(spec.form_fields),
+            "live": spec.is_live,
         }
 
     FORM_FIELDS_JSON.write_text(json.dumps({"widgets": form_fields_manifest}, indent=2) + "\n", encoding="utf-8")

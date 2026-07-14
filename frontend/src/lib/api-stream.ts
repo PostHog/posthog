@@ -14,6 +14,13 @@ export interface StreamConnection {
     abort: () => void
 }
 
+/**
+ * Long-lived SSE connection over `api.stream` with automatic reconnection.
+ *
+ * On error, reconnects with exponential backoff (1s doubling up to 30s); any successful message
+ * resets the backoff. `abort()` tears down the in-flight request and any pending retry.
+ * Transport-agnostic on the consumer side: callers only see `onMessage(data)` strings.
+ */
 export const createStreamConnection = (config: StreamConnectionConfig): StreamConnection => {
     const { url, token, onMessage, onError } = config
 

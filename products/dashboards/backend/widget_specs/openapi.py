@@ -117,6 +117,12 @@ def _build_openapi_serializers() -> tuple[
                     ),
                 ),
                 "required_product_access": serializers.CharField(required=False, allow_null=True),
+                "live": serializers.BooleanField(
+                    help_text=(
+                        "Whether tiles of this type self-update in real time after load. Live tiles show a "
+                        "fixed real-time window, so their config takes no dateRange."
+                    ),
+                ),
             },
         )
 

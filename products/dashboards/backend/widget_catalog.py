@@ -15,6 +15,7 @@ class WidgetCatalogEntry(TypedDict):
     required_product_access: str | None
     product_access_denied_message: NotRequired[str | None]
     availability_requirements: list[str]
+    live: bool
 
 
 def _build_catalog_entry(widget_type: str) -> WidgetCatalogEntry:
@@ -29,6 +30,7 @@ def _build_catalog_entry(widget_type: str) -> WidgetCatalogEntry:
         "required_product_access": spec.required_product_access,
         "product_access_denied_message": spec.product_access_denied_message,
         "availability_requirements": list(spec.availability_requirements),
+        "live": spec.is_live,
     }
 
 

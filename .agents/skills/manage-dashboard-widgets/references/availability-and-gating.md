@@ -2,6 +2,8 @@
 
 Project setup prerequisites (exception autocapture, session recording ingestion, etc.) — **not** RBAC. Product access (`productAccess`) is separate: it gates who can see widget data via `run_widgets` and locked tiles; availability gates whether the project is configured to produce data.
 
+Also separate: **release feature flags**. An unreleased widget group can be flag-gated out of the picker via `DASHBOARD_WIDGET_GROUP_FEATURE_FLAGS` in `widget_types/catalog.ts`, with the matching backend creation gate declared as **`creation_flag`** on the `WidgetSpec` (resolved generically in `widget_create.py` via `widget_flag_enabled`). That is a rollout kill-switch, not availability: already-placed tiles keep rendering when the flag turns off. The render-time rules below apply to availability only.
+
 ## Product rule: gate at render, never at add
 
 Users **always** pick and add widgets in `AddWidgetModal` — no filtering, disabling, or hiding catalog entries based on availability.
