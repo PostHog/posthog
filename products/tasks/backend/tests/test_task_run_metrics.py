@@ -7,6 +7,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 
+from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -17,6 +18,21 @@ from products.tasks.backend.temporal.process_task.activities.track_workflow_even
 
 def _sample_value(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+class TestCustomImageBuildMetrics:
+    @parameterized.expand(["started", "succeeded", "failed", "scan_rejected"])
+    def test_counter_tracks_lifecycle_outcomes(self, outcome: CustomImageBuildOutcome) -> None:
+        labels: dict[str, str] = {"outcome": outcome}
+        before = _sample_value("posthog_tasks_custom_image_build_total", labels)
+
+        observe_custom_image_build(outcome)
+
+        assert _sample_value("posthog_tasks_custom_image_build_total", labels) == before + 1
+
+    @patch("products.tasks.backend.metrics.CUSTOM_IMAGE_BUILD_TOTAL.labels", side_effect=RuntimeError("boom"))
+    def test_counter_failure_does_not_escape(self, _mock_labels: MagicMock) -> None:
+        observe_custom_image_build("succeeded")
 
 
 class TestTaskRunMetrics(TestCase):

@@ -53,7 +53,11 @@ describe('Hog Executor', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -79,13 +83,34 @@ describe('Hog Executor', () => {
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
     })
 
     afterEach(() => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
+    })
+
+    describe('getSensitiveValues', () => {
+        it('masks the nested secrets of every integration in an integration_multi input', () => {
+            const hogFunction = {
+                inputs_schema: [{ type: 'integration_multi', key: 'channels' }],
+            } as unknown as HogFunctionType
+            const inputs = {
+                channels: [
+                    { $integration_id: 1, access_token_raw: 'fcm-secret-token' },
+                    { $integration_id: 2, signing_key: 'apns-signing-key-secret' },
+                ],
+            }
+
+            const values = executor.getSensitiveValues(hogFunction, inputs)
+
+            // Without integration_multi + array handling these secrets leak into team-visible logs.
+            expect(values).toContain('fcm-secret-token')
+            expect(values).toContain('apns-signing-key-secret')
+        })
     })
 
     describe('general event processing', () => {

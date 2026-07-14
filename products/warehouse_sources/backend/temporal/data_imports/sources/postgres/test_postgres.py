@@ -2884,6 +2884,27 @@ class TestValidateCredentialsErrorMapping:
                 "[Errno -5] No address associated with hostname",
                 "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
             ),
+            # A resolved-but-unroutable host (IPv6-only, or a firewall dropping our IPs) surfaces as
+            # ENETUNREACH/EHOSTUNREACH, which the generic fallback couldn't explain.
+            (
+                'connection failed: connection to server at "2600:1f18::1", port 5432 failed: Network is unreachable',
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
+            ),
+            # libpq can append the "Is the server running..." hint to a routing failure; the more
+            # specific unreachable-host message must still win over that generic entry.
+            (
+                'connection to server at "203.0.113.7", port 5432 failed: No route to host\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
@@ -6465,8 +6486,8 @@ class TestRlsActiveFromConnErrorHandling:
 
     def test_unsupported_statement_timeout_error_is_not_captured(self):
         # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
-        # Materialize, etc.) is an expected shape: degrade to no RLS warnings without flooding
-        # error tracking.
+        # Materialize, Aurora DSQL, etc.) is an expected shape: degrade to no RLS warnings without
+        # flooding error tracking.
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
@@ -6515,21 +6536,6 @@ class TestRlsActiveFromConnErrorHandling:
         conn.broken = False
         setattr(conn, attr, True)
         conn.cursor.side_effect = psycopg.OperationalError("the connection is closed")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
-        ) as capture_mock:
-            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
-        assert result == {}
-        capture_mock.assert_not_called()
-
-    def test_unsupported_statement_timeout_error_is_not_captured(self):
-        # Some Postgres-wire-compatible engines (e.g. Aurora DSQL) reject the `SET LOCAL
-        # statement_timeout` guard this lookup opens with (raising FeatureNotSupported on that first
-        # statement). That's an expected incompatibility, not a bug — degrade quietly instead of
-        # flooding error tracking.
-        conn = self._conn_raising(
-            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
-        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:

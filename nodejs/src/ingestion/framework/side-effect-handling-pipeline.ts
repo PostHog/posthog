@@ -1,4 +1,4 @@
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { sideEffectResultCounter } from './metrics'
 
 export interface PromiseSchedulerInterface {
@@ -16,10 +16,10 @@ export type SideEffectHandlingConfig = {
  * Pipeline that handles side effects by scheduling and optionally awaiting them, then clearing the side effects array
  */
 export class SideEffectHandlingPipeline<TInput, TOutput, CInput, COutput = CInput, R extends string = never>
-    implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
+    implements ChunkPipeline<TInput, TOutput, CInput, COutput, R>
 {
     constructor(
-        private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
+        private subPipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
         private promiseScheduler: PromiseSchedulerInterface,
         private config: SideEffectHandlingConfig = { await: false }
     ) {}
@@ -28,7 +28,7 @@ export class SideEffectHandlingPipeline<TInput, TOutput, CInput, COutput = CInpu
         this.subPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+    async next(): Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> {
         const results = await this.subPipeline.next()
         if (results === null) {
             return null

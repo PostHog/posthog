@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from llm_gateway.auth.service import upstream_auth_header
 from llm_gateway.config import get_settings
 
 if TYPE_CHECKING:
@@ -53,6 +54,20 @@ def is_pro_plan(plan_key: str | None) -> bool:
     if not plan_key:
         return False
     return any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES)
+
+
+def is_usage_based_plan(plan_key: str | None) -> bool:
+    """Whether the plan bills usage-based (vs seat-based subscription).
+
+    Prefix-matched like :func:`is_pro_plan`, but settings-driven so the prefix
+    can be corrected by env var when billing finalizes the plan key. Unknown or
+    missing plans are NOT usage-based, so a flaky plan resolution falls back to
+    the standard seat-based/free limits rather than the usage-based user cost
+    limit.
+    """
+    if not plan_key:
+        return False
+    return any(plan_key.startswith(p) for p in get_settings().usage_based_plan_prefixes)
 
 
 def parse_iso_utc(value: str) -> datetime:
@@ -99,7 +114,11 @@ async def resolve_plan_info(
         return PlanInfo(plan_key=None, seat_created_at=None)
 
     plan_resolver: PlanResolver = request.app.state.plan_resolver
-    auth_header = request.headers.get("Authorization", "")
+    # upstream_auth_header mirrors extract_token's precedence (x-api-key wins).
+    # Forwarding only Authorization would resolve no plan for x-api-key callers,
+    # silently disabling every plan-conditioned control (usage-based cost caps,
+    # the plan-scoped credit-bucket exemption) for a token placement auth accepts.
+    auth_header = upstream_auth_header(request)
     try:
         return await plan_resolver.get_plan(
             user_id=user_id,

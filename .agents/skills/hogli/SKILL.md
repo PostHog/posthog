@@ -14,7 +14,19 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process logging (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all phrocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the phrocs process key (see `bin/mprocs.yaml`).
+Where logs land depends on how the stack was launched:
+
+**Detached (`hogli up -d`)** — phrocs writes files under `.posthog/.generated/logs/` on every boot:
+
+- `phrocs.log` — the daemon's own stdio; the place to look when phrocs died at startup and the phrocs MCP tools are unreachable.
+- `<process>.log` — per-process output (truncated on each start), where `<process>` matches the phrocs process key (see `bin/mprocs.yaml`).
+- `hogli doctor:report` prints the `phrocs.log` path and tails its last lines.
+
+**TUI with `hogli dev:setup --log`, then `hogli start`** — adds a tee wrap per process:
+
+- `/tmp/posthog-<process>.log` — full stdout+stderr; persists in the generated config until `dev:setup` is re-run without `--log`.
+
+When the phrocs MCP is reachable, prefer `mcp__phrocs__get_process_logs` over grepping files.
 
 ## Key references
 
