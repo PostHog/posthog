@@ -790,7 +790,10 @@
             "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
         },
         "AnyDataNode": {
-            "anyOf": [
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -915,6 +918,9 @@
                     "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
+                    "$ref": "#/definitions/MetricsQuery"
+                },
+                {
                     "$ref": "#/definitions/TraceSpansQuery"
                 },
                 {
@@ -992,7 +998,9 @@
                 {
                     "$ref": "#/definitions/MCPToolNeighborsQuery"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "AnyDataWarehouseNode": {
             "anyOf": [
@@ -1030,32 +1038,6 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
-                }
-            ]
-        },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
-        "AnyEntityNode<LifecycleDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
         },
@@ -1212,6 +1194,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogValuesQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/MetricsQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
@@ -9131,6 +9116,99 @@
             ],
             "type": "object"
         },
+        "CachedMetricsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQuerySeries"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedNewExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -12866,6 +12944,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -13216,7 +13298,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/CalendarHeatmapQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -13230,6 +13312,27 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "CalendarHeatmapQuerySeriesNode": {
+            "$ref": "#/definitions/CalendarHeatmapQuerySeriesNodeUnion"
+        },
+        "CalendarHeatmapQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "CalendarHeatmapResponse": {
@@ -14869,6 +14972,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -16659,107 +16766,7 @@
                     "type": "boolean"
                 },
                 "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/EventsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/EventsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/PersonsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/ActorsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebOverviewQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebStatsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebExternalClicksTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebGoalsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebVitalsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionAttributionExplorerQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueExampleEventsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/MarketingAnalyticsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ErrorTrackingQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ExperimentTrendsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/TracesQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/TraceQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/SessionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/EndpointsUsageTableQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AccountsQuery"
-                        }
-                    ],
+                    "$ref": "#/definitions/DataTableNodeSource",
                     "description": "Source of the events"
                 },
                 "tags": {
@@ -16771,6 +16778,117 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataTableNodeSource": {
+            "$ref": "#/definitions/DataTableNodeSourceUnion"
+        },
+        "DataTableNodeSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActorsQuery"
+                },
+                {
+                    "$ref": "#/definitions/GroupsQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebExternalClicksTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebGoalsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebVitalsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionAttributionExplorerQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueExampleEventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
+                },
+                {
+                    "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionQuery"
+                },
+                {
+                    "$ref": "#/definitions/EndpointsUsageTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountsQuery"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "DataTableNodeViewPropsContext": {
@@ -17101,6 +17219,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17130,10 +17249,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -17570,6 +17690,26 @@
                     "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
+                "daysOfWeek": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "enum": [1, 2, 3, 4, 5, 6, 7],
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
+                },
+                "excludeIncompletePeriods": {
+                    "default": false,
+                    "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "type": ["boolean", "null"]
+                },
                 "explicitDate": {
                     "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
@@ -17633,7 +17773,11 @@
             "type": "string"
         },
         "DetectorConfig": {
-            "anyOf": [
+            "description": "Detector configuration types",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/SingleDetectorConfig"
                 },
@@ -17641,7 +17785,8 @@
                     "$ref": "#/definitions/EnsembleDetectorConfig"
                 }
             ],
-            "description": "Detector configuration types"
+            "required": ["type"],
+            "type": "object"
         },
         "DetectorType": {
             "enum": [
@@ -23056,7 +23201,81 @@
                 "TogetherAI",
                 "Vapi",
                 "Vespa",
-                "Writesonic"
+                "Writesonic",
+                "Aiven",
+                "Aviator",
+                "Backblaze",
+                "Baseten",
+                "Browserbase",
+                "Cohere",
+                "DenoDeploy",
+                "DigitalOcean",
+                "E2B",
+                "Fintoc",
+                "Firecrawl",
+                "FireworksAI",
+                "FlyIo",
+                "Groq",
+                "GrowthBook",
+                "Gumloop",
+                "Hatchet",
+                "Helicone",
+                "Heroku",
+                "Hetzner",
+                "HeyGen",
+                "Infisical",
+                "Inngest",
+                "KapaAI",
+                "Kernel",
+                "Koyeb",
+                "LambdaLabs",
+                "LangSmith",
+                "Linode",
+                "LlamaCloud",
+                "Mem0",
+                "Metriport",
+                "Mintlify",
+                "MistralAI",
+                "Mono",
+                "Netlify",
+                "Northflank",
+                "OpenAI",
+                "Pinecone",
+                "PlatformSh",
+                "PromptingCompany",
+                "Qdrant",
+                "Render",
+                "Replicate",
+                "RetellAI",
+                "Roark",
+                "RunPod",
+                "ScaleAI",
+                "Scaleway",
+                "SigNoz",
+                "Sim",
+                "Skyvern",
+                "Slash",
+                "Synthesia",
+                "Telli",
+                "TerraApi",
+                "TriggerDev",
+                "Turso",
+                "TwelveLabs",
+                "Twenty",
+                "Unstructured",
+                "Upstash",
+                "Vellum",
+                "Vultr",
+                "Windmill",
+                "Zep",
+                "Hex",
+                "Singular",
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23340,6 +23559,7 @@
                 "conversations",
                 "toolbar",
                 "visual_review",
+                "code_review",
                 "settings",
                 "health",
                 "inbox",
@@ -23351,6 +23571,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
+                "mcp_analytics",
                 "exports"
             ],
             "type": "string"
@@ -23741,14 +23962,19 @@
             "type": "string"
         },
         "FunnelExclusion": {
-            "anyOf": [
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/FunnelExclusionEventsNode"
                 },
                 {
                     "$ref": "#/definitions/FunnelExclusionActionsNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "FunnelExclusionActionsNode": {
             "additionalProperties": false,
@@ -24454,14 +24680,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -24532,6 +24751,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsQuerySeriesNode": {
+            "$ref": "#/definitions/FunnelsQuerySeriesNodeUnion"
+        },
+        "FunnelsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -25072,7 +25315,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25179,7 +25422,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25324,7 +25567,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
@@ -26632,6 +26875,7 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
+                "apns",
                 "postgresql",
                 "aws-s3",
                 "s3-compatible"
@@ -27181,7 +27425,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
+                        "$ref": "#/definitions/LifecycleQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -27253,6 +27497,27 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "LifecycleQuerySeriesNode": {
+            "$ref": "#/definitions/LifecycleQuerySeriesNodeUnion"
+        },
+        "LifecycleQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "LifecycleToggle": {
@@ -31461,6 +31726,251 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "MetricsAggregation": {
+            "enum": ["sum", "avg", "count", "min", "max", "quantile", "rate", "increase", "histogram_quantile"],
+            "type": "string"
+        },
+        "MetricsAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches.",
+            "properties": {
+                "check_ongoing_interval": {
+                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "MetricsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "MetricsAttributeScope": {
+            "description": "Which attribute map a metric label key lives in; `auto` resolves resource attributes first, then datapoint attributes.",
+            "enum": ["resource", "attribute", "auto"],
+            "type": "string"
+        },
+        "MetricsFilterOp": {
+            "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsOtelType": {
+            "description": "OTel metric type; matches what ingest writes to `metric_type`",
+            "enum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+            "type": "string"
+        },
+        "MetricsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "clauses": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryClause"
+                    },
+                    "type": "array"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Defaults to the last 24 hours when omitted; dashboard date filters override it"
+                },
+                "formula": {
+                    "description": "Arithmetic over clause aliases (e.g. \"a / b\"); when set, only the formula series are returned",
+                    "type": "string"
+                },
+                "interval": {
+                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "MetricsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["clauses", "kind"],
+            "type": "object"
+        },
+        "MetricsQueryClause": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/MetricsAggregation"
+                },
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryFilter"
+                    },
+                    "type": "array"
+                },
+                "groupBy": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryGroupBy"
+                    },
+                    "type": "array"
+                },
+                "metricName": {
+                    "type": "string"
+                },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series."
+                },
+                "name": {
+                    "description": "Alias a formula refers to (e.g. \"a\"); must be unique within the query",
+                    "type": "string"
+                },
+                "quantile": {
+                    "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
+                    "type": "number"
+                }
+            },
+            "required": ["name", "metricName", "aggregation"],
+            "type": "object"
+        },
+        "MetricsQueryFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "op": {
+                    "$ref": "#/definitions/MetricsFilterOp"
+                },
+                "scope": {
+                    "$ref": "#/definitions/MetricsAttributeScope"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "op", "value"],
+            "type": "object"
+        },
+        "MetricsQueryGroupBy": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "scope": {
+                    "$ref": "#/definitions/MetricsAttributeScope"
+                }
+            },
+            "required": ["key"],
+            "type": "object"
+        },
+        "MetricsQueryPoint": {
+            "additionalProperties": false,
+            "properties": {
+                "time": {
+                    "description": "Bucket start, ISO 8601",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["time", "value"],
+            "type": "object"
+        },
+        "MetricsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQuerySeries"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "MetricsQuerySeries": {
+            "additionalProperties": false,
+            "properties": {
+                "clause": {
+                    "description": "Clause alias that produced this series (`formula` for the formula result)",
+                    "type": "string"
+                },
+                "labels": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Label values identifying this series; empty for an ungrouped query",
+                    "type": "object"
+                },
+                "metricName": {
+                    "type": "string"
+                },
+                "points": {
+                    "items": {
+                        "$ref": "#/definitions/MetricsQueryPoint"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["labels", "points"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -31802,6 +32312,7 @@
                 "LogsQuery",
                 "LogAttributesQuery",
                 "LogValuesQuery",
+                "MetricsQuery",
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
@@ -32832,6 +33343,7 @@
                 "experiment analyzed",
                 "feature flag created",
                 "session_replay_set_filters",
+                "session_replay_experiment_link_clicked",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
@@ -32849,6 +33361,10 @@
                 "logs_set_filters",
                 "logs_settings_opened",
                 "metrics_docs_viewed",
+                "metrics_viewer_query_run",
+                "metrics_sql_query_run",
+                "metrics_query_saved",
+                "metrics_first_ingested",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -33006,6 +33522,7 @@
                 "product_analytics",
                 "product_tours",
                 "revenue_analytics",
+                "review_hog",
                 "session_replay",
                 "replay_vision",
                 "site_apps",
@@ -35045,6 +35562,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -36429,6 +36950,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -38826,6 +39351,64 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQuerySeries"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -40656,6 +41239,9 @@
                     "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
+                    "$ref": "#/definitions/MetricsQuery"
+                },
+                {
                     "$ref": "#/definitions/TraceSpansQuery"
                 },
                 {
@@ -40764,6 +41350,11 @@
                     "description": "If the query failed, this will be set to true. More information can be found in the error_message field.",
                     "type": "boolean"
                 },
+                "error_code": {
+                    "default": null,
+                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "type": ["string", "null"]
+                },
                 "error_message": {
                     "default": null,
                     "type": ["string", "null"]
@@ -40811,7 +41402,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message", "error_code"],
             "type": "object"
         },
         "QueryStatusResponse": {
@@ -44068,7 +44659,11 @@
             "type": "string"
         },
         "SingleDetectorConfig": {
-            "anyOf": [
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/ZScoreDetectorConfig"
                 },
@@ -44106,7 +44701,8 @@
                     "$ref": "#/definitions/PCADetectorConfig"
                 }
             ],
-            "description": "A single (leaf) detector config"
+            "required": ["type"],
+            "type": "object"
         },
         "SlackIntegrationScope": {
             "enum": [
@@ -44928,7 +45524,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/StickinessQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -45004,6 +45600,27 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "StickinessQuerySeriesNode": {
+            "$ref": "#/definitions/StickinessQuerySeriesNodeUnion"
+        },
+        "StickinessQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "SubagentUpdateEvent": {
@@ -45770,6 +46387,7 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
+                "mcp_properties",
                 "max_ai_context",
                 "workflow_variables",
                 "suggested_filters",
@@ -47507,14 +48125,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/TrendsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -47601,6 +48212,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TrendsQuerySeriesNode": {
+            "$ref": "#/definitions/TrendsQuerySeriesNodeUnion"
+        },
+        "TrendsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "UsageMetric": {
@@ -49469,6 +50104,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"

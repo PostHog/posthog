@@ -46,6 +46,7 @@ const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
     [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.PythonV2]: 'PythonV2',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
     [NotebookNodeType.HogQLSQL]: 'HogQLSQL',
     [NotebookNodeType.SQLV2]: 'SQLV2',

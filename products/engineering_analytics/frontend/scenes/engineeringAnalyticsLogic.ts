@@ -22,6 +22,7 @@ import {
 import type {
     GitHubSourceApi,
     PullRequestListItemApi,
+    PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
 } from '../generated/api.schemas'
@@ -36,13 +37,16 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
+// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+export const FLAKY_TEST_LIMIT = 200
+
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
 /** 'draft' narrows open PRs; the other values mirror PRState. */
 export type PRStateFilter = PRState | 'draft' | 'all'
 export type CIStatusFilter = CIStatus | 'all'
-export type CardFilter = 'open' | 'failing' | 'stuck'
+export type CardFilter = 'open' | 'failing' | 'stuck' | 'ready' | 'thrash'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
@@ -70,6 +74,8 @@ export interface PullRequestRow {
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
     pushes: number
+    /** Per-push CI rounds oldest first, capped server-side — drives the push-history sparkline. */
+    pushHistory: PushCISampleApi[]
     /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
     /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
@@ -206,6 +212,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         pending: it.ci.pending,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
+        pushHistory: it.push_history ?? [],
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
         billableMinutes: it.billable_minutes ?? null,
@@ -219,6 +226,8 @@ export interface PullRequestFilters {
     ciStatus: CIStatusFilter
     search: string
     stuckOnly: boolean
+    readyOnly: boolean
+    thrashOnly: boolean
 }
 
 export const DEFAULT_FILTERS: PullRequestFilters = {
@@ -228,10 +237,22 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     ciStatus: 'all',
     search: '',
     stuckOnly: false,
+    readyOnly: false,
+    thrashOnly: false,
 }
 
 export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
+}
+
+/** Open, ready-for-review, and green — the "unblocked, could merge" pile. */
+export function isReady(row: PullRequestRow): boolean {
+    return row.state === 'open' && !row.isDraft && ciStatusOf(row) === 'passing'
+}
+
+/** Open and burning re-run cycles — CI thrash worth a look. */
+export function isThrashing(row: PullRequestRow): boolean {
+    return row.state === 'open' && row.rerunCycles > 0
 }
 
 function matchesStateFilter(row: PullRequestRow, state: PRStateFilter): boolean {
@@ -257,6 +278,12 @@ export function filterPullRequests(
             return false
         }
         if (filters.stuckOnly && !isStuck(row, stuckCutoffMs)) {
+            return false
+        }
+        if (filters.readyOnly && !isReady(row)) {
+            return false
+        }
+        if (filters.thrashOnly && !isThrashing(row)) {
             return false
         }
         if (filters.author && row.authorHandle !== filters.author) {
@@ -415,8 +442,6 @@ export interface FlakyTestRow {
     failedCount: number
     /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
     failedPrCount: number
-    /** Distinct branches across the test's flaky-signal spans. */
-    branchCount: number
     /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
     xfailedCount: number
     lastSeenAt: string
@@ -521,7 +546,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'branchHealthParams']],
         })),
 
         actions({
@@ -534,9 +559,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setWorkflowStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
             resetWorkflowFilters: true,
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
+            setReadyOnly: (ready: boolean) => ({ ready }),
+            setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
-            setCostLensEnabled: (enabled: boolean) => ({ enabled }),
             resetFilters: true,
             setQuarantineSearch: (search: string) => ({ search }),
             setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
@@ -585,7 +611,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.dateFrom ?? undefined,
                             date_to: values.dateTo ?? undefined,
-                            branch: values.appliedBranch || undefined,
+                            ...values.branchHealthParams,
                             source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
@@ -656,6 +682,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: async (): Promise<FlakyTestsData> => {
                         const data = await engineeringAnalyticsFlakyTests(projectId(), {
                             date_from: values.flakyTestWindow,
+                            limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
                         })
                         return {
@@ -666,7 +693,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     rerunPassedCount: it.rerun_passed_count,
                                     failedCount: it.failed_count,
                                     failedPrCount: it.failed_pr_count,
-                                    branchCount: it.branch_count,
                                     xfailedCount: it.xfailed_count,
                                     lastSeenAt: it.last_seen_at,
                                 })
@@ -726,6 +752,22 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     setStuckOnly: (_, { stuckOnly }) => stuckOnly,
                     setStateFilter: () => false,
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
+                },
+            ],
+            readyOnly: [
+                DEFAULT_FILTERS.readyOnly,
+                {
+                    setReadyOnly: (_, { ready }) => ready,
+                    setStateFilter: () => false,
+                    resetFilters: () => DEFAULT_FILTERS.readyOnly,
+                },
+            ],
+            thrashOnly: [
+                DEFAULT_FILTERS.thrashOnly,
+                {
+                    setThrashOnly: (_, { thrash }) => thrash,
+                    setStateFilter: () => false,
+                    resetFilters: () => DEFAULT_FILTERS.thrashOnly,
                 },
             ],
             workflowSearch: [
@@ -828,7 +870,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({
@@ -864,24 +905,50 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null),
             ],
             filters: [
-                (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
-                (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
+                (s) => [
+                    s.stateFilter,
+                    s.author,
+                    s.repo,
+                    s.ciStatusFilter,
+                    s.search,
+                    s.stuckOnly,
+                    s.readyOnly,
+                    s.thrashOnly,
+                ],
+                (
+                    stateFilter,
+                    author,
+                    repo,
+                    ciStatus,
+                    search,
+                    stuckOnly,
+                    readyOnly,
+                    thrashOnly
+                ): PullRequestFilters => ({
                     state: stateFilter,
                     author,
                     repo,
                     ciStatus,
                     search,
                     stuckOnly,
+                    readyOnly,
+                    thrashOnly,
                 }),
             ],
             activeCard: [
-                (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
-                (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
+                (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly, s.readyOnly, s.thrashOnly],
+                (stateFilter, ciStatus, stuckOnly, readyOnly, thrashOnly): CardFilter | null => {
                     if (stateFilter !== 'open') {
                         return null
                     }
                     if (stuckOnly) {
                         return 'stuck'
+                    }
+                    if (readyOnly) {
+                        return 'ready'
+                    }
+                    if (thrashOnly) {
+                        return 'thrash'
                     }
                     if (ciStatus === 'failing') {
                         return 'failing'
@@ -897,16 +964,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.filters],
                 (filters): boolean => !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
             ],
-            authorOptions: [
-                (s) => [s.pullRequests],
-                (pullRequests): string[] =>
-                    Array.from(new Set(pullRequests.map((pr) => pr.authorHandle).filter(Boolean))).sort(),
-            ],
-            repoOptions: [
-                (s) => [s.pullRequests],
-                (pullRequests): string[] =>
-                    Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
-            ],
+            // Counted over the loaded list (the "most recent 1000" cap applies), not a separate backend
+            // aggregate like the ci_cards counts — fine while a repo's open backlog fits in that window.
+            readyCount: [(s) => [s.pullRequests], (pullRequests): number => pullRequests.filter(isReady).length],
+            thrashCount: [(s) => [s.pullRequests], (pullRequests): number => pullRequests.filter(isThrashing).length],
             anyLoading: [
                 (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading, s.quarantineLoading],
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading, quarantineLoading): boolean =>
@@ -998,12 +1059,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
                 actions.loadWorkflowHealth()
             },
+            [engineeringAnalyticsFiltersLogic.actionTypes.scopeToPullRequests]: () => {
+                actions.loadWorkflowHealth()
+            },
             applyCardFilter: ({ card }) => {
-                // Clicking the already-active card toggles back to the plain open view.
+                // Clicking the already-active card toggles back to the plain open view. setStateFilter('open')
+                // runs first and clears every lens flag, so the explicit sets below leave exactly one active.
                 const target: CardFilter = values.activeCard === card ? 'open' : card
                 actions.setStateFilter('open')
                 actions.setCiStatusFilter(target === 'failing' ? 'failing' : 'all')
                 actions.setStuckOnly(target === 'stuck')
+                actions.setReadyOnly(target === 'ready')
+                actions.setThrashOnly(target === 'thrash')
             },
             applyQuarantineCard: ({ card }) => {
                 // Toggling a card off clears only the lifecycle/mode lens, leaving search and owner intact.

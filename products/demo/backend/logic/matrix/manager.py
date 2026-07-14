@@ -116,6 +116,9 @@ class MatrixManager:
             self.matrix.simulate()
         master_team = self._prepare_master_team(ensure_blank_slate=True)
         self._save_analytics_data(master_team)
+        # Keep the demo data warehouse source files in sync with the freshly simulated master data,
+        # so every pre-saved project references warehouse tables that match its analytics data.
+        self.matrix.save_demo_data_warehouse_tables(master_team)
 
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
@@ -135,16 +138,27 @@ class MatrixManager:
             source_team = self._prepare_master_team()
         else:
             source_team = team
-        if does_clickhouse_data_need_saving:
+        # Demo data warehouse tables are derived from the in-memory simulation, so they're persisted once
+        # against the source (master) team and then referenced by every pre-saved project. Repeat signups
+        # skip the simulation entirely, so the warehouse files must be produced whenever they're missing —
+        # even on the pre-save path where analytics data is copied rather than resimulated.
+        warehouse_data_needs_saving = self.matrix.demo_data_warehouse_tables_need_saving(source_team.pk)
+        if does_clickhouse_data_need_saving or warehouse_data_needs_saving:
             if self.matrix.is_complete is None:
                 if self.print_steps:
                     print(f"Simulating data...")
                 self.matrix.simulate()
+        if does_clickhouse_data_need_saving:
             self._save_analytics_data(source_team)
+        if warehouse_data_needs_saving:
+            if self.print_steps:
+                print(f"Saving demo data warehouse tables...")
+            self.matrix.save_demo_data_warehouse_tables(source_team)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
+        self.matrix.register_demo_data_warehouse_tables(team, user, source_team.pk)
         if self.print_steps:
             print(f"Inferring taxonomy for data management...")
         event_definition_count, property_definition_count, event_properties_count = infer_taxonomy_for_team(team.pk)

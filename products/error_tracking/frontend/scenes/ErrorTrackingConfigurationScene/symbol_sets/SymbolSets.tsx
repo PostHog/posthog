@@ -21,6 +21,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 
 import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
+import { errorTrackingEditAccessDisabledReason } from 'products/error_tracking/frontend/utils'
 
 import { RESULTS_PER_PAGE, SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
@@ -79,6 +80,7 @@ export function SymbolSets(): JSX.Element {
                                     size="small"
                                     icon={<IconTrash />}
                                     loading={deleteSymbolSetResponseLoading}
+                                    disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
                                     onClick={() =>
                                         LemonDialog.open({
                                             title: 'Delete symbol sets',
@@ -270,6 +272,7 @@ const SymbolSetTable = (): JSX.Element => {
                             size="xsmall"
                             tooltip="Delete symbol set"
                             icon={<IconTrash />}
+                            disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: 'Delete symbol set',

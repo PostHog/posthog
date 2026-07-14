@@ -6,8 +6,8 @@ import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { LoginMethod, SSOProvider } from '~/types'
 

@@ -295,6 +295,33 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
 /**
+ * API for a channel's system-announcement feed — durable "PostHog agent" rows
+ * (context created, CONTEXT.md being built) rendered alongside the channel's task
+ * cards. Read by any team member for a public channel; personal channels are owner-only.
+ * @summary Post a channel feed message
+ */
+export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
+    .object({
+        event: zod
+            .enum(['context_created', 'context_md_building'])
+            .describe('\* `context_created` - context_created\n\* `context_md_building` - context_md_building')
+            .describe(
+                'Lifecycle event key.\n\n\* `context_created` - context_created\n\* `context_md_building` - context_md_building'
+            ),
+        payload: zod
+            .unknown()
+            .optional()
+            .describe('Structured event data, e.g. {\"context_name\": \"mobile\"}. At most 8 KB of JSON.'),
+        created_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements.'
+            ),
+    })
+    .describe("Request body for posting a system announcement into a channel's feed.")
+
+/**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
  * provisions the requester's personal "#me" channel; creation is resolve-or-create
  * by normalized name so clients can map channel-like surfaces onto backend channels.
@@ -354,14 +381,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -486,14 +514,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -618,14 +647,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -920,11 +950,13 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
                 ),
             initial_permission_mode: zod
-                .enum(['auto', 'read-only', 'full-access'])
-                .describe('\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access')
+                .enum(['plan', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                )
                 .optional()
                 .describe(
-                    'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    'Initial permission mode for Codex runtimes.\n\n\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
                 ),
             rtk_enabled: zod
                 .boolean()
@@ -1273,7 +1305,7 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+                "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
             ),
         rtk_enabled: zod
             .boolean()
@@ -1639,6 +1671,20 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreateBodyReasonMax = 500
+
+export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(tasksRunsCancelCreateBodyReasonMax)
+        .nullish()
+        .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+})
+
+/**
  * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to task run
  */
@@ -1839,6 +1885,9 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         task: zod.uuid(),
+        author_kind: zod.string(),
+        event: zod.string(),
+        payload: zod.record(zod.string(), zod.unknown()),
         content: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         author: zod

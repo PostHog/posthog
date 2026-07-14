@@ -187,10 +187,12 @@ rules:
                               |LLMProviderKey
                               |LLMSkill
                               |LLMTraceSummary
+                              |ManagedWarehouseBackfillPartition
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageTemplate
+                              |Metric
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -213,10 +215,15 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationUsage
                               |ReplayScanner
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |ReviewReport
+                              |ReviewReportArtefact
+                              |ReviewSkillConfig
+                              |ReviewUserSettings
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -248,6 +255,7 @@ rules:
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
+                              |TableCertification
                               |Tag
                               |Tagger
                               |Task
@@ -258,6 +266,7 @@ rules:
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
+                              |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -470,10 +479,12 @@ rules:
                         |LLMProviderKey
                         |LLMSkill
                         |LLMTraceSummary
+                        |ManagedWarehouseBackfillPartition
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |Metric
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession
@@ -495,10 +506,15 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationUsage
                         |ReplayScanner
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |ReviewReport
+                        |ReviewReportArtefact
+                        |ReviewSkillConfig
+                        |ReviewUserSettings
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -530,6 +546,7 @@ rules:
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
+                        |TableCertification
                         |Tag
                         |Tagger
                         |Task
@@ -540,6 +557,7 @@ rules:
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
+                        |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
                         |Text
@@ -665,7 +683,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -734,7 +751,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

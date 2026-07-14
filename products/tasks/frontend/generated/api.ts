@@ -10,10 +10,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelDTOApi,
+    ChannelFeedMessageDTOApi,
+    ChannelFeedMessageWriteApi,
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedChannelDTOListApi,
+    PaginatedChannelFeedMessageDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
@@ -41,6 +44,7 @@ import type {
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
+    TaskChannelsFeedListParams,
     TaskChannelsListParams,
     TaskDetailDTOApi,
     TaskMentionsListParams,
@@ -56,6 +60,7 @@ import type {
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
     TaskRunBootstrapCreateRequestApi,
+    TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
@@ -530,6 +535,66 @@ export const taskChannelsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelWriteApi),
+    })
+}
+
+export const getTaskChannelsFeedListUrl = (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsFeedListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/${channelId}/feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/${channelId}/feed/`
+}
+
+/**
+ * A channel's system announcements in chronological order.
+ * @summary List channel feed messages
+ */
+export const taskChannelsFeedList = async (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsFeedListParams,
+    options?: RequestInit
+): Promise<PaginatedChannelFeedMessageDTOListApi> => {
+    return apiMutator<PaginatedChannelFeedMessageDTOListApi>(getTaskChannelsFeedListUrl(projectId, channelId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsFeedCreateUrl = (projectId: string, channelId: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/feed/`
+}
+
+/**
+ * API for a channel's system-announcement feed — durable "PostHog agent" rows
+ * (context created, CONTEXT.md being built) rendered alongside the channel's task
+ * cards. Read by any team member for a public channel; personal channels are owner-only.
+ * @summary Post a channel feed message
+ */
+export const taskChannelsFeedCreate = async (
+    projectId: string,
+    channelId: string,
+    channelFeedMessageWriteApi: ChannelFeedMessageWriteApi,
+    options?: RequestInit
+): Promise<ChannelFeedMessageDTOApi> => {
+    return apiMutator<ChannelFeedMessageDTOApi>(getTaskChannelsFeedCreateUrl(projectId, channelId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelFeedMessageWriteApi),
     })
 }
 
@@ -1078,6 +1143,29 @@ export const tasksRunsArtifactsPresignCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/cancel/`
+}
+
+/**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCancelRequestApi?: TaskRunCancelRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsCancelCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCancelRequestApi),
     })
 }
 
