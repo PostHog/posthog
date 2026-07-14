@@ -23,6 +23,10 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 # Entity list endpoints allow up to 1000 per page.
 ENTITY_PAGE_SIZE = 1000
+# Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
+# cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
+# buckets while still pulling all available history.
+DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
 
 
 class AnthropicRetryableError(Exception):
@@ -210,11 +214,11 @@ def _report_params(
         params["limit"] = config.limit
 
     # `starting_at` is required. On an incremental run start from the watermark (already shifted back
-    # by the pipeline's lookback); otherwise the API applies its own default window.
+    # by the pipeline's lookback); otherwise fall back to the Anthropic launch date to pull all history.
     if should_use_incremental_field and db_incremental_field_last_value:
         params["starting_at"] = _format_rfc3339(db_incremental_field_last_value)
     else:
-        params["starting_at"] = _format_rfc3339(datetime(1970, 1, 1, tzinfo=UTC))
+        params["starting_at"] = _format_rfc3339(DEFAULT_STARTING_AT)
 
     multi_params = {"group_by[]": config.group_by} if config.group_by else {}
     return params, multi_params

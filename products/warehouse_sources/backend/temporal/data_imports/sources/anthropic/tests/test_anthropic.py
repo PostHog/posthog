@@ -106,11 +106,12 @@ class TestReportParams:
         assert params["limit"] == 31
         assert multi == {"group_by[]": config.group_by}
 
-    def test_full_refresh_falls_back_to_epoch(self) -> None:
-        # Without a watermark we must still send the required starting_at; epoch pulls all history.
+    def test_full_refresh_falls_back_to_launch_date(self) -> None:
+        # Without a watermark we must still send the required starting_at; the Anthropic launch date
+        # pulls all available history without requesting decades of empty pre-launch buckets.
         config = anthropic.ANTHROPIC_ENDPOINTS["cost_report"]
         params, _ = _report_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params["starting_at"] == "1970-01-01T00:00:00Z"
+        assert params["starting_at"] == "2023-01-01T00:00:00Z"
 
 
 class TestFlattenUsage:
