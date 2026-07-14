@@ -102,11 +102,11 @@ async fn create_analysis(
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
     }
-    if !state.jobs.admits_new_job() {
+    let Some(slot) = state.jobs.try_reserve_slot() else {
         return Err(ApiError::too_many_requests(
             "too many pending analyses; wait for current jobs to finish or cancel one",
         ));
-    }
+    };
 
     let job_id = state
         .jobs
@@ -115,6 +115,7 @@ async fn create_analysis(
             Arc::clone(&state.teams),
             target,
             request,
+            slot,
         )
         .await
         .map_err(|e| ApiError::upstream(format!("failed to start analysis: {e:#}")))?;

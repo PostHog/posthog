@@ -18,8 +18,12 @@ fn base_client_config(config: &Config) -> ClientConfig {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");
     }
-    if !config.kafka_client_rack.is_empty() {
-        cfg.set("client.rack", &config.kafka_client_rack);
+    if let Some(rack) = config
+        .kafka_client_rack
+        .as_deref()
+        .filter(|r| !r.is_empty())
+    {
+        cfg.set("client.rack", rack);
     }
     cfg
 }

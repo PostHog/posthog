@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -172,6 +172,24 @@ pub struct AnalysisRequest {
 pub struct JobRegistry {
     jobs: DashMap<Uuid, Arc<Job>>,
     concurrency: Arc<Semaphore>,
+    /// Admissions granted but not yet inserted into `jobs` (a submission is
+    /// between `try_reserve_slot` and the insert in `start`). Counted against
+    /// `MAX_PENDING_JOBS` so concurrent submissions can't all pass the cap
+    /// while none has registered its job yet.
+    reserved: Arc<AtomicUsize>,
+}
+
+/// An admitted submission's slot. Held from admission until the job is
+/// registered (or the submission fails), releasing on drop so every exit
+/// path — including a panicking bounds lookup — frees the slot.
+pub struct JobSlot {
+    reserved: Arc<AtomicUsize>,
+}
+
+impl Drop for JobSlot {
+    fn drop(&mut self) {
+        self.reserved.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl JobRegistry {
@@ -179,6 +197,7 @@ impl JobRegistry {
         Self {
             jobs: DashMap::new(),
             concurrency: Arc::new(Semaphore::new(max_concurrent_jobs.max(1))),
+            reserved: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -192,14 +211,26 @@ impl JobRegistry {
         views
     }
 
-    /// Whether a new submission is admitted right now (running + queued jobs
-    /// below the cap).
-    pub fn admits_new_job(&self) -> bool {
-        self.jobs
-            .iter()
-            .filter(|entry| !entry.value().is_finished())
-            .count()
-            < MAX_PENDING_JOBS
+    /// Atomically reserve an admission slot, or `None` when running + queued
+    /// jobs plus in-flight submissions have reached the cap. The reservation
+    /// is CAS-serialized on `reserved`, so concurrent submissions can't all
+    /// pass the cap while none has registered its job yet (the check-then-act
+    /// race the old boolean pre-check had). Pass the slot to
+    /// [`JobRegistry::start`], which holds it until the job is registered.
+    pub fn try_reserve_slot(&self) -> Option<JobSlot> {
+        self.reserved
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |reserved| {
+                let unfinished = self
+                    .jobs
+                    .iter()
+                    .filter(|entry| !entry.value().is_finished())
+                    .count();
+                (unfinished + reserved < MAX_PENDING_JOBS).then_some(reserved + 1)
+            })
+            .ok()?;
+        Some(JobSlot {
+            reserved: Arc::clone(&self.reserved),
+        })
     }
 
     pub fn cancel(&self, id: &Uuid) -> bool {
@@ -237,13 +268,18 @@ impl JobRegistry {
     }
 
     /// Validate the request against fresh watermarks, register the job, and
-    /// spawn its fetch task. Returns the job id immediately.
+    /// spawn its fetch task. Returns the job id immediately. `slot` is the
+    /// admission reserved by [`JobRegistry::try_reserve_slot`]; it is held
+    /// across the watermark lookup and released once the job is registered
+    /// (or on any failure path), so the pending cap counts this submission
+    /// the whole time.
     pub async fn start(
         self: &Arc<Self>,
         config: Arc<Config>,
         teams: Arc<TeamResolver>,
         target: ConsumerTarget,
         request: AnalysisRequest,
+        slot: JobSlot,
     ) -> anyhow::Result<Uuid> {
         let timeout = Duration::from_millis(config.kafka_metadata_timeout_ms);
         let bounds = {
@@ -296,6 +332,9 @@ impl JobRegistry {
         let job_id = job.id;
         self.evict();
         self.jobs.insert(job_id, Arc::clone(&job));
+        // The job is now visible to the cap via `jobs`; release the reservation
+        // only after the insert so the sum never dips below the true count.
+        drop(slot);
 
         let registry = Arc::clone(self);
         tokio::spawn(async move {
@@ -388,6 +427,26 @@ fn resolve_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn admission_slots_are_bounded_and_released_on_drop() {
+        // Regression for the check-then-act race: N concurrent submissions all
+        // passed a boolean cap check before any registered its job. Reserving
+        // must count in-flight submissions, and a dropped slot (failed
+        // submission) must free capacity.
+        let registry = JobRegistry::new(1);
+        let slots: Vec<JobSlot> = std::iter::from_fn(|| registry.try_reserve_slot())
+            .take(MAX_PENDING_JOBS + 1)
+            .collect();
+        assert_eq!(slots.len(), MAX_PENDING_JOBS, "cap must bind before insert");
+        assert!(registry.try_reserve_slot().is_none());
+
+        drop(slots);
+        assert!(
+            registry.try_reserve_slot().is_some(),
+            "released slots must re-admit"
+        );
+    }
 
     fn bounds(low: i64, high: i64, committed: Option<i64>) -> PartitionBounds {
         PartitionBounds {

@@ -19,19 +19,24 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config) -> anyhow::Result<Self> {
-        let pool = if config.database_url.is_empty() {
-            tracing::info!("DATABASE_URL not set; token -> team resolution disabled");
-            None
-        } else {
-            let pool_config = PoolConfig {
-                max_connections: config.pg_max_connections,
-                pool_name: Some("ingestion-control-plane".to_string()),
-                ..PoolConfig::default()
-            };
-            Some(common_database::get_pool_with_config(
-                &config.database_url,
-                pool_config,
-            )?)
+        // Treat set-but-empty like unset so a templated empty env var can't
+        // half-enable resolution with an unusable URL.
+        let pool = match config.database_url.as_deref().filter(|url| !url.is_empty()) {
+            None => {
+                tracing::info!("DATABASE_URL not set; token -> team resolution disabled");
+                None
+            }
+            Some(database_url) => {
+                let pool_config = PoolConfig {
+                    max_connections: config.pg_max_connections,
+                    pool_name: Some("ingestion-control-plane".to_string()),
+                    ..PoolConfig::default()
+                };
+                Some(common_database::get_pool_with_config(
+                    database_url,
+                    pool_config,
+                )?)
+            }
         };
 
         // No overall request timeout: the debug proxy pipes long-lived SSE
