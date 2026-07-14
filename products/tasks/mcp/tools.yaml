@@ -77,6 +77,9 @@ tools:
             member takes ownership and re-validates repositories and connectors against that member's own access.
             Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.
         feature_flag: tasks
+    loops-preview-create:
+        operation: loops_preview_create
+        enabled: false
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -107,6 +110,12 @@ tools:
             current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as
             trigger-fired runs.
         feature_flag: tasks
+    loops-runs-retrieve:
+        operation: loops_runs_retrieve
+        enabled: false
+    loops-trigger-create:
+        operation: loops_trigger_create
+        enabled: false
     sandbox-create:
         operation: sandbox_create
         enabled: false
