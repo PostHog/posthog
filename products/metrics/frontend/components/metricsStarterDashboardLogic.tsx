@@ -113,7 +113,11 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                     actions.createDashboardFailure('Pick a dashboard name and at least one metric')
                     return
                 }
-                dashboard = await api.create<DashboardType>(`api/environments/${values.currentTeamId}/dashboards/`, {
+                // The core dashboards create endpoint has no generated client yet
+                // (only its sharing sub-resources are in the codegen surface), so this
+                // stays a manual call until the Dashboard viewset is tagged.
+                // nosemgrep: prefer-codegen-api
+                dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
                 })
                 for (const metricName of selectedMetrics) {
