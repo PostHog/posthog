@@ -11,7 +11,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.templates.discord.template_discord import template as template_discord
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -736,7 +735,6 @@ class TestLogsAlertAPI(APIBaseTest):
         # Destination creation goes through the full HogFunctionSerializer pipeline,
         # which looks up a HogFunctionTemplate by template_id.
         sync_template_to_db(template_slack)
-        sync_template_to_db(template_discord)
         sync_template_to_db(template_microsoft_teams)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
@@ -855,40 +853,12 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
-    def test_create_discord_destination_creates_one_hog_function_per_event_kind(self) -> None:
-        self._sync_destination_templates()
-        created = self._create_via_api()
-        discord_url = "https://discord.com/api/webhooks/123/token"
-        response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "discord", "webhook_url": discord_url},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        ids = response.json()["hog_function_ids"]
-        assert len(ids) == 4
-
-        hog_functions = HogFunction.objects.filter(id__in=ids)
-        for hog_function in hog_functions:
-            assert hog_function.template_id == "template-discord"
-            inputs = hog_function.inputs or {}
-            assert inputs["webhookUrl"]["value"] == discord_url
-            assert "[View logs](" in inputs["content"]["value"] or "[View alert](" in inputs["content"]["value"]
-
-        alert_response = self.client.get(f"{self.base_url}{created['id']}/")
-        assert alert_response.status_code == status.HTTP_200_OK
-        assert alert_response.json()["destination_types"] == ["discord"]
-
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
             ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
             ("webhook_missing_url", {"type": "webhook"}),
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
-            ("discord_missing_url", {"type": "discord"}),
-            ("discord_invalid_url", {"type": "discord", "webhook_url": "not-a-url"}),
-            ("discord_non_discord_url", {"type": "discord", "webhook_url": "https://example.com/hook"}),
             ("teams_missing_url", {"type": "teams"}),
             ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
         ]

@@ -374,7 +374,6 @@ export interface LogsAlertStateIntervalApi {
 
 /**
  * * `slack` - slack
- * * `discord` - discord
  * * `webhook` - webhook
  * * `teams` - teams
  */
@@ -383,7 +382,6 @@ export type NotificationDestinationTypeEnumApi =
 
 export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
-    Discord: 'discord',
     Webhook: 'webhook',
     Teams: 'teams',
 } as const
@@ -652,7 +650,6 @@ export interface LogsAlertCreateDestinationApi {
     /** Notification destination type.
      *
      * * `slack` - slack
-     * * `discord` - discord
      * * `webhook` - webhook
      * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
@@ -662,7 +659,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to post to. Required for discord, webhook, and teams. Discord URLs must match https://discord.com/api/webhooks/{id}/{token}. */
+    /** HTTPS endpoint to post to. Required for webhook and teams. */
     webhook_url?: string
 }
 

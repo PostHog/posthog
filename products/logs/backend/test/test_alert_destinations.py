@@ -22,31 +22,6 @@ from products.logs.backend.alert_destinations import (
 class TestDestinationValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("lookalike_host", "https://discord.com.example.com/api/webhooks/123/token"),
-            ("http_scheme", "http://discord.com/api/webhooks/123/token"),
-            ("explicit_port", "https://discord.com:443/api/webhooks/123/token"),
-            ("missing_id", "https://discord.com/api/webhooks//token"),
-            ("missing_token", "https://discord.com/api/webhooks/123"),
-            ("extra_path", "https://discord.com/api/webhooks/123/token/extra"),
-            ("query_string", "https://discord.com/api/webhooks/123/token?wait=true"),
-        ]
-    )
-    def test_rejects_invalid_discord_webhook_urls(self, _name: str, webhook_url: str) -> None:
-        with self.assertRaises(AlertDestinationValidationError) as error:
-            validate_destination_data({"type": DestinationType.DISCORD, "webhook_url": webhook_url})
-
-        assert error.exception.field == "webhook_url"
-        assert error.exception.message == (
-            "Enter a Discord webhook URL in the format https://discord.com/api/webhooks/{id}/{token}."
-        )
-
-    def test_accepts_discord_webhook_url_with_required_components(self) -> None:
-        validate_destination_data(
-            {"type": DestinationType.DISCORD, "webhook_url": "https://discord.com/api/webhooks/123/token"}
-        )
-
-    @parameterized.expand(
-        [
             (
                 "multiple_slack_fields",
                 {"type": DestinationType.SLACK},
@@ -54,10 +29,10 @@ class TestDestinationValidation(SimpleTestCase):
                 "Slack destinations require slack_workspace_id and slack_channel_id.",
             ),
             (
-                "discord_webhook_url",
-                {"type": DestinationType.DISCORD},
+                "teams_webhook_url",
+                {"type": DestinationType.TEAMS},
                 "webhook_url",
-                "webhook_url is required for Discord destinations.",
+                "webhook_url is required for Microsoft Teams destinations.",
             ),
         ]
     )
@@ -82,8 +57,7 @@ class TestDestinationValidation(SimpleTestCase):
 
         assert error.exception.field == "type"
         assert error.exception.message == (
-            "Choose a supported destination type: Slack (slack), Discord (discord), Webhook (webhook), "
-            "Microsoft Teams (teams)."
+            "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams)."
         )
 
 

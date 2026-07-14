@@ -41,6 +41,7 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCou
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
+    LOGS_DESTINATION_TYPES,
     AlertDestinationData,
     AlertDestinationValidationError,
     build_destination_config,
@@ -351,7 +352,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         return intervals
 
-    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
         team_id = obj.team_id
@@ -359,7 +360,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             HogFunction.objects.filter(
                 team_id=team_id,
                 deleted=False,
-                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+                template_id__in=(
+                    DESTINATION_TEMPLATE_IDS[destination_type] for destination_type in LOGS_DESTINATION_TYPES
+                ),
                 filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
             )
             .values_list("template_id", flat=True)
@@ -367,8 +370,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         return sorted(
             destination_type.value
-            for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
-            if template_id in configured_template_ids
+            for destination_type in LOGS_DESTINATION_TYPES
+            if DESTINATION_TEMPLATE_IDS[destination_type] in configured_template_ids
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -670,7 +673,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Notification destination type.")
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -680,10 +683,7 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     )
     webhook_url = serializers.URLField(
         required=False,
-        help_text=(
-            "HTTPS endpoint to post to. Required for discord, webhook, and teams. "
-            "Discord URLs must match https://discord.com/api/webhooks/{id}/{token}."
-        ),
+        help_text="HTTPS endpoint to post to. Required for webhook and teams.",
     )
 
     def validate(self, attrs: dict) -> dict:

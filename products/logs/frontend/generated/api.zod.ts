@@ -296,23 +296,16 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'discord', 'webhook', 'teams'])
-        .describe('\* `slack` - slack\n\* `discord` - discord\n\* `webhook` - webhook\n\* `teams` - teams')
-        .describe(
-            'Notification destination type.\n\n\* `slack` - slack\n\* `discord` - discord\n\* `webhook` - webhook\n\* `teams` - teams'
-        ),
+        .enum(['slack', 'webhook', 'teams'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod
-        .url()
-        .optional()
-        .describe(
-            'HTTPS endpoint to post to. Required for discord, webhook, and teams. Discord URLs must match https:\/\/discord.com\/api\/webhooks\/{id}\/{token}.'
-        ),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook and teams.'),
 })
 
 /**

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Literal, NotRequired, TypedDict
-from urllib.parse import urlsplit
 
 from products.alerts.backend.destination_configs import (
     DESTINATION_TEMPLATE_IDS,
@@ -18,6 +17,7 @@ from products.alerts.backend.destination_configs import (
 from products.logs.backend.models import LogsAlertConfiguration
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
+LOGS_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
 
 
 class AlertDestinationData(TypedDict):
@@ -36,10 +36,6 @@ class AlertDestinationValidationError(Exception):
 
 
 _PRODUCT_LABEL = "logs alert"
-_DISCORD_WEBHOOK_URL_MESSAGE = (
-    "Enter a Discord webhook URL in the format https://discord.com/api/webhooks/{id}/{token}."
-)
-
 _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_id": "{event.properties.alert_id}",
     "alert_name": "{event.properties.alert_name}",
@@ -173,37 +169,9 @@ _SLACK_CONTEXT_ELEMENTS = (
 )
 
 
-def _validate_discord_destination(data: AlertDestinationData) -> None:
-    webhook_url = data["webhook_url"]
-    try:
-        parsed_url = urlsplit(webhook_url)
-    except ValueError as error:
-        raise AlertDestinationValidationError(
-            _DISCORD_WEBHOOK_URL_MESSAGE,
-            field="webhook_url",
-        ) from error
-
-    path_parts = parsed_url.path.split("/")
-    if (
-        parsed_url.scheme != "https"
-        or parsed_url.netloc != "discord.com"
-        or len(path_parts) != 5
-        or path_parts[:3] != ["", "api", "webhooks"]
-        or not path_parts[3]
-        or not path_parts[4]
-        or parsed_url.query
-        or parsed_url.fragment
-    ):
-        raise AlertDestinationValidationError(
-            _DISCORD_WEBHOOK_URL_MESSAGE,
-            field="webhook_url",
-        )
-
-
 REQUIRED_DESTINATION_FIELDS: dict[DestinationType, tuple[str, ...]] = {
     DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
     DestinationType.WEBHOOK: ("webhook_url",),
-    DestinationType.DISCORD: ("webhook_url",),
     DestinationType.TEAMS: ("webhook_url",),
 }
 
@@ -213,10 +181,14 @@ def validate_destination_data(data: AlertDestinationData) -> None:
     try:
         destination_type = DestinationType(raw_destination_type)
     except (TypeError, ValueError) as error:
-        choices = ", ".join(f"{choice.label} ({choice.value})" for choice in DestinationType)
+        choices = ", ".join(f"{choice.label} ({choice.value})" for choice in LOGS_DESTINATION_TYPES)
         raise AlertDestinationValidationError(
             f"Choose a supported destination type: {choices}.", field="type"
         ) from error
+
+    if destination_type not in LOGS_DESTINATION_TYPES:
+        choices = ", ".join(f"{choice.label} ({choice.value})" for choice in LOGS_DESTINATION_TYPES)
+        raise AlertDestinationValidationError(f"Choose a supported destination type: {choices}.", field="type")
 
     missing_fields = tuple(field for field in REQUIRED_DESTINATION_FIELDS[destination_type] if not data.get(field))
     if len(missing_fields) == 1:
@@ -227,8 +199,6 @@ def validate_destination_data(data: AlertDestinationData) -> None:
     if missing_fields:
         formatted_fields = " and ".join(missing_fields)
         raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
-    if destination_type == DestinationType.DISCORD:
-        _validate_discord_destination(data)
 
 
 def build_destination_config(
@@ -255,13 +225,6 @@ def build_destination_config(
             "body": {"value": spec.webhook_body},
             "url": {"value": data["webhook_url"]},
             "headers": {"value": WEBHOOK_HEADERS},
-        }
-    elif data["type"] == DestinationType.DISCORD:
-        name = f"Logs alert — {alert.name} ({spec.display_kind}) → Discord"
-        template_id = DESTINATION_TEMPLATE_IDS[DestinationType.DISCORD]
-        inputs = {
-            "webhookUrl": {"value": data["webhook_url"]},
-            "content": {"value": teams_text(spec)},
         }
     else:
         name = f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams"
