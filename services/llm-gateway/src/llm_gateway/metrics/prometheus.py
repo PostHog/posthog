@@ -243,6 +243,12 @@ BEDROCK_FALLBACK_FAILURE = Counter(
     labelnames=["model", "product"],
 )
 
+BEDROCK_PRIMARY_FALLBACK_TRIGGERED = Counter(
+    "llm_gateway_bedrock_primary_fallback_triggered_total",
+    "Times a bedrock-primary model fell back to first-party Anthropic after a Bedrock failure",
+    labelnames=["model", "product"],
+)
+
 BEDROCK_PARAM_STRIPPED = Counter(
     "llm_gateway_bedrock_param_stripped_total",
     "Top-level request params dropped before sending to Bedrock because they aren't in the "

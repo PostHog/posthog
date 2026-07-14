@@ -82,6 +82,13 @@ BEDROCK_CONFIG = ProviderConfig(
     endpoint_name="bedrock_messages",
     extract_effort=effort_from_output_config,
 )
+# Same provider label as BEDROCK_CONFIG so provider-level dashboards aggregate both transports;
+# split endpoint label so a mantle-specific regression is distinguishable in metrics.
+BEDROCK_MANTLE_CONFIG = ProviderConfig(
+    name="bedrock",
+    endpoint_name="bedrock_mantle_messages",
+    extract_effort=effort_from_output_config,
+)
 OPENAI_CONFIG = ProviderConfig(
     name="openai",
     endpoint_name="chat_completions",

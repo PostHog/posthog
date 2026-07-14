@@ -354,13 +354,26 @@ def _strip_regional_inference_prefix(model: str) -> str:
     return model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
 
 
+def get_bedrock_mantle_url(region_name: str, path: str) -> str:
+    return f"https://bedrock-mantle.{region_name}.api.aws{path}"
+
+
 def get_bedrock_mantle_count_tokens_url(region_name: str) -> str:
-    return f"https://bedrock-mantle.{region_name}.api.aws/anthropic/v1/messages/count_tokens"
+    return get_bedrock_mantle_url(region_name, "/anthropic/v1/messages/count_tokens")
 
 
-def _sign_bedrock_mantle_request(url: str, body: bytes, region_name: str) -> dict[str, str]:
+def _sign_bedrock_mantle_request(
+    url: str,
+    body: bytes,
+    region_name: str,
+    *,
+    extra_headers: dict[str, str] | None = None,
+) -> dict[str, str]:
     """SigV4-sign a bedrock-mantle request using the ambient AWS credentials (same IAM role
-    the bedrock-runtime client uses). The AWS SDKs don't expose a client for this endpoint."""
+    the bedrock-runtime client uses). The AWS SDKs don't expose a client for this endpoint.
+
+    extra_headers are merged before signing so they are part of the signature (e.g. the
+    mantle project header, anthropic-beta)."""
     credentials = get_bedrock_session().get_credentials()
     if credentials is None:
         raise HTTPException(
@@ -375,6 +388,7 @@ def _sign_bedrock_mantle_request(url: str, body: bytes, region_name: str) -> dic
         headers={
             "Content-Type": "application/json",
             "anthropic-version": BEDROCK_MANTLE_ANTHROPIC_VERSION,
+            **(extra_headers or {}),
         },
     )
     SigV4Auth(credentials.get_frozen_credentials(), BEDROCK_MANTLE_SIGV4_SERVICE, region_name).add_auth(request)

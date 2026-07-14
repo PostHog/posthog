@@ -873,6 +873,180 @@ class TestModelMapping:
         assert "Invalid product" in response.json()["detail"]
 
 
+def _mantle_settings(**overrides: Any) -> MagicMock:
+    settings = MagicMock()
+    settings.bedrock_region_name = "us-east-1"
+    settings.request_timeout = 300.0
+    settings.streaming_timeout = 300.0
+    settings.bedrock_mantle_project_id = "proj_test123"
+    settings.bedrock_mantle_models = ["claude-fable-5"]
+    settings.bedrock_primary_models = []
+    for key, value in overrides.items():
+        setattr(settings, key, value)
+    return settings
+
+
+class TestBedrockMantleRouting:
+    """Routing of provider_data_share-gated models to the mantle transport."""
+
+    @pytest.fixture
+    def mantle_response(self) -> dict[str, Any]:
+        return {
+            "id": "msg_mantle",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello!"}],
+            "model": "claude-fable-5",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            pytest.param("claude-fable-5", id="short_name"),
+            pytest.param("us.anthropic.claude-fable-5", id="cris_id"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @patch("llm_gateway.api.anthropic.BedrockMantleMessages")
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_bedrock_provider_header_routes_mantle_model_to_mantle(
+        self,
+        mock_get_settings: MagicMock,
+        mock_mantle_cls: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+        mantle_response: dict[str, Any],
+        model: str,
+    ) -> None:
+        mock_get_settings.return_value = _mantle_settings()
+        mock_mantle_cls.return_value.acreate = AsyncMock(return_value=mantle_response)
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["id"] == "msg_mantle"
+        # fable never touches bedrock-runtime — it 400s there on the data-retention gate.
+        mock_litellm.assert_not_called()
+        assert mock_mantle_cls.call_args.kwargs["project_id"] == "proj_test123"
+        assert mock_mantle_cls.call_args.kwargs["attribution_model"] == "claude-fable-5"
+        acreate_kwargs = mock_mantle_cls.return_value.acreate.await_args.kwargs
+        assert acreate_kwargs["model"] == "anthropic.claude-fable-5"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @patch("llm_gateway.api.anthropic.BedrockMantleMessages")
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_mantle_model_without_project_returns_configuration_error(
+        self,
+        mock_get_settings: MagicMock,
+        mock_mantle_cls: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        mock_get_settings.return_value = _mantle_settings(bedrock_mantle_project_id=None)
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
+        )
+
+        # A loud 503, not a silent fall-through to bedrock-runtime's guaranteed retention 400.
+        assert response.status_code == 503
+        assert "Mantle project not configured" in response.json()["error"]["message"]
+        mock_mantle_cls.assert_not_called()
+        mock_litellm.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "mantle_status,expect_fallback,expected_status",
+        [
+            pytest.param(503, True, 200, id="provider_5xx_falls_back_to_anthropic"),
+            pytest.param(400, False, 400, id="caller_4xx_raised_without_fallback"),
+        ],
+    )
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @patch("llm_gateway.api.anthropic.BedrockMantleMessages")
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_bedrock_primary_model_falls_back_to_anthropic_on_provider_failure(
+        self,
+        mock_get_settings: MagicMock,
+        mock_mantle_cls: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+        mantle_response: dict[str, Any],
+        mantle_status: int,
+        expect_fallback: bool,
+        expected_status: int,
+    ) -> None:
+        from llm_gateway.bedrock_mantle import MantleAPIError
+        from llm_gateway.metrics.prometheus import BEDROCK_PRIMARY_FALLBACK_TRIGGERED
+
+        mock_get_settings.return_value = _mantle_settings(bedrock_primary_models=["claude-fable-5"])
+        mock_mantle_cls.return_value.acreate = AsyncMock(
+            side_effect=MantleAPIError(
+                mantle_status,
+                json.dumps({"error": {"message": "mantle upstream error", "type": "api_error"}}),
+            )
+        )
+        mock_1p_response = MagicMock()
+        mock_1p_response.model_dump = MagicMock(return_value=mantle_response)
+        mock_litellm.return_value = mock_1p_response
+
+        fallbacks_before = BEDROCK_PRIMARY_FALLBACK_TRIGGERED.labels(
+            model="claude-fable-5", product="llm_gateway"
+        )._value.get()
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == expected_status
+        fallbacks_after = BEDROCK_PRIMARY_FALLBACK_TRIGGERED.labels(
+            model="claude-fable-5", product="llm_gateway"
+        )._value.get()
+        if expect_fallback:
+            mock_litellm.assert_called_once()
+            assert fallbacks_after == fallbacks_before + 1
+        else:
+            # Anthropic would reject a caller-side 4xx identically — no wasted round trip.
+            mock_litellm.assert_not_called()
+            assert fallbacks_after == fallbacks_before
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    @patch("llm_gateway.api.anthropic.BedrockMantleMessages")
+    @patch("llm_gateway.api.anthropic.get_settings")
+    def test_explicit_anthropic_provider_header_skips_bedrock_primary(
+        self,
+        mock_get_settings: MagicMock,
+        mock_mantle_cls: MagicMock,
+        mock_litellm: MagicMock,
+        authenticated_client: TestClient,
+        mantle_response: dict[str, Any],
+    ) -> None:
+        mock_get_settings.return_value = _mantle_settings(bedrock_primary_models=["claude-fable-5"])
+        mock_1p_response = MagicMock()
+        mock_1p_response.model_dump = MagicMock(return_value=mantle_response)
+        mock_litellm.return_value = mock_1p_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "anthropic"},
+        )
+
+        # The explicit anthropic header is the 1P escape hatch even for bedrock-primary models.
+        assert response.status_code == 200
+        mock_mantle_cls.assert_not_called()
+        mock_litellm.assert_called_once()
+
+
 class TestBedrockMantleCountTokens:
     """Unit tests for the bedrock-mantle count_tokens fallback transport."""
 

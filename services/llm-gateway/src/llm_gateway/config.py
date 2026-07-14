@@ -132,6 +132,16 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     bedrock_region_name: str | None = None
+    # Bedrock Mantle project (proj_...) opted into the provider_data_share data retention mode.
+    # Required to serve bedrock_mantle_models; created out-of-band per AWS account (see
+    # posthog-cloud-infra scripts/bedrock-mantle-project.sh and docs/BEDROCK_MANTLE.md there).
+    bedrock_mantle_project_id: str | None = None
+    # Models that must be served via the mantle endpoint + project whenever the Bedrock path is
+    # taken: their Bedrock allowed data-retention modes gate them off bedrock-runtime entirely.
+    bedrock_mantle_models: list[str] = ["claude-fable-5"]
+    # Models routed to Bedrock first even without an x-posthog-provider header, with first-party
+    # Anthropic as the fallback. Empty by default — the staged bedrock-primary flip.
+    bedrock_primary_models: list[str] = []
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
     # OpenAI organization ID. When set, forwarded to OpenAI on every request so

@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
+    BEDROCK_MANTLE_CONFIG,
     CLOUDFLARE_ANTHROPIC_CONFIG,
     ProviderError,
     _sanitize_request_data,
@@ -26,6 +27,13 @@ from llm_gateway.bedrock import (
     ensure_bedrock_configured,
     map_to_bedrock_model,
     supports_runtime_count_tokens,
+)
+from llm_gateway.bedrock_mantle import (
+    BedrockMantleMessages,
+    ensure_bedrock_mantle_project_configured,
+    is_bedrock_primary_model,
+    matched_mantle_model,
+    to_mantle_model_id,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
@@ -44,12 +52,14 @@ from llm_gateway.metrics.prometheus import (
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
     BEDROCK_PARAM_STRIPPED,
+    BEDROCK_PRIMARY_FALLBACK_TRIGGERED,
     REQUEST_COUNT,
     REQUEST_LATENCY,
 )
 from llm_gateway.models.anthropic import GATEWAY_ONLY_FIELDS, AnthropicCountTokensRequest, AnthropicMessagesRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import (
+    POSTHOG_PROVIDER_HEADER,
     apply_posthog_context_from_headers,
     extract_posthog_provider_from_headers,
     extract_posthog_use_bedrock_fallback_from_headers,
@@ -238,6 +248,50 @@ async def _send_cloudflare_messages(
     )
 
 
+async def _send_bedrock_mantle_messages(
+    request_data: dict[str, Any],
+    user: RateLimitedUser,
+    request: Request,
+    is_streaming: bool,
+    product: str,
+    attribution_model: str,
+) -> dict[str, Any] | StreamingResponse:
+    """Serve an Anthropic Messages request on the bedrock-mantle endpoint under the
+    provider_data_share project — the only working Bedrock path for models whose allowed
+    data-retention modes reject bedrock-runtime (e.g. claude-fable-5)."""
+    settings = get_settings()
+    bedrock_region_name = ensure_bedrock_configured(settings)
+    project_id = ensure_bedrock_mantle_project_configured(settings)
+
+    data = dict(request_data)
+    mantle_model = to_mantle_model_id(data["model"])
+    data["model"] = mantle_model
+
+    anthropic_beta = request.headers.get("anthropic-beta")
+    if anthropic_beta:
+        data["anthropic_beta"] = [h.strip() for h in anthropic_beta.split(",") if h.strip()]
+
+    # Conservative reuse of the runtime allowlist: mantle speaks the native Anthropic API, so
+    # some dropped params may actually be supported — BEDROCK_PARAM_STRIPPED is the signal to
+    # relax this per param once verified against the mantle surface.
+    data = sanitize_for_bedrock(data, model=mantle_model, product=product)
+
+    mantle_call = BedrockMantleMessages(
+        region_name=bedrock_region_name,
+        project_id=project_id,
+        attribution_model=attribution_model,
+    )
+    return await handle_llm_request(
+        request_data=data,
+        user=user,
+        model=mantle_model,
+        is_streaming=is_streaming,
+        provider_config=BEDROCK_MANTLE_CONFIG,
+        llm_call=mantle_call.acreate,
+        product=product,
+    )
+
+
 async def _send_bedrock_messages(
     request_data: dict[str, Any],
     user: RateLimitedUser,
@@ -246,6 +300,16 @@ async def _send_bedrock_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     settings = get_settings()
+
+    # Every Bedrock entry point (explicit provider header, circuit-breaker bypass, 1P-failure
+    # fallback) funnels through here, so this one branch routes provider_data_share-gated models
+    # to the mantle transport instead of the guaranteed-400 bedrock-runtime path.
+    mantle_model_name = matched_mantle_model(request_data["model"], settings)
+    if mantle_model_name is not None:
+        return await _send_bedrock_mantle_messages(
+            request_data, user, request, is_streaming, product, attribution_model=mantle_model_name
+        )
+
     bedrock_region_name = ensure_bedrock_configured(settings)
 
     data = dict(request_data)
@@ -420,6 +484,26 @@ async def _handle_anthropic_messages(
 
     if await _maybe_bypass_anthropic(breaker, body.model, product, use_bedrock_fallback=use_bedrock_fallback):
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+
+    # Staged bedrock-primary: configured models try Bedrock first when the caller expressed no
+    # provider preference; an explicit `x-posthog-provider: anthropic` header stays a 1P escape
+    # hatch. Provider-side Bedrock failures (5xx, 429) fall through to the normal 1P path below;
+    # caller-side 4xx are raised as-is since Anthropic would reject them identically. Bedrock
+    # outcomes are never recorded on the Anthropic circuit breaker. Same pre-stream-only
+    # limitation as the 1P→Bedrock direction: a mid-stream failure is not replayable.
+    if request.headers.get(POSTHOG_PROVIDER_HEADER) is None and is_bedrock_primary_model(body.model, get_settings()):
+        try:
+            return await _send_bedrock_messages(data, user, request, body.stream or False, product)
+        except HTTPException as exc:
+            if _is_breaker_success(exc.status_code):
+                raise
+            BEDROCK_PRIMARY_FALLBACK_TRIGGERED.labels(model=body.model, product=product).inc()
+            logger.warning(
+                "Bedrock-primary request failed, falling back to Anthropic",
+                model=body.model,
+                product=product,
+                **_exception_log_fields(exc, prefix="bedrock"),
+            )
 
     litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
 
