@@ -38,7 +38,7 @@ class TestWizardSessionViewSet(APIBaseTest):
         payload.update(overrides)
         return payload
 
-    def _personal_api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+    def _authenticate_personal_api_key(self, scopes: list[str]) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Wizard test key",
@@ -47,7 +47,7 @@ class TestWizardSessionViewSet(APIBaseTest):
             scopes=scopes,
         )
         self.client.logout()
-        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
     def test_create_session(self):
         response = self.client.post(self._url(), self._payload(), format="json")
@@ -65,38 +65,35 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
     def test_completed_session_requires_event_definition_write_scope(self):
-        wizard_only_headers = self._personal_api_key_headers(["wizard_session:write"])
+        self._authenticate_personal_api_key(["wizard_session:write"])
 
         response = self.client.post(
             self._url(),
             self._payload(run_phase="completed"),
             format="json",
-            **wizard_only_headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_running_session_accepts_wizard_write_scope(self):
-        wizard_only_headers = self._personal_api_key_headers(["wizard_session:write"])
+        self._authenticate_personal_api_key(["wizard_session:write"])
 
         response = self.client.post(
             self._url(),
             self._payload(run_phase="running"),
             format="json",
-            **wizard_only_headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay")
     def test_completed_session_accepts_event_definition_write_scope(self, _mock_sync):
-        headers = self._personal_api_key_headers(["wizard_session:write", "event_definition:write"])
+        self._authenticate_personal_api_key(["wizard_session:write", "event_definition:write"])
 
         response = self.client.post(
             self._url(),
             self._payload(run_phase="completed"),
             format="json",
-            **headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
