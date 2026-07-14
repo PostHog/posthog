@@ -32,6 +32,20 @@
         border-radius: 0 0 var(--radius) var(--radius);
     }
 
+    // A metric card renders best as a square chart under the title bar rather than stretched to the full
+    // exporter height. Size the card to its content and make the content area square (its height derives
+    // from the export width via aspect-ratio) so the filling sparkline hugs the bottom of a square, not a
+    // tall sliver.
+    &--metric {
+        flex: 0 0 auto;
+        height: auto;
+
+        .ExportedInsight__content {
+            flex: 0 0 auto;
+            aspect-ratio: 1 / 1;
+        }
+    }
+
     .LemonTable {
         --lemon-table-background-color: var(--color-bg-surface-primary);
     }
