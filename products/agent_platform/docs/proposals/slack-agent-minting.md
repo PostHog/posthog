@@ -1,143 +1,295 @@
-# Proposal: minted per-agent Slack apps
+# Proposal: managed per-agent Slack apps
 
 Status: draft proposal, not yet scheduled.
 Owner: agent platform.
 
 ## Problem
 
-Getting a Slack-triggered agent live today is the worst setup flow on the platform.
-The runtime side is solid: the `slack` trigger, per-agent ingress URLs, signature verification, and the `TRIGGER_REQUIRED_SECRETS` promote gate all work well.
-But provisioning is roughly ten manual steps across two admin UIs (see the `setting-up-slack-app` playbook): create a Slack app by hand, copy the signing secret, pick scopes, install, copy the bot token, punch out two secrets, promote, and only then paste two Request URLs back into Slack.
-The promote-before-URL ordering trap is the single most common source of confusion.
+Getting a Slack-triggered agent live today requires roughly ten manual steps across PostHog and Slack.
+The user creates a Slack app, configures scopes, copies credentials, installs the app, sets two agent secrets, promotes the revision, and then returns to Slack to configure request URLs.
+The promote-before-URL ordering trap is particularly confusing.
 
-The goal: a user should be able to say
+The goal is that a user can ask either the agent builder or the PostHog Slack app:
 
-> @PostHog please create me a new slack agent named @JokerHog who tells jokes
+> Create a Slack agent named @JokerHog that tells jokes.
 
-and end up with a live agent that has its own bot identity (name, avatar, @-handle), with exactly one manual step remaining (clicking Authorize on the install).
+and receive a live PostHog agent with its own Slack name, avatar, and `@` handle.
+The only per-agent Slack ceremony should be authorizing the new Slack app.
 
-## Prior art
+The Slack app is the agent's durable communication adapter and identity.
+The PostHog agent application remains the product entity, and revisions continue to represent versioned behavior.
 
-### How vercel/eve does it
+## Product entry points
 
-Eve's `eve channels add slack` wizard (`packages/eve/src/setup/slackbot.ts`) orchestrates Vercel Connect, a first-party managed connector service:
-create a connector (`vercel connect create slack`, which opens a browser OAuth flow), poll the connector until workspace metadata appears (3s interval, 5 minute timeout), then attach the connector's webhook destination to the app's route.
-At runtime `connectSlackCredentials()` returns `{ botToken, webhookVerifier }`, with rotation and verification handled by the service.
+Provisioning must not depend on starting inside Slack.
+Both entry points call the same agent-builder workflow and connector control plane.
 
-The key observation: **eve never creates Slack apps**.
-Every eve agent in a workspace speaks through the one shared Vercel connector identity.
-Eve traded away per-agent bot identity to avoid the hard part (app creation).
-We want the opposite trade: distinct per-agent bots, which means we have to solve minting.
+### From the agent builder
 
-### What we have in-house
+The builder authors the agent, asks the user to select a connected Slack workspace, requests provisioning, presents the authorization link, and monitors activation.
 
-- A complete per-agent Slack runtime. Each agent already brings its own Slack app: signature verification per revision (`agent-ingress/src/triggers/slack.ts`), `trusted_workspaces` gating, per-agent events/interactivity URLs, and per-revision `SLACK_SIGNING_SECRET` / `SLACK_BOT_TOKEN` in `encrypted_env`.
-- A deterministic manifest generator, `buildSlackManifest()` (`agent-shared/src/spec/slack-manifest.ts`), that derives OAuth scopes and bot event subscriptions from the trigger config and tool list, correct by construction.
-- A promote-time provisioning precedent: `provision_posthog_identity_apps()` (`backend/logic/posthog_identity_app.py`) auto-creates an `OAuthApplication` and injects its `client_id` into the frozen spec. Idempotent, org-locked, promote-hooked.
-- A conversational front door: the PostHog Slack app (`products/slack_app`) already turns @-mentions into PostHog Code tasks, and PostHog Code already drives the full `agent-applications-*` MCP tool surface.
+### From Slack
 
-What we do not have: any programmatic creation of third-party apps, anywhere in the codebase.
-This proposal adds that capability class, and treats its new trust surface accordingly.
+The existing PostHog Slack app supplies the Slack workspace, user, channel, and thread context, then starts the same builder task.
+It remains a concierge and progress surface rather than becoming the runtime identity for every agent.
 
-### The Slack API facts this design rests on
+The builder never receives Slack configuration tokens, signing secrets, client secrets, or bot tokens.
+It works with opaque enrollment and connector IDs through typed control-plane tools.
 
-- `apps.manifest.create` creates a Slack app from a JSON manifest, which is exactly what `buildSlackManifest()` already produces.
-- The manifest API authenticates with an **app configuration token**: scoped to a user plus workspace (not to an app), 12 hour expiry, refreshed via `tooling.tokens.rotate`, which returns a new access token and a new refresh token. A service holding the refresh token can rotate indefinitely. This rotating pair is our equivalent of Vercel Connect's backend credential.
-- Installation cannot be automated. Minting an app does not produce a bot token; a workspace member must click Authorize once per agent. One click is the floor.
+## Prior art: Vercel Connect and Eve
 
-Two facts need empirical confirmation in a spike (Slack's reference docs are ambiguous):
-whether the `apps.manifest.create` response includes the app's credentials (client id/secret and, critically, the signing secret), and whether the manifest's events `request_url` is reachability-checked at create time.
+Eve delegates its Slack integration to Vercel Connect rather than implementing Slack provisioning in the Eve runtime.
+`eve channels add slack` creates a connector through the Vercel CLI, waits for a workspace installation, and attaches the Eve route as the connector's trigger destination.
+At runtime, `connectSlackCredentials()` retrieves the outbound credential from Connect and verifies inbound Connect-forwarded requests with Vercel OIDC.
 
-## Design
+Vercel's current documentation says Connect creates and manages the Slack app, lets the user name it, stores its credentials, receives Slack webhooks, and forwards verified events to attached projects.
+The earlier assumption that all Eve agents share one global Slack bot identity was incorrect.
+A connector is closer to the application-level Slack adapter proposed here.
 
-### Architecture in one paragraph
+The useful separation is:
 
-The PostHog Slack app stays exactly what it is, the conversational front door and mediator, and gains no agent-runtime responsibilities.
-A new **minting service** inside `products/agent_platform` holds per-workspace config token pairs and calls Slack's manifest API to stamp out a dedicated Slack app per agent.
-Because every minted app is a normal per-agent app, the existing runtime needs almost nothing: the `slack` trigger, per-agent URLs, per-revision secrets, and the promote gate are all unchanged.
-The minting service fills in what a human fills in today.
-This also avoids a shared-app dispatcher entirely: no central events URL, no channel-binding router, no bot identity multiplexing. Per-agent apps make Slack itself the router.
+1. **Workspace connection:** authority to provision or install Slack applications.
+2. **Connector:** a Slack application, credentials, scopes, events, and installation state.
+3. **Destination:** the project or agent application that receives events.
 
-### The @JokerHog flow, end to end
+PostHog should copy this separation even if Slack does not offer us the same workspace-authorization flow that Vercel uses.
 
-1. **Ask.** `@PostHog please create me a new slack agent named @JokerHog who tells jokes` in any channel. A new intent branch in `products/slack_app` mention handling seeds a builder task with the agent-authoring playbooks, and the builder agent authors the spec (slack trigger, `mention_only` plus `auto_resume_threads`, joke-telling `agent.md`).
-2. **Mint.** The builder agent calls a new `slack-app-mint` endpoint for the draft revision. The minting service resolves the workspace's config token pair (rotating if near expiry), renders `buildSlackManifest()` with the agent's name and real per-slug URLs, calls `apps.manifest.create`, and persists the returned app id plus credentials, writing the signing secret (and client id/secret) into the revision's `encrypted_env`. No human sees a secret.
-3. **URL verification without the ordering trap.** One small ingress change: answer Slack's `url_verification` challenge for any known revision whose signing secret is set, not just live ones. The secret exists before Slack ever probes, so verification succeeds pre-promote. This also fixes the manual flow's worst trap for free.
-4. **One click: install.** The bot posts back in the thread: "@JokerHog is ready, install to this workspace" with the minted app's OAuth authorize URL, `state`-bound to (team, application, revision). A new callback endpoint in agent_platform (registered in every minted manifest's redirect URLs) exchanges the code using the minted app's own client credentials and writes the `xoxb-` bot token into `encrypted_env`.
-5. **Activate.** Callback completion triggers validate, freeze, and promote (the existing `TRIGGER_REQUIRED_SECRETS` gate now passes on its own), sets `trusted_workspaces` to the installing workspace id, then joins the requested public channels via `conversations.join` (the `channels:join` scope goes into every minted manifest). Private channels get an "/invite @JokerHog" note in the thread.
-6. **Use.** `@JokerHog tell me a joke`. Its own bot, its own identity, the existing runtime path.
+References:
 
-Total human actions after the ask: one Authorize click, plus channel picks if prompted.
+- [Build a Slack bot with Vercel Connect](https://vercel.com/kb/guide/build-a-slack-bot-with-vercel-connect)
+- [Eve Slack channel](https://github.com/vercel/eve/blob/main/docs/channels/slack.mdx)
+- [`@vercel/connect` SDK](https://github.com/vercel/vercel/tree/main/packages/connect)
 
-### Routing
+## Slack provisioning authority
 
-With per-agent apps, routing among agents is free, since each has its own @-handle.
-What remains is the PostHog app as concierge:
+The Slack manifest APIs support two conceptually similar provisioning strategies.
+The rest of the connector lifecycle should not depend on which one is available.
 
-- Mention-prefix on @PostHog for lifecycle verbs: create / list / status / pause / delete an agent. A new intent branch alongside the existing directives; everything else falls through to normal behavior.
-- Channel scoping at creation: "create @JokerHog for #jokes and #random" captures channels, auto-joins after install, and optionally sets `channel_id` on the trigger config.
-- Per-agent trigger knobs (`mention_only`, `auto_resume_threads`, `ack_reaction`) default to the conversational-bot pairing from the playbook.
+### Preferred investigation: manager app
 
-### Workspace enrollment, the one ceremony that remains
+Slack's current API references describe manager apps that create and manage child apps:
 
-Config tokens cannot be obtained via OAuth.
-A workspace member with app-creation rights generates the token pair on Slack's app settings page once and hands it to us through a first-class one-time punch-out ("Enable Slack agent minting for this workspace": deep link, then paste into a PostHog form, never into chat).
-Enrollment is triggered lazily the first time someone asks @PostHog for an agent in an unenrolled workspace.
-After that, unlimited mints.
-This is the honest cost of per-agent identity versus eve's shared-app model, paid once per workspace rather than per agent.
+- `apps.manifest.create` documents manager enrollment, managed-app limits, and workspace feature enablement.
+- App approval requests can identify the `manager_app_id` that provisioned a child.
+- Enterprise administrators can preapprove future child apps from a manager.
+- Manager credentials can update, export, and delete only children created by that manager.
 
-### What happens to the manual (BYO) flow
+However, Slack does not publicly document how an app enrolls, how manager configuration credentials are issued, whether the program is generally available, or whether a distributed app can create children inside independently owned installation workspaces.
+The feature appears gated and must be confirmed directly with Slack.
 
-Nothing is torn out, and nothing new is built for it.
-The runtime is the per-agent-app runtime either way; the manual flow is just "a human did the minting service's job by hand".
-The manifest generator, the `set_secret` punch-out, and the `setting-up-slack-app` playbook remain as the escape hatch (self-hosted instances without a minting path, custom edge cases), and the playbook's happy path points at minting.
+If available, the existing PostHog Slack app is the natural manager and conversational front door.
+It would create child apps such as `@JokerHog`, while each child remains the runtime connector for its agent.
+
+References:
+
+- [`apps.manifest.create`](https://docs.slack.dev/reference/methods/apps.manifest.create/)
+- [`app_configurations:write`](https://docs.slack.dev/reference/scopes/app_configurations.write/)
+- [Managing app approvals](https://docs.slack.dev/admins/managing-app-approvals/)
+
+### Documented fallback: workspace configuration token
+
+A Slack user with app-creation rights generates a configuration access token and refresh token for a workspace.
+PostHog stores the pair through a secure enrollment form, rotates it when necessary, and uses it to call the same manifest APIs.
+
+The access token is not needed at runtime after an app is created and installed.
+The refresh chain is needed for future app creation, manifest updates, reconciliation, and deletion.
+
+This enrollment is less smooth than the manager path but uses Slack's documented public API.
+The token must never be pasted into Slack or an agent conversation.
+
+References:
+
+- [Configuring apps with app manifests](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/)
+- [`tooling.tokens.rotate`](https://docs.slack.dev/reference/methods/tooling.tokens.rotate/)
+
+### Common provisioner contract
+
+The control plane should isolate the credential source behind one interface:
+
+```python
+class SlackAppProvisioner(Protocol):
+    def create_app(self, *, workspace_id: str, manifest: dict[str, object]) -> ProvisionedSlackApp: ...
+    def update_app(self, *, slack_app_id: str, manifest: dict[str, object]) -> None: ...
+    def delete_app(self, *, slack_app_id: str) -> None: ...
+```
+
+Initial implementations:
+
+- `ManagerAppSlackProvisioner`, if Slack enables the capability for PostHog.
+- `ConfigurationTokenSlackProvisioner`, as the documented fallback.
+
+Both return the child app ID, client credentials, and signing secret.
+Changing provisioning strategy must not require rebuilding installation, ingress, activation, or revision handling.
+
+## Connector architecture
+
+### Application-level ownership
+
+Slack credentials belong to the agent application, not an individual revision.
+A new `AgentSlackConnector` is the durable relationship between a PostHog agent and its Slack app.
+
+Suggested shape:
+
+```text
+AgentSlackConnector
+- team_id
+- application_id
+- enrollment_id
+- slack_workspace_id
+- slack_app_id
+- public_routing_id
+- client_id
+- client_secret
+- signing_secret
+- bot_token
+- bot_user_id
+- installed_scopes
+- desired_scopes
+- status
+```
+
+Use a unique constraint on `(application_id, slack_workspace_id)`.
+The connector is the source of truth for Slack credentials.
+If the first implementation must continue using the revision secret resolver, promotion may materialize connector credentials into the target revision, but revision storage should remain a compatibility layer.
+
+### Stable ingress URLs
+
+Every minted manifest uses connector-level URLs that do not change across revisions:
+
+```text
+https://agents.posthog.com/slack/<public-routing-id>/events
+https://agents.posthog.com/slack/<public-routing-id>/interactivity
+```
+
+The route resolves the connector, verifies the Slack signature with its signing secret, and answers `url_verification` before the application has a live revision.
+Normal events resolve `application.live_revision` and dispatch to the existing Slack trigger runtime.
+
+This avoids the current preview-JWT mismatch, prevents draft revisions from receiving production Slack traffic, and removes the promote-before-URL ordering trap.
+
+### Installation attempts
+
+OAuth installation state must be expiring and single-use.
+Store it as a durable `SlackInstallAttempt` bound to:
+
+- PostHog team and user.
+- Connector and child Slack app ID.
+- Expected Slack workspace ID.
+- Target application and revision.
+- Nonce, expiry, and consumption time.
+
+The callback verifies the returned Slack workspace and app, atomically consumes the attempt, stores installation credentials, and schedules activation after the database transaction commits.
+It must reject stale callbacks rather than promoting a revision that has since been replaced.
+
+## End-to-end flow
+
+1. **Author.** The builder creates or edits an agent with a Slack trigger.
+2. **Select.** The origin supplies or asks for the target Slack workspace and optional channels.
+3. **Enroll if needed.** The control plane checks provisioning authority. Manager enrollment is preferred; otherwise it returns a secure configuration-token enrollment URL.
+4. **Mint.** The builder calls `slack-app-mint` with the application, revision, workspace, and enrollment IDs. The provisioner renders `buildSlackManifest()` with stable connector URLs and creates the child app.
+5. **Authorize.** The user follows a one-time Slack OAuth URL for the child app.
+6. **Install.** The callback verifies state and workspace identity, then stores the bot token and installation metadata on the connector.
+7. **Activate.** An idempotent job updates `trusted_workspaces`, validates and freezes the target draft, promotes it, joins requested public channels, and reports completion.
+8. **Run.** Slack routes `@JokerHog` events to the connector URL, which dispatches them to the application's live revision.
+
+The configuration token or manager credential is never used on the runtime message path.
+
+## Revision and scope changes
+
+New revisions reuse the same connector, Slack app, bot identity, and stable URLs.
+Before promotion, compare the revision's desired Slack capabilities with the connector's installed scopes and event subscriptions.
+
+- If capabilities are unchanged or reduced, promote normally.
+- If scopes expand, update the manifest and set `reinstall_required`.
+- Complete reauthorization before promoting behavior that depends on the new scopes.
+- Never point Slack request URLs directly at a draft revision.
+
+## Models and service boundaries
+
+### `SlackAppProvisioningEnrollment`
+
+Team-scoped association between a PostHog project and Slack workspace provisioning authority.
+It stores the strategy, encrypted credential payload, expiry, enrolling user, manager app ID where applicable, and status.
+
+Initially, configuration-token enrollment should remain project-specific.
+If one Slack workspace connects to multiple PostHog projects, require distinct token chains rather than copying one refresh token into multiple rows.
+Organization-level sharing can be added later with an explicit authorization model.
+
+### `AgentSlackConnector`
+
+Application-level Slack app and installation record.
+It drives status UI, ingress resolution, reinstall requirements, revocation, and teardown.
+
+### `SlackInstallAttempt`
+
+Single-use installation state used by the unauthenticated child-app OAuth callback.
+
+### Service placement
+
+- Provisioning, installation, and lifecycle logic live in `products/agent_platform/backend/`.
+- All Slack control-plane calls use a new `posthog/egress/slack/` transport.
+- The existing `products/slack_app` integration only resolves Slack context, starts builder tasks, and reports progress.
+- Agent ingress owns stable connector webhook routes and runtime dispatch.
 
 ## Build plan
 
-### Spike (2 to 3 days, before committing to phase A)
+### Phase 0: Slack capability spike
 
-With a scratch config token against a test workspace, confirm:
+Before committing to either enrollment UX:
 
-1. The `apps.manifest.create` response fields, especially whether the signing secret is returned. If not, the mint step needs a follow-up call or a fallback human copy, which changes the UX floor.
-2. Create-time request URL validation behavior.
-3. Rate limits at realistic mint volume.
-4. That the collaborator/ownership model of config-token-minted apps does not bite when the enrolling user leaves the workspace (likely mitigation: recommend enrolling with a service account).
+1. Ask Slack whether PostHog can enroll its existing distributed app as a manager.
+2. Confirm whether a manager can provision children inside customer installation workspaces or only its home team.
+3. Confirm the manager credential type, rotation model, enrollment process, limits, and child behavior after parent uninstall.
+4. Test `apps.manifest.create` response credentials and request URL validation in a Slack sandbox.
+5. Test configuration-token ownership when the enrolling user loses permission or leaves the workspace.
+6. Confirm creation, update, deletion, and rate limits for both available strategies.
 
-### Phase A: minting service (all in `products/agent_platform/backend/`)
+### Phase A: common connector foundation
 
-- Model `SlackWorkspaceAppConfig(team, slack_workspace_id, sensitive_config, created_by, status)`, team-scoped, unique per (team, workspace), with the token pair in an encrypted field. Rotation is the delicate part: refresh tokens are single-use, so rotate under `select_for_update` (the `provision_posthog_identity_apps` locking pattern), proactively before expiry, and treat a failed rotation as "workspace minting disabled, re-enroll", surfaced on the Connections tab, never a silent retry loop.
-- Model `AgentSlackApp(team, application, slack_app_id, slack_workspace_id, status: minted | installed | revoked)`, the connector record; drives status UI and teardown (`apps.manifest.delete` on agent deletion, best effort).
-- `logic/slack_app_minting.py`: mint, update (re-run `apps.manifest.update` when the trigger config changes scope needs, for example enabling DMs, and tell the user to reinstall), delete. All Slack calls go through `posthog/egress/` per the repo rule (new `slack/` incarnation, GitHub is the reference), from Django. This is control-plane work; the node services never touch it.
-- Django endpoints plus regenerated MCP tools: `slack-app-mint`, `slack-app-status`, `slack-workspace-enroll-status`. Rerun `hogli build:openapi` after.
+- Add the enrollment, connector, and installation-attempt models.
+- Add the provisioner interface and Slack egress transport.
+- Add stable connector ingress routes and connector-based credential resolution.
+- Add status and reconciliation primitives before exposing conversational creation.
 
-### Phase B: install and activation
+### Phase B: provisioning strategy
 
-- OAuth callback endpoint for minted apps: state-bound, per-app client credentials, writes the bot token to `encrypted_env`, kicks validate / freeze / promote, auto-joins channels.
-- Ingress: answer `url_verification` for non-live revisions with a resolvable signing secret.
-- Failure surfaces: install abandoned (nudge in thread after a timeout), token revoked later (Slack `tokens_revoked` event marks the `AgentSlackApp` revoked, with a Connections-tab warning and a thread notification).
+- Implement the manager provisioner if Slack enables it.
+- Otherwise implement secure configuration-token enrollment and serialized rotation.
+- Add `slack-workspace-enrollment-status`, `slack-app-mint`, and `slack-app-status` endpoints and generated MCP tools.
 
-### Phase C: the conversational front door
+### Phase C: installation and activation
 
-- Mention-intent branch in `products/slack_app` for agent lifecycle, seeding a builder task. In-thread progress messages ("minted, waiting for install, live") come from the task, keeping `slack_app` itself thin: it gains an intent router and nothing else. All agent knowledge lives in agent_platform and the builder playbooks.
-- Rewrite the `setting-up-slack-app` playbook around minting; add a `minting-slack-agents` playbook for the builder agent.
+- Add the state-bound OAuth callback and idempotent activation job.
+- Add reinstall-required handling for scope expansion.
+- Handle `tokens_revoked`, `app_uninstalled`, and Slack authentication failures.
+- Add Connections-tab status, recovery, and teardown actions.
+
+### Phase D: agent entry points
+
+- Make the agent builder the canonical workflow for Slack deployment.
+- Add the `@PostHog` lifecycle intent as a context-rich shortcut into that workflow.
+- Rewrite the `setting-up-slack-app` playbook around the managed path while retaining the manual bring-your-own-app escape hatch.
 
 ### Testing and rollout
 
-- e2e cases in `services/agent-tests/` for the ingress challenge change and the callback-driven promote.
-- Django tests for rotation races and mint idempotency (a re-mint must not orphan apps).
-- Feature-flag the whole path; dogfood by minting an internal test agent first.
+- Django tests for tenant isolation, OAuth state consumption, token rotation races, mint idempotency, and stale callback rejection.
+- Agent ingress tests for pre-live URL verification, signature validation, inactive connectors, and live revision routing.
+- End-to-end tests for mint, install, activation, revision promotion, reinstall-required, revocation, and deletion.
+- Feature-flag the full path and dogfood with an internal agent before broader rollout.
 
-Rough sizing: spike 2 to 3 days, phase A about 2 weeks, phase B about 1 week, phase C 1 to 2 weeks. A and C can overlap once the spike settles the API contract.
+## Risks
 
-## Risks, ranked
-
-1. **Config token custody.** A workspace-scoped app-creation credential held server-side is a new trust surface. Encrypted storage, egress-gated calls, tight scoping, and activity logging on mint / install / revoke are non-negotiable, and this is the piece to socialize with security first.
-2. **Slack-side unknowns.** The spike exists to kill these before any real build.
-3. **Rotation fragility.** Single-use refresh tokens plus concurrency is the one place this can break silently. The locking plus explicit "re-enroll" failure mode handles it, but it needs a monitor (alert on rotation failures).
-4. **Workspace app sprawl.** Every agent is a real Slack app in the workspace's app list. Mitigations: consistent naming and description stamping ("Managed by PostHog Agents"), `apps.manifest.delete` on teardown, and a minted-apps inventory on the Connections tab.
+1. **Manager availability.** Slack's references describe the feature, but enrollment and distributed-workspace behavior are undocumented. Treat it as an optimization until Slack confirms access.
+2. **Configuration credential custody.** The fallback grants workspace app-creation authority. Encrypt it, route calls through egress controls, audit every lifecycle operation, and fail closed.
+3. **Credential ownership.** User-bound configuration credentials may fail when the enrolling user leaves or loses permission. Surface re-enrollment explicitly.
+4. **Ambiguous creates.** `apps.manifest.create` is not documented as idempotent. Do not blindly retry an ambiguous timeout; preserve a reconciliation state.
+5. **Stale installation callbacks.** An old authorization link must not overwrite a newer installation or promote an outdated revision.
+6. **Workspace app sprawl.** Provide consistent naming, managed-by metadata, inventory, and best-effort cleanup with retries.
+7. **Scope changes.** Updating a manifest may require reauthorization. Model `reinstall_required` as a real connector state rather than relying only on a thread message.
 
 ## Open questions
 
-- Should enrollment recommend (or require) a service account as the config token owner, to survive the enrolling user leaving?
-- Does `apps.manifest.update` on a live agent (for example adding the DM scopes) need an in-product "reinstall required" state, or is the thread nudge enough?
-- Where does the minted-apps inventory live in the UI: per-agent Connections tab only, or also a workspace-level view?
+- Can Slack enable the manager-app capability for PostHog, and is Vercel Connect using the same program?
+- Should configuration-token enrollment recommend or require a service account?
+- Should the connector credential broker replace revision-level Slack secrets immediately or through a compatibility phase?
+- Where should workspace-level enrollment and minted-app inventory live in the UI?
+- When a user starts from the builder, how should they choose channels before the child app is installed?
