@@ -135,22 +135,26 @@ class TestValidateCredentials:
         assert error is not None and "boom" in error
 
 
-class TestSampleCaptureIsDisabled:
-    # Every response body is the store's arbitrary customer key/value contents, so both entry points
-    # must exclude their requests from HTTP sample capture. A regression to the default (capture=True)
-    # would persist customer store values to object storage, where the name-based scrubbers can't
-    # redact keys they don't recognize.
-    def test_get_rows_disables_capture(self) -> None:
+class TestSessionIsHardened:
+    # Both entry points send the store `secret` as the `X-Secret` header, and every response body is
+    # the store's arbitrary customer key/value contents. So both must (a) exclude their requests from
+    # HTTP sample capture - a regression to capture=True would persist customer store values to object
+    # storage where the name-based scrubbers can't redact unknown keys - and (b) disable redirects,
+    # since requests forwards custom headers across cross-host redirects and a regression to
+    # allow_redirects=True would let the secret leak to a redirect target.
+    def test_get_rows_disables_capture_and_redirects(self) -> None:
         with patch(f"{MODULE}.make_tracked_session") as factory:
             factory.return_value.get.return_value = _response({"a": "1"})
             list(get_rows(secret="s", logger=MagicMock()))
         assert factory.call_args.kwargs["capture"] is False
+        assert factory.call_args.kwargs["allow_redirects"] is False
 
-    def test_validate_credentials_disables_capture(self) -> None:
+    def test_validate_credentials_disables_capture_and_redirects(self) -> None:
         with patch(f"{MODULE}.make_tracked_session") as factory:
             factory.return_value.get.return_value = _response({}, status_code=200)
             validate_credentials("s")
         assert factory.call_args.kwargs["capture"] is False
+        assert factory.call_args.kwargs["allow_redirects"] is False
 
 
 class TestSourceResponse:

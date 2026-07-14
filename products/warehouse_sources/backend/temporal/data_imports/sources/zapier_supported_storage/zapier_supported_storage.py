@@ -91,7 +91,9 @@ def get_rows(secret: str, logger: FilteringBoundLogger) -> Iterator[Any]:
     # capture=False: the entire response body is the store's arbitrary key/value contents, so HTTP
     # sample capture would serialize customer data to object storage where the name-based scrubbers
     # can't redact keys they don't recognize. Requests are still metered and logged.
-    session = make_tracked_session(redact_values=(secret,), capture=False)
+    # allow_redirects=False: the `X-Secret` header is a credential and requests does not strip custom
+    # headers when following cross-host redirects, so pin the credentialed request to store.zapier.com.
+    session = make_tracked_session(redact_values=(secret,), capture=False, allow_redirects=False)
 
     # The store is fetched in a single call - there is no pagination or list endpoint.
     store = _fetch_store(session, secret, logger)
@@ -131,7 +133,9 @@ def validate_credentials(secret: str) -> tuple[bool, str | None]:
     """
     # capture=False for the same reason as get_rows: even a single-key probe response echoes stored
     # customer data that the name-based sample-capture scrubbers can't be trusted to redact.
-    session = make_tracked_session(redact_values=(secret,), capture=False)
+    # allow_redirects=False pins the credentialed `X-Secret` request to store.zapier.com so the secret
+    # can't be forwarded to a cross-host redirect target.
+    session = make_tracked_session(redact_values=(secret,), capture=False, allow_redirects=False)
     # Limit the probe to a single key so we don't pull a whole store just to validate.
     url = f"{ZAPIER_SUPPORTED_STORAGE_URL}?{urlencode({'key': '__posthog_probe__'})}"
     try:
