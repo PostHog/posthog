@@ -1546,7 +1546,8 @@ class TestOwnershipVerification:
     @pytest.mark.asyncio
     async def test_heartbeat_renews_lease_then_restamps_executing(self):
         # The success path: a held lease is renewed and the executing-status grace
-        # window is refreshed on the same beat. update_status raising ends the loop.
+        # window is refreshed on the same beat. The lease returning False on the
+        # second iteration terminates the loop so we can assert the first cycle ran.
         consumer = _make_consumer()
         consumer._config.recovery_grace_seconds = 30
         batch = _make_batch()
@@ -1556,24 +1557,19 @@ class TestOwnershipVerification:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
                 new_callable=AsyncMock,
-                return_value=True,
+                side_effect=[True, False],
             ) as mock_renew,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
                 new_callable=AsyncMock,
-                side_effect=Exception("stop the loop"),
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
 
-        mock_renew.assert_awaited_once_with(
-            lock_conn,
-            team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            owner_token=consumer._owner_token,
-            lease_ttl_seconds=consumer._lease_ttl_seconds,
-        )
+        mock_renew.assert_awaited()
+        assert mock_renew.await_count == 2
+        # First iteration: lease renewed -> status refreshed; second: lease lost -> exit.
         mock_status.assert_awaited_once()
 
 

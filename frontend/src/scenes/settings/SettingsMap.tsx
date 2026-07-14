@@ -101,6 +101,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -774,6 +775,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsDistinctIdAttributeKey />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'logs-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The log attributes PostHog reads to identify which session a log belongs to, checked in order
+                        with the first match winning. Defaults to <code>posthogSessionId</code>, the key the JavaScript
+                        and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning. Defaults to posthogSessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <LogsSessionIdAttributeKeys />,
+                flag: 'LOGS_SETTINGS',
+                keywords: ['log', 'session', 'replay', 'attribute', 'link'],
             },
             {
                 id: 'logs-retention',
