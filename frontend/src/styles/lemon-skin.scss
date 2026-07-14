@@ -269,6 +269,10 @@
 /* ═══ InputGroup (input with addons) — recolor only, keep 2rem metrics ═ */
 
 [data-lemon-skin] .quill-input-group {
+    /* Undo the global --text-xs bump inside the stepper: at 14px a 3-digit count truncates.
+       The text-xs utility reads the var (and is !important), so re-scope the var. */
+    --text-xs: 0.75rem;
+
     font-family: var(--font-sans);
     background-color: var(--color-bg-fill-input);
     border-color: var(--lemon-skin-border);
@@ -406,10 +410,10 @@
     font-size: 0.8125rem;
 }
 
-/* ═══ DateRangeComposer → the Lemon compact date filter ═════════════════ */
+/* ═══ DateTimePicker presets panel → the Lemon compact date filter ══════ */
 
 /* Surface: Lemon popover chrome instead of quill's card ring. */
-[data-lemon-skin] [data-attr='date-range-composer'] {
+[data-lemon-skin] [data-attr='date-time-picker'] {
     background: var(--lemon-skin-surface);
     border: 1px solid var(--lemon-skin-border);
     border-radius: var(--lemon-skin-radius);

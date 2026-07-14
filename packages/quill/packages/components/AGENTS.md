@@ -5,11 +5,10 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 ## Exports
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
-- `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
+- `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`) or the chips presets panel (`selection`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 - `RelativeRangeInput` — "N units" duration control (count stepper + unit dropdown)
-- `DateRangeComposer` — CONCEPT (unstable): compact date filter — rolling chips + `RelativeRangeInput` + named-period chips, custom-range calendar behind a view swap, exclusions + exact-time behind footer controls
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
@@ -68,6 +67,30 @@ Rules:
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
 - Embedding in a host surface (e.g. inside a popover with the host's own sections): `showHeader={false}` drops the caps header band, `showTime={false}` switches to day-granular mode (no time segments, no "Now", date-only footer readout) — pair with a `className` that strips the card chrome (`shadow-none ring-0`).
+- `showTimeToggle` renders the "Include time" row (mirrors `DatePicker`: `showTime` seeds it, `onIncludeTimeChange` reports flips). Unlike `DatePicker` it defaults to false — time is this picker's point, so opt in only when the host's value model treats time as optional. When on, `onApply` reports the toggle state as `includesTime`.
+
+### Presets-panel mode
+
+Passing `selection` (a `DateRangeSelection`: rolling / fixed / custom) replaces the quick-ranges list with the chips panel — a 3×3 grid of rolling shortcuts (`1h 24h 7d / 14d 30d 90d / 1w 1m 1y`), a "Last …" `RelativeRangeInput` row, a 2-column grid of calendar-anchored periods (`Today … All time`), and a "Custom range…" row that expands the calendar half beside the panel (collapsed by default; Apply or Cancel collapse it back).
+
+```tsx
+<DateTimePicker
+  selection={selection}
+  onSelectionChange={(next) => commit(next)} // chips + stepper commit immediately
+  onApply={({ start, end, includesTime }) => commit({ kind: 'custom', start, end, includesTime })}
+  showHeader={false}
+  showTimeToggle
+  presetsFooter={<HostRows />} // extra rows under "Custom range…" (e.g. Exclude, Exact time)
+/>
+```
+
+- The picker previews the selection on the calendar (the open calendar follows chip clicks live) but never interprets it — map selections to your own range vocabulary in the host. The reference host is `InsightDateFilterComposer` in the app (PostHog date-strings mapping); its Exclude flyout lives in `frontend/src/lib/components/DateFilter/DateFilterExclusionsControl.tsx`.
+- Two commit paths: `onSelectionChange` fires immediately for chips and the stepper; calendar picks stage until Apply, which fires `onApply` (with `includesTime` when the toggle is on).
+- `value` is not needed in panel mode (the staged range derives from `selection`); `ranges` is ignored.
+- `shortChips` / `namedChips` override the default chip vocabularies; `portalProps` spreads onto the stepper's portaled unit dropdown (skin opt-in attributes).
+- `presetsSide` places the panel `'left'` (default) or `'right'` of the calendars; `collapsibleCalendar={false}` keeps the calendar always visible, drops the "Custom range…" row, and switches the panel to a narrow single-column style — the drop-in replacement shape for the old quick-ranges list.
+- `weekStartsOn` drives the calendar grid and the This/Last week chip math — pass the team setting or the chips drift from the query.
+- When hosting in a quill `Popover`, use `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`: the panel sits left so expanding grows rightward without moving the chips, and `align: 'shift'` steps in only when the widened surface would overflow the viewport.
 
 ## DatePicker
 
@@ -118,24 +141,6 @@ const [value, setValue] = useState<RelativeRangeValue>({ count: 30, unit: 'days'
   <RelativeRangeInput value={value} onChange={setValue} />
 </div>
 ```
-
-## DateRangeComposer
-
-CONCEPT — a compact date filter surface, not a stable API.
-Layout: a 5-column grid of rolling shortcuts (`1h 24h 7d 14d 30d / 90d 180d 1w 1m 1y` — every chip just sets the "In the last" input), the `RelativeRangeInput` row, then a 3-column grid of calendar-anchored periods (`Today … All time`).
-Footer rows: "Custom range…" (swaps the whole surface to a range calendar with an "Include time" switch; Cancel returns), an optional "Exact time range" switch, and "Exclude" (a portaled flyout with an incomplete-period switch and exclude-day chips).
-
-Rules:
-
-- Controlled via `selection` (`{ kind: 'rolling' | 'fixed' | 'custom', … }`) and `onSelect`; custom selections carry `includesTime` so hosts know whether picked times are meaningful.
-- The composer never interprets what a selection means — hosts map it to their own range vocabulary (see `InsightDateFilterComposer` in the app for the PostHog-strings mapping).
-- `exclusions` / `onExclusionsChange` speak _excluded_ ISO days (`'1'`–`'7'`) + an `incomplete` flag; gate sections with `showExcludedDays` / `showIncompletePeriod` (the Exclude row disappears when both are off). The last included day can't be excluded — the chip disables instead of wiping the selection.
-- `composerExclusionParts(exclusions)` returns the summary as structured parts (`['weekends', 'incomplete']`) for hosts building their own labels; `composerExclusionsSummary` joins them for display. Don't parse the summary string.
-- `exactTime` / `onExactTimeChange` render the footer switch only when the handler is set — the semantics are host-owned.
-- `weekStartsOn` (0 = Sunday, 1 = Monday) drives the calendar grid and the This/Last week chip math — pass the team setting or the chips drift from the query.
-- `portalProps` (typed `DataAttributeProps`) spreads onto the portaled surfaces (exclusions flyout, unit dropdown) — pass skin opt-in attributes here, since portals escape wrapper-scoped selectors.
-- The "Include time" switch above the calendar is composer-local state; if the composer graduates, it should become a `showTimeToggle` prop on `DateTimePicker` (mirroring `DatePicker`).
-- When hosting in a quill `Popover`, pin the surface with `collisionAvoidance={{ side: 'flip', align: 'none', fallbackAxisSide: 'none' }}` so opening the calendar view (which widens the surface) doesn't shift the chips under the cursor.
 
 ## Metric
 

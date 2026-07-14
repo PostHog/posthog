@@ -9,7 +9,17 @@
 // in every app.
 
 export { DataTable, type DataTableProps } from './data-table'
-export { DateTimePicker, type DateTimePickerProps, type DateTimeValue, type DateFormatOrder } from './date-time-picker'
+export {
+    DateTimePicker,
+    dateRangeSelectionLabel,
+    type DataAttributeProps,
+    type DateFormatOrder,
+    type DateRangeChip,
+    type DateRangeSelection,
+    type DateTimeApplyValue,
+    type DateTimePickerProps,
+    type DateTimeValue,
+} from './date-time-picker'
 export { DatePicker, type DatePickerProps } from './date-picker'
 export { quickRanges, CUSTOM_RANGE, type DateTimeRange, type DateTimeRangeName } from './date-time-ranges'
 export { useCalendar, Day, Month, type UseCalendarOptions, type UseCalendarReturn } from './use-calendar'
@@ -19,18 +29,6 @@ export {
     type RelativeRangeUnit,
     type RelativeRangeValue,
 } from './relative-range-input'
-// CONCEPT — date filter redesign exploration, not a stable API (see date-range-composer.tsx).
-export {
-    DateRangeComposer,
-    composerExclusionParts,
-    composerExclusionsSummary,
-    composerSelectionLabel,
-    type DataAttributeProps,
-    type DateRangeComposerChip,
-    type DateRangeComposerExclusions,
-    type DateRangeComposerProps,
-    type DateRangeComposerSelection,
-} from './date-range-composer'
 // `Metric` is intentionally NOT re-exported here: it pulls `@posthog/quill-charts` (d3), and this
 // barrel is inlined into the always-eager `@posthog/quill` bundle. Import it from its own entry —
 // `@posthog/quill-components/metric` — so charts only loads where a metric tile is actually used.
