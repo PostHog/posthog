@@ -65,7 +65,9 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
         raise OpenRouterRetryableError(f"OpenRouter API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"OpenRouter API error: status={response.status_code}, body={response.text}, url={url}")
+        # Don't log the raw response body: several endpoints (api_keys/organization_members/workspaces)
+        # return sensitive management data and upstream error bodies can echo request context.
+        logger.error(f"OpenRouter API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -79,7 +81,9 @@ def get_key_info(api_key: str) -> dict[str, Any] | None:
     inference key can only read the public models/providers catalogs.
     """
     try:
-        response = make_tracked_session().get(_build_url("/key"), headers=_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            _build_url("/key"), headers=_headers(api_key), timeout=10
+        )
         if response.status_code == 200:
             data = response.json().get("data")
             return data if isinstance(data, dict) else {}
@@ -221,7 +225,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = OPENROUTER_ENDPOINTS[endpoint]
     headers = _headers(api_key)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.daily_activity:
         yield from _get_activity_rows(

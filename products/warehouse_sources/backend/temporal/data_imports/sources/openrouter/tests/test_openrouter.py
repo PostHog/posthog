@@ -44,7 +44,7 @@ class TestFetch:
     @pytest.fixture(autouse=True)
     def _instant_retry(self):
         # Zero the tenacity backoff so retry tests don't actually sleep.
-        with mock.patch.object(openrouter._fetch.retry, "wait", return_value=0):
+        with mock.patch.object(openrouter._fetch.retry, "wait", return_value=0):  # type: ignore[attr-defined]
             yield
 
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
