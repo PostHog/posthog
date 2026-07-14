@@ -627,22 +627,60 @@ function verifyUiHostReachability(
             ? 'posthog_api_host'
             : 'window_origin'
 
+    // Snapshot uiHost now: it's read again inside the async fetch handlers, which may
+    // run after the logic unmounts, and the kea selector throws once the store is gone.
+    const uiHost = values.uiHost
+
     const checkBaseProps = {
-        ui_host: values.uiHost,
+        ui_host: uiHost,
         api_host: values.apiHost,
         ui_host_source: uiHostSource,
         is_authenticated: values.isAuthenticated,
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+
+    const handleCheckError = (error: unknown, httpStatus?: number): void => {
+        actions.setAuthStatus('error')
+        const errorType = classifyFetchError(error)
+
+        toolbarPosthogJS.capture('toolbar ui host check', {
+            ...checkBaseProps,
+            status: 'error',
+            error_type: errorType,
+            http_status: httpStatus,
+            duration_ms: Date.now() - checkStart,
+        })
+
+        // A non-2xx response means the host is reachable but doesn't serve the
+        // check route (PostHog proxied under a subpath, or an older self-hosted
+        // version missing it). That's an expected misconfiguration we already
+        // record via the analytics event above, so we don't send it to error
+        // tracking where it would masquerade as a real exception (undebuggable
+        // "HTTP 404" noise). Genuine failures (network, CORS, timeout) still go
+        // through, enriched with the failing host so they're diagnosable.
+        if (errorType !== 'http_error') {
+            captureToolbarException(error, 'ui_host_check', {
+                error_type: errorType,
+                ui_host: uiHost,
+                ui_host_source: uiHostSource,
+            })
+        }
+
+        if (authParams) {
+            actions.openUiHostConfigModal()
+        }
+    }
+
+    void fetch(`${uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                handleCheckError(new Error(`HTTP ${response.status} from ${uiHost}`), response.status)
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
@@ -652,24 +690,11 @@ function verifyUiHostReachability(
             })
 
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(uiHost, authParams, actions)
             }
         })
         .catch((error: unknown) => {
-            actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'error',
-                error_type: classifyFetchError(error),
-                duration_ms: Date.now() - checkStart,
-            })
-
-            if (authParams) {
-                actions.openUiHostConfigModal()
-            }
+            handleCheckError(error)
         })
 }
 
