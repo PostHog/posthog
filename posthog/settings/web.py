@@ -1095,11 +1095,11 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
     )
 ]
 
-# Teams whose Web Overview queries skip the events↔sessions join when nothing in the
-# query (property filters, conversion goal, test-account filters, sampling) constrains
-# which sessions qualify. In that shape the join only multiplies cost: the sessions-side
-# subquery is re-executed per shard of the events cluster. Trial rollout is per-team via
-# comma-separated env var; default off everywhere.
-WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS: list[int] = [
-    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS", ""))
+# Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
+# when nothing in the query (property filters, conversion goal, test-account filters,
+# sampling) constrains which sessions qualify. In that shape the join only multiplies
+# cost: the sessions-side subquery is re-executed per shard of the events cluster. Trial
+# rollout is per-team via comma-separated env var; default off everywhere.
+WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", ""))
 ]

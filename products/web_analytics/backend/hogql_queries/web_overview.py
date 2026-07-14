@@ -1,10 +1,7 @@
 import math
 from typing import Optional, Union
 
-from django.conf import settings
-
 import structlog
-from prometheus_client import Counter
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
@@ -21,7 +18,10 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
+    WEB_ANALYTICS_NO_JOIN_SERVED,
+    WebAnalyticsQueryRunner,
+)
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -31,13 +31,6 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 )
 
 logger = structlog.get_logger(__name__)
-
-# Tracks how often the overview is served without the events↔sessions join, so the
-# trial rollout can be monitored against the join path it replaces.
-WEB_ANALYTICS_OVERVIEW_NO_JOIN = Counter(
-    "web_analytics_overview_no_join_total",
-    "Web overview queries served by the no-session-join fast path.",
-)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
@@ -54,37 +47,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery:
         if self.should_skip_session_join:
-            WEB_ANALYTICS_OVERVIEW_NO_JOIN.inc()
+            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
         return self.outer_select
-
-    @cached_property
-    def should_skip_session_join(self) -> bool:
-        """Whether this query can be served by two independent scans (events + sessions).
-
-        The events↔sessions join exists so that filters on events can constrain which
-        sessions contribute to session-level metrics (duration, bounce rate). When the
-        query has no filters at all, both sides can be aggregated independently: the
-        sessions table already carries duration/bounce/pageview-count per session, and
-        the join only multiplies cost — the sessions-side subquery is re-executed on
-        every shard of the events cluster (10× read amplification on US prod, measured
-        5.5-7× latency and ~25× memory vs the two-scan variant).
-        """
-        if self.team.pk not in settings.WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS:
-            return False
-        if self.query.conversionGoal:
-            return False
-        if self.query.properties:
-            return False
-        # Test-account filters are event/person property filters, so they constrain
-        # session membership the same way user filters do.
-        if self._test_account_filters:
-            return False
-        if self.query.samplingFactor and self.query.samplingFactor != 1:
-            return False
-        if self.query.sampling and (self.query.sampling.enabled or self.query.sampling.forceSamplingRate):
-            return False
-        return True
 
     @cached_property
     def no_join_select(self) -> ast.SelectQuery:

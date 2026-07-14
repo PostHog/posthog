@@ -1078,7 +1078,7 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
 
         kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
         with freeze_time(self.QUERY_TIMESTAMP):
-            with override_settings(WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS=[self.team.pk]):
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(**kwargs)
                 assert fast_runner.should_skip_session_join
                 fast_results = fast_runner.calculate().results
@@ -1106,7 +1106,7 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_no_join_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
-        with override_settings(WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(**query_kwargs)
             assert runner.should_skip_session_join == expected
 
@@ -1118,6 +1118,6 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
         ]
         self.team.save()
-        with override_settings(WEB_ANALYTICS_OVERVIEW_NO_JOIN_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(filterTestAccounts=True)
             assert not runner.should_skip_session_join
