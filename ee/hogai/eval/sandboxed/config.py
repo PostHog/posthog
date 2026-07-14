@@ -8,8 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
-class SandboxedEvalCase(BaseModel):
-    """A single eval case for the sandboxed coding agent."""
+class BaseEvalCase(BaseModel):
+    """A single eval case, independent of how its task executes.
+
+    Named ``BaseEvalCase`` (not ``EvalCase``) to avoid shadowing Braintrust's
+    ``EvalCase``, which the runners import alongside it.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -17,10 +21,7 @@ class SandboxedEvalCase(BaseModel):
     """Human-readable name for this eval case."""
 
     prompt: str
-    """Natural language task description for the agent."""
-
-    repo_fixture: str = ""
-    """Name of the repo fixture (informational, for tracking)."""
+    """Natural language task description for the agent or model."""
 
     expected: dict[str, Any] = Field(default_factory=dict)
     """Expected values for scoring, keyed by scorer ``_name()``.
@@ -31,6 +32,13 @@ class SandboxedEvalCase(BaseModel):
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     """Arbitrary metadata for tracking and filtering."""
+
+
+class SandboxedEvalCase(BaseEvalCase):
+    """A single eval case for the sandboxed coding agent."""
+
+    repo_fixture: str = ""
+    """Name of the repo fixture (informational, for tracking)."""
 
     setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
         default=None,

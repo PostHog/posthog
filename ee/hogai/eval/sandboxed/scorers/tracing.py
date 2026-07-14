@@ -218,6 +218,7 @@ def wrap_scorers(
     experiment_id: str,
     experiment_name: str,
     agent_trace_id_lookup: dict[str, str],
+    trace_namespace: str = "sandboxed-agent",
 ) -> tuple[list[Any], dict[tuple[str, str], str]]:
     """Wrap scorers with tracing.
 
@@ -225,13 +226,14 @@ def wrap_scorers(
 
     ``agent_trace_id_lookup`` maps case_name → agent trace_id. It's populated
     by the ``task()`` function and read by deterministic scorers to attach
-    their spans to the agent trace.
+    their spans to the agent trace. ``trace_namespace`` prefixes the experiment
+    name in trace metadata so eval kinds stay distinguishable in PostHog.
     """
     traced_clients = create_traced_scorer_clients(posthog_client)
     scorer_traces: dict[tuple[str, str], str] = {}
     eval_metadata = {
         "experiment_id": experiment_id,
-        "experiment_name": f"sandboxed-agent/{experiment_name}",
+        "experiment_name": f"{trace_namespace}/{experiment_name}",
     }
     wrapped = [
         TracedScorer(
