@@ -35,7 +35,7 @@ from posthog.hogql.test.utils import (
     pretty_print_response_in_tests,
 )
 
-from posthog.errors import InternalCHQueryError
+from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -2089,3 +2089,41 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.error, "debug failure")
         self.assertEqual(response.clickhouse, "")
         mock_sync_execute.assert_not_called()
+
+    def test_transient_s3_error_is_retried_once(self):
+        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+        with (
+            patch(
+                "posthog.hogql.query.sync_execute", side_effect=[transient_error, ([(1,)], [("1", "UInt8")])]
+            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            response = execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(mock_sync_execute.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    def test_transient_s3_error_raises_after_retry_fails(self):
+        transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
+        with (
+            patch("posthog.hogql.query.sync_execute", side_effect=transient_error) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep"),
+        ):
+            with self.assertRaises(CHQueryErrorS3Error):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_non_transient_errors_are_not_retried(self):
+        with (
+            patch(
+                "posthog.hogql.query.sync_execute", side_effect=InternalCHQueryError("Unknown error.", code=1000)
+            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()

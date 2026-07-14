@@ -15,7 +15,12 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import (
+    CHQueryErrorCannotScheduleTask,
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTooManySimultaneousQueries,
+)
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -430,6 +435,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
         CHQueryErrorCannotScheduleTask,
         ClickHouseAtCapacity,
         CHQueryErrorS3Error,
+        CHQueryErrorS3FileChangedDuringRead,
     ),
     retry_backoff=60,
     retry_backoff_max=1800,
