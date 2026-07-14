@@ -229,7 +229,8 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     const handleCellContextMenu = useCallback((event: React.MouseEvent<HTMLTableCellElement>) => {
         const text = extractCellText(event.currentTarget)
         if (!text) {
-            return // Nothing to copy — fall back to the browser's native context menu
+            setCellContextMenu(null) // Nothing to copy — close any open menu and fall back to the native one
+            return
         }
         event.preventDefault()
         setCellContextMenu({ element: event.currentTarget, text })

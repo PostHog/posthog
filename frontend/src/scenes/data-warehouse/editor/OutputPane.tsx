@@ -1089,10 +1089,12 @@ const Content = ({
     // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
     const handleGridCellContextMenu = useCallback((args: CellClickArgs<Record<string, any>>, event: CellMouseEvent) => {
         if (args.column.key === '__details') {
-            return // Not a data cell — fall back to the native context menu
+            setCellContextMenu(null) // Not a data cell — close any open menu and fall back to the native one
+            return
         }
         const value = args.row[args.column.key]
         if (value === null || value === undefined || value === '') {
+            setCellContextMenu(null) // Nothing to copy — close any open menu and fall back to the native one
             return
         }
         event.preventGridDefault()
