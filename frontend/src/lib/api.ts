@@ -176,6 +176,7 @@ import {
     ObjectMediaPreview,
     OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
+    OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
     OrganizationType,
@@ -235,6 +236,7 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
@@ -479,6 +481,13 @@ export class ApiRequest {
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
             .addEncodedPathComponent(featureFlagKey) // Never trust user input.
+    }
+
+    public copyOrganizationFeatureFlags(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations()
+            .addPathComponent(orgId)
+            .addPathComponent('feature_flags')
+            .addPathComponent('copy_flags')
     }
 
     public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
@@ -2583,6 +2592,12 @@ const api = {
             featureFlagKey: FeatureFlagType['key']
         ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
+        },
+        async copy(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            data: OrganizationFeatureFlagsCopyBody
+        ): Promise<CopyFlagsResponseApi> {
+            return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -4877,7 +4892,13 @@ const api = {
         },
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
-            data: { node_id: string; code: string; refs?: Record<string, string> }
+            data: {
+                node_id: string
+                code: string
+                refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                node_type?: 'hogql' | 'python'
+                output_name?: string
+            }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
@@ -4892,6 +4913,9 @@ const api = {
                 row_count?: number
                 first_page?: (string | number | null)[][]
                 has_more?: boolean
+                stdout?: string
+                stderr?: string
+                media?: { mime_type: string; data: string }[]
             } | null
             error: string | null
         }> {

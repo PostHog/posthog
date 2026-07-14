@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -57,7 +58,7 @@ class TestToCostLimitStatus:
 
 class TestUsageEndpoint:
     @pytest.fixture
-    def authenticated_usage_client(self, mock_db_pool: MagicMock) -> TestClient:
+    def authenticated_usage_client(self, mock_db_pool: MagicMock) -> Generator[TestClient]:
         app = create_test_app(mock_db_pool)
 
         conn = AsyncMock()
@@ -359,14 +360,43 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
 
-    def test_ai_credits_reported_unlimited_for_ungated_product(self, authenticated_usage_client: TestClient) -> None:
-        # posthog_code bills into its own credit bucket, not ai_credits; ai_credits
-        # should be unlimited and not contribute to is_rate_limited even if the
-        # resolver thinks the team is over.
+    def test_credits_reflect_products_own_bucket(self, authenticated_usage_client: TestClient) -> None:
+        # posthog_code's usage reports the posthog_code_credits bucket (under the
+        # legacy `ai_credits` response field), resolved against its own resource key.
+        # A usage-based plan is the population the bucket actually blocks.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
+        app.state.plan_resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key="posthog-code-usage-20260709", seat_created_at="2026-01-01T00:00:00+00:00")
+        )
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ai_credits"] == {"exhausted": True}
+        assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "posthog_code_credits"
+
+    @pytest.mark.parametrize("plan_key", ["posthog-code-200-20260301", "posthog-code-free-20260301", None])
+    def test_exhausted_bucket_not_reported_for_seat_covered_plans(
+        self, authenticated_usage_client: TestClient, plan_key: str | None
+    ) -> None:
+        # Mirrors BillableCreditThrottle's credit_bucket_scope check: the gateway lets
+        # seat-covered users through an exhausted posthog_code bucket, so the usage
+        # endpoint must not report them rate-limited — clients gate on this response.
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.plan_resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key=plan_key, seat_created_at="2026-01-01T00:00:00+00:00")
+        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -381,7 +411,8 @@ class TestUsageEndpoint:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
 
         response = authenticated_usage_client.get(
             "/v1/usage/slack_app",
@@ -391,6 +422,7 @@ class TestUsageEndpoint:
         data = response.json()
         assert data["ai_credits"] == {"exhausted": True}
         assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "ai_credits"
 
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app

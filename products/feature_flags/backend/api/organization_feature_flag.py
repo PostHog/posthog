@@ -130,6 +130,14 @@ class CopyFlagsRequestSerializer(serializers.Serializer):
 class CopyFlagsResultSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(required=False, help_text="Project ID (present on failure)")
     error_message = serializers.CharField(required=False, help_text="Error message (present on failure)")
+    approval_pending = serializers.BooleanField(
+        required=False,
+        help_text="True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved",
+    )
+    change_request_id = serializers.CharField(
+        required=False,
+        help_text="ID of the pending change request created in the target project (present when approval_pending is true)",
+    )
 
 
 class CopyFlagsSuccessItemSerializer(serializers.Serializer):
@@ -138,6 +146,9 @@ class CopyFlagsSuccessItemSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the feature flag")
     active = serializers.BooleanField(help_text="Whether the flag is active")
     team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+    updated_existing = serializers.BooleanField(
+        help_text="True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created"
+    )
     flag_dependency_warnings = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -521,6 +532,18 @@ class OrganizationFeatureFlagView(
                     if dependency_copy_warnings:
                         result["dependency_copy_warnings"] = dependency_copy_warnings
                     successful_projects.append(result)
+            except ApprovalRequired as e:
+                # The target project's approval policy gated this write: the copy hasn't been applied,
+                # but a change request was already created and will apply it once approved. Report it
+                # structurally so callers can distinguish "pending approval" from a hard failure.
+                failed_entry = {
+                    "project_id": target_project_id,
+                    "error_message": e.message,
+                    "approval_pending": True,
+                }
+                if e.change_request is not None:
+                    failed_entry["change_request_id"] = str(e.change_request.id)
+                failed_projects.append(failed_entry)
             except Exception as e:
                 failed_projects.append(
                     {
@@ -1371,6 +1394,7 @@ class OrganizationFeatureFlagView(
 
         result = dict(feature_flag_serializer.data)
         result["team_id"] = saved_flag.team_id
+        result["updated_existing"] = existing_flag is not None
         if schedule_copy_error:
             result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
         if schedule_dependency_warnings:

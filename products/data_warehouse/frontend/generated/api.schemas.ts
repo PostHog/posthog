@@ -84,6 +84,166 @@ export interface EnableWarehouseBackfillResponseApi {
     table_suffix: string
 }
 
+/**
+ * * `not_configured` - not_configured
+ * * `waiting` - waiting
+ * * `backfilling` - backfilling
+ * * `catching_up` - catching_up
+ * * `up_to_date` - up_to_date
+ * * `needs_attention` - needs_attention
+ * * `unknown` - unknown
+ */
+export type ManagedWarehouseReadinessStateEnumApi =
+    (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
+
+export const ManagedWarehouseReadinessStateEnumApi = {
+    NotConfigured: 'not_configured',
+    Waiting: 'waiting',
+    Backfilling: 'backfilling',
+    CatchingUp: 'catching_up',
+    UpToDate: 'up_to_date',
+    NeedsAttention: 'needs_attention',
+    Unknown: 'unknown',
+} as const
+
+/**
+ * * `events` - events
+ * * `persons` - persons
+ */
+export type DatasetEnumApi = (typeof DatasetEnumApi)[keyof typeof DatasetEnumApi]
+
+export const DatasetEnumApi = {
+    Events: 'events',
+    Persons: 'persons',
+} as const
+
+export interface ManagedWarehouseDatasetStatusApi {
+    /** Warehouse dataset represented by this status.
+     *
+     * * `events` - events
+     * * `persons` - persons */
+    dataset: DatasetEnumApi
+    /** User-facing readiness state for this dataset.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the current readiness state. */
+    detail: string
+    /** Number of historical backfill partitions completed successfully. */
+    completed_partitions: number
+    /**
+     * Expected historical partitions, or null while the range is being calculated.
+     * @nullable
+     */
+    total_partitions: number | null
+    /**
+     * Partition currently running or requiring attention, when applicable.
+     * @nullable
+     */
+    current_partition: string | null
+    /**
+     * When the durable backfill status last changed.
+     * @nullable
+     */
+    last_updated_at: string | null
+}
+
+export interface ManagedWarehouseSourceTableStatusApi {
+    /** Imported source schema identifier. */
+    schema_id: string
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Imported table name. */
+    table_name: string
+    /** User-facing warehouse readiness state for this table.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the table's readiness state. */
+    detail: string
+    /** Backfill chunks already copied into the warehouse. */
+    completed_chunks: number
+    /**
+     * Total backfill chunks, or null before the copy plan is ready.
+     * @nullable
+     */
+    total_chunks: number | null
+    /**
+     * Imported batches waiting to be applied, or null when queue status is unavailable.
+     * @nullable
+     */
+    pending_batches: number | null
+    /**
+     * Creation time of the oldest unapplied imported batch.
+     * @nullable
+     */
+    oldest_pending_at: string | null
+    /**
+     * When an imported batch was most recently applied to the warehouse.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * When PostHog most recently completed the upstream source import.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourcesStatusApi {
+    /** Rolled-up readiness state for imported source tables.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of imported source readiness. */
+    detail: string
+    /** Per-table source backfill and live import application statuses. */
+    tables: ManagedWarehouseSourceTableStatusApi[]
+}
+
+export interface ManagedWarehouseDataStatusResponseApi {
+    /** Highest-priority readiness state across all warehouse datasets.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Events backfill readiness. */
+    events: ManagedWarehouseDatasetStatusApi
+    /** Persons backfill readiness. */
+    persons: ManagedWarehouseDatasetStatusApi
+    /** Imported source table readiness. */
+    sources: ManagedWarehouseSourcesStatusApi
+    /** When this status snapshot was generated. */
+    generated_at: string
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
@@ -1794,6 +1954,8 @@ export interface CredentialApi {
  * * `TerraApi` - TerraApi
  * * `TriggerDev` - TriggerDev
  * * `Turso` - Turso
+ * * `Singular` - Singular
+ * * `Swonkie` - Swonkie
  * * `TwelveLabs` - TwelveLabs
  * * `Twenty` - Twenty
  * * `Unstructured` - Unstructured
@@ -1803,6 +1965,11 @@ export interface CredentialApi {
  * * `Windmill` - Windmill
  * * `Zep` - Zep
  * * `Hex` - Hex
+ * * `Sumsub` - Sumsub
+ * * `GoogleChat` - GoogleChat
+ * * `Kickscale` - Kickscale
+ * * `Zellify` - Zellify
+ * * `RudderStack` - RudderStack
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2553,6 +2720,8 @@ export const ExternalDataSourceTypeEnumApi = {
     TerraApi: 'TerraApi',
     TriggerDev: 'TriggerDev',
     Turso: 'Turso',
+    Singular: 'Singular',
+    Swonkie: 'Swonkie',
     TwelveLabs: 'TwelveLabs',
     Twenty: 'Twenty',
     Unstructured: 'Unstructured',
@@ -2562,6 +2731,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Windmill: 'Windmill',
     Zep: 'Zep',
     Hex: 'Hex',
+    Sumsub: 'Sumsub',
+    GoogleChat: 'GoogleChat',
+    Kickscale: 'Kickscale',
+    Zellify: 'Zellify',
+    RudderStack: 'RudderStack',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

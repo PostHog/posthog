@@ -57,7 +57,6 @@ class InstatusSource(ResumableSource[InstatusSourceConfig, InstatusResumeConfig]
             iconPath="/static/services/instatus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/instatus",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

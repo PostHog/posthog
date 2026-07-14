@@ -98,7 +98,6 @@ You can create a personal access token with **Read** access under **Account sett
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

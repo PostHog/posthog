@@ -37,8 +37,6 @@ class TestSourceConfig:
         assert config.label == "Teamwork"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden from users until it's shipped released.
-        assert config.unreleasedSource is True
 
     def test_fields_are_site_and_api_key(self) -> None:
         fields = TeamworkSource().get_source_config.fields
