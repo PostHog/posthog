@@ -1,8 +1,7 @@
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -18,6 +17,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ArtefactContent,
     ArtefactContentValidationError,
@@ -672,44 +672,6 @@ class SignalEmissionRecord(UUIDModel):
         ]
 
 
-@dataclass(frozen=True)
-class ArtefactAttribution:
-    """Who (or what) produced an artefact — exactly one of a user, a task, or the system.
-
-    Required on every artefact write helper so no write site can silently skip attribution:
-    callers must consciously pick `from_user` / `from_task` / `system()`. System attribution
-    covers pipeline writers with neither in scope (e.g. the safety judge); it stores NULLs,
-    indistinguishable from legacy rows by design.
-    """
-
-    kind: Literal["user", "task", "system"]
-    user_id: int | None = None
-    task_id: str | None = None
-
-    def __post_init__(self) -> None:
-        match self.kind:
-            case "user":
-                valid = self.user_id is not None and self.task_id is None
-            case "task":
-                valid = self.task_id is not None and self.user_id is None
-            case _:
-                valid = self.user_id is None and self.task_id is None
-        if not valid:
-            raise ValueError(f"ArtefactAttribution kind {self.kind!r} does not match its id fields")
-
-    @classmethod
-    def from_user(cls, user_id: int) -> "ArtefactAttribution":
-        return cls(kind="user", user_id=user_id)
-
-    @classmethod
-    def from_task(cls, task_id: str) -> "ArtefactAttribution":
-        return cls(kind="task", task_id=str(task_id))
-
-    @classmethod
-    def system(cls) -> "ArtefactAttribution":
-        return cls(kind="system")
-
-
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -726,6 +688,7 @@ class SignalReportArtefact(UUIDModel):
         NOTE = "note"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
+        CODE_REVIEW = "code_review"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -755,6 +718,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.NOTE,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
+            ArtefactType.CODE_REVIEW,
         }
     )
 

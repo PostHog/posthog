@@ -354,6 +354,7 @@ export interface UserType extends UserBaseType {
     is_impersonated: boolean
     is_impersonated_until?: string
     is_impersonated_read_only?: boolean
+    is_impersonated_reason?: string | null
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -4728,6 +4729,17 @@ export interface PropertyDefinition {
     verified_by?: string
     hidden?: boolean
     virtual?: boolean
+    // Provenance when a person property is populated from a data warehouse source. Read-only.
+    warehouse_origin?: WarehousePropertyOrigin | null
+}
+
+export interface WarehousePropertyOrigin {
+    source_id?: string
+    schema_id?: string
+    table_name?: string
+    column?: string
+    custom_property_source_id?: string
+    last_synced_at?: string
 }
 
 export enum PropertyDefinitionState {
@@ -5411,6 +5423,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -6914,7 +6927,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
-    | ProductKey.MCP_ANALYTICS,
+    | ProductKey.MCP_ANALYTICS
+    | ProductKey.CONVERSATIONS,
     OnboardingProduct
 >
 
@@ -6945,6 +6959,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
