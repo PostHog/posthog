@@ -92,9 +92,9 @@ def get_one_event(team: Team, pk: str) -> Optional[dict]:
             right=ast.Constant(value=uuid.UUID(pk)),
         ),
     )
-    database = Database(timezone="UTC")
-    context = HogQLContext(team_id=team.pk, database=database, enable_select_queries=True)
-    result = execute_hogql_query(query, team=team, query_type="event_detail", context=context)
+    modifiers = create_default_modifiers_for_team(team)
+    modifiers.convertToProjectTimezone = False
+    result = execute_hogql_query(query, team=team, query_type="event_detail", modifiers=modifiers)
     if not result.results:
         return None
     return dict(zip(EVENT_LIST_SELECT_COLUMNS, result.results[0]))
@@ -114,8 +114,9 @@ class LegacyEventsListQuery:
         self.team = team
         self.user = user
         self.modifiers: HogQLQueryModifiers = create_default_modifiers_for_team(team)
+        # Return raw UTC timestamps instead of shifting DateTime columns into the project timezone.
+        self.modifiers.convertToProjectTimezone = False
         self.database = Database.create_for(team=team, user=user, modifiers=self.modifiers)
-        self.database._timezone = str(ZoneInfo("UTC"))
 
     def run(
         self,
