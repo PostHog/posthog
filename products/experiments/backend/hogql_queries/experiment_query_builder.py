@@ -617,8 +617,8 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().build_exposure_predicate()
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder().select_query()
+    def _get_exposure_query(self, attribution_fields: list[tuple[str, ast.Expr]] | None = None) -> ast.SelectQuery:
+        return self._exposure_query_builder().select_query(attribution_fields=attribution_fields)
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
         return self._exposure_query_builder()._build_exposure_select_query()

@@ -186,24 +186,16 @@ class FunnelQueryBuilder:
             )
         """
 
-        # Build exposure query, adding exposure_identifier for DW funnels
-        exposure_query = self._b._get_exposure_query()
+        # Build exposure query, adding exposure_identifier for DW funnels. The identifier is attributed
+        # to the first exposure via argMin — this prevents fan-out when a user has multiple exposures with
+        # different join key values, without adding it to GROUP BY.
+        attribution_fields: list[tuple[str, ast.Expr]] = []
         if has_dw_steps:
             # All DW steps are validated to use the same events_join_key
             first_dw_step = next(s for s in self._b.metric.series if isinstance(s, ExperimentDataWarehouseNode))
             events_join_key_parts = cast(list[str | int], first_dw_step.events_join_key.split("."))
-
-            # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-            # This prevents fan-out when a user has multiple exposures with different join key values
-            exposure_query.select.append(
-                ast.Alias(
-                    alias="exposure_identifier",
-                    expr=ast.Call(
-                        name="argMin",
-                        args=[ast.Field(chain=events_join_key_parts), ast.Field(chain=["timestamp"])],
-                    ),
-                )
-            )
+            attribution_fields.append(("exposure_identifier", ast.Field(chain=events_join_key_parts)))
+        exposure_query = self._b._get_exposure_query(attribution_fields=attribution_fields)
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._b._build_exposure_predicate(),
