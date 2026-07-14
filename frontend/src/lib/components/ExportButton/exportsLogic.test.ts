@@ -111,6 +111,9 @@ describe('exportsLogic', () => {
             toast: { fn: 'success' | 'error'; args: any[] }
             expectsDownload: boolean
             freshIds: number[]
+            // Blocking formats (CSV/XLSX) show an immediate "Export starting…" toast on kickoff that
+            // the outcome then replaces; long-running video renders return fast and skip it.
+            expectsStartingToast: boolean
         }[] = [
             {
                 label: 'async export is acknowledged immediately and tracked as undownloaded',
@@ -122,14 +125,16 @@ describe('exportsLogic', () => {
                 },
                 expectsDownload: false,
                 freshIds: [11],
+                expectsStartingToast: false,
             },
             {
-                label: 'blocking export with content is downloaded and confirmed',
+                label: 'blocking export with content is acknowledged, downloaded, and confirmed',
                 response: asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true }),
                 format: ExporterFormat.CSV,
                 toast: { fn: 'success', args: ['Export complete!'] },
                 expectsDownload: true,
                 freshIds: [],
+                expectsStartingToast: true,
             },
             {
                 label: 'export that failed in the request surfaces the error',
@@ -138,31 +143,45 @@ describe('exportsLogic', () => {
                 toast: { fn: 'error', args: ['Export failed: boom'] },
                 expectsDownload: false,
                 freshIds: [],
+                expectsStartingToast: false,
             },
             {
-                label: 'create request that throws surfaces the error from the catch',
+                label: 'blocking export that throws is acknowledged then surfaces the error from the catch',
                 rejectWith: new Error('network down'),
-                format: ExporterFormat.MP4,
+                format: ExporterFormat.CSV,
                 toast: { fn: 'error', args: ['Export failed: network down'] },
                 expectsDownload: false,
                 freshIds: [],
+                expectsStartingToast: true,
             },
         ]
 
-        it.each(createCases)('$label', async ({ response, rejectWith, format, toast, expectsDownload, freshIds }) => {
-            const createSpy = jest.spyOn(api.exports, 'create')
-            if (rejectWith) {
-                createSpy.mockRejectedValue(rejectWith)
-            } else {
-                createSpy.mockResolvedValue(response!)
+        it.each(createCases)(
+            '$label',
+            async ({ response, rejectWith, format, toast, expectsDownload, freshIds, expectsStartingToast }) => {
+                const createSpy = jest.spyOn(api.exports, 'create')
+                if (rejectWith) {
+                    createSpy.mockRejectedValue(rejectWith)
+                } else {
+                    createSpy.mockResolvedValue(response!)
+                }
+
+                logic.actions.createExport({ exportData: { export_format: format } })
+                await flush()
+
+                if (expectsStartingToast) {
+                    expect(lemonToast.info).toHaveBeenCalledWith(
+                        'Export starting…',
+                        expect.objectContaining({ toastId: expect.any(String) })
+                    )
+                    expect(lemonToast.dismiss).toHaveBeenCalled()
+                } else {
+                    expect(lemonToast.info).not.toHaveBeenCalledWith('Export starting…', expect.anything())
+                }
+                expect(lemonToast[toast.fn]).toHaveBeenCalledWith(...toast.args)
+                expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
             }
-
-            logic.actions.createExport({ exportData: { export_format: format } })
-            await flush()
-
-            expect(lemonToast[toast.fn]).toHaveBeenCalledWith(...toast.args)
-            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
-            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
-        })
+        )
     })
 })

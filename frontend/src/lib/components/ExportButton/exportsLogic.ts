@@ -8,6 +8,7 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
@@ -207,6 +208,16 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: ({ exportData }) => {
+                    // Synchronous exports (CSV/XLSX/PNG…) block on the create request while the backend
+                    // renders them, so acknowledge the kickoff right away — otherwise the user clicks
+                    // Export and sees nothing until the request returns. Long-running formats (video
+                    // renders) return immediately and are acknowledged by the branch below instead.
+                    const isBlockingFormat = !isLongRunningExportFormat(exportData.export_format)
+                    const startingToastId = `export-starting-${uuid()}`
+                    if (isBlockingFormat) {
+                        lemonToast.info('Export starting…', { toastId: startingToastId, autoClose: false })
+                    }
+
                     void (async () => {
                         try {
                             const response = await api.exports.create({
@@ -220,6 +231,9 @@ export const exportsLogic = kea<exportsLogicType>([
                             const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                             actions.loadExportsSuccess(updatedExports)
+
+                            // Replace the kickoff acknowledgment with the outcome.
+                            lemonToast.dismiss(startingToastId)
 
                             if (response && response.has_content) {
                                 // Blocking export already finished in the request — download and confirm.
@@ -239,6 +253,7 @@ export const exportsLogic = kea<exportsLogicType>([
                                 actions.addFresh(response)
                             }
                         } catch (error) {
+                            lemonToast.dismiss(startingToastId)
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
