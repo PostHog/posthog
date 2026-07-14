@@ -18,7 +18,7 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 
 ### Common pitfalls
 
-- **`information_schema` needs the fully-qualified `table_name`:** a `system.*` entity is `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
+- **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
 
 ### Format SQL for readability
 
