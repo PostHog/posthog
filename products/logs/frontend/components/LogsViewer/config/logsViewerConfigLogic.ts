@@ -8,6 +8,7 @@ import {
     DEFAULT_LOGS_COLUMNS,
     LogsColumnConfig,
     migrateAttributeColumns,
+    normalizeColumns,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { LogsViewerConfig, LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -31,6 +32,11 @@ export const DEFAULT_ORDER_BY: LogsOrderBy = 'latest'
 
 export type LogsViewerViewMode = 'logs' | 'patterns' | 'group'
 export const DEFAULT_VIEW_MODE: LogsViewerViewMode = 'logs'
+
+// Patterns compare-mode baseline: 'lastWeek' omits the explicit range so the backend defaults
+// to the same window one week earlier (absorbs daily/weekly cycles); 'preceding' compares
+// against the window immediately before the current one (the post-deploy / spike comparison).
+export type PatternsBaselineMode = 'lastWeek' | 'preceding'
 
 export interface LogsViewerGroupBy {
     key: string
@@ -60,6 +66,8 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
         setGroupBy: (groupBy: LogsViewerGroupBy | null) => ({ groupBy }),
+        setCompareEnabled: (enabled: boolean) => ({ enabled }),
+        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
 
         // Typed columns (unified column model)
         setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
@@ -114,12 +122,27 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 setViewMode: (_, { viewMode }) => viewMode,
             },
         ],
+        // Compare state lives here (not in logsPatternsLogic) so the choice survives
+        // Logs↔Patterns switches within a visit — the patterns logic unmounts when leaving
+        // the lens. Not persisted, like viewMode and groupBy.
+        compareEnabled: [
+            false,
+            {
+                setCompareEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        baselineMode: [
+            'lastWeek' as PatternsBaselineMode,
+            {
+                setBaselineMode: (_, { mode }) => mode,
+            },
+        ],
         columns: [
             DEFAULT_LOGS_COLUMNS,
             { persist: true },
             {
-                setColumns: (_, { columns }) => columns,
-                addColumn: (state, { column }) => [...state, column],
+                setColumns: (_, { columns }) => normalizeColumns(columns),
+                addColumn: (state, { column }) => normalizeColumns([...state, column]),
                 removeColumn: (state, { id }) => state.filter((column) => column.id !== id),
                 setColumnWidth: (state, { id, width }) =>
                     state.map((column) => (column.id === id ? { ...column, width } : column)),
@@ -131,7 +154,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                     }
                     const next = [...state]
                     ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
-                    return next
+                    return normalizeColumns(next)
                 },
             },
         ],

@@ -97,7 +97,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     connect(({ id }: TracingDataLogicProps) => ({
         values: [
             tracingFiltersLogic({ id }),
-            ['filters', 'orderBy', 'utcDateRange', 'queryFilterGroup', 'currentWindowMs', 'previousWindowMs'],
+            [
+                'filters',
+                'orderBy',
+                'utcDateRange',
+                'queryFilterGroup',
+                'sparklineWindowMs',
+                'currentWindowMs',
+                'previousWindowMs',
+                'compareActive',
+                'timeComparison',
+            ],
         ],
     })),
 
@@ -430,7 +440,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             compareFilter: {
-                                compare: values.filters.compareMode,
+                                compare: values.timeComparison !== null,
                                 compare_to: new Date(previousStartMs).toISOString(),
                             },
                         },
@@ -449,22 +459,34 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         aggregation: [
             { current: [] as AggregatedSpanRow[], previous: null as AggregatedSpanRow[] | null },
             {
-                fetchAggregation: async () => {
+                // `fullRange` (the Operations tab) ignores any active comparison: the aggregate
+                // covers the whole selected range with no compare period, matching the rate
+                // denominator the OperationsTable divides by.
+                fetchAggregation: async (options?: { fullRange?: boolean } | null) => {
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
+
+                    const fullRange = options?.fullRange ?? false
+                    const currentWindow = fullRange ? values.sparklineWindowMs : values.currentWindowMs
+                    const compare = !fullRange && values.timeComparison !== null
 
                     // Snapshot the resolved windows so the drill-down flame query uses the
                     // same absolute timestamps as this aggregation, even if the user's
                     // relative `-1h` range has since shifted forward in time. Dispatched
                     // BEFORE the await so a concurrent `fetchSpanTree` (e.g. fired from the
-                    // same `setOverlayWindows` listener) reads the new window, not the old.
+                    // same `updateComparisonWindows` listener) reads the new window, not the
+                    // old. Full-range (Operations) fetches skip it — the flame drill-down
+                    // only exists on the traces tab and must stay aligned with the compare
+                    // aggregation, not the operations one.
                     const window = {
-                        currentStartMs: values.currentWindowMs.startMs,
-                        currentEndMs: values.currentWindowMs.endMs,
+                        currentStartMs: currentWindow.startMs,
+                        currentEndMs: currentWindow.endMs,
                         previousStartMs: values.previousWindowMs.startMs,
                         previousEndMs: values.previousWindowMs.endMs,
                     }
-                    actions.setLastAggregationWindow(window)
+                    if (!fullRange) {
+                        actions.setLastAggregationWindow(window)
+                    }
 
                     const response = await api.tracing.aggregate(
                         {
@@ -476,7 +498,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             compareFilter: {
-                                compare: values.filters.compareMode,
+                                compare,
                                 compare_to: new Date(window.previousStartMs).toISOString(),
                             },
                         },
@@ -672,11 +694,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         ],
         // Single owner of the "show the duration histogram?" rule — the fetch decision, the
         // highlight selector, and the scene's rendering all derive from this one place.
-        // Compare mode replaces the span list with the aggregate table, so the histogram
+        // An active comparison replaces the span list with the aggregate table, so the histogram
         // (which mirrors the duration-sorted list) only applies outside it.
         isDurationMode: [
-            (s) => [s.filters],
-            (filters: TracingFilters): boolean => filters.orderBy === 'duration' && !filters.compareMode,
+            (s) => [s.filters, s.compareActive],
+            (filters: TracingFilters, compareActive: boolean): boolean =>
+                filters.orderBy === 'duration' && !compareActive,
         ],
 
         // Duration range covered by the currently-visible rows — the duration-space sibling of
@@ -741,7 +764,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             if (values.isDurationMode) {
                 actions.fetchDurationHistogram()
             }
-            if (values.filters.compareMode) {
+            if (values.compareActive) {
                 actions.fetchAggregation()
             } else {
                 actions.fetchSpans()

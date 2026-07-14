@@ -1,12 +1,17 @@
 import datetime as dt
 
 from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
 
 from django.utils import timezone
 
-from posthog.temporal.ai_observability.eval_reports.activities import _period_for_scheduled_report
+from posthog.temporal.ai_observability.eval_reports.activities import (
+    _check_count_triggered_eval_report_sync,
+    _fetch_count_triggered_eval_report_candidate_ids,
+    _period_for_scheduled_report,
+)
 
-from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 
@@ -141,6 +146,88 @@ class TestPrepareReportContext(BaseTest):
         result = _prepare_sync(str(report.id))
         self.assertEqual(result["evaluation_name"], "Test Eval")
         self.assertEqual(result["team_id"], self.team.id)
+
+
+class TestCountTriggeredReportChecks(BaseTest):
+    def _create_report(self, **kwargs) -> EvaluationReport:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        defaults = {
+            "team": self.team,
+            "evaluation": evaluation,
+            "frequency": EvaluationReport.Frequency.EVERY_N,
+            "rrule": "",
+            "starts_at": None,
+            "trigger_threshold": 100,
+            "delivery_targets": [{"type": "email", "value": "test@example.com"}],
+        }
+        defaults.update(kwargs)
+        return EvaluationReport.objects.create(**defaults)
+
+    def test_fetch_candidates_returns_only_deliverable_count_triggered_reports(self):
+        count_triggered_report = self._create_report()
+        self._create_report(enabled=False)
+        self._create_report(
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            report_ids = _fetch_count_triggered_eval_report_candidate_ids()
+
+        self.assertEqual(report_ids, [str(count_triggered_report.id)])
+        execute_hogql_query.assert_not_called()
+
+    def test_check_report_returns_due_when_threshold_is_crossed(self):
+        report = self._create_report(trigger_threshold=100)
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            execute_hogql_query.return_value = Mock(results=[[100]])
+            result = _check_count_triggered_eval_report_sync(str(report.id), timezone.now())
+
+        self.assertTrue(result.due)
+        self.assertIsNone(result.skipped_reason)
+        execute_hogql_query.assert_called_once()
+
+    def test_check_report_skips_cooldown_without_clickhouse_query(self):
+        now = timezone.now()
+        report = self._create_report(
+            last_delivered_at=now - dt.timedelta(minutes=5),
+            cooldown_minutes=60,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertFalse(result.due)
+        self.assertEqual(result.skipped_reason, "cooldown")
+        execute_hogql_query.assert_not_called()
+
+    def test_check_report_skips_daily_cap_without_clickhouse_query(self):
+        now = timezone.now()
+        report = self._create_report(daily_run_cap=1)
+        EvaluationReportRun.objects.create(
+            report=report,
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertFalse(result.due)
+        self.assertEqual(result.skipped_reason, "daily_cap")
+        execute_hogql_query.assert_not_called()
 
 
 class TestPeriodForScheduledReport(BaseTest):

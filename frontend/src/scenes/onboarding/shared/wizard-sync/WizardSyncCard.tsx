@@ -36,6 +36,9 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     if (progress.phase === 'error') {
         return <IconWarning className="text-danger text-xl shrink-0" />
     }
+    if (progress.prMerged) {
+        return <IconPullRequest className="text-purple text-xl shrink-0" />
+    }
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
 

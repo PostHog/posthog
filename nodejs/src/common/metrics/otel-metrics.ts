@@ -1,5 +1,4 @@
 import { Counter, metrics as metricsApi } from '@opentelemetry/api'
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
@@ -8,6 +7,9 @@ import { hostname } from 'os'
 import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 import { registerShutdownHandler } from '~/lifecycle'
+
+import { counterWithExemplars } from './exemplars'
+import { OtlpJsonMetricExporter } from './otlp-json-exporter'
 
 /**
  * OTLP metrics push — the same OTel-SDK path customers use, pointed at our own
@@ -43,7 +45,10 @@ export const initMetrics = (): void => {
         }),
         readers: [
             new PeriodicExportingMetricReader({
-                exporter: new OTLPMetricExporter({
+                // Not the stock OTLPMetricExporter: the upstream JS pipeline drops
+                // exemplars, and the metric-to-trace pivot needs them (see the
+                // exporter's docstring).
+                exporter: new OtlpJsonMetricExporter({
                     url: defaultConfig.OTEL_METRICS_EXPORT_URL,
                     headers: { Authorization: `Bearer ${defaultConfig.OTEL_METRICS_EXPORT_TOKEN}` },
                 }),
@@ -73,9 +78,12 @@ export function recordPiiReplacements(source: string, count: number): void {
         return
     }
     if (piiReplacementsCounter === null) {
-        piiReplacementsCounter = metricsApi.getMeter('logs-ingestion').createCounter('logs_pii_replacements_total', {
-            description: 'PII values replaced by the ingest scrubber, by pipeline source (logs | traces).',
-        })
+        piiReplacementsCounter = counterWithExemplars(
+            'logs_pii_replacements_total',
+            metricsApi.getMeter('logs-ingestion').createCounter('logs_pii_replacements_total', {
+                description: 'PII values replaced by the ingest scrubber, by pipeline source (logs | traces).',
+            })
+        )
     }
     piiReplacementsCounter.add(count, { source })
 }
