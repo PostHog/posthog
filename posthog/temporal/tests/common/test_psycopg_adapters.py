@@ -1,13 +1,10 @@
 import uuid
 
-import pytest
-
-from posthog.temporal.common.psycopg_adapters import warm_up_psycopg_adapters
-
-# psycopg3 is the production driver; skip where only psycopg2 is installed.
-postgres = pytest.importorskip("psycopg.postgres")
+from psycopg import postgres
 from psycopg.adapt import AdaptersMap, PyFormat
 from psycopg.types.uuid import register_default_adapters
+
+from posthog.temporal.common.psycopg_adapters import warm_up_psycopg_adapters
 
 
 def _fresh_adapters_map() -> AdaptersMap:
