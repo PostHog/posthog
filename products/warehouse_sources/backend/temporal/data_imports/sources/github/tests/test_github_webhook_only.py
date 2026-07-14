@@ -58,7 +58,9 @@ def test_poll_mode_workflow_runs_still_polls() -> None:
             resumable_source_manager=_no_resume(),
             webhook_source_manager=webhook_source_manager,
         )
-        list(response.items())
+        result = response.items()
+        assert isinstance(result, Iterable)  # poll path is a sync iterator
+        list(result)
 
     fetch_page.assert_called()
     webhook_source_manager.get_items.assert_not_called()
