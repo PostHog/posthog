@@ -1081,9 +1081,13 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         api_key = self.create_personal_api_key_with_scopes(["llm_prompt:write"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
-        response = self._set_label("my-prompt", "production", 1)
+        put_response = self._set_label("my-prompt", "production", 1)
+        # DELETE is a mapped method on the set_label action; it must share the
+        # action's required_scopes rather than fall back to "not supported" 403.
+        delete_response = self.client.delete(self._label_url("my-prompt", "production"))
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert put_response.status_code == status.HTTP_201_CREATED
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
 
 class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
