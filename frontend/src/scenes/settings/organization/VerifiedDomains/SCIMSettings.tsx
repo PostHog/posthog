@@ -13,6 +13,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -29,12 +30,14 @@ export function SCIMSettings(): JSX.Element {
         scimPlaintextToken,
         verifiedDomainsList,
     } = useValues(verifiedDomainsLogic)
+    const { preflight } = useValues(preflightLogic)
     const { regenerateScimToken, setScimLogsModalId } = useActions(verifiedDomainsLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
     const selectedDomains = verifiedDomainsList.filter(({ id }) => scimConfig.domain_ids.includes(id))
+    const siteUrl = (preflight?.site_url ?? window.location.origin).replace(/\/$/, '')
 
     return (
         <section className="space-y-3">
@@ -61,47 +64,56 @@ export function SCIMSettings(): JSX.Element {
                     </Link>
                 ) : (
                     <Form logic={verifiedDomainsLogic} formKey="scimConfig" enableFormOnSubmit className="space-y-4">
-                        <IdentityProviderDomainPicker />
                         <LemonField name="scim_enabled" label="Provisioning status">
                             {({ value, onChange }) => (
                                 <LemonSwitch
                                     checked={value || false}
                                     onChange={onChange}
-                                    label={value ? 'SCIM provisioning enabled' : 'SCIM provisioning disabled'}
+                                    label="SCIM provisioning"
                                 />
                             )}
                         </LemonField>
-                        {selectedDomains.length > 0 && (
-                            <div className="rounded border p-4 space-y-3">
-                                <h3>SCIM base URLs</h3>
-                                {selectedDomains.map((domain) => (
-                                    <div key={domain.id} className="flex flex-wrap items-center justify-between gap-2">
-                                        <div>
-                                            <div className="font-semibold">{domain.domain}</div>
-                                            {domain.scim_base_url ? (
-                                                <CopyToClipboardInline>{domain.scim_base_url}</CopyToClipboardInline>
-                                            ) : (
-                                                <span className="text-muted">
-                                                    Save and enable this configuration to generate the URL.
-                                                </span>
-                                            )}
-                                        </div>
-                                        {domain.scim_base_url && (
-                                            <LemonButton size="small" onClick={() => setScimLogsModalId(domain.id)}>
-                                                View logs
-                                            </LemonButton>
-                                        )}
+                        {scimConfig.scim_enabled && (
+                            <>
+                                <IdentityProviderDomainPicker />
+                                {selectedDomains.length > 0 && (
+                                    <div className="rounded border p-4 space-y-3">
+                                        <h3>SCIM base URLs</h3>
+                                        {selectedDomains.map((domain) => {
+                                            const scimBaseUrl =
+                                                domain.scim_base_url ?? `${siteUrl}/scim/v2/${domain.id}`
+
+                                            return (
+                                                <div
+                                                    key={domain.id}
+                                                    className="flex flex-wrap items-center justify-between gap-2"
+                                                >
+                                                    <div>
+                                                        <div className="font-semibold">{domain.domain}</div>
+                                                        <CopyToClipboardInline>{scimBaseUrl}</CopyToClipboardInline>
+                                                    </div>
+                                                    {scimConfig.id && (
+                                                        <LemonButton
+                                                            size="small"
+                                                            onClick={() => setScimLogsModalId(domain.id)}
+                                                        >
+                                                            View logs
+                                                        </LemonButton>
+                                                    )}
+                                                </div>
+                                            )
+                                        })}
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                        {scimPlaintextToken && (
-                            <LemonBanner type="success">
-                                <div className="space-y-2">
-                                    <p>Copy this bearer token now. It will not be shown again.</p>
-                                    <CopyToClipboardInline>{scimPlaintextToken}</CopyToClipboardInline>
-                                </div>
-                            </LemonBanner>
+                                )}
+                                {scimPlaintextToken && (
+                                    <LemonBanner type="success">
+                                        <div className="space-y-2">
+                                            <p>Copy this bearer token now. It will not be shown again.</p>
+                                            <CopyToClipboardInline>{scimPlaintextToken}</CopyToClipboardInline>
+                                        </div>
+                                    </LemonBanner>
+                                )}
+                            </>
                         )}
                         <div className="flex flex-wrap gap-2">
                             <LemonButton

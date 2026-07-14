@@ -70,10 +70,11 @@ async function saveIdentityProviderConfig(
     const savedConfig = id
         ? await identityProviderConfigsPartialUpdate(organizationId, id, config)
         : await identityProviderConfigsCreate(organizationId, config)
-    return identityProviderConfigsDomainsPartialUpdate(organizationId, savedConfig.id, {
+    const configWithDomains = await identityProviderConfigsDomainsPartialUpdate(organizationId, savedConfig.id, {
         kind,
         domain_ids: domainIds,
     })
+    return { ...configWithDomains, scim_bearer_token: savedConfig.scim_bearer_token }
 }
 
 export const isSecureURL = (url: string): boolean => {
