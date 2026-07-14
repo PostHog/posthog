@@ -54,6 +54,11 @@ class CuratedGitHubSource:
         """The team this handle reads for — query builders need it for timezone-aware date parsing."""
         return self._team
 
+    @property
+    def repository(self) -> str:
+        """The selected source's ``owner/name`` identity for reads outside the warehouse."""
+        return self._tables.repository
+
     @classmethod
     def for_team(
         cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None

@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    CurrentBranchHealth,
     FlakyTestItem,
     FlakyTestList,
     GitHubSource,
@@ -877,6 +878,24 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "open_to_merge_series_granularity": {
                 "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class CurrentBranchHealthSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CurrentBranchHealth
+        extra_kwargs = {
+            "default_branch": {
+                "help_text": "Detected default branch ('master' or 'main') from runs in the same 24-hour window."
+            },
+            "settled_workflows": {"help_text": "Workflows with at least one completed run in the last 24 hours."},
+            "failing_workflows": {
+                "help_text": "Workflows whose latest completed run in the last 24 hours failed or timed out."
+            },
+            "failing_workflow_names": {
+                "help_text": "Alphabetical preview of failing workflow names, capped at 20; use failing_workflows "
+                "for the complete count."
             },
         }
 

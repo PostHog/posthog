@@ -1036,19 +1036,6 @@
                 }
             ]
         },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
         "AnyEntityNode<LifecycleDataWarehouseNode>": {
             "anyOf": [
                 {
@@ -17208,6 +17195,7 @@
                     "type": "object"
                 },
                 "format": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 },
                 "id": {
@@ -17237,10 +17225,11 @@
                     "type": "string"
                 },
                 "url_pattern": {
+                    "description": "Absent for a dual-mode source's virtual tables, which have no synced S3 backing.",
                     "type": "string"
                 }
             },
-            "required": ["fields", "format", "id", "name", "type", "url_pattern"],
+            "required": ["fields", "id", "name", "type"],
             "type": "object"
         },
         "DatabaseSchemaEndpointTable": {
@@ -23252,7 +23241,12 @@
                 "Zep",
                 "Hex",
                 "Singular",
-                "Swonkie"
+                "Swonkie",
+                "Sumsub",
+                "GoogleChat",
+                "Kickscale",
+                "Zellify",
+                "RudderStack"
             ],
             "type": "string"
         },
@@ -23536,6 +23530,7 @@
                 "conversations",
                 "toolbar",
                 "visual_review",
+                "code_review",
                 "settings",
                 "health",
                 "inbox",
@@ -24651,14 +24646,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsQuerySeriesNode"
                     },
                     "type": "array"
                 },
@@ -24729,6 +24717,30 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsQuerySeriesNode": {
+            "$ref": "#/definitions/FunnelsQuerySeriesNodeUnion"
+        },
+        "FunnelsQuerySeriesNodeUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -25269,7 +25281,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -25376,7 +25388,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "debug": {
@@ -25521,7 +25533,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
+                    "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
                 "explain": {
@@ -26829,6 +26841,7 @@
                 "customerio-app",
                 "customerio-webhook",
                 "customerio-track",
+                "apns",
                 "postgresql",
                 "aws-s3",
                 "s3-compatible"
@@ -33438,6 +33451,7 @@
                 "product_analytics",
                 "product_tours",
                 "revenue_analytics",
+                "review_hog",
                 "session_replay",
                 "replay_vision",
                 "site_apps",

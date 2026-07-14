@@ -173,6 +173,9 @@ tools:
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
         enabled: false
+    tasks-runs-cancel-create:
+        operation: tasks_runs_cancel_create
+        enabled: false
     tasks-runs-command-create:
         operation: tasks_runs_command_create
         enabled: false
