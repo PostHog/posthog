@@ -115,13 +115,15 @@ You can create an API key in the [Nebius AI Studio console](https://studio.nebiu
     def validate_credentials(
         self, config: NebiusAISourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_nebius_ai_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Nebius AI API key"
+        # Forward the transport result verbatim so transient failures and permission errors keep
+        # their distinct messages instead of collapsing into a misleading "invalid key".
+        return validate_nebius_ai_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NebiusAIResumeConfig]:
-        return ResumableSourceManager[NebiusAIResumeConfig](inputs, NebiusAIResumeConfig)
+        # Namespace resume state by schema so sibling endpoints in the same job never share a cursor.
+        return ResumableSourceManager[NebiusAIResumeConfig](inputs, NebiusAIResumeConfig).with_namespace(
+            inputs.schema_name
+        )
 
     def source_for_pipeline(
         self,

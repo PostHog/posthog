@@ -44,13 +44,34 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # /models is the cheapest authenticated probe: every valid key can read it and it needs no params.
+    # `redact_values` keeps the key out of captured request samples; redirects are pinned off so the
+    # bearer token is never replayed to a host the probe did not validate against.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     try:
-        response = make_tracked_session().get(f"{NEBIUS_AI_BASE_URL}/models", headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+        response = session.get(f"{NEBIUS_AI_BASE_URL}/models", headers=_get_headers(api_key), timeout=10)
+    except requests.RequestException as exc:
+        # A timeout or connection blip is not a credential problem — never report it as an invalid key.
+        return False, f"Could not reach Nebius AI: {exc}"
+
+    if response.ok:
+        return True, None
+
+    if response.status_code == 401:
+        return (
+            False,
+            "Your Nebius AI API key is invalid or has expired. Create a new key in the Nebius AI Studio console, then reconnect.",
+        )
+
+    if response.status_code == 403:
+        return (
+            False,
+            "Your Nebius AI API key does not have the permissions needed to sync this data. Grant read access to the key, then reconnect.",
+        )
+
+    # 429/5xx and other unexpected statuses are transient; don't mislabel the key as invalid.
+    return False, f"Nebius AI API returned status {response.status_code}, try reconnecting shortly."
 
 
 @retry(
@@ -89,8 +110,10 @@ def get_rows(
 ) -> Iterator[Any]:
     config = NEBIUS_AI_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
+    # masks the key in captured samples; `allow_redirects=False` stops the bearer token being replayed
+    # to an attacker-controlled host on a 30x.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if not config.paginated:
         data = _fetch_page(session, _build_url(config.path, {}), headers, logger)
@@ -115,8 +138,10 @@ def get_rows(
         yield items
 
         # Prefer the server-provided cursor; fall back to the last row's id when the endpoint
-        # omits `last_id` (some OpenAI-compatible list responses only return `has_more`).
-        last_id = data.get("last_id") or (items[-1].get("id") if isinstance(items[-1], dict) else None)
+        # omits `last_id` (some OpenAI-compatible list responses only return `has_more`). Index the
+        # required primary key rather than `.get()` so a page that claims `has_more` but is missing
+        # its final `id` fails loudly instead of silently dropping every later page.
+        last_id = data.get("last_id") or (items[-1]["id"] if isinstance(items[-1], dict) else None)
         if not data.get("has_more") or not last_id:
             break
 

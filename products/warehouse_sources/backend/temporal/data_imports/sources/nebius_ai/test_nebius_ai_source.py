@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.nebius_ai import NebiusAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.settings import ENDPOINTS
@@ -16,8 +18,10 @@ class TestNebiusAISourceConfig:
     def test_config_has_single_api_key_password_field(self) -> None:
         fields = NebiusAISource().get_source_config.fields
         assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].type == "password"
-        assert fields[0].required is True
+        field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert field.type == "password"
+        assert field.required is True
 
     def test_docs_url_matches_published_doc_slug(self) -> None:
         # docsUrl must match the posthog.com doc filename so the docs link resolves.
@@ -57,12 +61,20 @@ class TestNebiusAICanonicalDescriptions:
 
 
 class TestNebiusAIValidateCredentials:
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Nebius AI API key"))])
-    def test_validate_credentials(self, _name: str, transport_result: bool, expected: tuple) -> None:
+    @parameterized.expand(
+        [
+            ("valid", (True, None)),
+            ("invalid", (False, "Your Nebius AI API key is invalid or has expired.")),
+            ("transient", (False, "Could not reach Nebius AI: boom")),
+        ]
+    )
+    def test_validate_credentials_forwards_transport_result(self, _name: str, transport_result: tuple) -> None:
+        # The source must forward the transport verdict verbatim so transient and permission messages
+        # are not collapsed into a generic "invalid key".
         config = MagicMock()
         config.api_key = "nbk_test"
         with patch.object(source_module, "validate_nebius_ai_credentials", return_value=transport_result):
-            assert NebiusAISource().validate_credentials(config, team_id=1) == expected
+            assert NebiusAISource().validate_credentials(config, team_id=1) == transport_result
 
 
 class TestNebiusAINonRetryableErrors:

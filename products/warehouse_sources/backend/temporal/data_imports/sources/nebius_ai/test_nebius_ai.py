@@ -69,20 +69,50 @@ class TestBuildUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
+    def test_valid_key_returns_ok(self) -> None:
         response = MagicMock()
+        response.ok = True
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(nebius_ai, "make_tracked_session", return_value=session):
+            assert validate_credentials("nbk_test") == (True, None)
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_failure_is_rejected_with_message(self, _name: str, status_code: int) -> None:
+        response = MagicMock()
+        response.ok = False
         response.status_code = status_code
         session = MagicMock()
         session.get.return_value = response
         with patch.object(nebius_ai, "make_tracked_session", return_value=session):
-            assert validate_credentials("nbk_test") is expected
+            ok, message = validate_credentials("nbk_test")
+        assert ok is False
+        assert message
 
-    def test_network_error_is_false(self) -> None:
+    @parameterized.expand([("network_error", None), ("server_error", 503), ("rate_limited", 429)])
+    def test_transient_failure_is_not_reported_as_invalid_key(self, _name: str, status_code: int | None) -> None:
+        # A blip must never be surfaced as an invalid key — that would send the user to rotate a good one.
         session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
+        if status_code is None:
+            session.get.side_effect = requests.ConnectionError("boom")
+        else:
+            response = MagicMock()
+            response.ok = False
+            response.status_code = status_code
+            session.get.return_value = response
         with patch.object(nebius_ai, "make_tracked_session", return_value=session):
-            assert validate_credentials("nbk_test") is False
+            ok, message = validate_credentials("nbk_test")
+        assert ok is False
+        assert message is not None
+        assert "invalid" not in message.lower()
+
+    def test_probe_redacts_key_and_disables_redirects(self) -> None:
+        # The key must stay out of captured samples, and a 30x must not replay the bearer token.
+        session = MagicMock()
+        session.get.return_value = MagicMock(ok=True)
+        with patch.object(nebius_ai, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("nbk_secret")
+        make_session.assert_called_once_with(redact_values=("nbk_secret",), allow_redirects=False)
 
 
 class TestNonPaginatedEndpoint:
@@ -144,16 +174,17 @@ class TestCursorPagination:
         rows = _collect(_FakeResumableManager(), monkeypatch, "files", pages)
         assert [r["id"] for r in rows] == ["f1", "f2"]
 
-    def test_stops_when_has_more_true_but_no_cursor_available(self, monkeypatch: Any) -> None:
-        # A malformed page (has_more but no last_id and no row id) must terminate, not loop forever.
+    def test_missing_primary_key_on_paginated_page_fails_loudly(self, monkeypatch: Any) -> None:
+        # A page that claims has_more but whose final row is missing its `id` must raise, not silently
+        # drop every later page by treating the malformed page as terminal.
         pages = {
             f"{NEBIUS_AI_BASE_URL}/files?limit=100": {
                 "data": [{"created_at": 1}],
                 "has_more": True,
             },
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "files", pages)
-        assert rows == [{"created_at": 1}]
+        with pytest.raises(KeyError):
+            _collect(_FakeResumableManager(), monkeypatch, "files", pages)
 
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         pages = {
@@ -167,6 +198,24 @@ class TestCursorPagination:
         rows = _collect(manager, monkeypatch, "fine_tuning_jobs", pages)
         # Resuming must start at the saved cursor, not re-fetch the first page.
         assert [r["id"] for r in rows] == ["j6"]
+
+
+class TestSessionHardening:
+    def test_get_rows_session_redacts_key_and_disables_redirects(self, monkeypatch: Any) -> None:
+        # The long-lived paging session must mask the key and refuse redirects so a 30x can't replay
+        # the bearer token to another origin.
+        monkeypatch.setattr(nebius_ai, "_fetch_page", lambda *_a, **_k: {"data": []})
+        make_session = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(nebius_ai, "make_tracked_session", make_session)
+        list(
+            get_rows(
+                api_key="nbk_secret",
+                endpoint="models",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        make_session.assert_called_once_with(redact_values=("nbk_secret",), allow_redirects=False)
 
 
 class TestFetchPage:
@@ -185,7 +234,7 @@ class TestFetchPage:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401")
+        response.raise_for_status.side_effect = requests.HTTPError("401", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
