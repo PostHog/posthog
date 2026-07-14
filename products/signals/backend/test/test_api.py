@@ -204,8 +204,9 @@ class TestEmitSignalValidation:
             )
 
         emitter_call = client.start_workflow.call_args_list[1]
+        # The key is namespaced per (source_product, source_type) so kinds can't dedupe each other.
         assert emitter_call.kwargs["id"] == SignalEmitterWorkflow.workflow_id_for(
-            team_stub.id, "github:issue:posthog/posthog#42"
+            team_stub.id, "github:issue:github:issue:posthog/posthog#42"
         )
         assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
 
