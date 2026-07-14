@@ -519,7 +519,14 @@ class ClickHouseClient:
             raise ClickHouseClientTimeoutError(query, query_id)
 
     @contextlib.contextmanager
-    def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
+    def post_query(
+        self,
+        query,
+        *data,
+        query_parameters,
+        query_id,
+        timeout: float | tuple[float, float] | None = None,
+    ) -> collections.abc.Iterator:
         """POST a query to the ClickHouse HTTP interface.
 
         The context manager protocol is used to control when to release the response.
@@ -532,6 +539,11 @@ class ClickHouseClient:
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
+            timeout: Optional requests-style timeout — a (connect, read) tuple or a single
+                float for both. The read timeout applies to every blocking socket read,
+                including body reads while streaming the response, so a half-open connection
+                raises instead of blocking the calling thread until TCP gives up. None (the
+                default) preserves the historical unbounded behavior.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
@@ -565,6 +577,7 @@ class ClickHouseClient:
                 data=request_data,
                 stream=True,
                 verify=False,
+                timeout=timeout,
             )
             self.check_response(response, query)
             yield response

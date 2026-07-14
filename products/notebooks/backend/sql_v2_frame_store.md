@@ -131,6 +131,13 @@ the other, never torn bytes).
 One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
 `Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
 credential-free request instead of auto-following.
+Stream integrity: ClickHouse sends `200 OK` before execution finishes, so a mid-stream failure can't change
+the status code — current versions deliberately break the chunked encoding (the read tears, the multipart
+upload aborts), but older versions/intermediaries can close the body cleanly with exception text appended.
+The worker therefore refuses to finalize unless the streamed bytes end with the Arrow end-of-stream marker
+(a corrupt object at the deterministic key is deleted), and on any stream failure it recovers the real
+ClickHouse error from `system.query_log` — a confirmed query-side exception is terminal (no doomed
+re-scans), an unconfirmed failure stays retryable.
 The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
 
 _Rollout prerequisites (per environment, before flipping the flag on):_

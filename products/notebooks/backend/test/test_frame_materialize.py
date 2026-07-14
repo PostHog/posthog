@@ -1,15 +1,21 @@
+import io
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from temporalio import exceptions
 
 from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 
+from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.temporal import frame_materialize
 
@@ -56,10 +62,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
             self._enqueue(user_id=self.user.id, query=query, _test_only_inline=True)
         run.assert_called_once()
 
-    def test_resource_budget_error_is_terminal_with_a_clear_message(self):
-        # A deterministic ClickHouse resource-budget failure (rejected up front) must be
-        # non-retryable and carry a user-facing message — not retried to the schedule bound
-        # and finalized with the generic 'try re-running' fallback.
+    def _registered_inputs(self) -> tuple["frame_materialize.FrameMaterializeInputs", QueryStatusManager]:
         query_id = uuid.uuid4().hex
         inputs = frame_materialize.FrameMaterializeInputs(
             query_id=query_id,
@@ -73,6 +76,13 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         manager = QueryStatusManager(query_id, self.team.id)
         manager.store_query_status(QueryStatus(id=query_id, team_id=self.team.id))
         manager.register_cache_key_mapping(inputs.cache_key)
+        return inputs, manager
+
+    def test_resource_budget_error_is_terminal_with_a_clear_message(self):
+        # A deterministic ClickHouse resource-budget failure (rejected up front) must be
+        # non-retryable and carry a user-facing message — not retried to the schedule bound
+        # and finalized with the generic 'try re-running' fallback.
+        inputs, manager = self._registered_inputs()
 
         with (
             patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
@@ -90,3 +100,63 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         status = manager.get_query_status()
         self.assertTrue(status.complete and status.error)
         self.assertIn("materialization limits", status.error_message or "")
+
+    def test_mid_stream_failure_removes_the_corrupt_object_and_surfaces_the_real_error(self):
+        # ClickHouse streams 200 before execution finishes; a mid-stream failure can close
+        # the body cleanly with exception text appended instead of tearing the read. Without
+        # the Arrow EOS-marker check that corrupt object would be stored, the status
+        # finalized as succeeded, and the poll would 302 the kernel to garbage.
+        inputs, manager = self._registered_inputs()
+        body_without_eos = b"\xff\xff\xff\xff" + b"x" * 4096 + b"Code: 241. DB::Exception: Memory limit exceeded"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            with (
+                patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+                patch.object(frame_materialize, "_materialize_slots"),
+                patch.object(frame_materialize.ClickHouseClient, "post_query") as post_query,
+                patch.object(
+                    frame_materialize,
+                    "_fetch_query_log_exception",
+                    return_value=(241, "Memory limit (for query) exceeded"),
+                ),
+            ):
+                post_query.return_value.__enter__.return_value = SimpleNamespace(raw=io.BytesIO(body_without_eos))
+                with self.assertRaises(exceptions.ApplicationError) as caught:
+                    frame_materialize.materialize_frame(inputs)
+
+            self.assertTrue(caught.exception.non_retryable)
+            status = manager.get_query_status()
+            self.assertTrue(status.complete and status.error)
+            self.assertIn("materialization limits", status.error_message or "")
+            # The corrupt bytes were written to the deterministic key and must not survive.
+            self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
+
+    @parameterized.expand(
+        [
+            # A storage-side upload failure (or a torn stream) with no ClickHouse-side
+            # exception: only a confirmed query-side exception may be terminal, else a
+            # transient S3 blip becomes a hard cell failure.
+            ("no_query_log_entry", None),
+            # Our own read-timeout abandonment cancels the query server-side
+            # (cancel_http_readonly_queries_on_client_close), which the query log records as
+            # QUERY_WAS_CANCELLED — that must not be classified as a doomed query.
+            ("query_was_cancelled", (394, "Query was cancelled")),
+        ]
+    )
+    def test_stream_failure_stays_retryable(self, _name, query_log_result):
+        inputs, manager = self._registered_inputs()
+
+        with (
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize.ClickHouseClient, "post_query") as post_query,
+            patch.object(frame_materialize.frame_store, "write_stream", side_effect=ObjectStorageError("torn")),
+            patch.object(frame_materialize, "_fetch_query_log_exception", return_value=query_log_result) as lookup,
+        ):
+            post_query.return_value.__enter__.return_value = SimpleNamespace(raw=io.BytesIO(b""))
+            with self.assertRaises(ObjectStorageError):
+                frame_materialize.materialize_frame(inputs)
+
+        lookup.assert_called_once()
+        status = manager.get_query_status()
+        self.assertFalse(status.complete)  # not finalized — Temporal retries per policy

@@ -78,3 +78,13 @@ def presign_get(key: str, team_id: int) -> str:
     if not url:
         raise FrameStoreError("Could not presign the frame object")
     return url
+
+
+def delete_frame(key: str) -> None:
+    """Remove a frame object the caller itself just wrote and verified corrupt.
+
+    Keys are deterministic per (team, notebook, user, query), so a generic failure path
+    must never delete — it could destroy an object an earlier successful run's still-live
+    status points at. The only legitimate caller is the writer discarding its own bytes.
+    """
+    object_storage.delete(key)

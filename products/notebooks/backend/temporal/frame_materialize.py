@@ -16,12 +16,14 @@ deliberately not set: every other query runs at priority 0 (unprioritized), so a
 value here would participate in a scheduling class of one.
 """
 
+import time
 import uuid
 import hashlib
 import datetime as dt
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from typing import IO
 
 from django.conf import settings
 
@@ -35,12 +37,14 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
@@ -65,6 +69,50 @@ _SLOT_TTL_SECONDS = 15 * 60
 # raised to HOGQL_INCREASED_MAX_EXECUTION_TIME by the NOTEBOOK_MATERIALIZE limit context.
 _MAX_BYTES_TO_READ = 50_000_000_000  # 50GB scan budget, the logs-queries precedent
 _MAX_THREADS = 16  # below interactive traffic (the API query-service cap is 60)
+
+# Client-side timeouts on the ClickHouse stream. Temporal cannot interrupt a sync activity
+# thread, so without a read timeout a half-open connection would pin the thread (and its
+# concurrency slot) until OS-level TCP gives up — far past every deadline. The read timeout
+# bounds each silent gap between socket reads, not the total transfer: a healthy stream of
+# any size never trips it. A sparse-filter scan can legitimately produce no output for a
+# while, so the value is generous; a false positive is retried like any transient failure.
+_STREAM_CONNECT_TIMEOUT_SECONDS = 10.0
+_STREAM_READ_TIMEOUT_SECONDS = 120.0
+
+# A successful Arrow IPC stream always ends with this 8-byte end-of-stream marker, emitted
+# only when the writer finalizes cleanly. ClickHouse streams `200 OK` before execution
+# finishes, so a mid-stream failure can't change the status code — depending on version it
+# breaks the chunked encoding (the read raises) or appends exception text and closes the
+# body cleanly. The marker check catches the clean-close case (and truncation at a batch
+# boundary), which would otherwise store a corrupt object and finalize as succeeded.
+_ARROW_STREAM_EOS_MARKER = b"\xff\xff\xff\xff\x00\x00\x00\x00"
+
+# system.query_log flushes every ~7.5s, so error recovery after a stream failure polls a
+# few times. Only runs on the failure path.
+_QUERY_LOG_LOOKUP_ATTEMPTS = 3
+_QUERY_LOG_LOOKUP_INTERVAL_SECONDS = 4.0
+
+_RESOURCE_BUDGET_MESSAGE = (
+    "This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run."
+)
+_TIME_BUDGET_MESSAGE = "The query hit the frame materialization time limit. Narrow it and re-run."
+_MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
+# ClickHouse exception codes worth a specific user-facing message when a query dies
+# mid-stream: 158 TOO_MANY_ROWS, 241 MEMORY_LIMIT_EXCEEDED, 307 TOO_MANY_BYTES,
+# 159 TIMEOUT_EXCEEDED, 160 TOO_SLOW.
+_MID_STREAM_MESSAGES_BY_CODE = {
+    158: _RESOURCE_BUDGET_MESSAGE,
+    241: _RESOURCE_BUDGET_MESSAGE,
+    307: _RESOURCE_BUDGET_MESSAGE,
+    159: _TIME_BUDGET_MESSAGE,
+    160: _TIME_BUDGET_MESSAGE,
+}
+# Codes that do NOT mean the query itself is doomed: 209 SOCKET_TIMEOUT and 210
+# NETWORK_ERROR are transport failures, and 394 QUERY_WAS_CANCELLED is what our own
+# abandonment produces (a read timeout closes the connection and
+# cancel_http_readonly_queries_on_client_close kills the query). All retry on a fresh
+# connection instead of failing the cell.
+_TRANSIENT_MID_STREAM_CODES = frozenset({209, 210, 394})
 
 FRAME_MATERIALIZATIONS_STARTED_COUNTER = Counter(
     "posthog_notebooks_frame_materializations_started",
@@ -195,6 +243,59 @@ def _finalize_status(
     manager.unregister_cache_key_mapping(inputs.cache_key)
 
 
+class MidStreamQueryError(Exception):
+    """The ClickHouse response body ended without the Arrow end-of-stream marker."""
+
+
+class _ArrowTailReader:
+    """File-like relay that remembers the final bytes of the stream it forwards.
+
+    Lets the upload stay a bounded-memory passthrough while still allowing an
+    end-of-stream integrity check once the body is fully drained.
+    """
+
+    def __init__(self, fileobj: IO[bytes]) -> None:
+        self._fileobj = fileobj
+        self.tail = b""
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._fileobj.read(size)
+        if chunk:
+            self.tail = (self.tail + chunk)[-len(_ARROW_STREAM_EOS_MARKER) :]
+        return chunk
+
+
+def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
+    """Best-effort lookup of a failed query's exception in system.query_log.
+
+    Returns (exception_code, exception_message), or None when no exception entry appears
+    (log not flushed within the polling window, or the query actually finished — e.g. the
+    failure was storage-side or an intermediary truncated the response). Never raises:
+    recovery must not mask the original stream failure.
+    """
+    for lookup_attempt in range(_QUERY_LOG_LOOKUP_ATTEMPTS):
+        if lookup_attempt:
+            time.sleep(_QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
+        try:
+            rows = sync_execute(
+                """
+                SELECT exception_code, exception
+                FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                WHERE query_id = %(query_id)s
+                    AND exception_code != 0
+                    AND event_date >= yesterday() AND event_time >= now() - INTERVAL 1 HOUR
+                ORDER BY event_time DESC
+                LIMIT 1
+                """,
+                {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
+            )
+        except Exception:
+            return None
+        if rows:
+            return int(rows[0][0]), str(rows[0][1])
+    return None
+
+
 def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """Stream the frame's ClickHouse result into the object store; return the object key.
 
@@ -237,6 +338,10 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
             raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
 
+        # Per-attempt CH query id: a retried attempt must not collide with a predecessor
+        # ClickHouse may still be draining, and the failure path looks the id up in
+        # system.query_log to recover the real error.
+        ch_query_id = f"{inputs.query_id}_{attempt}"
         try:
             with _materialize_slots(inputs.team_id, inputs.query_id):
                 client = ClickHouseClient(
@@ -247,27 +352,57 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     output_format_arrow_string_as_string="true",
                     cancel_http_readonly_queries_on_client_close=1,
                 )
-                # Per-attempt CH query id: a retried attempt must not collide with a
-                # predecessor ClickHouse may still be draining.
-                ch_query_id = f"{inputs.query_id}_{attempt}"
-                with client.post_query(printed_sql, query_parameters=context_values, query_id=ch_query_id) as response:
+                with client.post_query(
+                    printed_sql,
+                    query_parameters=context_values,
+                    query_id=ch_query_id,
+                    timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, _STREAM_READ_TIMEOUT_SECONDS),
+                ) as response:
                     # A torn stream aborts the multipart upload (upload_fileobj), so no
                     # partial object is ever left behind — nothing to clean up on failure.
                     # The key is deterministic per (team, notebook, user, query), so we must
-                    # NOT delete it on error: that would destroy an object an earlier
+                    # NOT delete it on generic error: that would destroy an object an earlier
                     # successful run's still-live status/presigned URL points at.
-                    object_bytes = frame_store.write_stream(key, response.raw)
+                    relay = _ArrowTailReader(response.raw)
+                    object_bytes = frame_store.write_stream(key, relay)
+                    if relay.tail != _ARROW_STREAM_EOS_MARKER:
+                        # ClickHouse failed mid-stream but closed the body cleanly (or an
+                        # intermediary truncated it at a batch boundary): the bytes we just
+                        # stored are corrupt and, at a deterministic key, could be served to
+                        # an earlier status's presigned fetch — remove them before failing.
+                        with suppress(ObjectStorageError):
+                            frame_store.delete_frame(key)
+                        raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
         except (ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as exc:
-            # Deterministic resource-budget failures: re-executing the same heavy query just
-            # burns ClickHouse and ends on the same wall. Terminal, with a user-facing
-            # message. (Only failures ClickHouse rejects up front surface as typed errors
-            # here; a mid-stream overrun tears the Arrow stream and is instead bounded by
-            # the workflow's maximum_attempts.)
-            message = (
-                "This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run."
+            # Deterministic resource-budget failures ClickHouse rejects before streaming.
+            # Re-executing the same heavy query just burns ClickHouse and ends on the same
+            # wall: terminal, with a user-facing message.
+            _finalize_status(manager, inputs, error_message=_RESOURCE_BUDGET_MESSAGE)
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+            raise exceptions.ApplicationError(_RESOURCE_BUDGET_MESSAGE, non_retryable=True) from exc
+        except (MidStreamQueryError, ObjectStorageError) as exc:
+            # The stream failed after ClickHouse already sent its 200 — either the chunked
+            # read tore (multipart aborted, no object; the read error is opaque) or the body
+            # closed cleanly without the EOS marker (corrupt object, deleted above). Recover
+            # the real error from the query log: a query-side exception is deterministic for
+            # an identical retry, so surface it and stop instead of re-running the scan.
+            logged = _fetch_query_log_exception(ch_query_id)
+            if logged is None:
+                raise  # no query-side exception found — plausibly transient, retry per policy
+            exception_code, exception_message = logged
+            if exception_code in _TRANSIENT_MID_STREAM_CODES:
+                raise  # transport failure or our own read-timeout cancellation — retry per policy
+            # The raw ClickHouse message may embed query fragments — log it, don't expose it.
+            logger.warning(
+                "notebook_frame_materialize_mid_stream_error",
+                team_id=inputs.team_id,
+                query_id=inputs.query_id,
+                exception_code=exception_code,
+                error=exception_message,
             )
+            message = _MID_STREAM_MESSAGES_BY_CODE.get(exception_code, _MID_STREAM_ERROR_MESSAGE)
             _finalize_status(manager, inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
