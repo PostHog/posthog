@@ -6,6 +6,7 @@ import {
     IconApps,
     IconArrowLeft,
     IconBook,
+    IconCheckCircle,
     IconGear,
     IconGraduationCap,
     IconPeople,
@@ -29,15 +30,20 @@ import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
 } from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
+import { ErrorTrackingSDKInstructions } from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/legacy/sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { LogsSDKInstructions } from 'scenes/onboarding/legacy/sdks/logs/LogsSDKInstructions'
 import { SDKGrid } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/SDKGrid'
+import { ProductAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { AdblockWarning } from 'scenes/onboarding/legacy/sdks/RealtimeCheckIndicator'
 import { sdksLogic } from 'scenes/onboarding/legacy/sdks/sdksLogic'
 import { SDKSnippet } from 'scenes/onboarding/legacy/sdks/SDKSnippet'
+import { SessionReplaySDKInstructions } from 'scenes/onboarding/legacy/sdks/session-replay/SessionReplaySDKInstructions'
+import { SurveysSDKInstructions } from 'scenes/onboarding/legacy/sdks/surveys/SurveysSDKInstructions'
+import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -156,6 +162,49 @@ function HeroImageCycler(): JSX.Element {
     )
 }
 
+function DataSignalsStrip(): JSX.Element | null {
+    const { dataLadder } = useValues(quickstartLogic)
+
+    const steps = [
+        { label: 'SDK installed', done: dataLadder.installed, hint: 'PostHog is receiving data from your app.' },
+        { label: 'Events in dev', done: dataLadder.devEvents, hint: 'Run your app locally and click around.' },
+        {
+            label: 'Events in production',
+            done: dataLadder.prodEvents,
+            hint: 'Deploy your app. Real users make real data.',
+        },
+        {
+            label: 'Custom events',
+            done: dataLadder.customEvents,
+            hint: "Track what matters to you: posthog.capture('signup completed')",
+        },
+    ]
+
+    if (steps.every((step) => step.done)) {
+        return null
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="rounded-lg border-transparent shadow-sm p-3">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <span className="text-sm font-semibold">Your data signals</span>
+                {steps.map((step) => (
+                    <Tooltip key={step.label} title={step.hint} delayMs={0}>
+                        <div className="flex items-center gap-1.5 text-sm">
+                            {step.done ? (
+                                <IconCheckCircle className="text-success text-base shrink-0" />
+                            ) : (
+                                <span className="w-3 h-3 rounded-full border-2 border-current text-muted-alt shrink-0" />
+                            )}
+                            <span className={step.done ? 'text-secondary' : 'font-medium'}>{step.label}</span>
+                        </div>
+                    </Tooltip>
+                ))}
+            </div>
+        </LemonCard>
+    )
+}
+
 function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex items-center gap-1.5 text-sm text-secondary">
@@ -234,7 +283,13 @@ function ProductStatusTag({ status }: { status: QuickstartProduct['status'] }): 
         return <LemonTag type="success">Active</LemonTag>
     }
     if (status === 'ready') {
+        return <LemonTag type="highlight">Ready</LemonTag>
+    }
+    if (status === 'enableable') {
         return <LemonTag type="completion">1-click enable</LemonTag>
+    }
+    if (status === 'needs_install') {
+        return <LemonTag type="muted">Needs install</LemonTag>
     }
     return <LemonTag type="muted">Needs setup</LemonTag>
 }
@@ -256,18 +311,34 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                 <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
             </div>
             <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
+            {product.signalHint && <p className="text-xs text-tertiary mb-0">{product.signalHint}</p>}
             <div className="flex items-center gap-2 mt-1">
-                {product.status === 'active' ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={product.url}
-                        onClick={() => captureQuickstartAction('open_product', product.key)}
-                        data-attr={`quickstart-open-${product.key}`}
-                    >
-                        Open
-                    </LemonButton>
-                ) : product.status === 'ready' ? (
+                {product.status === 'active' || product.status === 'ready' ? (
+                    <>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={product.url}
+                            onClick={() => captureQuickstartAction('open_product', product.key)}
+                            data-attr={`quickstart-open-${product.key}`}
+                        >
+                            Open
+                        </LemonButton>
+                        {product.status === 'ready' && PRODUCT_SDK_SETUP[product.key] && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    captureQuickstartAction('open_sdk_guide', product.key)
+                                    openToolSetupModal(product.key)
+                                }}
+                                data-attr={`quickstart-sdk-guide-${product.key}`}
+                            >
+                                SDK guide
+                            </LemonButton>
+                        )}
+                    </>
+                ) : product.status === 'enableable' ? (
                     <LemonButton
                         type="primary"
                         size="small"
@@ -276,6 +347,21 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                         data-attr={`quickstart-enable-${product.key}`}
                     >
                         Enable
+                    </LemonButton>
+                ) : product.status === 'needs_install' ? (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
+                        onClick={() => {
+                            captureQuickstartAction('install_tool', product.key)
+                            if (PRODUCT_SDK_SETUP[product.key]) {
+                                openToolSetupModal(product.key)
+                            }
+                        }}
+                        data-attr={`quickstart-install-${product.key}`}
+                    >
+                        Install
                     </LemonButton>
                 ) : (
                     <LemonButton
@@ -312,6 +398,11 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
 const PRODUCT_SDK_SETUP: Partial<
     Record<ProductKey, { instructionsMap: SDKInstructionsMap; tagOverrides?: SDKTagOverrides; verifyingName?: string }>
 > = {
+    [ProductKey.PRODUCT_ANALYTICS]: { instructionsMap: ProductAnalyticsSDKInstructions },
+    [ProductKey.WEB_ANALYTICS]: { instructionsMap: WebAnalyticsSDKInstructions },
+    [ProductKey.SESSION_REPLAY]: { instructionsMap: SessionReplaySDKInstructions },
+    [ProductKey.ERROR_TRACKING]: { instructionsMap: ErrorTrackingSDKInstructions },
+    [ProductKey.SURVEYS]: { instructionsMap: SurveysSDKInstructions },
     [ProductKey.FEATURE_FLAGS]: { instructionsMap: FeatureFlagsSDKInstructions },
     [ProductKey.EXPERIMENTS]: { instructionsMap: ExperimentsSDKInstructions },
     [ProductKey.AI_OBSERVABILITY]: {
@@ -761,7 +852,7 @@ export function Quickstart(): JSX.Element {
                 </div>
             </section>
 
-            {!installationComplete && <InstallHeroCard />}
+            {installationComplete ? <DataSignalsStrip /> : <InstallHeroCard />}
 
             <section>
                 <SectionHeader
