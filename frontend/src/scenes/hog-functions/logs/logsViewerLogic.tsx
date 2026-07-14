@@ -2,6 +2,7 @@ import {
     actions,
     afterMount,
     beforeUnmount,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -408,44 +409,56 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     let newLogs: LogEntry[] = []
 
-                    if (values.isGrouped) {
-                        const results = await loadGroupedLogs(logParams)
+                    try {
+                        if (values.isGrouped) {
+                            const results = await loadGroupedLogs(logParams)
 
-                        await breakpoint(10)
+                            await breakpoint(10)
 
-                        const newLogs: LogEntry[] = []
-                        const newLogsToImmediateAdd: LogEntry[] = []
-                        const existingLogIds = values.groupedLogs.map((log) => log.instanceId)
+                            const newLogs: LogEntry[] = []
+                            const newLogsToImmediateAdd: LogEntry[] = []
+                            const existingLogIds = values.groupedLogs.map((log) => log.instanceId)
 
-                        if (values.logsLoading) {
-                            // TRICKY: Something changed whilst we were doing this query - we don't want to mess with things
-                            // so we just exit
-                            return values.hiddenLogs
-                        }
-
-                        for (const log of results) {
-                            if (existingLogIds.includes(log.instanceId)) {
-                                // If we already have this log group showing then we can just update it
-                                newLogsToImmediateAdd.push(log)
-                            } else {
-                                // Otherwise we add it to the list of hidden logs
-                                newLogs.push(log)
+                            if (values.logsLoading) {
+                                // TRICKY: Something changed whilst we were doing this query - we don't want to mess with things
+                                // so we just exit
+                                return values.hiddenLogs
                             }
-                        }
 
-                        if (newLogsToImmediateAdd.length) {
-                            // Update the existing logs with the new data
-                            actions.loadGroupedLogsSuccess(
-                                groupLogs([
-                                    ...newLogsToImmediateAdd,
-                                    ...values.groupedLogs.flatMap((group) => group.entries),
-                                ])
-                            )
+                            for (const log of results) {
+                                if (existingLogIds.includes(log.instanceId)) {
+                                    // If we already have this log group showing then we can just update it
+                                    newLogsToImmediateAdd.push(log)
+                                } else {
+                                    // Otherwise we add it to the list of hidden logs
+                                    newLogs.push(log)
+                                }
+                            }
+
+                            if (newLogsToImmediateAdd.length) {
+                                // Update the existing logs with the new data
+                                actions.loadGroupedLogsSuccess(
+                                    groupLogs([
+                                        ...newLogsToImmediateAdd,
+                                        ...values.groupedLogs.flatMap((group) => group.entries),
+                                    ])
+                                )
+                            }
+                        } else {
+                            const results = await loadLogs(logParams)
+                            await breakpoint(10)
+                            newLogs = results
                         }
-                    } else {
-                        const results = await loadLogs(logParams)
-                        await breakpoint(10)
-                        newLogs = results
+                    } catch (e) {
+                        // Breakpoints signal cancellation (filters changed, unmounted), so let those propagate.
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // This is a background poll every POLLING_INTERVAL ms, so a transient network blip
+                        // (tab backgrounded, aborted request, flaky connection) is expected. Swallow it and
+                        // keep polling rather than surfacing a toast or a captured error every 5 seconds.
+                        actions.scheduleLoadNewerLogs()
+                        return values.hiddenLogs
                     }
 
                     actions.scheduleLoadNewerLogs()

@@ -1,6 +1,10 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
 import {
@@ -8,8 +12,25 @@ import {
     groupLogs,
     LogEntry,
     LogEntryParams,
+    logsViewerLogic,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
+
+// Mock only queryHogQL on the default api export — replacing the module wholesale
+// would leave the rest of the api surface undefined for connected logics
+jest.mock('lib/api', () => {
+    const actual = jest.requireActual('lib/api')
+    return {
+        ...actual,
+        __esModule: true,
+        default: {
+            ...actual.default,
+            queryHogQL: jest.fn(),
+        },
+    }
+})
+
+const mockQueryHogQL = api.queryHogQL as jest.Mock
 
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
@@ -199,6 +220,41 @@ describe('logsViewerLogic', () => {
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
             expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+        })
+    })
+
+    describe('loadNewerLogs polling', () => {
+        let logic: ReturnType<typeof logsViewerLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            mockQueryHogQL.mockReset()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('swallows a transient poll failure and keeps polling instead of surfacing an error', async () => {
+            // Initial load succeeds so there is a newest-log timestamp to poll after.
+            mockQueryHogQL.mockResolvedValueOnce({
+                results: [['inst-1', '2024-01-15 10:00:00.000', 'info', 'hello']],
+            })
+
+            logic = logsViewerLogic({ sourceType: 'hog_function', sourceId: 'fn-1' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadGroupedLogsSuccess'])
+
+            // The 5s poll then hits a transient network failure. It must resolve (not fail) and
+            // reschedule the next poll, rather than propagating a captured error every interval.
+            mockQueryHogQL.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadNewerLogs()
+            }).toDispatchActions(['loadNewerLogs', 'scheduleLoadNewerLogs', 'loadNewerLogsSuccess'])
+
+            expect(logic.values.hiddenLogs).toEqual([])
         })
     })
 })
