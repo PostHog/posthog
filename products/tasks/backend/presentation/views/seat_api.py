@@ -340,9 +340,9 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         if retired_response := self._retired_product_response(request):
             return retired_response
+        distinct_id = self._resolve_and_check_membership(request, pk)
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -380,9 +380,9 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         if retired_response := self._retired_product_response(request):
             return retired_response
+        distinct_id = self._resolve_and_check_membership(request, pk)
 
         headers = self._get_billing_headers(request)
         if not headers:
