@@ -30,14 +30,13 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
-    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     build_process_vision_action_workflow_id,
+    in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
@@ -109,10 +108,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             team_in_flight = 0
-        headroom = min(
-            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-            MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
-        )
+        headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(
