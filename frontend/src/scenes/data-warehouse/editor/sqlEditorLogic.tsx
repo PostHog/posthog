@@ -488,7 +488,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             databaseTableListLogic,
             ['setConnection', 'loadDatabase'],
             connectionSelectorLogic,
-            ['loadConnectionOptionsSuccess'],
+            ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
     })),
     actions(() => ({
@@ -2131,6 +2131,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
+            if (selectedConnectionId) {
+                // Capability data must load wherever a connection is in play — including
+                // surfaces that never render the connection selector.
+                actions.maybeLoadConnectionOptions()
+            }
             actions.enforceConnectionRawQueryMode()
         },
     })),
