@@ -178,6 +178,26 @@ function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
 
+/**
+ * Extract the server-generated `detail` string from a PostHog API error body.
+ * PostHog renders API errors as `{ "type", "detail", "code", "attr" }`, and `detail`
+ * is a static, developer-facing message (e.g. the plan-gating text on a 402) — safe
+ * to surface and stable across calls. Returns undefined when the body isn't that
+ * JSON shape, so callers fall back to a status summary rather than echoing a raw
+ * body (which could carry request content).
+ */
+export function parseApiErrorDetail(body: string): string | undefined {
+    try {
+        const parsed = JSON.parse(body) as { detail?: unknown }
+        if (typeof parsed.detail === 'string' && parsed.detail.trim()) {
+            return parsed.detail.trim()
+        }
+    } catch {
+        // body wasn't JSON — let the caller decide on a fallback
+    }
+    return undefined
+}
+
 export interface PostHogRateLimitErrorOptions {
     body: string
     url: string
@@ -439,6 +459,19 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             recoverableApiError instanceof PostHogValidationError ||
             (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
         if (isFourXx) {
+            // 402 is plan-gating, not a bug: the org's plan doesn't include this feature.
+            // Surface the API's upgrade message on its own so the agent treats it as an
+            // unavailable feature (and stops retrying) instead of parsing a raw
+            // "Request failed" dump that reads like a transient error.
+            if (recoverableApiError instanceof PostHogApiError && recoverableApiError.status === 402) {
+                const detail =
+                    parseApiErrorDetail(recoverableApiError.body) ??
+                    'This feature requires a paid PostHog plan. Please upgrade to access it.'
+                return {
+                    content: [{ type: 'text', text: `Error: [${toolName}]: ${detail}` }],
+                    isError: true,
+                }
+            }
             return {
                 content: [
                     {

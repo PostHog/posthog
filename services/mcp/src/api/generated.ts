@@ -30081,7 +30081,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope errored $mcp_tool_call events to (resolves single-exec wrapper calls). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;

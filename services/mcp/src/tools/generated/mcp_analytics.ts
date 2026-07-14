@@ -544,7 +544,11 @@ const MCPToolDailyStatsQuery = z.object({
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
-    toolName: z.string().describe('The raw $mcp_tool_name to scope $exception events to.'),
+    toolName: z
+        .string()
+        .describe(
+            'The effective tool name to scope errored $mcp_tool_call events to (resolves single-exec wrapper calls).'
+        ),
 })
 
 const MCPToolTopUsersQuery = z.object({

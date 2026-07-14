@@ -42,7 +42,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+import { PostHogApiError, PostHogRateLimitError, wrapError } from '@/lib/errors'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -246,6 +246,62 @@ describe('ToolExecutor metrics', () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'nonexistent', status: 'error' })
+        })
+
+        it('stamps a sanitized $mcp_error_message from the API error detail, not the per-call URL', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('activity-log-list', async () => {
+                    throw new PostHogApiError({
+                        status: 402,
+                        statusText: 'Payment Required',
+                        body: JSON.stringify({
+                            type: 'authentication_error',
+                            detail: 'Audit logs requires a paid plan',
+                        }),
+                        url: 'https://us.posthog.com/api/projects/2/activity_log/',
+                        method: 'GET',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'activity-log-list', arguments: {} },
+                makeState([{ name: 'activity-log-list' }])
+            )
+
+            // Grouping-stable: the detail is server-generated and identical across calls,
+            // and the per-call URL (which carries the project id) is never included.
+            expect(trackToolCallExtras('activity-log-list')).toMatchObject({
+                $mcp_error_type: 'api_4xx',
+                $mcp_error_status: 402,
+                $mcp_error_message: 'HTTP 402: Audit logs requires a paid plan',
+            })
+        })
+
+        it('stamps the error reason on the analytics event for a schema-rejected call (no silent early return)', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall({ name: 'strict-tool', arguments: {} }, makeState([{ name: 'strict-tool' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'strict-tool', error_type: 'validation' })
+            const extras = trackToolCallExtras('strict-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'validation' })
+            // Validation echoes the agent's rejected input (raw HogQL/SQL for query tools) —
+            // never captured, so no message rides along.
+            expect(extras).not.toHaveProperty('$mcp_error_message')
+        })
+
+        it('stamps not_found on the analytics event for an unknown tool', async () => {
+            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'nonexistent', error_type: 'not_found' })
+            expect(trackToolCallExtras('nonexistent')).toMatchObject({
+                $mcp_error_type: 'not_found',
+                $mcp_error_message: 'Tool nonexistent not found',
+            })
         })
     })
 

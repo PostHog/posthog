@@ -28494,7 +28494,7 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "toolName": {
-                    "description": "The raw $mcp_tool_name to scope $exception events to.",
+                    "description": "The effective tool name to scope errored $mcp_tool_call events to (resolves single-exec wrapper calls).",
                     "type": "string"
                 },
                 "version": {

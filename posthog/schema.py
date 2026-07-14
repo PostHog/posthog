@@ -24179,7 +24179,10 @@ class MCPToolFailuresQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MCPToolFailuresQueryResponse | None = None
     tags: QueryLogTags | None = None
-    toolName: str = Field(..., description="The raw $mcp_tool_name to scope $exception events to.")
+    toolName: str = Field(
+        ...,
+        description="The effective tool name to scope errored $mcp_tool_call events to (resolves single-exec wrapper calls).",
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

@@ -130,23 +130,25 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
 
 class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _emit_exception(
+    def _emit_failure(
         self,
         *,
         tool_name: str = "query_run",
         message: str = "boom",
         client_name: str | None = None,
+        exec_tool: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
-        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$exception_message": message}
-        if client_name is not None:
-            properties["$mcp_client_name"] = client_name
-        _create_event(
-            team=self.team,
-            event="$exception",
-            distinct_id="d1",
-            timestamp=timestamp or datetime.now(tz=UTC),
-            properties=properties,
+        # Failures are read off errored $mcp_tool_call events (not $exception): $exception
+        # fan-out is disabled server-side for 4xx, so a plan-gated tool has no $exception rows.
+        _emit_tool_call(
+            self.team,
+            tool_name=tool_name,
+            is_error=True,
+            error_message=message,
+            client_name=client_name,
+            exec_tool=exec_tool,
+            timestamp=timestamp,
         )
 
     def _run(self, tool_name: str = "query_run") -> list[Any]:
@@ -164,7 +166,7 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         ]
     )
     def test_resolves_harness_labels(self, _name: str, client_name: str, expected: list[str]) -> None:
-        self._emit_exception(client_name=client_name)
+        self._emit_failure(client_name=client_name)
         flush_persons_and_events()
 
         rows = self._run()
@@ -173,9 +175,9 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         assert rows[0].harnesses == expected
 
     def test_groups_by_message_and_counts_occurrences(self) -> None:
-        self._emit_exception(message="boom", client_name="claude-ai")
-        self._emit_exception(message="boom", client_name="cursor-vscode")
-        self._emit_exception(message="other", client_name="claude-ai")
+        self._emit_failure(message="boom", client_name="claude-ai")
+        self._emit_failure(message="boom", client_name="cursor-vscode")
+        self._emit_failure(message="other", client_name="claude-ai")
         flush_persons_and_events()
 
         rows = self._run()
@@ -186,15 +188,35 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         assert by_message["other"].occurrences == 1
 
     def test_excludes_other_tools(self) -> None:
-        self._emit_exception(tool_name="other_tool", message="boom", client_name="claude-ai")
+        self._emit_failure(tool_name="other_tool", message="boom", client_name="claude-ai")
         flush_persons_and_events()
 
         assert self._run(tool_name="query_run") == []
 
+    def test_excludes_successful_and_messageless_calls(self) -> None:
+        # Only errored calls that carry a message surface here. A success has no message,
+        # and validation failures deliberately omit one (they would echo request content).
+        _emit_tool_call(self.team, is_error=False, client_name="claude-ai")
+        _emit_tool_call(self.team, is_error=True, error_message=None, client_name="claude-ai")
+        self._emit_failure(message="real failure", client_name="claude-ai")
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert {r.message for r in rows} == {"real failure"}
+
+    def test_resolves_effective_tool_for_single_exec_calls(self) -> None:
+        # A single-exec wrapper call is labelled `exec` on $mcp_tool_name but carries the
+        # inner tool on $mcp_exec_tool_call_name — the failure must attribute to the inner tool.
+        self._emit_failure(tool_name="exec", exec_tool="query_run", message="inner boom", client_name="claude-ai")
+        flush_persons_and_events()
+
+        assert {r.message for r in self._run(tool_name="query_run")} == {"inner boom"}
+
     def test_date_range_excludes_older_events(self) -> None:
         now = datetime.now(tz=UTC)
-        self._emit_exception(message="old", client_name="claude-ai", timestamp=now - timedelta(days=30))
-        self._emit_exception(message="recent", client_name="claude-ai", timestamp=now)
+        self._emit_failure(message="old", client_name="claude-ai", timestamp=now - timedelta(days=30))
+        self._emit_failure(message="recent", client_name="claude-ai", timestamp=now)
         flush_persons_and_events()
 
         rows = self._run()
@@ -216,11 +238,14 @@ def _emit_tool_call(
     client_name: str | None = None,
     session_id: str | None = None,
     exec_tool: str | None = None,
+    error_message: str | None = None,
     timestamp: datetime | None = None,
 ) -> None:
     properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
     if source is not None:
         properties["$mcp_source"] = source
+    if error_message is not None:
+        properties["$mcp_error_message"] = error_message
     if duration_ms is not None:
         properties["$mcp_duration_ms"] = duration_ms
     if intent is not None:
