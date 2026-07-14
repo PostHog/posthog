@@ -19,8 +19,6 @@ import {
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { FullRefreshAppendConfig } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
-
 import {
     ExternalDataSourceType,
     ProductIntentContext,
@@ -41,6 +39,7 @@ import {
     manualLinkSources,
     RowFilter,
 } from '~/types'
+import { FullRefreshAppendConfig } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
 
 import {
     getDefaultExpandedSchemaKeys,
