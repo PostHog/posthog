@@ -6,6 +6,7 @@ import {
     LibrdKafkaError,
     Message,
     Metadata,
+    PartitionMetadata,
     KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
 } from 'node-rdkafka'
@@ -75,7 +76,9 @@ type TaskEntry = {
  * Single-coroutine Kafka consumer. The loop is the only mutator; the rebalance callback
  * just enqueues events. On REVOKE the loop synchronously drains in-flight settle promises
  * (post-storeOffsets, not raw user tasks), bumps `generation` so any laggard task skips
- * its now-invalid storeOffsets, then calls incrementalUnassign.
+ * its now-invalid storeOffsets, runs the optional onPartitionsRevoked hook while the
+ * partitions are still assigned (so a flush there can store offsets that get committed
+ * on the unassign), then calls incrementalUnassign.
  */
 export class KafkaConsumerV2 {
     private rdKafkaConsumer: RdKafkaConsumer
@@ -93,6 +96,11 @@ export class KafkaConsumerV2 {
     // Latched on the first backgroundTask failure: blocks further offset stores and
     // makes the loop exit on the next tick so the pod replays from the last good commit.
     private fatalError: unknown | undefined
+
+    // Optional async hook invoked with the partitions being revoked, after the in-flight
+    // drain and while the partitions are still assigned, before the unassign. Not invoked
+    // for the final revoke during disconnect — callers flush explicitly before disconnecting.
+    private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -197,7 +205,25 @@ export class KafkaConsumerV2 {
         this.rdKafkaConsumer.offsetsStore(offsets)
     }
 
-    public async connect(eachBatch: EachBatch): Promise<void> {
+    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
+            (err) => {
+                logger.error('🔥', 'kafka_consumer_v2_get_metadata_failed', { error: String(err) })
+                captureException(err)
+                throw err
+            }
+        )
+        return meta.topics.find((x) => x.name === topic)?.partitions ?? []
+    }
+
+    public async connect(
+        eachBatch: EachBatch,
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+    ): Promise<void> {
+        this.onPartitionsRevoked = onPartitionsRevoked
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
             logger.info('📝', 'kafka_consumer_v2_connected', { groupId: this.config.groupId, topic: this.config.topic })
@@ -422,6 +448,18 @@ export class KafkaConsumerV2 {
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
             await this.drainAll('revoke')
+
+            if (this.onPartitionsRevoked) {
+                try {
+                    await this.onPartitionsRevoked(event.partitions)
+                } catch (error) {
+                    // A failed flush must not strand the rebalance — give the partitions up
+                    // anyway. The offsets simply won't have been stored, so the new owner
+                    // reprocesses from the last commit.
+                    logger.error('🔁', 'kafka_consumer_v2_revoke_handler_failed', { error: String(error) })
+                    captureException(error)
+                }
+            }
 
             try {
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
