@@ -506,6 +506,10 @@ def _split_long_line(line: str) -> list[str]:
             cut = cut[: cut.rfind("<")]
             space = len(cut)
         split_at = space if space > 0 else len(cut)
+        if split_at <= 0:
+            # A leading unterminated `<` token longer than the limit leaves nothing safe to cut
+            # before it; hard-cut mid-token so every iteration consumes input rather than looping.
+            split_at = SLACK_BLOCK_TEXT_LIMIT
         parts.append(line[:split_at].rstrip())
         line = line[split_at:].lstrip()
     if line:

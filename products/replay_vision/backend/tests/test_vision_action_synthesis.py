@@ -18,6 +18,7 @@ from products.replay_vision.backend.temporal.vision_actions.synthesis import (
     SLACK_BLOCK_TEXT_LIMIT,
     _markdown_to_slack,
     _slack_blocks,
+    _split_long_line,
     _synthesize,
 )
 from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
@@ -684,3 +685,17 @@ class TestMarkdownToSlack(BaseTest):
             self.assertEqual(block["text"]["text"].count("<"), block["text"]["text"].count(">"))
         # Nothing dropped: rejoining the blocks reproduces the full report.
         self.assertEqual("\n".join(b["text"]["text"] for b in blocks), text)
+
+    @parameterized.expand(
+        [
+            ("leading_token", "<https://evil.example/" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+            ("whitespace_then_token", "   <" + "a" * (SLACK_BLOCK_TEXT_LIMIT * 2)),
+        ]
+    )
+    def test_split_long_line_consumes_unterminated_leading_token(self, _label: str, line: str) -> None:
+        # A line opening with an unterminated `<` token longer than the block limit used to make
+        # the back-up-before-the-token cut resolve to position 0 — zero forward progress, spinning
+        # the synthesis activity forever. The hard-cut guard must always consume input.
+        parts = _split_long_line(line)
+        self.assertTrue(all(len(p) <= SLACK_BLOCK_TEXT_LIMIT for p in parts))
+        self.assertEqual("".join(parts).replace(" ", ""), line.replace(" ", ""))
