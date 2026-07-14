@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.db import connection
@@ -6011,6 +6011,208 @@ class TestTaskRunAPI(BaseTaskAPITest):
         other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/stream_token/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTaskRunCancelAPI(BaseTaskAPITest):
+    def _cancel_url(self, task, run) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/cancel/"
+
+    def _create_run(self, task, **kwargs) -> TaskRun:
+        kwargs.setdefault("status", TaskRun.Status.IN_PROGRESS)
+        kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
+        return TaskRun.objects.create(task=task, team=self.team, **kwargs)
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
+    def test_cancel_interrupts_turn_then_signals_workflow(
+        self, mock_signal, mock_send_cancel, _mock_token, mock_capture
+    ):
+        task = self.create_task()
+        run = self._create_run(task)
+        order = MagicMock()
+        order.attach_mock(mock_send_cancel, "send_cancel")
+        order.attach_mock(mock_signal, "signal")
+
+        response = self.client.post(self._cancel_url(task, run), {"reason": "changed my mind"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        direct_calls = [name for name, _args, _kwargs in order.mock_calls if name in ("send_cancel", "signal")]
+        self.assertEqual(direct_calls, ["send_cancel", "signal"])
+        self.assertEqual(mock_signal.call_args.args[1], TaskRun.Status.CANCELLED)
+        self.assertEqual(mock_signal.call_args.args[2], "changed my mind")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual(run.state.get("cancel_source"), "api")
+        self.assertIsNotNone(run.state.get("cancel_requested_at"))
+        self.assertEqual(run.state.get("cancel_requested_by_user_id"), self.user.id)
+
+        cancel_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancel_requested"]
+        self.assertEqual(len(cancel_events), 1)
+        self.assertEqual(cancel_events[0].kwargs["properties"]["cancel_source"], "api")
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_finalizes_run_when_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(
+            task,
+            status=TaskRun.Status.NOT_STARTED,
+            state={"sandbox_id": "sandbox-123"},
+        )
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ) as publish_complete,
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        publish_complete.assert_called_once_with(str(run.id), False)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertIsNotNone(run.completed_at)
+        self.assertEqual(run.error_message, "Stopped by user")
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_returns_503_when_workflow_gone_cleanup_fails(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+        sandbox.destroy.side_effect = RuntimeError("destroy failed")
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
+            ) as publish_complete,
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        publish_complete.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_retry_repairs_stream_after_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                side_effect=[False, True],
+            ) as publish_complete,
+        ):
+            first_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+            second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(first_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        self.assertEqual(publish_complete.call_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    def test_cancel_preserves_terminal_status_when_workflow_closes_during_signal(self, mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        def close_workflow(*_args):
+            TaskRun.objects.filter(id=run.id).update(
+                status=TaskRun.Status.COMPLETED,
+                completed_at=django_timezone.now(),
+            )
+            return "workflow_gone"
+
+        with patch("products.tasks.backend.facade.cancellation._signal_complete_task", side_effect=close_workflow):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_cancel.assert_called_once()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
+    def test_cancel_already_terminal_is_idempotent(self, mock_signal, mock_send_cancel):
+        task = self.create_task()
+        run = self._create_run(task, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal.assert_not_called()
+        mock_send_cancel.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
+    def test_cancel_rejects_local_runs(self, mock_signal, _mock_send_cancel):
+        task = self.create_task()
+        run = self._create_run(task, environment=TaskRun.Environment.LOCAL)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_signal.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="unavailable")
+    def test_cancel_returns_503_when_temporal_unavailable(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    def test_cancel_unknown_run_returns_404(self):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{uuid.uuid4()}/cancel/", {}, format="json"
+        )
+
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
