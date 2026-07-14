@@ -1156,6 +1156,16 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
                         "$current_url": f"https://example.com{pathname}",
                     },
                 )
+        # A matching pageview with a malformed (non-UUID) session id: the join path
+        # leaves it unmatched; the two-phase id set must drop it instead of feeding
+        # a toUUID() conversion that aborts the whole query.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$session_id": "legacy-session", "$pathname": "/pricing"},
+        )
 
     def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
         query = WebOverviewQuery(

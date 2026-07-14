@@ -490,7 +490,7 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
         left = term.left.expr if isinstance(term.left, ast.Alias) else term.left
         if (
             not isinstance(left, ast.Field)
-            or left.chain[-1] != "session_id"
+            or left.chain[-1] not in ("session_id", "session_id_v7")
             or not isinstance(term.right, ast.SelectQuery)
         ):
             continue
@@ -502,16 +502,28 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
         if isinstance(inner, ast.Alias):
             alias = inner.alias
         else:
-            alias = "session_id_str"
+            alias = "session_id_value"
             subquery.select[0] = ast.Alias(alias=alias, expr=inner)
 
+        if left.chain[-1] == "session_id_v7":
+            # Already UInt128 — no conversion needed.
+            id_expr: ast.Expr = ast.Field(chain=[alias])
+        else:
+            # String session ids: accurateCastOrNull keeps malformed values from
+            # aborting the query (they become NULL and drop out of the set, which
+            # matches the join path leaving them unmatched).
+            id_expr = ast.Call(
+                name="_toUInt128",
+                args=[
+                    ast.Call(
+                        name="accurateCastOrNull",
+                        args=[ast.Field(chain=[alias]), ast.Constant(value="UUID")],
+                    )
+                ],
+            )
+
         wrapped = ast.SelectQuery(
-            select=[
-                ast.Call(
-                    name="_toUInt128",
-                    args=[ast.Call(name="toUUID", args=[ast.Field(chain=[alias])])],
-                )
-            ],
+            select=[id_expr],
             select_from=ast.JoinExpr(table=subquery),
         )
         return ast.CompareOperation(

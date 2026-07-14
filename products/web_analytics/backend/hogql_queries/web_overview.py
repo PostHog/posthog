@@ -76,17 +76,16 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         """
         count_query = parse_select(
             """
-SELECT uniq(events.$session_id) AS matching_sessions
+SELECT uniq(events.$session_id_uuid) AS matching_sessions
 FROM events
 WHERE and(
-    {events_session_id_present},
+    events.$session_id_uuid IS NOT NULL,
     {event_type_expr},
     {inside_timestamp_period},
     {filters},
 )
             """,
             placeholders={
-                "events_session_id_present": self.events_session_id_present,
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "filters": property_to_expr(list(self.query.properties), team=self.team),
@@ -141,19 +140,23 @@ WHERE and(
     @cached_property
     def two_phase_select(self) -> ast.SelectQuery:
         filters = property_to_expr(list(self.query.properties), team=self.team)
+        # The id set flows as the nullable-UUID materialized column: malformed
+        # `$session_id` strings become NULL and drop out of the set (the join path
+        # left such events unmatched; a string set would hit toUUID() and abort the
+        # whole query). Matching on `session_id_v7` keeps the flow UInt128 end to
+        # end — no string↔UUID conversion anywhere, in either join mode.
         matching_session_ids = parse_select(
             """
-SELECT DISTINCT events.$session_id AS session_id_str
+SELECT DISTINCT events.$session_id_uuid AS session_id_uuid
 FROM events
 WHERE and(
-    {events_session_id_present},
+    events.$session_id_uuid IS NOT NULL,
     {event_type_expr},
     {inside_timestamp_period},
     {filters},
 )
             """,
             placeholders={
-                "events_session_id_present": self.events_session_id_present,
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "filters": filters,
@@ -161,7 +164,7 @@ WHERE and(
         )
         sessions_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["sessions", "session_id"]),
+            left=ast.Field(chain=["sessions", "session_id_v7"]),
             right=matching_session_ids,
         )
         return self._two_scan_select(events_extra_where=filters, sessions_extra_where=sessions_id_filter)
