@@ -96,7 +96,9 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                 snapshot_source: snapshotSource,
             }
             posthog.capture(`recording loaded`, payload)
-            metricCount('replay_player_recordings_loaded', 1, { snapshot_source: snapshotSource })
+            // the runtime value is caller-controlled, so allowlist it to keep the metric series bounded
+            const snapshotSourceLabel = ['web', 'mobile'].includes(snapshotSource) ? snapshotSource : 'unknown'
+            metricCount('replay_player_recordings_loaded', 1, { snapshot_source: snapshotSourceLabel })
         },
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
