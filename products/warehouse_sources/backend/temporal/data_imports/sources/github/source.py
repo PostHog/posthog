@@ -34,6 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -217,6 +221,30 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
+
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            # get_oauth_integration raises ValueError for a missing/foreign integration id — an
+            # actionable customer-side state (disconnected/deleted), not a server bug.
+            raise IntegrationAccountListingError(
+                "The linked GitHub integration could not be found. Please reconnect your GitHub account."
+            ) from e
+
+        # `repository` is `owner/repo`. Repo lists can be large, so push the search down to the cache
+        # query (server-side) and cap the page — the picker searches as the user types rather than
+        # loading every repo at once.
+        repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
+            search=search or "", limit=100, offset=0
+        )
+        return [
+            IntegrationAccount(value=repo["full_name"], display_name=repo["full_name"])
+            for repo in repositories
+            if repo.get("full_name")
+        ]
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
