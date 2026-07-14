@@ -2,11 +2,12 @@ import json
 from typing import Optional
 
 from django.contrib.admin.models import CHANGE, LogEntry
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 import structlog
 import posthoganalytics
+from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
@@ -48,7 +49,17 @@ def loginas_user(request, user_id):
     staff_user = request.user
     response = loginas_user_login(request, user_id)
 
-    if is_impersonated_session(request):
+    # loginas redirects to LOGIN_REDIRECT only when the impersonation actually started; a rejected
+    # attempt (empty reason, failed CAN_LOGIN_AS) redirects back to the referer without touching the
+    # session. Gate the mutations on success so a rejected re-impersonation can't change the active
+    # session's mode or reason.
+    login_succeeded = (
+        isinstance(response, HttpResponseRedirect)
+        and response.url == la_settings.LOGIN_REDIRECT
+        and is_impersonated_session(request)
+    )
+
+    if login_succeeded:
         is_read_only = request.POST.get("read_only") != "false"
         if is_read_only:
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
