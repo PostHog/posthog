@@ -1,6 +1,18 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
-import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { isChunkLoadError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
+
+function isMinifiedModuleEvaluationError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const { name, message } = error as { name?: string; message?: string }
+    return (
+        name === 'TypeError' &&
+        typeof message === 'string' &&
+        /^[A-Za-z_$] is not a function$/.test(message)
+    )
+}
 
 /**
  * Re-attempts a dynamic `import()` on a transient chunk-load failure before giving up.
@@ -19,6 +31,9 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
+        if (isMinifiedModuleEvaluationError(error)) {
+            markAsChunkLoadError(error)
+        }
         if (retries <= 0 || !isChunkLoadError(error)) {
             throw error
         }
