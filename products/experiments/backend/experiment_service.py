@@ -2604,7 +2604,8 @@ class ExperimentService:
         # workflow. If change-request approval is required, this raises
         # ApprovalRequired which surfaces as a 409 to the caller. The
         # experiment is NOT ended until the change request is approved and
-        # the user retries.
+        # the user retries. base_filters folds the freeze-strip above into
+        # this same write: one approval-gate trip, one activity-log entry.
         ship_flag_variant(
             flag,
             variant_key,
