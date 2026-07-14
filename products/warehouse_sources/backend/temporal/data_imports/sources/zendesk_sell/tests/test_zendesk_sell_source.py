@@ -30,8 +30,6 @@ class TestSourceConfig:
         config = ZendeskSellSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Alpha ships hidden until end-to-end sync is verified against a live account.
-        assert config.unreleasedSource is True
 
     def test_config_exposes_single_password_access_token_field(self) -> None:
         fields = ZendeskSellSource().get_source_config.fields

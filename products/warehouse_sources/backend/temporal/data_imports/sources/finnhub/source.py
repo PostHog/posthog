@@ -107,7 +107,6 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnhub",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finnhub API key to pull market and company financial data into the PostHog Data warehouse.
 
 Create a free API key in your [Finnhub dashboard](https://finnhub.io/dashboard).

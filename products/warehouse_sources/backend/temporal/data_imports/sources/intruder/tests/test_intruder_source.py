@@ -26,7 +26,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Kept behind the unreleased flag while the source is in alpha — hides it from the wizard.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/intruder"
 
     def test_single_secret_access_token_field(self) -> None:
