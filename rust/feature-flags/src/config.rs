@@ -406,8 +406,12 @@ pub struct Config {
 
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
-    // pool's full acquire timeout; on timeout the lookup degrades to non-membership.
-    #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "500")]
+    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // The default matches the pool's 1s statement timeout: a tighter client-side bound
+    // would discard answers the DB would still deliver, flipping flags for the person,
+    // so this bound only adds cover where statement_timeout cannot reach (pool acquire
+    // stalls, network black holes).
+    #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
 
     #[envconfig(default = "1000")]
@@ -1044,7 +1048,7 @@ impl Config {
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
-            realtime_cohort_lookup_timeout_ms: 500,
+            realtime_cohort_lookup_timeout_ms: 1000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,

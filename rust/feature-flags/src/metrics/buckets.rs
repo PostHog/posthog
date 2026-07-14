@@ -71,10 +71,13 @@ const S3_OP_BUCKETS_MS: &[f64] = &[
 ];
 
 // Realtime cohort membership lookups at the evaluation site
-// (`flags_realtime_cohort_query_time`). The rollout SLO is p99 < 20ms, which
-// the default ladder cannot resolve (it jumps 10ms → 50ms), so carry an
-// explicit 20ms boundary. Sub-ms floor captures Moka cache hits; 1s ceiling
-// matches the behavioral cohorts pool's statement timeout.
+// (`flags_realtime_cohort_query_time`, recorded with
+// `timing_guard_high_precision` — the sub-ms floor is only meaningful because
+// of that; plain `timing_guard` truncates to integer ms and would collapse
+// every Moka cache hit to 0). The rollout SLO is p99 < 20ms, which the
+// default ladder cannot resolve (it jumps 10ms → 50ms), so carry an explicit
+// 20ms boundary. Sub-ms floor separates cache hits from DB round trips;
+// 1s ceiling matches the behavioral cohorts pool's statement timeout.
 const REALTIME_COHORT_LOOKUP_BUCKETS_MS: &[f64] = &[
     0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
 ];

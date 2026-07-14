@@ -28,7 +28,7 @@ The service uses a four-pool architecture (with an optional fifth pool for behav
 
 When the persons database is not configured separately, the persons pools alias to the non-persons pools, effectively creating a two-pool architecture.
 
-When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, a separate reader pool is created for realtime cohort membership lookups. This pool has tight limits (max 5 connections, 1s statement timeout, and a configurable `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` bound, default 500ms, covering pool acquire + query) to avoid impacting flag evaluation latency. When not configured, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership, with no impact on existing flag evaluation.
+When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, a separate reader pool is created for realtime cohort membership lookups. This pool has tight limits (max 5 connections, 1s statement timeout, and a configurable `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` bound covering pool acquire + query, default 1s to match the statement timeout) to avoid impacting flag evaluation latency. When not configured, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership, with no impact on existing flag evaluation.
 
 ## Connection pooling
 
@@ -303,7 +303,7 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 | `flags_rate_limit_check_ms`                | `kind`                 | Rate limit check duration (`kind="ip"` or `kind="token"`)                                              |
 | `flags_token_extract_ms`                   | -                      | Token extraction timing                                                                                |
 | `flags_concurrency_limit_wait_ms`          | -                      | Concurrency limit permit wait time (pod-level, no `team_id`)                                           |
-| `flags_realtime_cohort_query_time`         | `team_id`              | Realtime cohort lookup at the evaluation site, including cache hits                                    |
+| `flags_realtime_cohort_query_time`         | `team_id`              | Realtime cohort lookup at the evaluation site, including cache hits (sub-ms precision)                 |
 | `flags_realtime_cohort_query_error_total`  | `team_id`              | Realtime cohort lookups that failed and degraded to non-membership                                     |
 | `flags_realtime_cohort_db_query_time`      | `outcome`              | Behavioral cohorts DB query latency (`success`, `error`, `timeout`; sub-ms precision, 20ms SLO bucket) |
 | `flags_db_cohort_membership_reads_total`   | -                      | Successful behavioral cohorts DB reads                                                                 |

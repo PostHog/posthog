@@ -25,12 +25,15 @@ pub struct RealtimeCohortMembershipProvider {
 }
 
 impl RealtimeCohortMembershipProvider {
-    /// Upper bound on one membership lookup, covering pool acquire + query. The pool's
-    /// acquire timeout alone is 2s by default, so without this bound an unreachable
-    /// behavioral cohorts DB would stall every uncached lookup for a large share of the
-    /// 4.5s flags request budget. On timeout the lookup fails like any query error and
-    /// the caller degrades to non-membership.
-    const DEFAULT_LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
+    /// Upper bound on one membership lookup, covering pool acquire + query. Matches the
+    /// behavioral cohorts pool's 1s statement timeout: a tighter bound would discard
+    /// answers the DB would still deliver, degrading the person to non-member and
+    /// flipping any flag targeting them. Its job is to cover what statement_timeout
+    /// cannot — pool acquire stalls (2s acquire timeout by default) and network black
+    /// holes — so an unreachable DB costs at most 1s of the 4.5s flags request budget.
+    /// On timeout the lookup fails like any query error and the caller degrades to
+    /// non-membership.
+    const DEFAULT_LOOKUP_TIMEOUT: Duration = Duration::from_millis(1000);
 
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self::with_lookup_timeout(pool, Self::DEFAULT_LOOKUP_TIMEOUT)
