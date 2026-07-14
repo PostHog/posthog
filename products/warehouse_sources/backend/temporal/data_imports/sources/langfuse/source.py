@@ -124,7 +124,6 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Langfuse",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["llm", "observability", "traces", "prompts", "evals"],
             caption="""Enter your Langfuse project API keys to pull your LLM observability data into the PostHog Data warehouse.
 

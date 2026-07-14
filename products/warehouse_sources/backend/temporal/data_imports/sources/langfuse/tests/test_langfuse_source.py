@@ -30,7 +30,6 @@ class TestLangfuseSource:
 
         assert config.name.value == "Langfuse"
         assert config.label == "Langfuse"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/langfuse.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/langfuse"
