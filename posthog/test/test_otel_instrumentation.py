@@ -244,13 +244,32 @@ class TestOtelInstrumentation(BaseTest):
     def test_otel_django_response_hook(self):
         mock_span = mock.Mock()
         mock_span.is_recording.return_value = True
-        mock_request = mock.Mock()  # Not used by this hook's logic
+        mock_request = mock.Mock(method="GET")
+        mock_request.resolver_match.route = "api/projects/<int:team_id>/insights/"
         mock_response = mock.Mock()
         mock_response.status_code = 200
 
         _otel_django_response_hook(mock_span, mock_request, mock_response)
 
-        mock_span.set_attribute.assert_called_once_with("http.status_code", 200)
+        self.assertEqual(
+            mock_span.set_attribute.call_args_list,
+            [
+                mock.call("http.status_code", 200),
+                mock.call("http.route", "api/projects/<int:team_id>/insights/"),
+            ],
+        )
+        mock_span.update_name.assert_called_once_with("GET api/projects/<int:team_id>/insights/")
+
+    def test_otel_django_response_hook_without_resolved_route(self):
+        mock_span = mock.Mock()
+        mock_span.is_recording.return_value = True
+        mock_request = mock.Mock(spec=["method"])
+        mock_response = mock.Mock(status_code=404)
+
+        _otel_django_response_hook(mock_span, mock_request, mock_response)
+
+        mock_span.set_attribute.assert_called_once_with("http.status_code", 404)
+        mock_span.update_name.assert_not_called()
 
     def test_otel_django_response_hook_not_recording(self):
         mock_span = mock.Mock()
