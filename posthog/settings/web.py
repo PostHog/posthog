@@ -840,6 +840,9 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                # Deploy-static source catalog (no user input or secrets reflected): several
+                # hundred KB of JSON that compresses ~7x.
+                "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1141,4 +1144,16 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
     for team_id in get_list(
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
     )
+]
+
+# Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
+# when nothing in the query (property filters, conversion goal, test-account filters,
+# sampling) constrains which sessions qualify. In that shape the join only multiplies
+# cost: the sessions-side subquery is re-executed per shard of the events cluster. Trial
+# rollout is per-team via comma-separated env var; defaults to the Cloud dogfooding team
+# (project 2, same default as the lazy precompute lists) so the fast paths activate there
+# on deploy, and to empty on self-hosted where project id 2 is an arbitrary customer.
+WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]

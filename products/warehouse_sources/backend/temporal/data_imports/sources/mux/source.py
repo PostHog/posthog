@@ -79,7 +79,6 @@ Grant the following read permissions:
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

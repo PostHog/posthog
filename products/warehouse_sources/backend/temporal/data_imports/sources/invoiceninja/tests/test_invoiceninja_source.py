@@ -27,7 +27,6 @@ class TestInvoiceninjaSource:
 
         assert config.name.value == "Invoiceninja"
         assert config.label == "Invoice Ninja"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/invoiceninja.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/invoiceninja"

@@ -50,7 +50,6 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption=(
                 "Enter your ElevenLabs API key to sync your speech generation history, conversational AI "
                 "conversations and agents, voices, and models into the PostHog Data warehouse. Create a key under "
