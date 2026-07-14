@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.file_system.user_product_list import DEFAULT_PRODUCT_PATHS, UserProductList
 from posthog.models.organization import OrganizationMembership
@@ -17,7 +18,19 @@ class TestUserProductListDefaults(BaseTest):
             ).values_list("product_path", flat=True)
         )
 
-    def test_accepting_invite_adds_default_products(self):
+    def _make_team_private(self, team: Team) -> None:
+        # Project-level access controls only apply when the org has the feature.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+
+    def test_accepting_invite_adds_default_products_for_private_project_access(self):
+        # Mark the team private, so seeding can only come from the invite's access grant,
+        # not from the org-wide seeding in User.join.
+        self._make_team_private(self.team)
         new_user = User.objects.create_user(email="newuser@posthog.com", password="password", first_name="New")
 
         invite = OrganizationInvite.objects.create(
@@ -56,9 +69,13 @@ class TestUserProductListDefaults(BaseTest):
 
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_access_control_signal_adds_default_products(self):
+        # Private team: joining the org must NOT seed it; the explicit access grant must.
+        self._make_team_private(self.team)
         user = User.objects.create_user(email="signal@posthog.com", password="password", first_name="Signal")
         user.join(organization=self.organization)
         membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+
+        assert self._default_paths_for(user, self.team) == set()
 
         AccessControl.objects.create(
             team=self.team,

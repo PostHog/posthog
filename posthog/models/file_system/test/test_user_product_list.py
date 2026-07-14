@@ -7,6 +7,7 @@ from posthog.models.file_system.user_product_list import (
     DEFAULT_PRODUCT_PATHS,
     UserProductList,
     add_default_products_for_user,
+    get_user_product_list_count,
 )
 from posthog.products import Products
 
@@ -30,7 +31,6 @@ class TestUserProductList(BaseTest):
 
     def test_add_default_products_creates_the_default_set(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
-        user.join(organization=self.organization)
 
         created_items = add_default_products_for_user(user, self.team)
 
@@ -44,7 +44,6 @@ class TestUserProductList(BaseTest):
 
     def test_add_default_products_leaves_existing_rows_untouched(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(
             user=user,
@@ -64,11 +63,23 @@ class TestUserProductList(BaseTest):
         add_default_products_for_user(user, self.team)
         assert UserProductList.objects.filter(user=user, team=self.team).count() == len(DEFAULT_PRODUCT_PATHS)
 
+    def test_join_seeds_default_products_for_accessible_teams(self):
+        # Guards joins that don't go through an invite (e.g. domain/SSO auto-join):
+        # seeding must live in User.join itself, not only in the invite flow.
+        user = User.objects.create_user(email="joiner@posthog.com", password="password", first_name="Joiner")
+
+        user.join(organization=self.organization)
+
+        rows = UserProductList.objects.filter(user=user, team=self.team)
+        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
+        for row in rows:
+            assert row.enabled is True
+            assert row.reason == UserProductList.Reason.DEFAULT
+
     def test_sync_cross_sell_products_suggests_same_category_or_favored(self):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -91,7 +102,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
         UserProductList.objects.create(user=user, team=self.team, product_path="Dashboards", enabled=True)
@@ -111,7 +121,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -122,7 +131,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -133,7 +141,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
 
@@ -146,7 +153,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -165,7 +171,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         products_by_category = Products.get_products_by_category()
         tools_products = products_by_category.get(ProductItemCategory.TOOLS, [])
@@ -189,7 +194,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -207,7 +211,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         products_by_category = Products.get_products_by_category()
         favored_products = _get_favored_product_paths()
@@ -234,7 +237,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
@@ -256,7 +258,6 @@ class TestUserProductList(BaseTest):
         user = User.objects.create_user(
             email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
         )
-        user.join(organization=self.organization)
 
         # Enable all products
         for product in Products.products():
@@ -264,6 +265,112 @@ class TestUserProductList(BaseTest):
 
         created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
         assert len(created_items) == 0
+
+    def test_sync_from_team_colleagues_filters_out_existing_products(self):
+        user = User.objects.create_user(
+            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
+        )
+
+        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=user, team=self.team, product_path="Feature flags", enabled=True)
+
+        hardcoded_counts = [
+            {"product_path": "Product analytics", "colleague_count": 5},
+            {"product_path": "Session replay", "colleague_count": 4},
+            {"product_path": "Feature flags", "colleague_count": 3},
+            {"product_path": "Surveys", "colleague_count": 2},
+        ]
+
+        created_items = UserProductList.sync_from_team_colleagues(
+            user=user, team=self.team, count=2, colleague_product_counts=hardcoded_counts
+        )
+
+        assert {item.product_path for item in created_items} == {"Session replay", "Surveys"}
+        for item in created_items:
+            assert item.reason == UserProductList.Reason.USED_BY_COLLEAGUES
+            assert item.enabled is True
+
+    def test_sync_from_team_colleagues_ranks_by_counts_and_respects_limit(self):
+        user = User.objects.create_user(
+            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
+        )
+
+        hardcoded_counts = [
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
+            {"product_path": "Feature flags", "colleague_count": 5},
+            {"product_path": "Surveys", "colleague_count": 3},
+            {"product_path": "Experiments", "colleague_count": 1},
+        ]
+
+        created_items = UserProductList.sync_from_team_colleagues(
+            user=user, team=self.team, count=3, colleague_product_counts=hardcoded_counts
+        )
+
+        assert [item.product_path for item in created_items] == [
+            "Product analytics",
+            "Session replay",
+            "Feature flags",
+        ]
+
+    def test_sync_from_team_colleagues_respects_allow_sidebar_suggestions_false(self):
+        user = User.objects.create_user(
+            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
+        )
+
+        hardcoded_counts = [
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
+        ]
+
+        created_items = UserProductList.sync_from_team_colleagues(
+            user=user, team=self.team, colleague_product_counts=hardcoded_counts
+        )
+
+        assert len(created_items) == 0
+
+    def test_sync_from_team_colleagues_computes_counts_when_not_provided(self):
+        colleague1 = User.objects.create_user(
+            email="colleague1@posthog.com", password="password", first_name="Colleague1"
+        )
+        colleague2 = User.objects.create_user(
+            email="colleague2@posthog.com", password="password", first_name="Colleague2"
+        )
+        user = User.objects.create_user(
+            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
+        )
+
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
+
+        created_items = UserProductList.sync_from_team_colleagues(user=user, team=self.team, count=2)
+
+        assert {item.product_path for item in created_items} == {"Product analytics", "Session replay"}
+
+    def test_get_user_product_list_count_ranks_and_excludes_disabled(self):
+        # Counts are team-wide; drop the rows seeded for the fixture user so only
+        # the colleagues created below contribute.
+        UserProductList.objects.filter(team=self.team).delete()
+        colleague1 = User.objects.create_user(
+            email="colleague1@posthog.com", password="password", first_name="Colleague1"
+        )
+        colleague2 = User.objects.create_user(
+            email="colleague2@posthog.com", password="password", first_name="Colleague2"
+        )
+
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Feature flags", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=False)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=False)
+
+        counts = get_user_product_list_count(self.team)
+
+        assert counts == [
+            {"product_path": "Product analytics", "colleague_count": 2},
+            {"product_path": "Feature flags", "colleague_count": 1},
+        ]
 
     def test_user_product_list_reason_enum_matches_backend(self):
         from posthog.schema import UserProductListReason

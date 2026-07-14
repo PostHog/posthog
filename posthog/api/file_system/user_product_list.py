@@ -4,7 +4,6 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.functions import Lower
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -12,7 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList, add_default_products_for_user
+from posthog.models.file_system.user_product_list import UserProductList
 
 
 class UserProductListSerializer(serializers.ModelSerializer):
@@ -96,22 +95,3 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append(serializer.data)
 
         return Response({"results": results}, status=status.HTTP_200_OK)
-
-    @extend_schema(
-        request=None,
-        responses={201: UserProductListSerializer(many=True)},
-        description="Add the default set of products to the user's product list for this team.",
-    )
-    @action(methods=["POST"], detail=False, url_path="seed")
-    def seed(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Add the default set of products to the user's product list for this team.
-        """
-        user = cast(User, request.user)
-        team = self.team
-
-        add_default_products_for_user(user, team)
-
-        # Return all products the user has enabled in this team, not just the ones we created above
-        serializer = self.get_serializer(self.safely_get_queryset(self.queryset), many=True)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)

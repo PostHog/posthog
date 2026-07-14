@@ -1,7 +1,8 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Count
 from django.db.models.expressions import F
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
@@ -14,6 +15,7 @@ from posthog.schema_enums import ProductIntentContext, ProductItemCategory, Prod
 from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
     from posthog.models.product_intent.product_intent import ProductIntent
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -59,6 +61,52 @@ def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProdu
     )
 
 
+def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
+    """
+    Add the default products to the user's sidebar for every team in the organization
+    they have access to. Called when a user/organization connection is created (invite
+    acceptance, domain/SSO auto-join).
+    """
+    from posthog.rbac.user_access_control import UserAccessControl
+
+    uac = UserAccessControl(user=user, organization_id=str(organization.id))
+    accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+
+    for team in accessible_teams:
+        add_default_products_for_user(user, team)
+
+
+def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
+    """
+    Get product counts for all items in a team, ranked by popularity.
+    Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
+
+    Excludes rows seeded by onboarding-delegation: those are an "explore everything" default
+    for the delegator only and shouldn't drive what subsequent teammates see in their sidebar.
+    The actual setup person's choices (ONBOARDING / PRODUCT_INTENT) remain the colleague signal.
+    """
+    return list[dict[str, Any]](
+        UserProductList.objects.filter(team=team, enabled=True)
+        .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
+        .values("product_path")
+        .annotate(colleague_count=Count("user", distinct=True))
+        .order_by("-colleague_count")
+    )
+
+
+def backfill_user_product_list_for_new_user(user: "User", team: "Team") -> None:
+    """
+    Backfill UserProductList entries for a new user in a new team based on what
+    they have enabled in other teams they belong to.
+
+    Not called from any active flow - connection-time seeding uses
+    `add_default_products_for_user` instead - but kept alongside the colleague-sync
+    Dagster job in case we bring inheritance-based suggestions back.
+    """
+    UserProductList.backfill_from_other_teams(user, team)
+    UserProductList.sync_from_team_colleagues(user, team, count=3)
+
+
 class UserProductList(UUIDModel, UpdatedMetaFields):
     """
     Stores a user's custom list of products they care about.
@@ -83,13 +131,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # User showed intent for the product
         PRODUCT_INTENT = "product_intent", "Product Intent"
 
-        # Colleagues on the same team have the product in their sidebar, DEPRECATED
+        # Colleagues on the same team have the product in their sidebar
         USED_BY_COLLEAGUES = "used_by_colleagues", "Used by Colleagues"
 
         # User has a similar product in their sidebar, DEPRECATED
         USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
 
-        # User has this product on another team they belong to, DEPRECATED
+        # User has this product on another team they belong to
         USED_ON_SEPARATE_TEAM = "used_on_separate_team", "Used on Separate Team"
 
         # We launch a new product and want to foster adoption
@@ -189,6 +237,108 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
             user_product_lists.append(item)
 
         return user_product_lists
+
+    @staticmethod
+    def sync_from_team_colleagues(
+        user: "User",
+        team: "Team",
+        count: int = 1,
+        colleague_product_counts: list[dict[str, Any]] | None = None,
+    ) -> "list[UserProductList]":
+        """
+        Create UserProductList entries for a user based on what their team colleagues have.
+        Products are ranked by how many colleagues have them enabled, and only the top `count`
+        items that the user doesn't already have enabled are included.
+
+        Args:
+            user: The user to sync products for
+            team: The team to check colleagues in
+            count: Maximum number of products to suggest
+            colleague_product_counts: Optional precomputed colleague product counts.
+                If not provided, will be computed automatically.
+        """
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        # Get products the user already has (enabled or disabled - we'll exclude these)
+        user_existing_products = set(
+            UserProductList.objects.filter(user=user, team=team).values_list("product_path", flat=True)
+        )
+
+        # Count how many colleagues have each product_path enabled
+        if colleague_product_counts is None:
+            colleague_product_counts = get_user_product_list_count(team)
+
+        # Filter out products user already has and take top `count` items
+        top_products = [
+            item["product_path"]
+            for item in colleague_product_counts
+            if item["product_path"] not in user_existing_products
+        ][:count]
+
+        # Create UserProductList entries for the top products
+        created_items = []
+        for product_path in top_products:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_BY_COLLEAGUES,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
+
+    @staticmethod
+    def backfill_from_other_teams(user: "User", team: "Team") -> "list[UserProductList]":
+        """
+        Backfill UserProductList entries for a user in a new team based on what
+        they have enabled in other teams they belong to.
+        """
+        from posthog.models.team import Team
+
+        # We IGNORE the user's suggestion config because we want them to have
+        # at least some products in their sidebar to start with when backfilling from
+        # their own teams.
+        #
+        # if user.allow_sidebar_suggestions is False:
+        #     return []
+
+        # Get all other teams the user belongs to (through organization membership)
+        user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
+        other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)
+
+        # Get all product paths the user has enabled in other teams. Skip rows seeded by
+        # onboarding-delegation - those represent a one-off "explore everything" state for
+        # the delegator and shouldn't propagate when they later join another team.
+        user_product_paths = set(
+            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True)
+            .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
+            .values_list("product_path", flat=True)
+        )
+
+        # Create UserProductList entries for the missing products
+        created_items = []
+        for product_path in user_product_paths:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_ON_SEPARATE_TEAM,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
 
     @staticmethod
     def sync_cross_sell_products(
