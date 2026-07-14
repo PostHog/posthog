@@ -623,7 +623,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # Assemble the flag's native write shape from the changed deprecated keys. The service owns
         # this translation (it is the reverse of the read projection) so both the HTTP path and direct
         # service callers build the config identically.
-        return ExperimentService._feature_flag_config_from_parameters(changed)
+        config = ExperimentService._feature_flag_config_from_parameters(changed)
+        # Surface to update_experiment that a real flag-config write (not a faithful echo) came from
+        # the deprecated `parameters` surface, for the "experiment updated" deprecation-bake telemetry.
+        self._deprecated_flag_config_changed = config is not None
+        return config
 
     @staticmethod
     def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:
@@ -765,6 +769,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             feature_flag_config=feature_flag_config,
             serializer_context=self.context,
             allow_unknown_events=allow_unknown_events,
+            deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
 
 
@@ -1229,18 +1234,6 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
     )
-    # Live ClickHouse progress, present only on the GET poll path while the run is in_progress (in-flight
-    # queries from system.processes plus queries finished during the run from system.query_log, matched by
-    # query_id prefix; see get_live_query_progress). build_job_payload omits these keys entirely for terminal
-    # or just-created runs, so they are genuinely optional in the response — NOT read_only=True, which
-    # drf-spectacular would force into the schema's `required` list (making the generated TypeScript
-    # `number | null` instead of the honest `number | null | undefined`). The serializer is output-only
-    # (never .is_valid()), so omitting read_only costs no input-validation safety.
-    running_metrics = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)",
-    )
     rows_read = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -1256,19 +1249,6 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
             "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. "
             "A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the "
             "reliable signal"
-        ),
-    )
-    bytes_read = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Bytes read by the run's metric queries so far, both finished and currently running",
-    )
-    active_cpu_time = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and "
-            "currently running"
         ),
     )
 
@@ -1401,4 +1381,55 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class ExperimentSessionContextItemSerializer(serializers.Serializer):
+    """One experiment whose feature flag a session recording saw."""
+
+    experiment_id = serializers.IntegerField(help_text="ID of the experiment whose feature flag the session saw.")
+    experiment_name = serializers.CharField(help_text="Name of the experiment.")
+    flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
+    variant = serializers.CharField(
+        help_text=(
+            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
+            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+        )
+    )
+    variants_seen = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "All distinct variant values observed for this flag during the session, sorted alphabetically. "
+            "Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. "
+            "More than one value means the session saw multiple variants — a signal of multi-exposure bias."
+        ),
+    )
+    multiple_variants = serializers.BooleanField(
+        help_text="True when the session saw more than one variant of this flag."
+    )
+    first_flag_evaluation_timestamp = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
+            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
+            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
+            "exposure criteria this is not the experiment's exposure moment."
+        ),
+    )
+    experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
+    experiment_end_date = serializers.DateTimeField(
+        allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+
+
+class ExperimentSessionContextResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a session recording."""
+
+    session_id = serializers.CharField(help_text="ID of the session recording the context was resolved for.")
+    results = ExperimentSessionContextItemSerializer(
+        many=True,
+        help_text=(
+            "Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched "
+            "experiment's run window overlaps the recording or no flag data was observed in the session."
+        ),
     )

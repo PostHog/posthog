@@ -839,6 +839,18 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         defaults.update(overrides)
         return ReplayObservation.objects.create(**defaults)
 
+    def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
+        observation = self._create_observation(session_id="s-pending")
+        self._create_observation(session_id="s-other")
+
+        url = f"{self.observations_url(str(self.scanner.id))}{observation.id}/?status=succeeded"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["id"], str(observation.id))
+        self.assertIsNone(body["previous_observation_id"])
+        self.assertIsNone(body["next_observation_id"])
+
     def test_list_observations_for_scanner(self) -> None:
         self._create_observation(session_id="s1")
         self._create_observation(session_id="s2")
@@ -1565,7 +1577,7 @@ class TestRetryActions(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(kwargs["id"], expected_workflow_id)
         inputs = args[1]
-        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
+        self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
     def test_retry_rejects_non_failed_statuses(
@@ -1603,26 +1615,30 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-quota")
 
-        exhausted = MagicMock(exhausted=True, monthly_quota=500, period_end=timezone.now())
+        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
         with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
-    def test_retry_dispatch_failure_returns_503_with_row_deleted(
+    def test_retry_dispatch_failure_returns_503_with_row_restored(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # Documented contract: the slot is freed even when the start fails, so the session can be re-scanned.
+        # The replacement run never started, so the failed row must come back instead of leaving the
+        # recording looking unscanned while the usage ledger still counts the failed attempt.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         observation = self._create_failed("sess-broken")
+        original_created_at = observation.created_at
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
         # `detail` is what the frontend toast surfaces; `error` would be silently dropped.
-        self.assertIn("can be scanned again", resp.json()["detail"])
-        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        self.assertIn("was kept", resp.json()["detail"])
+        restored = ReplayObservation.objects.get(id=observation.id)
+        self.assertEqual(restored.status, ObservationStatus.FAILED)
+        self.assertEqual(restored.created_at, original_created_at)
 
     def _personal_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
@@ -1680,8 +1696,8 @@ class TestRetryActions(_VisionAPITestCase):
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 409, resp.json())
-        # Documented contract: the slot is already freed; the recording can be scanned again shortly.
-        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        # The restart was blocked, so the failed row is restored and the retry can be attempted again.
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
 
     def test_retry_works_on_session_scoped_route(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1791,6 +1807,53 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["previous_observation_id"], str(lo.id))
         self.assertEqual(body["next_observation_id"], str(hi.id))
 
+    def test_retrieve_neighbors_honor_list_filters(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        failed = self._create_observation(self.scanner_a, "s-failed")
+        new = self._create_observation(self.scanner_a, "s-new")
+        ReplayObservation.objects.filter(pk=old.id).update(
+            created_at=now - timedelta(minutes=2), status=ObservationStatus.SUCCEEDED, completed_at=now
+        )
+        ReplayObservation.objects.filter(pk=failed.id).update(
+            created_at=now - timedelta(minutes=1),
+            status=ObservationStatus.FAILED,
+            completed_at=now,
+            error_reason="boom",
+        )
+        ReplayObservation.objects.filter(pk=new.id).update(
+            created_at=now, status=ObservationStatus.SUCCEEDED, completed_at=now
+        )
+
+        unfiltered = self.client.get(f"{self.session_observations_url}{new.id}/").json()
+        self.assertEqual(unfiltered["next_observation_id"], str(failed.id))
+
+        filtered = self.client.get(f"{self.session_observations_url}{new.id}/?status=succeeded").json()
+        self.assertEqual(filtered["next_observation_id"], str(old.id))
+        self.assertIsNone(filtered["previous_observation_id"])
+
+    def test_retrieve_neighbors_honor_order_by(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        mid = self._create_observation(self.scanner_a, "s-mid")
+        new = self._create_observation(self.scanner_a, "s-new")
+        ReplayObservation.objects.filter(pk=old.id).update(created_at=now - timedelta(minutes=2))
+        ReplayObservation.objects.filter(pk=mid.id).update(created_at=now - timedelta(minutes=1))
+        ReplayObservation.objects.filter(pk=new.id).update(created_at=now)
+
+        # Ascending created_at reverses the list, so prev/next flip relative to the default ordering.
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/?order_by=created_at").json()
+        self.assertEqual(body["previous_observation_id"], str(old.id))
+        self.assertEqual(body["next_observation_id"], str(new.id))
+
+    def test_retrieve_neighbors_empty_when_observation_outside_filtered_set(self) -> None:
+        observation = self._create_observation(self.scanner_a, "s-pending")
+        self._create_observation(self.scanner_a, "s-sibling")
+
+        body = self.client.get(f"{self.session_observations_url}{observation.id}/?status=succeeded").json()
+        self.assertIsNone(body["previous_observation_id"])
+        self.assertIsNone(body["next_observation_id"])
+
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
@@ -1832,6 +1895,21 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
+        # Defaults to the baseline model when the request names none.
+        self.assertEqual(body["credits_per_observation"], 5)
+        self.assertEqual(body["estimated_credits_per_month"], 15)
+
+    def test_estimate_prices_credits_at_proposed_model(self) -> None:
+        for index in range(3):
+            self._ingest_session(days_ago=index + 1)
+        self._ingest_session(days_ago=40)
+
+        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.5-flash"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["credits_per_observation"], 15)
+        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 15)
 
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
@@ -1866,13 +1944,13 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         make("b", enabled=True, estimate=250)
         make("disabled", enabled=False, estimate=999)  # disabled scanners don't count
 
-        # New scanner (no scanner_id): others = both enabled scanners.
+        # New scanner (no scanner_id): others = both enabled scanners, credit-weighted at 5/observation.
         new_body = self.client.post(self.estimate_url, data={}, format="json").json()
-        self.assertEqual(new_body["other_enabled_scanners_monthly"], 350)
+        self.assertEqual(new_body["other_enabled_scanners_monthly_credits"], 350 * 5)
 
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
-        self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+        self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 5)
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.

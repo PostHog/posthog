@@ -47,6 +47,11 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Region travels with the bucket: set alongside it, left NULL when no bucket is
     # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
     bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
+    # Fleet-wide cap on the batch sink's concurrently processing groups for this
+    # org — each in-flight group holds at most one connection to the org's
+    # duckgres server, so this bounds the sink's connection footprint no matter
+    # how many consumer pods run. Soft cap: enforced at group-claim time.
+    sink_max_concurrency = models.IntegerField(default=4)
 
     class Meta:
         db_table = "posthog_duckgresserver"

@@ -4,10 +4,16 @@ import request from 'supertest'
 
 import {
     AgentSpecSchema,
+    DirectHttpClient,
+    EncryptedFields,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
+    PgIdentityStore,
     PgRevisionStore,
     PgSessionQueue,
+    PgTransportBindingStore,
     RedisSessionEventBus,
 } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
@@ -180,6 +186,14 @@ describe('ingress HTTP server (path mode)', () => {
             approvals,
             bus,
             credentialBroker,
+            identities: new PgIdentityStore(pool),
+            http: new DirectHttpClient(),
+            identityCredentials: new PgIdentityCredentialStore(pool, {
+                encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+            }),
+            identityLinks: new PgIdentityLinkStateStore(pool),
+            transportBindings: new PgTransportBindingStore(pool),
+            envEncryption: new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS),
             // Opt in to the PostHog identity verifiers for the principal-authed
             // read-route tests; default stays public-only like the rest.
             ...(opts?.withAuth ? { authProvider: testAuthProvider } : {}),

@@ -19,7 +19,7 @@ export default defineConfig({
             wrangler: { configPath: './wrangler.jsonc' },
             miniflare: {
                 bindings: {
-                    // Override secrets loaded from .dev.vars. Empty values
+                    // Override secrets loaded from .env. Empty values
                     // make init()'s analytics / observability paths short-
                     // circuit cleanly.
                     POSTHOG_API_BASE_URL: '',

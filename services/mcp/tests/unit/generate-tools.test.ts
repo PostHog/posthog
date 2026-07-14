@@ -359,6 +359,60 @@ describe('generateToolCode with input_schema', () => {
         )
         expect(result.code).toMatchSnapshot()
     })
+
+    it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { include: ['id', 'name'], selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // The `fields` param must be added to the custom schema, constrained to the allowlist,
+        // and reject an empty array so it can't silently fall back to the full payload.
+        expect(result.code).toContain('.extend({ fields: z.array(z.enum([')
+        expect(result.code).toContain("z.enum(['id', 'name'])")
+        expect(result.code).toContain('.min(1)')
+        // And the response filter must honor it, falling back to the full allowlist when omitted.
+        expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
+    })
+
+    it('throws when selectable is set without an include allowlist', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        // selectable has no allowlist to constrain `fields` against — codegen must fail loudly rather
+        // than silently emit a tool whose selectable flag does nothing.
+        expect(() =>
+            generateToolCode(
+                'things-list',
+                config,
+                resolved,
+                defaultCategory,
+                makeSpec(),
+                new Set<string>(),
+                stubGetQuerySchema
+            )
+        ).toThrow(/response\.selectable requires a non-empty response\.include allowlist/)
+    })
 })
 
 describe('generateToolCode without input_schema', () => {

@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportRefundApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -75,6 +76,12 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** The report's PR refund, when one exists (one refund per report, ever). */
+    refund?: SignalReportRefundApi | null
+    /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
+    billing_exempt_reason?: string | null
+    /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+    refund_ineligibility_reason?: string | null
 }
 
 export enum SignalReportStatus {
@@ -175,6 +182,11 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  * triage surface; everything else (including Runs) is public to any team member.
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
+
+/** Small tag rendered next to a tab's label in the tab bar. */
+export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
+    'not-actionable': 'Staff',
+}
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const

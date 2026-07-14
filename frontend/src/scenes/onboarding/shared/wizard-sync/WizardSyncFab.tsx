@@ -220,10 +220,10 @@ function WizardSyncSurface({
                             openDialog()
                         }}
                         // Mid-run, the X only minimizes — hiding a live run for good would orphan
-                        // it. Once terminal there is nothing to orphan, so the X is the real
-                        // dismissal (the run never leaves on its own; the user decides when).
-                        onDismiss={isTerminal && handleClear ? handleClear : handleMinimize}
-                        dismissTooltip={isTerminal && handleClear ? 'Dismiss' : 'Minimize'}
+                        // it. Once the run is terminal or the PR exists, the user's part is done,
+                        // so the X becomes the real dismissal (the run never leaves on its own).
+                        onDismiss={(isTerminal || prOpened) && handleClear ? handleClear : handleMinimize}
+                        dismissTooltip={(isTerminal || prOpened) && handleClear ? 'Dismiss' : 'Minimize'}
                     />
                 )}
             </div>
