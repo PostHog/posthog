@@ -180,7 +180,7 @@ class TestListGithubSourcesAccessControl(BaseTest):
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
-        create_github_source(self.team, prefix="theirs_", source_id="gh-theirs")
+        theirs = create_github_source(self.team, prefix="theirs_", source_id="gh-theirs")
         access_control = UserAccessControl(user=self.user, team=self.team)
 
         assert len(list_github_sources(team=self.team, user_access_control=access_control)) == 2
@@ -190,6 +190,15 @@ class TestListGithubSourcesAccessControl(BaseTest):
             team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
         )
         assert [source.id for source in visible] == [str(mine.id)]
+
+        # An explicit object grant survives the fail-closed guard.
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+        )
+        visible = list_github_sources(
+            team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
+        )
+        assert {source.id for source in visible} == {str(mine.id), str(theirs.id)}
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
