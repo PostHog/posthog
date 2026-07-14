@@ -44,8 +44,6 @@ class PlanInfo:
     plan_key: str | None
     seat_created_at: str | None
     billing_period: BillingPeriod | None = None
-    # True only on a definitive 404 (user has no seat) — never on resolution
-    # failure, so an outage degrades to default limits, not the free cap.
     seat_missing: bool = False
 
 
@@ -186,7 +184,6 @@ class PlanResolver:
                     plan_key=plan_key,
                     seat_created_at=seat_created_at,
                     billing_period=billing_period,
-                    # Pre-existing cache entries lack the key → False (fail loose).
                     seat_missing=bool(data.get("seat_missing", False)),
                 )
         except Exception:
