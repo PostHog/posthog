@@ -129,7 +129,7 @@ def teams_text(spec: EventKindSpec) -> str:
     return "\n\n".join(parts)
 
 
-def _base_config(
+def build_alert_destination_config(
     *,
     team: Any,
     spec: EventKindSpec,
@@ -149,102 +149,5 @@ def _base_config(
             "description": spec.destination_description(alert_name),
             "template_id": template_id,
             "inputs": inputs,
-        },
-    )
-
-
-def build_slack_destination_config(
-    *,
-    team: Any,
-    spec: EventKindSpec,
-    alert_id: str,
-    alert_name: str,
-    name: str,
-    slack_workspace_id: int,
-    slack_channel_id: str,
-    context_elements: tuple[str, ...],
-) -> AlertDestinationConfig:
-    return _base_config(
-        team=team,
-        spec=spec,
-        alert_id=alert_id,
-        alert_name=alert_name,
-        name=name,
-        template_id=AlertDestinationTemplate.SLACK,
-        inputs={
-            "blocks": {"value": slack_blocks(spec, context_elements)},
-            "text": {"value": spec.header},
-            "slack_workspace": {"value": slack_workspace_id},
-            "channel": {"value": slack_channel_id},
-        },
-    )
-
-
-def build_webhook_destination_config(
-    *,
-    team: Any,
-    spec: EventKindSpec,
-    alert_id: str,
-    alert_name: str,
-    name: str,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    return _base_config(
-        team=team,
-        spec=spec,
-        alert_id=alert_id,
-        alert_name=alert_name,
-        name=name,
-        template_id=AlertDestinationTemplate.WEBHOOK,
-        inputs={
-            "body": {"value": spec.webhook_body},
-            "url": {"value": webhook_url},
-            "headers": {"value": WEBHOOK_HEADERS},
-        },
-    )
-
-
-def build_discord_destination_config(
-    *,
-    team: Any,
-    spec: EventKindSpec,
-    alert_id: str,
-    alert_name: str,
-    name: str,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    return _base_config(
-        team=team,
-        spec=spec,
-        alert_id=alert_id,
-        alert_name=alert_name,
-        name=name,
-        template_id=AlertDestinationTemplate.DISCORD,
-        inputs={
-            "webhookUrl": {"value": webhook_url},
-            "content": {"value": teams_text(spec)},
-        },
-    )
-
-
-def build_teams_destination_config(
-    *,
-    team: Any,
-    spec: EventKindSpec,
-    alert_id: str,
-    alert_name: str,
-    name: str,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    return _base_config(
-        team=team,
-        spec=spec,
-        alert_id=alert_id,
-        alert_name=alert_name,
-        name=name,
-        template_id=AlertDestinationTemplate.TEAMS,
-        inputs={
-            "webhookUrl": {"value": webhook_url},
-            "text": {"value": teams_text(spec)},
         },
     )

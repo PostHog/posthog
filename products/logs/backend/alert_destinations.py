@@ -6,13 +6,14 @@ from typing import Literal, NotRequired, TypedDict
 from urllib.parse import urlsplit
 
 from products.alerts.backend.destination_configs import (
+    WEBHOOK_HEADERS,
     AlertDestinationConfig,
+    AlertDestinationTemplate,
     DestinationType,
     EventKindSpec,
-    build_discord_destination_config,
-    build_slack_destination_config,
-    build_teams_destination_config,
-    build_webhook_destination_config,
+    build_alert_destination_config,
+    slack_blocks,
+    teams_text,
 )
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -239,39 +240,56 @@ def build_destination_config(
 
     if data["type"] == DestinationType.SLACK:
         channel_display = data.get("slack_channel_name") or "channel"
-        return build_slack_destination_config(
+        return build_alert_destination_config(
             team=alert.team,
             spec=spec,
             alert_id=str(alert.id),
             alert_name=alert.name,
             name=f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
-            slack_workspace_id=data["slack_workspace_id"],
-            slack_channel_id=data["slack_channel_id"],
-            context_elements=_SLACK_CONTEXT_ELEMENTS,
+            template_id=AlertDestinationTemplate.SLACK,
+            inputs={
+                "blocks": {"value": slack_blocks(spec, _SLACK_CONTEXT_ELEMENTS)},
+                "text": {"value": spec.header},
+                "slack_workspace": {"value": data["slack_workspace_id"]},
+                "channel": {"value": data["slack_channel_id"]},
+            },
         )
     if data["type"] == DestinationType.WEBHOOK:
-        return build_webhook_destination_config(
+        return build_alert_destination_config(
             team=alert.team,
             spec=spec,
             alert_id=str(alert.id),
             alert_name=alert.name,
             name=f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {data['webhook_url']}",
-            webhook_url=data["webhook_url"],
+            template_id=AlertDestinationTemplate.WEBHOOK,
+            inputs={
+                "body": {"value": spec.webhook_body},
+                "url": {"value": data["webhook_url"]},
+                "headers": {"value": WEBHOOK_HEADERS},
+            },
         )
     if data["type"] == DestinationType.DISCORD:
-        return build_discord_destination_config(
+        return build_alert_destination_config(
             team=alert.team,
             spec=spec,
             alert_id=str(alert.id),
             alert_name=alert.name,
             name=f"Logs alert — {alert.name} ({spec.display_kind}) → Discord",
-            webhook_url=data["webhook_url"],
+            template_id=AlertDestinationTemplate.DISCORD,
+            inputs={
+                "webhookUrl": {"value": data["webhook_url"]},
+                "content": {"value": teams_text(spec)},
+            },
         )
-    return build_teams_destination_config(
+    return build_alert_destination_config(
         team=alert.team,
         spec=spec,
         alert_id=str(alert.id),
         alert_name=alert.name,
         name=f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams",
-        webhook_url=data["webhook_url"],
+        template_id=AlertDestinationTemplate.TEAMS,
+        inputs={
+            "webhookUrl": {"value": data["webhook_url"]},
+            "text": {"value": teams_text(spec)},
+        },
     )
