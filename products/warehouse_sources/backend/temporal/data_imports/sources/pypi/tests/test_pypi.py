@@ -109,21 +109,21 @@ class TestCanonicalName:
 
 class TestProjectRows:
     def test_single_row_with_serial_and_name(self):
-        rows = _project_rows("requests", _document())
+        rows = list(_project_rows("requests", _document()))
 
         assert len(rows) == 1
         assert rows[0]["name"] == "requests"
         assert rows[0]["last_serial"] == 42
 
     def test_name_falls_back_to_requested_when_info_missing(self):
-        rows = _project_rows("requests", {"last_serial": 1})
+        rows = list(_project_rows("requests", {"last_serial": 1}))
 
         assert rows[0]["name"] == "requests"
 
 
 class TestReleaseRows:
     def test_one_row_per_file_stamped_with_package_and_version(self):
-        rows = _release_rows("Requests", _document(name="requests"))
+        rows = list(_release_rows("Requests", _document(name="requests")))
 
         # Both files of 2.31.0 plus the single 2.0.0 file; the malformed "2.99.0" entry is skipped.
         assert len(rows) == 3
@@ -134,7 +134,7 @@ class TestReleaseRows:
         assert all(r["package"] == "requests" for r in rows)
 
     def test_handles_missing_releases(self):
-        assert _release_rows("requests", {"info": {"name": "requests"}}) == []
+        assert list(_release_rows("requests", {"info": {"name": "requests"}})) == []
 
     def test_skips_files_without_filename(self):
         # `filename` is part of the releases primary key, so a file object missing it can't upsert
@@ -150,21 +150,21 @@ class TestReleaseRows:
             },
         }
 
-        rows = _release_rows("requests", document)
+        rows = list(_release_rows("requests", document))
 
         assert [r["filename"] for r in rows] == ["requests-1.0.0.tar.gz"]
 
 
 class TestVulnerabilityRows:
     def test_stamps_package(self):
-        rows = _vulnerability_rows("Requests", _document(name="requests"))
+        rows = list(_vulnerability_rows("Requests", _document(name="requests")))
 
         assert len(rows) == 1
         assert rows[0]["package"] == "requests"
         assert rows[0]["id"] == "PYSEC-2023-1"
 
     def test_handles_no_vulnerabilities(self):
-        assert _vulnerability_rows("requests", {"info": {"name": "requests"}, "vulnerabilities": []}) == []
+        assert list(_vulnerability_rows("requests", {"info": {"name": "requests"}, "vulnerabilities": []})) == []
 
 
 # tenacity exposes the undecorated function via `__wrapped__` so status classification can be

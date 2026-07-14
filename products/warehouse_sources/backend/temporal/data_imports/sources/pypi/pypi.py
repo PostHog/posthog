@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from urllib.parse import quote
 
@@ -124,23 +124,23 @@ def _canonical_name(package: str, document: dict[str, Any]) -> str:
     return info.get("name") or package
 
 
-def _project_rows(package: str, document: dict[str, Any]) -> list[dict[str, Any]]:
+def _project_rows(package: str, document: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """One row per project: the `info` block plus the document's top-level serial."""
     info = dict(document.get("info") or {})
     info["last_serial"] = document.get("last_serial")
     # `name` is the primary key; fall back to the requested package if the API omits it.
     info.setdefault("name", package)
-    return [info]
+    yield info
 
 
-def _release_rows(package: str, document: dict[str, Any]) -> list[dict[str, Any]]:
+def _release_rows(package: str, document: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """One row per distribution file across every version of the project.
 
     Each row is stamped with the canonical `package` and its `version` (the release key), neither of
     which lives on the raw file object, so the `[package, version, filename]` primary key is complete.
+    Yields lazily so a huge release history is never materialized as one big list.
     """
     canonical = _canonical_name(package, document)
-    rows: list[dict[str, Any]] = []
     releases = document.get("releases") or {}
     for version, files in releases.items():
         if not isinstance(files, list):
@@ -156,24 +156,21 @@ def _release_rows(package: str, document: dict[str, Any]) -> list[dict[str, Any]
             row = dict(file_obj)
             row["package"] = canonical
             row["version"] = version
-            rows.append(row)
-    return rows
+            yield row
 
 
-def _vulnerability_rows(package: str, document: dict[str, Any]) -> list[dict[str, Any]]:
+def _vulnerability_rows(package: str, document: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """One row per known vulnerability, stamped with the canonical `package`."""
     canonical = _canonical_name(package, document)
-    rows: list[dict[str, Any]] = []
     for vuln in document.get("vulnerabilities") or []:
         if not isinstance(vuln, dict):
             continue
         row = dict(vuln)
         row["package"] = canonical
-        rows.append(row)
-    return rows
+        yield row
 
 
-_ROW_BUILDERS = {
+_ROW_BUILDERS: dict[str, Callable[[str, dict[str, Any]], Iterator[dict[str, Any]]]] = {
     "projects": _project_rows,
     "releases": _release_rows,
     "vulnerabilities": _vulnerability_rows,
@@ -218,12 +215,17 @@ def get_rows(
         document = _fetch_project(session, package, logger)
         if document is None:
             continue
-        rows = build_rows(package, document)
-        # Yield in bounded chunks: a package with a very large release history would otherwise be a
-        # single oversized list, forcing one big Arrow conversion downstream. The pipeline batches
-        # on top of this, so we only cap the per-yield size rather than buffering ourselves.
-        for start in range(0, len(rows), MAX_ROWS_PER_BATCH):
-            yield rows[start : start + MAX_ROWS_PER_BATCH]
+        # Stream the builder into bounded chunks: a package with a very large release history is
+        # never materialized as one oversized list, and each yield caps the downstream Arrow
+        # conversion. The pipeline batches on top of this.
+        chunk: list[dict[str, Any]] = []
+        for row in build_rows(package, document):
+            chunk.append(row)
+            if len(chunk) >= MAX_ROWS_PER_BATCH:
+                yield chunk
+                chunk = []
+        if chunk:
+            yield chunk
 
 
 def pypi_source(
