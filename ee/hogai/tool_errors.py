@@ -46,6 +46,14 @@ class MaxToolError(Exception):
         }
         return retry_hints[self.retry_strategy]
 
+    @property
+    def should_capture(self) -> bool:
+        """
+        Whether this error should be reported to error tracking. Genuine bugs should be captured;
+        benign, expected conditions (e.g. transient rate limits) should not, to avoid alert-fatigue noise.
+        """
+        return True
+
     def to_summary(self, max_length: int = 500) -> str:
         """
         Create a truncated summary for context management.
@@ -81,6 +89,11 @@ class MaxToolTransientError(MaxToolError):
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
         return "once"
+
+    @property
+    def should_capture(self) -> bool:
+        # Transient issues (rate limits, timeouts) are expected and self-resolving, not bugs.
+        return False
 
 
 class MaxToolRetryableError(MaxToolError):

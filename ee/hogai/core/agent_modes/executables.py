@@ -504,19 +504,25 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                         send_feature_flags=True,
                     )
         except MaxToolError as e:
-            logger.exception(
-                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
-            )
             user_distinct_id = self._get_user_distinct_id(config)
-            capture_exception(
-                e,
-                distinct_id=user_distinct_id,
-                properties={
-                    **self._get_debug_props(config),
-                    "tool": tool_call.name,
-                    "retry_strategy": e.retry_strategy,
-                },
-            )
+            if e.should_capture:
+                logger.exception(
+                    "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
+                )
+                capture_exception(
+                    e,
+                    distinct_id=user_distinct_id,
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool": tool_call.name,
+                        "retry_strategy": e.retry_strategy,
+                    },
+                )
+            else:
+                # Benign, expected condition (e.g. transient rate limit) — log without polluting error tracking.
+                logger.warning(
+                    "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
+                )
 
             if user_distinct_id:
                 posthoganalytics.capture(

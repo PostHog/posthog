@@ -5,9 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
     DYNAMIC_PERSON_PROPERTIES_HINT,
@@ -100,6 +103,39 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         with pytest.raises(MaxToolRetryableError, match=expected_match):
             tool._run_impl(query=query)
+
+    @parameterized.expand(
+        [
+            ("clickhouse_at_capacity", ClickHouseAtCapacity()),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded("too many queries")),
+        ]
+    )
+    @patch("ee.hogai.tools.read_taxonomy.tool.execute_taxonomy_query")
+    @patch("ee.hogai.tools.read_taxonomy.tool.AssistantContextManager")
+    async def test_run_impl_wraps_capacity_errors_in_transient_error(
+        self, _name, raised_error, mock_context_manager_class, mock_execute
+    ):
+        # A transient ClickHouse capacity/rate-limit error must not surface as an internal bug: it is
+        # wrapped in a retry-once MaxToolTransientError that is kept out of error tracking.
+        mock_context_manager = MagicMock()
+        mock_context_manager.get_group_names = AsyncMock(return_value=[])
+        mock_context_manager_class.return_value = mock_context_manager
+        mock_execute.side_effect = raised_error
+
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+        tool = await ReadTaxonomyTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=config,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
+        )
+
+        with pytest.raises(MaxToolTransientError) as exc_info:
+            tool._run_impl(query={"kind": "events"})
+
+        self.assertFalse(exc_info.value.should_capture)
+        self.assertEqual(exc_info.value.retry_strategy, "once")
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     @patch("ee.hogai.tools.read_taxonomy.core.format_events_yaml")
