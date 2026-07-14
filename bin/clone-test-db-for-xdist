@@ -22,16 +22,30 @@ psql_admin() {
 
 clone() {
     local src="$1" dest="$2"
-    # TEMPLATE requires no active connections on the source DB.
-    psql_admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${src}' AND pid <> pg_backend_pid();" > /dev/null
     psql_admin "DROP DATABASE IF EXISTS ${dest};" > /dev/null
     psql_admin "CREATE DATABASE ${dest} TEMPLATE ${src};" > /dev/null
     echo "cloned ${src} -> ${dest}"
 }
 
-for i in $(seq 0 $((WORKERS - 1))); do
-    clone "${SOURCE_DB}" "${SOURCE_DB}_gw${i}"
-    if psql_admin "SELECT 1 FROM pg_database WHERE datname = '${SOURCE_DB}_persons'" | grep -q 1; then
-        clone "${SOURCE_DB}_persons" "${SOURCE_DB}_gw${i}_persons"
-    fi
-done
+# Concurrent clones of the SAME template fail ("source database is being
+# accessed"), so clones are sequential per source — but the main and persons
+# streams use different templates, so they run concurrently.
+clone_stream() {
+    local src="$1" suffix="$2"
+    # TEMPLATE requires no active connections on the source DB.
+    psql_admin "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${src}' AND pid <> pg_backend_pid();" > /dev/null
+    for i in $(seq 0 $((WORKERS - 1))); do
+        clone "${src}" "${SOURCE_DB}_gw${i}${suffix}"
+    done
+}
+
+clone_stream "${SOURCE_DB}" "" &
+MAIN_PID=$!
+PERSONS_PID=""
+if psql_admin "SELECT 1 FROM pg_database WHERE datname = '${SOURCE_DB}_persons'" | grep -q 1; then
+    clone_stream "${SOURCE_DB}_persons" "_persons" &
+    PERSONS_PID=$!
+fi
+wait "$MAIN_PID"
+[ -n "$PERSONS_PID" ] && wait "$PERSONS_PID"
+echo "done: ${WORKERS} worker database(s) per stream"
