@@ -669,21 +669,21 @@ snapshots:
     components-hogcharts-defaulttooltip--total-excludes-overlay--light:
         hash: v1.k794b7964.0ef742f50f4f5cebd2c50b24b514c90a101012d53f3cb61e3b461f5ff0864d9c.h-i6FX0wnz_8r7gxr3pus1F2U1i-hcsuXZQ8drcM35E
     components-hogcharts-funnelchart--few-steps-clustered--dark:
-        hash: v1.k794b7964.d7983bf18319620e0cd5ffd88f97e8f2a23b3699283cc07ac9cf970fd9ca5489.OLT-SKpV6HGfSDe5mOkR0zXYOpK5QFYVfP5I9-ap8u8
+        hash: v1.k794b7964.6170144d425938e59b03d0c3eec88b144de8588d4c6fce87e7acfd901d5d7ca9.1UE57suDraSRRMxP3WWADNvzS71pv4FWv3l_5uW52kY
     components-hogcharts-funnelchart--few-steps-clustered--light:
-        hash: v1.k794b7964.e7b445c992f47db49dae9579edd459dc0593870bf0b79c4224d10e31d8fff41a.dzaS8lpayviYpB0Z2CqZpUKrLFcahxe4U3SmJnA_GzU
+        hash: v1.k794b7964.5e7de7c0da3e9e5f2c9b94b6b64171b787e98156eda776fdec5b8dbfd50f01da.hrBFs_eOlhKYWdGFKwmlfrQ0sEpeBwEJSE-lZSphibc
     components-hogcharts-funnelchart--multiple-variants--dark:
-        hash: v1.k794b7964.82962839468fbe88068693ee2eb47641c0230e101e3f51c5a774b45a3351b376.Kdstkssba9ReBepqq3HkK_NKeBAsjbBBX4oYkjynepE
+        hash: v1.k794b7964.c181c8c6bc7ea5781c2274be6f99acb63d7112e2ab71dce8d8712041c1813ae8.YCPgDDYLEmPkXRm6JHywEYgYS_mNnPOoejLBOAibA0Q
     components-hogcharts-funnelchart--multiple-variants--light:
-        hash: v1.k794b7964.147567008ca72c2bc68b85f7f8183dc781ad807a9a0b6ef15b7776d997ccbe4d.qcFiExyXV-DW7anQLo9KeVA4NeG-_XRCicNl2qY1Vf8
+        hash: v1.k794b7964.10ce6fa42dc4e8412a821731188e71e69e9df1f806d755b42a903f0f259ad4f7.Hp47gZD9hiS28slLtzl6C_lG9yF9yA8rv9lQb_uy8W8
     components-hogcharts-funnelchart--single-series--dark:
-        hash: v1.k794b7964.e24b7545e4e79033df98509f1b3904da5ea2189ed108263b9a82274f24593427.wlnJ94tYcUlO8pk0d5G96jlHnmrRdmOQghCsFuzUa4k
+        hash: v1.k794b7964.8136c5bfb7c2a18371844cd7a45b137dc3d370710e509b3d897713128b7af070.0JJam2Iw0KYdEDPvO6qoxBF0APaBz1YAclikQTF6Li4
     components-hogcharts-funnelchart--single-series--light:
-        hash: v1.k794b7964.1e8031af7718c1a2257f45cfea4d13212948575a372f89959661989354e04f4b.b4Y69tn7eaeQmtgIux34lD0-5x9MKBIXx7qnlG4ZnI0
+        hash: v1.k794b7964.4e42a2b211d9f45405ea8d54c8d6d88c9b1baa7d42fa8d311ca9af29c1e093e8.YuR6d8ueW0hVPHY2giOTPQQHzVsadrsVILGTImSUX_Y
     components-hogcharts-funnelchart--with-step-footer--dark:
-        hash: v1.k794b7964.e632cc3e7972d25f306982d6bc9c90a6f9c07951cad32e5f80263d4bbbe6762e.NDz1tlSId44SRG4LDyRYoZG82L2tmLW9qRubSqt2lMc
+        hash: v1.k794b7964.c14c5f1138464e78ff0eb8423db2caab871c81e6a523734c154b63b5a3c05bd6.qbFArRbm4iHI18T08hWXVMZC69S5dkQ5cQ5VoCSgVmw
     components-hogcharts-funnelchart--with-step-footer--light:
-        hash: v1.k794b7964.404bdd4718bbc8a900c2124679bcc8be0c7cf8c71fc1e9d1f96e078a36d55d1c.WzjE8RLt5ZjE8bJ3ZLO8hBK8FdDya5tRnSxphhOeWsk
+        hash: v1.k794b7964.03968d655b2ee1d4993ab6c3c19755623f8e37118c5a165bf2e48e6f4452e971.eKZ1yGNS6PiIf_9dy5m3yFNFf4pWA95vzKdma9W0J5g
     components-hogcharts-highlightedrange--mirroring-drag-selection--dark:
         hash: v1.k794b7964.64a7d4555eda0a387b3b7b159397ed36aec00739db9ca101281ace1d84ea742e.t3Qju4H0HxPL1ROhKqavpuowJ_DeePAa0O0r5eIHeBs
     components-hogcharts-highlightedrange--mirroring-drag-selection--light:
