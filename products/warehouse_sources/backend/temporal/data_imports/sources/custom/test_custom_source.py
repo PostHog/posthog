@@ -2462,6 +2462,41 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         assert err is not None and "start_param" in err and "'users'" in err
 
 
+class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
+    def _manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+            "upstream_row_order": "asc",
+        }
+        return manifest
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "upstream_row_order" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    def test_unsupported_key_rejected_at_validation(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "upstream_row_order" in err and "'users'" in err
+
+
 def _apikey_manifest() -> dict:
     """A minimal manifest whose auth is an api_key in a query param, so the
     injected secret is registered for value-based redaction."""

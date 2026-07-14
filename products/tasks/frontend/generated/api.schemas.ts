@@ -414,6 +414,57 @@ export interface ChannelWriteApi {
     name: string
 }
 
+export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
+
+/**
+ * Response shape for one system announcement in a channel's feed.
+ */
+export interface ChannelFeedMessageDTOApi {
+    id: string
+    channel: string
+    author?: TaskUserBasicInfoApi | null
+    author_kind: string
+    event: string
+    payload: ChannelFeedMessageDTOApiPayload
+    content: string
+    created_at: string
+}
+
+export interface PaginatedChannelFeedMessageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelFeedMessageDTOApi[]
+}
+
+/**
+ * * `context_created` - context_created
+ * * `context_md_building` - context_md_building
+ */
+export type EventEnumApi = (typeof EventEnumApi)[keyof typeof EventEnumApi]
+
+export const EventEnumApi = {
+    ContextCreated: 'context_created',
+    ContextMdBuilding: 'context_md_building',
+} as const
+
+/**
+ * Request body for posting a system announcement into a channel's feed.
+ */
+export interface ChannelFeedMessageWriteApi {
+    /** Lifecycle event key.
+     *
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building */
+    event: EventEnumApi
+    /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+    payload?: unknown
+    /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+    created_at?: string
+}
+
 /**
  * Request body for creating (resolve-or-create) or renaming a public channel.
  */
@@ -525,6 +576,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
+ * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
@@ -544,6 +596,7 @@ export const OriginProductEnumApi = {
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
 } as const
 
@@ -618,6 +671,7 @@ export interface TaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
@@ -732,6 +786,7 @@ export interface PatchedTaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
@@ -1799,6 +1854,15 @@ export interface TaskRunArtifactPresignResponseApi {
     expires_in: number
 }
 
+export interface TaskRunCancelRequestApi {
+    /**
+     * Optional reason for the cancellation, recorded on the run and shown to run watchers.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
 /**
  * Parameters for the command
  */
@@ -2183,12 +2247,17 @@ export interface TaskRunLivingArtifactEditRequestApi {
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
 
+export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
+
 /**
  * Response shape for one message in a task's thread.
  */
 export interface TaskThreadMessageDTOApi {
     id: string
     task: string
+    author_kind: string
+    event: string
+    payload: TaskThreadMessageDTOApiPayload
     content: string
     created_at: string
     author?: TaskUserBasicInfoApi | null
@@ -2365,7 +2434,7 @@ export interface SlackThreadContextRepoResearchApi {
      * @nullable
      */
     status: string | null
-    /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`). */
+    /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
     task_processing_workflow_id: string
     /**
      * Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.
@@ -2416,7 +2485,7 @@ export interface SlackThreadContextRunApi {
      * @nullable
      */
     error_message: string | null
-    /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`). */
+    /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
     task_processing_workflow_id: string
     /**
      * Full Temporal Web UI URL for the task-processing workflow; null when `TEMPORAL_UI_HOST` is unset.
@@ -2608,6 +2677,17 @@ export type TaskAutomationsListParams = {
 }
 
 export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TaskChannelsFeedListParams = {
     /**
      * Number of results to return per page.
      */

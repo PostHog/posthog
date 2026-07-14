@@ -82,20 +82,35 @@ const isHogFunctionInvocation = (invocation: CyclotronJobInvocation): invocation
 const isHogFlowInvocation = (invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow =>
     'hogFlow' in invocation
 
-// In-process monotonic counter that breaks ties when consecutive lifecycle
-// rows for the same invocation are produced within the same millisecond.
-// Without this, the 'running' + terminal rows of a fast invocation can share a
-// `version` value, and ReplacingMergeTree keeps one arbitrarily — potentially
-// leaving the runs UI showing a permanently 'running' status. We layer
-// `performance.now()`'s sub-ms fractional component on top of `Date.now()` to
-// stay monotonic within a process; the worst remaining tie window is two
-// rows produced at the exact same `performance.now()` sample, which is below
-// the precision the clock actually delivers.
+// Monotonic microsecond timestamp used as the row `version`. ReplacingMergeTree keeps the
+// row with the max `version` per key; without a monotonic version the 'running' + terminal
+// rows of a fast invocation can share or invert a version, and CH keeps one arbitrarily —
+// leaving the runs UI stuck on 'running' (and, via the rerun paginator's
+// `argMax(status, version)` in-flight check, that invocation un-rerunnable).
+//
+// The rows being compared are produced across DIFFERENT processes — the 'running' row by
+// the events consumer, the terminal row by a cyclotron worker — so the base must be a
+// clock that stays synchronised across processes. `Date.now()` is continuously
+// NTP-disciplined, so cross-process skew stays well under the queue latency between the
+// two rows. (`performance.timeOrigin + performance.now()` is monotonic within a process
+// but freezes each process's wall-clock offset at start and never re-syncs, so an
+// NTP step or VM pause would invert versions across pods — worse for the comparison that
+// matters.)
+//
+// A wall clock alone can still tie, or briefly step backward under NTP, for two rows
+// produced close together in the SAME process (e.g. the flaky monotonicity test). Clamp to
+// strictly exceed the last value this process issued: that adds strict in-process
+// monotonicity on top of the NTP-anchored cross-process ordering.
+//
+// This module-level counter is process-global and never resets, so a test using
+// `jest.setSystemTime()` to a time earlier than an already-issued stamp will see clamped
+// `last + 1` values, not the fake time. Don't rewind the clock below a prior stamp in tests.
+let lastVersionMicros = 0n
 const microsecondsSinceEpoch = (): string => {
     // BigInt avoids the 53-bit cap so the number lines up with ClickHouse UInt64.
-    const ms = BigInt(Date.now())
-    const subMs = BigInt(Math.floor((performance.now() % 1) * 1000))
-    return (ms * 1000n + subMs).toString()
+    const wallMicros = BigInt(Date.now()) * 1000n
+    lastVersionMicros = wallMicros > lastVersionMicros ? wallMicros : lastVersionMicros + 1n
+    return lastVersionMicros.toString()
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -111,8 +126,9 @@ const truncate = (value: string, max: number): string => {
 }
 
 // Best-effort error classification — keeps `error_kind` low-cardinality so the
-// status_idx skipping index stays small. The full message lands in
-// `error_message`, the full stack stays in log_entries.
+// status_idx skipping index stays small. Only the message lands in
+// `error_message`, never the stack trace — app-level executors pass the whole
+// `Error` here, and its stack would otherwise leak into the Invocations tab.
 const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
@@ -121,7 +137,8 @@ const classifyError = (error: unknown): { kind: string; message: string } => {
         typeof error === 'string'
             ? error
             : error instanceof Error
-              ? error.stack || error.message
+              ? // fall back to the error name so an empty message doesn't blank the row (without the stack)
+                error.message || error.name
               : (() => {
                     try {
                         return JSON.stringify(error)

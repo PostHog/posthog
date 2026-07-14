@@ -63,7 +63,11 @@ describe('Hogflow Executor', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -89,7 +93,8 @@ describe('Hogflow Executor', () => {
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(

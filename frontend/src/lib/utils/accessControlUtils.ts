@@ -116,6 +116,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
     } else if (resourceType === AccessControlResourceType.Workflow) {
