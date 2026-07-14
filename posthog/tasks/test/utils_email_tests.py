@@ -4,7 +4,10 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
+from django.utils import timezone
+
 from posthog.email import EmailMessage
+from posthog.models.messaging import MessagingRecord
 from posthog.utils import get_absolute_path
 
 
@@ -56,6 +59,14 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
                 f.write(email_message.html_body)
 
             print(f"Email rendered to {output_file}")  # noqa: T201
+
+            for recipient in email_message.to:
+                record, _ = MessagingRecord.objects.get_or_create(
+                    raw_email=recipient["raw_email"], campaign_key=email_message.campaign_key
+                )
+                if record.sent_at is None:
+                    record.sent_at = timezone.now()
+                    record.save(update_fields=["sent_at"])
 
         email_message.send = MagicMock()  # type: ignore
         email_message.send.side_effect = _send_side_effect

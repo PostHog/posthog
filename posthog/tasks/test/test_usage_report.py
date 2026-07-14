@@ -17,6 +17,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import MagicMock, Mock, patch
@@ -42,6 +43,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Team
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.scoping import team_scope
@@ -2862,6 +2864,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
 class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
         return super().setUp()
 
     def _setup_teams(self) -> None:
