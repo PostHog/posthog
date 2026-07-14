@@ -376,9 +376,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_clickhouse_query_short_circuits_on_empty_sql(self, mock_sync_execute):
-        # A query whose prepared AST is None compiles to empty ClickHouse SQL. Direct callers of
-        # _execute_clickhouse_query (e.g. the web-analytics events prefilter) used to trip a bare,
-        # message-less `assert self.clickhouse_sql`; it must return empty results instead.
+        # Empty SQL (None prepared AST) used to trip a bare assert; direct callers need empty results.
         executor = HogQLQueryExecutor(query="select 1", team=self.team)
         executor.clickhouse_sql = ""
 
