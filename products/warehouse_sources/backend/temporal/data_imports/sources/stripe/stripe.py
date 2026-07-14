@@ -65,6 +65,13 @@ DEFAULT_LIMIT = 100
 # genuinely transient cuts.
 SUBSCRIPTION_PAGE_LIMIT = 20
 
+# Each invoice embeds its `lines` sub-list inline (up to Stripe's per-object line cap), and every
+# line item carries expanded plan/price/pricing objects, so a full page of 100 invoices grows past
+# the size that reliably transfers intact and arrives truncated mid-stream — same failure mode as
+# subscriptions above, and re-fetching the identical oversized page just truncates again. A smaller
+# page keeps each response transferable.
+INVOICE_PAGE_LIMIT = 20
+
 # Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
 STRIPE_CHUNK_SIZE = 1000
 
@@ -379,7 +386,9 @@ def _build_resources(
                 (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
                 if logger is not None
                 else client.invoices.list
-            )
+            ),
+            # Smaller page than DEFAULT_LIMIT because the inline `lines` sub-list bloats each invoice; see INVOICE_PAGE_LIMIT.
+            params={"limit": INVOICE_PAGE_LIMIT},
         ),
         PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),

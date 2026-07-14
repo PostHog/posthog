@@ -19,11 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    INVOICE_PAGE_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
@@ -396,6 +398,16 @@ class TestSubscriptionPageSize:
         subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
         assert subscription.params["limit"] == SUBSCRIPTION_PAGE_LIMIT
         assert SUBSCRIPTION_PAGE_LIMIT < stripe_module.DEFAULT_LIMIT
+
+    def test_build_resources_caps_invoice_page_size(self):
+        # Invoices embed their `lines` sub-list inline, so a full DEFAULT_LIMIT page can grow past the
+        # size that transfers intact and arrive truncated mid-stream. The endpoint must request a
+        # smaller page than the default to keep each response transferable.
+        resources = stripe_module._build_resources(MagicMock(), logger=None)
+
+        invoice = resources[INVOICE_RESOURCE_NAME]
+        assert invoice.params["limit"] == INVOICE_PAGE_LIMIT
+        assert INVOICE_PAGE_LIMIT < stripe_module.DEFAULT_LIMIT
 
     def test_get_rows_sends_resource_limit_over_default(self):
         # A resource's own `limit` must win over DEFAULT_LIMIT in the merged params — otherwise the
