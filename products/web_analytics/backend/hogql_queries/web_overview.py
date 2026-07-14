@@ -1,10 +1,13 @@
 import math
 from typing import Optional, Union
 
+from django.conf import settings
+
 import structlog
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
+    EventPropertyFilter,
     HogQLQueryModifiers,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
@@ -49,10 +52,76 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         if self.should_skip_session_join:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
+        if self.should_use_two_phase:
+            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_two_phase").inc()
+            return self.two_phase_select
         return self.outer_select
 
     @cached_property
+    def should_use_two_phase(self) -> bool:
+        """Whether a filtered query can run as two independent scans linked by an id set.
+
+        Applies when every filter is an event property filter: the events side
+        evaluates the filters directly, and the sessions side aggregates only the
+        sessions whose ids appear in a `SELECT DISTINCT $session_id` subquery over
+        the filtered events (rewritten below the per-session GROUP BY by
+        `build_direct_session_id_in_pushdown`, executing once via GLOBAL IN).
+        Session/person/cohort filters can't be evaluated events-side and keep the
+        join path.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_TWO_PHASE_TEAM_IDS:
+            return False
+        if self.query.conversionGoal:
+            return False
+        if not self.query.properties:
+            return False
+        if not all(isinstance(p, EventPropertyFilter) for p in self.query.properties):
+            return False
+        if self._test_account_filters:
+            return False
+        if self.query.samplingFactor and self.query.samplingFactor != 1:
+            return False
+        if self.query.sampling and (self.query.sampling.enabled or self.query.sampling.forceSamplingRate):
+            return False
+        return True
+
+    @cached_property
+    def two_phase_select(self) -> ast.SelectQuery:
+        filters = property_to_expr(list(self.query.properties), team=self.team)
+        matching_session_ids = parse_select(
+            """
+SELECT DISTINCT events.$session_id AS session_id_str
+FROM events
+WHERE and(
+    {events_session_id_present},
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "events_session_id_present": self.events_session_id_present,
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        sessions_id_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["sessions", "session_id"]),
+            right=matching_session_ids,
+        )
+        return self._two_scan_select(events_extra_where=filters, sessions_extra_where=sessions_id_filter)
+
+    @cached_property
     def no_join_select(self) -> ast.SelectQuery:
+        return self._two_scan_select()
+
+    def _two_scan_select(
+        self,
+        events_extra_where: Optional[ast.Expr] = None,
+        sessions_extra_where: Optional[ast.Expr] = None,
+    ) -> ast.SelectQuery:
         """Overview metrics from two independent scans, no events↔sessions join.
 
         Column order must match ``outer_select`` — ``_calculate`` indexes rows
@@ -76,9 +145,11 @@ WHERE and(
     {events_session_id_present},
     {event_type_expr},
     {inside_timestamp_period},
+    {events_extra_where},
 )
             """,
             placeholders={
+                "events_extra_where": events_extra_where or ast.Constant(value=True),
                 "events_session_id_present": self.events_session_id_present,
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
@@ -116,9 +187,11 @@ FROM sessions
 WHERE and(
     {inside_start_timestamp_period},
     or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    {sessions_extra_where},
 )
             """,
             placeholders={
+                "sessions_extra_where": sessions_extra_where or ast.Constant(value=True),
                 "inside_start_timestamp_period": self._periods_expression("$start_timestamp"),
                 "current_period": self._current_period_expression("$start_timestamp"),
                 "previous_sessions": (
@@ -250,6 +323,14 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
+        execution_modifiers = self.modifiers
+        if self.should_use_two_phase and not self.should_skip_session_join:
+            # The two-phase shape relies on `build_direct_session_id_in_pushdown`
+            # rewriting the id-set filter below the sessions GROUP BY; that rewrite
+            # is gated on the sessionIdPushdown modifier.
+            execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            execution_modifiers.sessionIdPushdown = True
+
         response = (
             execute_hogql_query(
                 query_type="web_overview_query",
@@ -257,7 +338,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=execution_modifiers,
                 limit_context=self.limit_context,
             )
             if not pre_aggregated_response

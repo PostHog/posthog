@@ -26,6 +26,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.visitor import clone_expr
 
 from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL,
@@ -454,6 +455,73 @@ def select_from_sessions_table_v2(
     )
 
 
+def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLContext) -> Optional[ast.Expr]:
+    """Push a top-level ``session_id IN (SELECT …)`` filter below the per-session GROUP BY.
+
+    A direct select over ``sessions`` aggregates every session in the date range
+    before outer WHERE filters apply, so an id-set filter (the two-phase pattern:
+    events side first, sessions restricted to matching ids) pays the full
+    aggregation anyway. Rewriting it onto ``raw_sessions.session_id_v7`` inside the
+    subquery prunes before aggregation — memory and CPU then scale with matching
+    sessions, not all sessions. ``GlobalIn`` keeps the id subquery executing once
+    on the initiator instead of once per shard.
+
+    Fails open (returns None) on any shape it doesn't recognize; the outer filter
+    still applies, so this is purely a performance rewrite.
+    """
+    if not context.modifiers or not context.modifiers.sessionIdPushdown:
+        return None
+    if node.where is None:
+        return None
+
+    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
+        if isinstance(expr, ast.And):
+            return [t for sub in expr.exprs for t in flatten_and(sub)]
+        if isinstance(expr, ast.Call) and expr.name == "and":
+            return [t for sub in expr.args for t in flatten_and(sub)]
+        return [expr]
+
+    for term in flatten_and(node.where):
+        if not isinstance(term, ast.CompareOperation) or term.op not in (
+            ast.CompareOperationOp.In,
+            ast.CompareOperationOp.GlobalIn,
+        ):
+            continue
+        left = term.left.expr if isinstance(term.left, ast.Alias) else term.left
+        if (
+            not isinstance(left, ast.Field)
+            or left.chain[-1] != "session_id"
+            or not isinstance(term.right, ast.SelectQuery)
+        ):
+            continue
+
+        subquery = cast(ast.SelectQuery, clone_expr(term.right, clear_types=True, clear_locations=True))
+        if len(subquery.select) != 1:
+            return None
+        inner = subquery.select[0]
+        if isinstance(inner, ast.Alias):
+            alias = inner.alias
+        else:
+            alias = "session_id_str"
+            subquery.select[0] = ast.Alias(alias=alias, expr=inner)
+
+        wrapped = ast.SelectQuery(
+            select=[
+                ast.Call(
+                    name="_toUInt128",
+                    args=[ast.Call(name="toUUID", args=[ast.Field(chain=[alias])])],
+                )
+            ],
+            select_from=ast.JoinExpr(table=subquery),
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Field(chain=["raw_sessions", "session_id_v7"]),
+            right=wrapped,
+        )
+    return None
+
+
 class SessionsTableV2(LazyTable):
     description: str = (
         "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. "
@@ -467,7 +535,8 @@ class SessionsTableV2(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        return select_from_sessions_table_v2(table_to_add.fields_accessed, node, context)
+        extra_where = build_direct_session_id_in_pushdown(node, context)
+        return select_from_sessions_table_v2(table_to_add.fields_accessed, node, context, extra_where=extra_where)
 
     def to_printed_clickhouse(self, context):
         return "sessions"

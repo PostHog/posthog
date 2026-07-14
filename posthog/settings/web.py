@@ -1157,3 +1157,11 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Teams whose *filtered* web overview queries (event-property filters only) run as two
+# independent scans linked by a session-id set: events side evaluates the filters, the
+# sessions side aggregates only matching ids (pushed below the per-session GROUP BY,
+# executed once via GLOBAL IN). Unproven at scale — separate, empty-by-default trial list.
+WEB_ANALYTICS_TWO_PHASE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_TWO_PHASE_TEAM_IDS", ""))
+]

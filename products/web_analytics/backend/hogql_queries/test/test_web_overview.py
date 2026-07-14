@@ -1130,3 +1130,112 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(filterTestAccounts=True)
             assert not runner.should_skip_session_join
+
+
+class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        for distinct_id, session_id, path_timestamps in [
+            ("user_a", s1, [("/pricing", "2025-01-10T10:00:00Z"), ("/docs", "2025-01-10T10:05:00Z")]),
+            ("user_a", s2, [("/docs", "2025-01-11T09:00:00Z")]),
+            ("user_b", s3, [("/pricing", "2025-01-12T12:00:00Z"), ("/pricing", "2025-01-12T12:00:30Z")]),
+        ]:
+            with freeze_time(path_timestamps[0][1]):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for pathname, ts in path_timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": f"https://example.com{pathname}",
+                    },
+                )
+
+    def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            properties=query_kwargs.pop(
+                "properties",
+                [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")],
+            ),
+            **query_kwargs,
+        )
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_two_phase_results_match_join_path(self, compare: bool):
+        self._create_pageviews()
+
+        kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(**kwargs)
+                assert fast_runner.should_use_two_phase
+                assert not fast_runner.should_skip_session_join
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(**kwargs)
+            assert not join_runner.should_use_two_phase
+            join_results = join_runner.calculate().results
+
+        assert [item.key for item in fast_results] == [item.key for item in join_results]
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+            assert fast.previous == join.previous, f"{fast.key} previous: {fast.previous} != {join.previous}"
+
+    @parameterized.expand(
+        [
+            ("event_property_filter", {}, True),
+            ("no_filters", {"properties": []}, False),
+            (
+                "session_property_filter",
+                {
+                    "properties": [
+                        SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Direct")
+                    ]
+                },
+                False,
+            ),
+            (
+                "mixed_filters",
+                {
+                    "properties": [
+                        EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing"),
+                        SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Direct"),
+                    ]
+                },
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+        ]
+    )
+    def test_two_phase_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
+        with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.should_use_two_phase == expected
+
+    def test_two_phase_requires_team_allowlist(self):
+        runner = self._make_runner()
+        assert not runner.should_use_two_phase
+
+    def test_two_phase_pushes_id_filter_below_session_aggregation(self):
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+                runner = self._make_runner()
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(sessionIdPushdown=True),
+                )
+                sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        # The rewrite is fail-open, so without this assertion a silent break would
+        # keep results correct while regressing the sessions scan back to
+        # aggregating every session in range.
+        assert "globalIn(raw_sessions.session_id_v7" in sql
