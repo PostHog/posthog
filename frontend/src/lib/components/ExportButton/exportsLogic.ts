@@ -8,6 +8,7 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -234,12 +235,12 @@ export const exportsLogic = kea<exportsLogicType>([
                         const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                         actions.loadExportsSuccess(updatedExports)
 
-                        if (response && response.has_content) {
+                        if (response.has_content) {
                             // Blocking export already finished in the request — download and confirm.
                             downloadExportedAsset(response)
                             return 'Export complete!'
                         }
-                        if (response && response.exception) {
+                        if (response.exception) {
                             throw new Error('Export failed: ' + response.exception)
                         }
                         // Async export (e.g. video render) is a background job: acknowledge the
@@ -248,7 +249,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         return 'Export started'
                     }
 
-                    const exportToastId = 'export-' + Math.random()
+                    const exportToastId = 'export-' + uuid()
                     void (async () => {
                         try {
                             await lemonToast.promise(
