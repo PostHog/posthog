@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict
+from urllib.parse import urlsplit
 
 from django.db import models
 
@@ -22,10 +23,10 @@ EventKind = Literal["firing", "resolved", "broken", "errored"]
 
 
 class DestinationType(models.TextChoices):
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
+    SLACK = "slack", "Slack"
+    DISCORD = "discord", "Discord"
+    WEBHOOK = "webhook", "Webhook"
+    TEAMS = "teams", "Microsoft Teams"
 
 
 class AlertDestinationData(TypedDict):
@@ -44,17 +45,20 @@ class AlertDestinationValidationError(Exception):
 
 
 DestinationConfigBuilder = Callable[[LogsAlertConfiguration, EventKind, AlertDestinationData], AlertDestinationConfig]
+DestinationDataValidator = Callable[[AlertDestinationData], None]
 
 
 @dataclass(frozen=True)
 class AlertDestinationStrategy:
     builder: DestinationConfigBuilder
     required_fields: tuple[str, ...]
-    missing_fields_message: str
-    webhook_url_prefix: str | None = None
+    validator: DestinationDataValidator | None = None
 
 
 _PRODUCT_LABEL = "logs alert"
+_DISCORD_WEBHOOK_URL_MESSAGE = (
+    "Enter a Discord webhook URL in the format https://discord.com/api/webhooks/{id}/{token}."
+)
 
 _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_id": "{event.properties.alert_id}",
@@ -296,37 +300,76 @@ def _build_teams_strategy(
     return build_teams_config(alert, kind, webhook_url=data["webhook_url"])
 
 
+def _validate_discord_destination(data: AlertDestinationData) -> None:
+    webhook_url = data["webhook_url"]
+    try:
+        parsed_url = urlsplit(webhook_url)
+    except ValueError as error:
+        raise AlertDestinationValidationError(
+            _DISCORD_WEBHOOK_URL_MESSAGE,
+            field="webhook_url",
+        ) from error
+
+    path_parts = parsed_url.path.split("/")
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.netloc != "discord.com"
+        or len(path_parts) != 5
+        or path_parts[:3] != ["", "api", "webhooks"]
+        or not path_parts[3]
+        or not path_parts[4]
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise AlertDestinationValidationError(
+            _DISCORD_WEBHOOK_URL_MESSAGE,
+            field="webhook_url",
+        )
+
+
 DESTINATION_STRATEGIES: dict[DestinationType, AlertDestinationStrategy] = {
     DestinationType.SLACK: AlertDestinationStrategy(
         builder=_build_slack_strategy,
         required_fields=("slack_workspace_id", "slack_channel_id"),
-        missing_fields_message="slack_workspace_id and slack_channel_id are required for slack destinations.",
     ),
     DestinationType.WEBHOOK: AlertDestinationStrategy(
         builder=_build_webhook_strategy,
         required_fields=("webhook_url",),
-        missing_fields_message="webhook_url is required for webhook destinations.",
     ),
     DestinationType.DISCORD: AlertDestinationStrategy(
         builder=_build_discord_strategy,
         required_fields=("webhook_url",),
-        missing_fields_message="webhook_url is required for discord destinations.",
-        webhook_url_prefix="https://discord.com/api/webhooks/",
+        validator=_validate_discord_destination,
     ),
     DestinationType.TEAMS: AlertDestinationStrategy(
         builder=_build_teams_strategy,
         required_fields=("webhook_url",),
-        missing_fields_message="webhook_url is required for teams destinations.",
     ),
 }
 
 
 def validate_destination_data(data: AlertDestinationData) -> None:
-    strategy = DESTINATION_STRATEGIES[data["type"]]
-    if any(not data.get(field) for field in strategy.required_fields):
-        raise AlertDestinationValidationError(strategy.missing_fields_message)
-    if strategy.webhook_url_prefix and not data["webhook_url"].startswith(strategy.webhook_url_prefix):
-        raise AlertDestinationValidationError("Enter a valid Discord webhook URL.", field="webhook_url")
+    raw_destination_type = data.get("type")
+    try:
+        destination_type = DestinationType(raw_destination_type)
+    except (TypeError, ValueError) as error:
+        choices = ", ".join(f"{choice.label} ({choice.value})" for choice in DestinationType)
+        raise AlertDestinationValidationError(
+            f"Choose a supported destination type: {choices}.", field="type"
+        ) from error
+
+    strategy = DESTINATION_STRATEGIES[destination_type]
+    missing_fields = tuple(field for field in strategy.required_fields if not data.get(field))
+    if len(missing_fields) == 1:
+        missing_field = missing_fields[0]
+        raise AlertDestinationValidationError(
+            f"{missing_field} is required for {destination_type.label} destinations.", field=missing_field
+        )
+    if missing_fields:
+        formatted_fields = " and ".join(missing_fields)
+        raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
+    if strategy.validator:
+        strategy.validator(data)
 
 
 def build_destination_config(

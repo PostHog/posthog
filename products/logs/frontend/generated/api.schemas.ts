@@ -662,7 +662,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations. */
+    /** HTTPS endpoint to post to. Required for discord, webhook, and teams. Discord URLs must match https://discord.com/api/webhooks/{id}/{token}. */
     webhook_url?: string
 }
 

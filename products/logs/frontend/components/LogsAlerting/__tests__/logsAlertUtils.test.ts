@@ -53,6 +53,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `slack-${id}`,
                 enabled,
+                template_id: 'template-slack',
                 inputs: { channel: { value: channel } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -62,16 +63,27 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `webhook-${id}`,
                 enabled,
+                template_id: 'template-webhook',
                 inputs: { url: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
 
-        // The Microsoft Teams template stores its URL under `webhookUrl`, not `url`.
         const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
             ({
                 id,
                 name: `teams-${id}`,
                 enabled,
+                template_id: 'template-microsoft-teams',
+                inputs: { webhookUrl: { value: url } },
+                filters: {},
+            }) as unknown as HogFunctionType
+
+        const discordHf = (id: string, url: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `discord-${id}`,
+                enabled,
+                template_id: 'template-discord',
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -121,6 +133,22 @@ describe('logsAlertUtils', () => {
                 key: `teams:${teamsUrl}`,
                 type: 'teams',
                 label: `Microsoft Teams ${teamsUrl}`,
+            })
+            expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('classifies Discord by template id instead of treating its webhookUrl input as Teams', () => {
+            const discordUrl = 'https://discord.com/api/webhooks/123/token'
+            const groups = groupLogsAlertDestinations(
+                [discordHf('hf-1', discordUrl), discordHf('hf-2', discordUrl)],
+                resolveSlack
+            )
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: `discord:${discordUrl}`,
+                type: 'discord',
+                label: 'Discord',
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })

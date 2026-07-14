@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -39,6 +40,7 @@ from products.alerts.backend.destinations import (
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
     EVENT_KINDS,
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -66,6 +68,7 @@ from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfig
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
+LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
 # customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
@@ -675,7 +678,10 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     )
     webhook_url = serializers.URLField(
         required=False,
-        help_text="HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations.",
+        help_text=(
+            "HTTPS endpoint to post to. Required for discord, webhook, and teams. "
+            "Discord URLs must match https://discord.com/api/webhooks/{id}/{token}."
+        ),
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -856,6 +862,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return context
 
+    def _get_locked_alert(self) -> LogsAlertConfiguration:
+        queryset = self.filter_queryset(self.get_queryset()).select_for_update()
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        alert = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        self.check_object_permissions(self.request, alert)
+        return alert
+
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertDestinationResponseSerializer},
@@ -863,13 +876,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
 
-        configs = [build_destination_config(alert, kind, data) for kind in EVENT_KINDS]
-        hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
+        with transaction.atomic():
+            alert = self._get_locked_alert()
+            configs = [build_destination_config(alert, kind, data) for kind in EVENT_KINDS]
+            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
             request.user,
@@ -886,17 +900,19 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["logs:write"])
     def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
         serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
         try:
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                hog_function_ids=hog_function_ids,
-            )
+            with transaction.atomic():
+                alert = self._get_locked_alert()
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
         except AlertDestinationOwnershipError as error:
             invalid_ids = ", ".join(str(hog_function_id) for hog_function_id in error.invalid_hog_function_ids)
             raise ValidationError(
@@ -1172,5 +1188,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         self._track("deleted", instance)
         with transaction.atomic():
-            soft_delete_all_alert_destinations(team_id=instance.team_id, alert_id=str(instance.id))
-            super().perform_destroy(instance)
+            locked_instance = LogsAlertConfiguration.objects.select_for_update().get(
+                team_id=instance.team_id, id=instance.id
+            )
+            soft_delete_all_alert_destinations(
+                team_id=locked_instance.team_id,
+                alert_id=str(locked_instance.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            super().perform_destroy(locked_instance)

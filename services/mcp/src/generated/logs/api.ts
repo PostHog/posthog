@@ -699,7 +699,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/\" prepended'),
+                                                .describe('Event property with "$feature/" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1919,7 +1919,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/\" prepended'),
+                                                .describe('Event property with "$feature/" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2495,7 +2495,9 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     webhook_url: zod
         .url()
         .optional()
-        .describe('HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations.'),
+        .describe(
+            'HTTPS endpoint to post to. Required for discord, webhook, and teams. Discord URLs must match https://discord.com/api/webhooks/{id}/{token}.'
+        ),
 })
 
 /**
@@ -3203,7 +3205,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 .default(
                                                     logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault
                                                 )
-                                                .describe('Event property with "$feature/\" prepended'),
+                                                .describe('Event property with "$feature/" prepended'),
                                             value: zod
                                                 .union([
                                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3779,7 +3781,7 @@ export const LogsAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                        'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -3889,7 +3891,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -3998,7 +4000,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4114,7 +4116,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4204,7 +4206,7 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4294,7 +4296,7 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4418,7 +4420,7 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4525,7 +4527,7 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4622,7 +4624,7 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                             ),
                         type: zod
                             .enum(['log', 'log_attribute', 'log_resource_attribute'])
@@ -4714,7 +4716,7 @@ export const LogsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
                 key: zod
                     .string()
                     .describe(
-                        'Attribute key. For type "log", use "message". For "log_attribute"\/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                        'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
                     ),
                 type: zod
                     .enum(['log', 'log_attribute', 'log_resource_attribute'])

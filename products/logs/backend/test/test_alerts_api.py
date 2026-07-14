@@ -793,17 +793,23 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
-    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
-        response = self.client.post(
-            self._destinations_url(created["id"]),
-            {"type": "webhook", "webhook_url": "https://example.com/hook"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._destinations_url(created["id"]),
+                {"type": "webhook", "webhook_url": "https://example.com/hook"},
+                format="json",
+            )
+            reload_hog_functions.assert_not_called()
+
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
         assert len(ids) == 4  # firing + resolved + broken + errored
+        assert reload_hog_functions.call_count == 4
+        assert {call.kwargs["hog_function_ids"][0] for call in reload_hog_functions.call_args_list} == set(ids)
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
@@ -896,7 +902,8 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_delete_destination_removes_hog_functions(self):
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
         create_response = self.client.post(
@@ -906,14 +913,18 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         ids = create_response.json()["hog_function_ids"]
 
-        delete_response = self.client.post(
-            self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": ids},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_response = self.client.post(
+                self._destinations_delete_url(created["id"]),
+                {"hog_function_ids": ids},
+                format="json",
+            )
+            reload_hog_functions.assert_not_called()
+
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
         assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
+        reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=sorted(ids))
 
     def test_delete_alert_soft_deletes_destination_hog_functions(self):
         self._sync_destination_templates()
@@ -2084,10 +2095,13 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
 
     def test_create_destination_allowed_with_logs_write_scope(self):
         key = self.create_personal_api_key_with_scopes(["logs:write"])
-        # Detail action against a non-existent UUID: get_object 404s before the body runs,
-        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
         url = f"{self.base_url}{uuid4()}/destinations/"
-        response = self.client.post(url, {}, format="json", **self._auth(key))
+        response = self.client.post(
+            url,
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+            **self._auth(key),
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(
@@ -2108,7 +2122,12 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
     def test_delete_destination_allowed_with_logs_write_scope(self):
         key = self.create_personal_api_key_with_scopes(["logs:write"])
         url = f"{self.base_url}{uuid4()}/destinations/delete/"
-        response = self.client.post(url, {}, format="json", **self._auth(key))
+        response = self.client.post(
+            url,
+            {"hog_function_ids": [str(uuid4())]},
+            format="json",
+            **self._auth(key),
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(

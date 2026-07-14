@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.destination_configs import AlertDestinationConfig, AlertDestinationTemplate
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
+    "posthog_alert_internal_event_delivery_failures_total",
+    "Number of alert internal events that failed delivery",
+    labelnames=["event_name"],
+)
 
 
 class AlertDestinationOwnershipError(Exception):
@@ -45,13 +55,16 @@ def soft_delete_alert_destinations(
     *,
     team_id: int,
     alert_id: str,
+    allowed_event_ids: Collection[str],
     hog_function_ids: list[UUID],
 ) -> None:
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
+        event_filter = _allowed_event_filter(allowed_event_ids)
         owned_ids = set(
             HogFunction.objects.select_for_update()
             .filter(
+                event_filter,
                 team_id=team_id,
                 id__in=unique_ids,
                 template_id__in=list(AlertDestinationTemplate),
@@ -63,15 +76,42 @@ def soft_delete_alert_destinations(
         if invalid_ids:
             raise AlertDestinationOwnershipError(invalid_ids)
         HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(deleted=True, enabled=False)
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
 
 
-def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:
-    return HogFunction.objects.filter(
-        team_id=team_id,
-        deleted=False,
-        template_id__in=list(AlertDestinationTemplate),
-        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
-    ).update(deleted=True, enabled=False)
+def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
+    with transaction.atomic():
+        owned_ids = set(
+            HogFunction.objects.select_for_update()
+            .filter(
+                _allowed_event_filter(allowed_event_ids),
+                team_id=team_id,
+                deleted=False,
+                template_id__in=list(AlertDestinationTemplate),
+                filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+            )
+            .values_list("id", flat=True)
+        )
+        deleted_count = HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(
+            deleted=True, enabled=False
+        )
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
+        return deleted_count
+
+
+def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
+    event_filter = Q()
+    for event_id in allowed_event_ids:
+        event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
+    if not event_filter:
+        raise ValueError("allowed_event_ids must not be empty")
+    return event_filter
+
+
+def _reload_hog_functions_after_commit(*, team_id: int, hog_function_ids: Collection[UUID]) -> None:
+    serialized_ids = sorted(str(hog_function_id) for hog_function_id in hog_function_ids)
+    if serialized_ids:
+        transaction.on_commit(lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=serialized_ids))
 
 
 def produce_alert_internal_event(
@@ -133,6 +173,6 @@ def alert_internal_event_delivered(
             "feature": "alerts",
             "team_id": team_id,
         }
-        capture_exception(error, context)
-        logger.warning("Alert internal event was not delivered", **context)
+        ALERT_INTERNAL_EVENT_DELIVERY_FAILURES.labels(event_name=event_name).inc()
+        logger.warning("Alert internal event was not delivered", error=str(error), **context)
         return False

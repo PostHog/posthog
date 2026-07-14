@@ -137,10 +137,12 @@ export const SNOOZE_DURATIONS = [
 ]
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
+export const LOGS_ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const LOGS_ALERT_NOTIFICATION_TYPE_TEAMS = 'teams' as const
 export type LogsAlertNotificationType =
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_SLACK
+    | typeof LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
 
@@ -150,6 +152,10 @@ export type PendingLogsAlertNotification =
           slackWorkspaceId: number
           slackChannelId: string
           slackChannelName?: string
+      }
+    | {
+          type: typeof LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
+          webhookUrl: string
       }
     | {
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
@@ -240,26 +246,32 @@ export function groupLogsAlertDestinations(
     const groups = new Map<string, LogsAlertDestinationGroup>()
     for (const hf of hogFunctions) {
         const slackChannelValue = hf.inputs?.channel?.value
-        // The Microsoft Teams template stores its URL under `webhookUrl`; the generic webhook uses `url`.
-        const teamsUrl = hf.inputs?.webhookUrl?.value
+        const destinationWebhookUrl = hf.inputs?.webhookUrl?.value
         const webhookUrl = hf.inputs?.url?.value
         let key: string
         let type: LogsAlertNotificationType
         let label: string
 
-        if (typeof slackChannelValue === 'string') {
+        if (hf.template_id === 'template-slack') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue}`
-            const channelName = resolveSlackLabel(slackChannelValue)
+            key = `slack:${typeof slackChannelValue === 'string' ? slackChannelValue : hf.id}`
+            const channelName = typeof slackChannelValue === 'string' ? resolveSlackLabel(slackChannelValue) : null
             label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (typeof teamsUrl === 'string') {
+        } else if (hf.template_id === 'template-discord') {
+            type = LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
+            key = `discord:${typeof destinationWebhookUrl === 'string' ? destinationWebhookUrl : hf.id}`
+            label = 'Discord'
+        } else if (hf.template_id === 'template-microsoft-teams') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-            key = `teams:${teamsUrl}`
-            label = `Microsoft Teams ${teamsUrl}`
-        } else if (typeof webhookUrl === 'string') {
+            key = `teams:${typeof destinationWebhookUrl === 'string' ? destinationWebhookUrl : hf.id}`
+            label =
+                typeof destinationWebhookUrl === 'string'
+                    ? `Microsoft Teams ${destinationWebhookUrl}`
+                    : 'Microsoft Teams'
+        } else if (hf.template_id === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `webhook:${webhookUrl}`
-            label = `Webhook ${webhookUrl}`
+            key = `webhook:${typeof webhookUrl === 'string' ? webhookUrl : hf.id}`
+            label = typeof webhookUrl === 'string' ? `Webhook ${webhookUrl}` : 'Webhook'
         } else {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `unknown:${hf.id}`

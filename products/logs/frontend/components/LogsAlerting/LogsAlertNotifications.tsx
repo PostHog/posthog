@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
     getHogFunctionEventKind,
+    LOGS_ALERT_NOTIFICATION_TYPE_DISCORD,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
@@ -79,6 +80,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         }
         if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
             return `Microsoft Teams: ${notification.webhookUrl}`
+        }
+        if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_DISCORD) {
+            return `Discord: ${notification.webhookUrl}`
         }
         return `Webhook: ${notification.webhookUrl}`
     }
@@ -207,6 +211,18 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                         onChange={setWebhookUrl}
                         fullWidth
                     />
+                )}
+
+                {selectedType === LOGS_ALERT_NOTIFICATION_TYPE_DISCORD && (
+                    <div className="space-y-1">
+                        <LemonInput
+                            placeholder="https://discord.com/api/webhooks/..."
+                            value={webhookUrl}
+                            onChange={setWebhookUrl}
+                            fullWidth
+                        />
+                        <p className="text-xs text-muted-alt m-0">Paste the webhook URL from your Discord channel.</p>
+                    </div>
                 )}
 
                 {selectedType === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS && (

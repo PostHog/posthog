@@ -310,7 +310,9 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     webhook_url: zod
         .url()
         .optional()
-        .describe('HTTPS endpoint to post to. Required for Discord, webhook, and Microsoft Teams destinations.'),
+        .describe(
+            'HTTPS endpoint to post to. Required for discord, webhook, and teams. Discord URLs must match https:\/\/discord.com\/api\/webhooks\/{id}\/{token}.'
+        ),
 })
 
 /**

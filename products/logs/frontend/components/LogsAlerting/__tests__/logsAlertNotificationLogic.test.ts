@@ -170,6 +170,10 @@ describe('logsAlertNotificationLogic', () => {
 
             logic.actions.addPendingNotification({ type: 'webhook', webhookUrl: 'https://a.com' })
             logic.actions.addPendingNotification({
+                type: 'discord',
+                webhookUrl: 'https://discord.com/api/webhooks/123/token',
+            })
+            logic.actions.addPendingNotification({
                 type: 'slack',
                 slackWorkspaceId: 42,
                 slackChannelId: 'C456',
@@ -180,10 +184,14 @@ describe('logsAlertNotificationLogic', () => {
                 logic.actions.createPendingHogFunctions('alert-1')
             }).toFinishAllListeners()
 
-            expect(mockCreate).toHaveBeenCalledTimes(2)
+            expect(mockCreate).toHaveBeenCalledTimes(3)
             expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
                 type: 'webhook',
                 webhook_url: 'https://a.com',
+            })
+            expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
+                type: 'discord',
+                webhook_url: 'https://discord.com/api/webhooks/123/token',
             })
             expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
                 type: 'slack',
@@ -191,7 +199,7 @@ describe('logsAlertNotificationLogic', () => {
                 slack_channel_id: 'C456',
                 slack_channel_name: 'alerts',
             })
-            expect(lemonToast.success).toHaveBeenCalledWith('2 notification destination(s) created.')
+            expect(lemonToast.success).toHaveBeenCalledWith('3 notification destination(s) created.')
             expect(logic.values.pendingNotifications).toHaveLength(0)
 
             logic.unmount()
