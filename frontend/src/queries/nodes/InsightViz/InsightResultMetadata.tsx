@@ -21,9 +21,9 @@ export const InsightResultMetadata = ({
     const { samplingFactor, trendsFilter, dateRange, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const composerEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_COMPOSER]
+    const quillDateFilterEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
     // Only trends applies daysOfWeek server-side, so only trends gets the note
-    const excludedDays = composerEnabled && isTrends ? getExcludedDaysOfWeek(dateRange) : []
+    const excludedDays = quillDateFilterEnabled && isTrends ? getExcludedDaysOfWeek(dateRange) : []
     const excludedLabel = daysOfWeekLabel(excludedDays)
     const excludedText = ['Weekends', 'Weekdays'].includes(excludedLabel) ? excludedLabel.toLowerCase() : excludedLabel
 
@@ -48,7 +48,7 @@ export const InsightResultMetadata = ({
                     Weekends hidden
                 </span>
             ) : null}
-            {composerEnabled && dateRange?.excludeIncompletePeriods ? (
+            {quillDateFilterEnabled && dateRange?.excludeIncompletePeriods ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Incomplete period excluded

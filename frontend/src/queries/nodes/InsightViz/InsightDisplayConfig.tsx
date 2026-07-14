@@ -72,7 +72,7 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
     const { featureFlags } = useValues(featureFlagLogic)
-    const useQuillDateComposer = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_COMPOSER]
+    const useQuillDateFilter = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
 
     return (
         <div
@@ -82,7 +82,7 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
                 {!isRetention && (
                     <ConfigFilter>
-                        {useQuillDateComposer ? (
+                        {useQuillDateFilter ? (
                             <InsightQuillDateFilter disabled={isFunnels && !!isEmptyFunnel} />
                         ) : (
                             <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
