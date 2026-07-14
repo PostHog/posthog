@@ -14,13 +14,11 @@ const janitorDeletedCounter = new Counter({
 const janitorStalledCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_stalled',
     help: 'Number of stalled jobs reset by the janitor',
-    labelNames: ['queue'],
 })
 
 const janitorPoisonedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_poisoned',
     help: 'Number of poison pill jobs failed by the janitor',
-    labelNames: ['queue'],
 })
 
 const janitorRunCounter = new Counter({
@@ -33,14 +31,6 @@ const queueDepthGauge = new Gauge({
     help: 'Number of available jobs per queue',
     labelNames: ['queue'],
 })
-
-function tallyByQueue(rows: { queue_name: string }[]): Map<string, number> {
-    const counts = new Map<string, number>()
-    for (const row of rows) {
-        counts.set(row.queue_name, (counts.get(row.queue_name) ?? 0) + 1)
-    }
-    return counts
-}
 
 export class CyclotronV2Janitor {
     private pool: Pool
@@ -132,7 +122,7 @@ export class CyclotronV2Janitor {
         // Poison pills: running jobs with stale heartbeats that have been reset too many times
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
-        const result = await this.pool.query<{ queue_name: string }>(
+        const result = await this.pool.query(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                  last_transition = NOW(), transition_count = transition_count + 1
@@ -143,27 +133,23 @@ export class CyclotronV2Janitor {
                    AND COALESCE(last_heartbeat, $1) <= $1
                    AND janitor_touch_count >= $2
                  FOR UPDATE SKIP LOCKED
-             )
-             RETURNING queue_name`,
+             )`,
             [heartbeatCutoff, this.maxTouchCount]
         )
 
-        const total = result.rows.length
-        if (total > 0) {
-            const counts = tallyByQueue(result.rows)
-            for (const [queue, count] of counts) {
-                janitorPoisonedCounter.inc({ queue }, count)
-            }
-            logger.warn('CyclotronV2Janitor failed poison pill jobs', { total, byQueue: Object.fromEntries(counts) })
+        const count = result.rowCount ?? 0
+        if (count > 0) {
+            janitorPoisonedCounter.inc(count)
+            logger.warn('CyclotronV2Janitor failed poison pill jobs', { count })
         }
 
-        return total
+        return count
     }
 
     private async resetStalledJobs(): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
-        const result = await this.pool.query<{ queue_name: string }>(
+        const result = await this.pool.query(
             `WITH stalled AS (
                 SELECT id
                 FROM cyclotron_jobs
@@ -175,21 +161,17 @@ export class CyclotronV2Janitor {
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                 janitor_touch_count = janitor_touch_count + 1
             FROM stalled
-            WHERE cyclotron_jobs.id = stalled.id
-            RETURNING cyclotron_jobs.queue_name`,
+            WHERE cyclotron_jobs.id = stalled.id`,
             [heartbeatCutoff]
         )
 
-        const total = result.rows.length
-        if (total > 0) {
-            const counts = tallyByQueue(result.rows)
-            for (const [queue, count] of counts) {
-                janitorStalledCounter.inc({ queue }, count)
-            }
-            logger.info('CyclotronV2Janitor reset stalled jobs', { total, byQueue: Object.fromEntries(counts) })
+        const count = result.rowCount ?? 0
+        if (count > 0) {
+            janitorStalledCounter.inc(count)
+            logger.info('CyclotronV2Janitor reset stalled jobs', { count })
         }
 
-        return total
+        return count
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
