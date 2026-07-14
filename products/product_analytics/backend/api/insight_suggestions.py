@@ -16,9 +16,8 @@ from posthog.schema import (
     StickinessQuery,
 )
 
-from posthog.hogql.ai import hit_openai
-
 from posthog.event_usage import groups
+from posthog.llm.completions import hit_openai
 from posthog.models import Team
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_query_date_range

@@ -10,10 +10,9 @@ from posthog.schema import (
     TeamTaxonomyQuery,
 )
 
-from posthog.hogql.ai import hit_openai
-
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.llm.completions import hit_openai
 from posthog.utils import get_instance_region
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
