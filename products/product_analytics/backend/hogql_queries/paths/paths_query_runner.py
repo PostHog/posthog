@@ -79,34 +79,45 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
 
-    def _get_event_query(self) -> list[ast.Expr]:
-        conditions: list[ast.Expr] = []
+    def _get_event_type_conditions(self) -> list[ast.Expr]:
+        """Event-type membership filters (``$pageview`` / ``$screen`` / custom). These read
+        ``events.event`` directly, so they must stay on the raw events scan."""
         or_conditions: list[ast.Expr] = []
 
-        if not self.query.pathsFilter.includeEventTypes:
-            return []
+        include_event_types = self.query.pathsFilter.includeEventTypes or []
 
-        if PathType.FIELD_PAGEVIEW in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_PAGEVIEW in include_event_types:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=PAGEVIEW_EVENT)}))
 
-        if PathType.FIELD_SCREEN in self.query.pathsFilter.includeEventTypes:
+        if PathType.FIELD_SCREEN in include_event_types:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=SCREEN_EVENT)}))
 
-        if PathType.CUSTOM_EVENT in self.query.pathsFilter.includeEventTypes:
+        if PathType.CUSTOM_EVENT in include_event_types:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
-            conditions.append(ast.Or(exprs=or_conditions))
+            return [ast.Or(exprs=or_conditions)]
 
+        return []
+
+    def _get_excluded_events_condition(self) -> list[ast.Expr]:
+        """Exclusion filter on the computed ``path_item`` column. This depends on the path
+        cleaning/grouping alias chain, so it can only be applied where ``path_item`` exists."""
         if self.query.pathsFilter.excludeEvents:
-            conditions.append(
+            return [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["path_item"]),
                     right=ast.Constant(value=self.query.pathsFilter.excludeEvents),
                 )
-            )
+            ]
+        return []
 
+    def _get_event_query(self) -> list[ast.Expr]:
+        if not self.query.pathsFilter.includeEventTypes:
+            return []
+
+        conditions = self._get_event_type_conditions() + self._get_excluded_events_condition()
         if conditions:
             return [ast.And(exprs=conditions)]
 
@@ -288,7 +299,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         if funnel_event_filter:
             event_filters.append(funnel_event_filter)
 
-        fields = [
+        base_fields: list[ast.Expr] = [
             ast.Field(chain=["events", "timestamp"]),
             ast.Field(chain=["events", "person_id"]),
             *funnel_fields,
@@ -307,6 +318,12 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         ]
 
         final_path_item_column = "path_item_ungrouped"
+
+        # Path cleaning/grouping columns are a chain of aliases built on top of
+        # ``path_item_ungrouped``. Keep them separate from ``base_fields`` so that, when a
+        # funnel-paths join is present, the chain can be resolved in a wrapping query instead
+        # of inside the flattened join (see ``_wrapped_funnel_events_query``).
+        path_item_fields: list[ast.Expr] = []
 
         if (
             self.query.pathsFilter.pathReplacements
@@ -327,7 +344,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                     "path_item_cleaned" if idx == len(pathReplacements) - 1 else f"path_item_{idx}"
                 )
 
-                fields.append(
+                path_item_fields.append(
                     ast.Alias(
                         alias=result_path_item_column,
                         expr=ast.Call(
@@ -341,7 +358,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                     )
                 )
 
-        fields += [
+        path_item_fields += [
             ast.Alias(
                 alias="groupings",
                 expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or None),
@@ -376,21 +393,18 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         date_filter_expr = self.date_filter_expr()
         event_filters.append(date_filter_expr)
 
+        if funnel_fields:
+            return self._wrapped_funnel_events_query(base_fields, path_item_fields, event_filters)
+
         query = ast.SelectQuery(
-            select=fields,
+            select=base_fields + path_item_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters + self._get_event_query()),
             order_by=[
-                # Qualify ``events.person_id`` because the optional funnel_actors join exposes its
-                # own ``person_id`` column when the funnel is aggregated by session, which makes an
-                # unqualified reference ambiguous to the HogQL resolver.
                 ast.OrderExpr(expr=ast.Field(chain=["events", "person_id"])),
                 ast.OrderExpr(expr=ast.Field(chain=["events", "timestamp"])),
             ],
         )
-
-        if funnel_fields:
-            query.select_from = self.funnel_join()
 
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float) and query.select_from:
             query.select_from.sample = ast.SampleExpr(
@@ -398,6 +412,54 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             )
 
         return query
+
+    def _wrapped_funnel_events_query(
+        self,
+        base_fields: list[ast.Expr],
+        path_item_fields: list[ast.Expr],
+        event_filters: list[ast.Expr],
+    ) -> ast.SelectQuery:
+        """Events query for funnel paths, wrapped so the ``path_item`` alias chain resolves.
+
+        A ``funnelPathsFilter`` adds an INNER JOIN against the funnel actors. ClickHouse's
+        analyzer flattens the events side of that join into a single table, and the chained
+        aliases that build ``path_item`` (path cleaning -> ``group_index`` -> ``path_item``)
+        can no longer resolve against the materialized ``$current_url`` column — the query
+        fails with ``NOT_FOUND_COLUMN_IN_BLOCK``.
+
+        Compute ``path_item_ungrouped`` over the join in an inner query, then resolve the
+        cleaning/grouping chain against that concrete block in the wrapping query.
+        """
+        include_event_types = bool(self.query.pathsFilter.includeEventTypes)
+        inner_conditions = event_filters + (self._get_event_type_conditions() if include_event_types else [])
+
+        inner_query = ast.SelectQuery(
+            select=base_fields,
+            select_from=self.funnel_join(),
+            where=ast.And(exprs=inner_conditions) if inner_conditions else None,
+        )
+
+        if (
+            self.query.samplingFactor is not None
+            and isinstance(self.query.samplingFactor, float)
+            and inner_query.select_from
+        ):
+            inner_query.select_from.sample = ast.SampleExpr(
+                sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+            )
+
+        # ``path_item`` only exists on the wrapping query, so its exclusion filter lives here.
+        outer_conditions = self._get_excluded_events_condition() if include_event_types else []
+
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["*"]), *path_item_fields],
+            select_from=ast.JoinExpr(table=inner_query),
+            where=ast.And(exprs=outer_conditions) if outer_conditions else None,
+            order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=["person_id"])),
+                ast.OrderExpr(expr=ast.Field(chain=["timestamp"])),
+            ],
+        )
 
     def date_filter_expr(self) -> ast.Expr:
         field_to_compare = ast.Field(chain=["events", "timestamp"])

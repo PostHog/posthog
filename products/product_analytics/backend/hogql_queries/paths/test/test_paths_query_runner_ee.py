@@ -1,6 +1,6 @@
 import uuid
 from datetime import timedelta
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 import pytest
@@ -3690,13 +3690,22 @@ class TestClickhousePathsFunnelSource(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "/after", "$group_0": "org:incomplete"},
         )
 
-    def _run_paths_query(self, funnel_source: dict, funnel_path_type: str, funnel_step: int) -> list[tuple]:
+    def _run_paths_query(
+        self,
+        funnel_source: dict,
+        funnel_path_type: str,
+        funnel_step: int,
+        extra_paths_filter: Optional[dict] = None,
+    ) -> list[tuple]:
         with freeze_time("2021-05-08T00:00:00.000Z"):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",
                     "dateRange": {"date_from": "2021-05-01", "date_to": "2021-05-07"},
-                    "pathsFilter": {"includeEventTypes": ["$pageview", "custom_event"]},
+                    "pathsFilter": {
+                        "includeEventTypes": ["$pageview", "custom_event"],
+                        **(extra_paths_filter or {}),
+                    },
                     "funnelPathsFilter": {
                         "funnelPathType": funnel_path_type,
                         "funnelSource": funnel_source,
@@ -3756,6 +3765,61 @@ class TestClickhousePathsFunnelSource(ClickhouseTestMixin, APIBaseTest):
         }
 
         self.assertEqual(self._run_paths_query(funnel_source, funnel_path_type, funnel_step), expected)
+
+    @parameterized.expand(
+        [
+            # Path cleaning alone adds the ``path_item_cleaned`` link to the alias chain.
+            (
+                "cleaning",
+                {"localPathCleaningFilters": [{"regex": "/between", "alias": "/cleaned"}]},
+                [("1_step one", "2_/cleaned", 1), ("2_/cleaned", "3_step two", 1)],
+            ),
+            # Groupings alone drive ``group_index``/``path_item`` off the cleaned column.
+            (
+                "groupings",
+                {"pathGroupings": ["/betw*"]},
+                [("1_step one", "2_/betw*", 1), ("2_/betw*", "3_step two", 1)],
+            ),
+            # Both together is the exact combination that crashed in production.
+            (
+                "cleaning_and_groupings",
+                {
+                    "localPathCleaningFilters": [{"regex": "/between", "alias": "/cleaned"}],
+                    "pathGroupings": ["/clean*"],
+                },
+                [("1_step one", "2_/clean*", 1), ("2_/clean*", "3_step two", 1)],
+            ),
+        ]
+    )
+    def test_funnel_paths_with_path_cleaning_and_groupings(self, _name, extra_paths_filter, expected):
+        """Path cleaning/groupings combined with a funnel-paths join.
+
+        The funnel join makes ClickHouse flatten the events subquery, and the chained
+        aliases that build ``path_item`` (cleaning -> ``group_index`` -> ``path_item``) used
+        to fail to resolve against the materialized ``$current_url`` column with
+        ``NOT_FOUND_COLUMN_IN_BLOCK``. Assert the query runs and the cleaned/grouped values
+        flow through the join.
+        """
+        self._create_session_funnel_events()
+
+        funnel_source = {
+            "kind": "FunnelsQuery",
+            "series": [
+                {"kind": "EventsNode", "event": "step one"},
+                {"kind": "EventsNode", "event": "step two"},
+            ],
+            "dateRange": {"date_from": "2021-05-01", "date_to": "2021-05-07"},
+            "funnelsFilter": {
+                "funnelAggregateByHogQL": "properties.$session_id",
+                "funnelWindowInterval": 7,
+                "funnelWindowIntervalUnit": "day",
+            },
+        }
+
+        self.assertEqual(
+            self._run_paths_query(funnel_source, "funnel_path_between_steps", 2, extra_paths_filter),
+            expected,
+        )
 
 
 class TestClickhousePathsEdgeValidation(TestCase):
