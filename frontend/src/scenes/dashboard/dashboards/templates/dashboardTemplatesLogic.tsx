@@ -168,7 +168,11 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     // The chooser/modal (and the Dashboards → Templates tab) that mount this logic can close or
                     // navigate away mid-request, unmounting it. Without this guard the loader still dispatches
                     // `getAllTemplatesSuccess` into the gone instance, throwing `[KEA] Can not find path`.
-                    breakpoint()
+                    // Scoped to genuine unmount (not supersession) via `breakpoint()`, so an in-flight lazy
+                    // load still settles normally while the logic is mounted.
+                    if (!dashboardTemplatesLogic.findMounted(props)) {
+                        breakpoint()
+                    }
                     if (!useSearch && listScope === undefined) {
                         return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
                     }

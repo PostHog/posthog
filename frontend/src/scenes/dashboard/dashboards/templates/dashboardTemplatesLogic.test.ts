@@ -137,33 +137,29 @@ describe('dashboardTemplatesLogic', () => {
         expect(listMock.mock.calls.length).toBe(listCallsAfterOpen)
     })
 
-    it('a superseded in-flight fetch is aborted and never applies its stale result', async () => {
-        // Guards the `breakpoint()` after the list request: without it, an older fetch that resolves
-        // last dispatches getAllTemplatesSuccess, overwriting the fresh result — the same unguarded
-        // dispatch that throws `[KEA] Can not find path` when the mounter unmounts mid-request.
+    it('unmounting mid-request does not dispatch into the gone instance (no `Can not find path`)', async () => {
+        // The chooser modal / templates tab that mounts this logic can close or navigate away while
+        // `getAllTemplates` is in flight. The loader must abort instead of dispatching success into the
+        // unmounted instance, which kea reports as `[KEA] Can not find path … in the store.`
         const listMock = api.dashboardTemplates.list as jest.Mock
-        const stale: Pick<DashboardTemplateType, 'id'> = { id: 'stale' }
-        const fresh: Pick<DashboardTemplateType, 'id'> = { id: 'fresh' }
-        let resolveStale: (value: { results: DashboardTemplateType[] }) => void = () => {}
-        let resolveFresh: (value: { results: DashboardTemplateType[] }) => void = () => {}
-        listMock
-            .mockReturnValueOnce(new Promise((resolve) => (resolveStale = resolve)))
-            .mockReturnValueOnce(new Promise((resolve) => (resolveFresh = resolve)))
+        let resolveList: (value: { results: DashboardTemplateType[] }) => void = () => {}
+        listMock.mockReturnValueOnce(new Promise((resolve) => (resolveList = resolve)))
+
+        // kea surfaces the bad dispatch through its logger; serialize nested Error args so the assertion sees it.
+        const consoleErrors: string[] = []
+        jest.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+            consoleErrors.push(JSON.stringify(args, (_key, value) => (value instanceof Error ? value.stack : value)))
+        })
 
         const mounted = dashboardTemplatesLogic({ scope: 'default' })
-        logic = mounted
         mounted.mount()
-
         mounted.actions.getAllTemplates()
-        mounted.actions.getAllTemplates()
+        mounted.unmount()
 
-        // Resolve the fresh (later) call first, then the stale (earlier) one — the stale response must not win.
-        resolveFresh({ results: [fresh as DashboardTemplateType] })
-        resolveStale({ results: [stale as DashboardTemplateType] })
+        resolveList({ results: [] })
+        await new Promise((resolve) => setTimeout(resolve, 30))
 
-        await expectLogic(mounted).toFinishAllListeners()
-
-        expect(mounted.values.allTemplates).toEqual([fresh])
+        expect(consoleErrors.some((message) => message.includes('Can not find path'))).toBe(false)
     })
 
     it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
