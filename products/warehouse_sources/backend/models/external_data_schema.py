@@ -65,7 +65,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "full_refresh_append": bool, "snapshot_retention_mode": "count" | "days", "snapshot_retention_value": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -141,6 +141,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.XMIN
 
     @property
+    def is_full_refresh_append(self) -> bool:
+        # A sub-mode of full refresh: instead of overwriting, each sync appends a full snapshot of the
+        # source and old snapshots are pruned on a retention policy. Kept as a flag on the full_refresh
+        # sync type (not a distinct SyncType) so it inherits full-refresh extraction — a full source pull
+        # every run, no incremental watermark.
+        return self.sync_type == self.SyncType.FULL_REFRESH and bool(
+            (self.sync_type_config or {}).get("full_refresh_append")
+        )
+
+    @property
+    def snapshot_retention_mode(self) -> Literal["count", "days"]:
+        if self.sync_type_config and self.sync_type_config.get("snapshot_retention_mode") == "days":
+            return "days"
+        return "count"
+
+    @property
+    def snapshot_retention_value(self) -> int:
+        if self.sync_type_config:
+            value = self.sync_type_config.get("snapshot_retention_value")
+            if isinstance(value, int) and value > 0:
+                return value
+        return 1
+
+    @property
     def xmin_last_value(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("xmin_last_value", None)
@@ -184,8 +208,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def table_row_count_is_cumulative(self) -> bool:
         # These sync types append/merge into the warehouse table across runs, so its true size is the
         # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
-        # replaces the whole table, so there the run's row_count already equals the table size.
-        return self.should_use_incremental_field or self.is_cdc or self.is_xmin
+        # replaces the whole table, so there the run's row_count already equals the table size. Full
+        # refresh append accumulates snapshots across runs, so it's cumulative like append.
+        return self.should_use_incremental_field or self.is_cdc or self.is_xmin or self.is_full_refresh_append
 
     @property
     def incremental_field(self) -> str | None:

@@ -6279,6 +6279,12 @@ export interface ExternalDataSourceSyncSchema {
     cdc_available?: boolean
     xmin_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /** Full-refresh sub-mode: append a full snapshot each sync instead of overwriting, keeping history. */
+    full_refresh_append?: boolean | null
+    /** How snapshot retention is measured for full_refresh_append: newest N snapshots, or last N days. */
+    snapshot_retention_mode?: 'count' | 'days' | null
+    /** Number of snapshots (mode 'count') or days of snapshots (mode 'days') to retain. */
+    snapshot_retention_value?: number | null
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks
      *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
@@ -6329,6 +6335,12 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /** Full-refresh sub-mode: append a full snapshot each sync instead of overwriting, keeping history. */
+    full_refresh_append?: boolean | null
+    /** How snapshot retention is measured for full_refresh_append: newest N snapshots, or last N days. */
+    snapshot_retention_mode?: 'count' | 'days' | null
+    /** Number of snapshots (mode 'count') or days of snapshots (mode 'days') to retain. */
+    snapshot_retention_value?: number | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

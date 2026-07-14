@@ -2380,6 +2380,35 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+            elif sync_type == "full_refresh" and schema.get("full_refresh_append"):
+                retention_mode = schema.get("snapshot_retention_mode") or "count"
+                if retention_mode not in ("count", "days"):
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"snapshot_retention_mode must be 'count' or 'days' for schema '{schema_name}'."
+                        },
+                    )
+                retention_value = schema.get("snapshot_retention_value")
+                # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                retention_value_valid = retention_value is None or (
+                    isinstance(retention_value, int) and not isinstance(retention_value, bool)
+                )
+                if not retention_value_valid or (retention_value is not None and not (1 <= retention_value <= 365)):
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"snapshot_retention_value must be an integer between 1 and 365 for schema '{schema_name}'."
+                        },
+                    )
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    "full_refresh_append": True,
+                    "snapshot_retention_mode": retention_mode,
+                    **({"snapshot_retention_value": retention_value} if retention_value is not None else {}),
+                }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 

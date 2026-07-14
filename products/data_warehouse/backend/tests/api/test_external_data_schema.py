@@ -456,6 +456,69 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    def _create_full_refresh_schema(self, **kwargs: Any) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        return ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            **kwargs,
+        )
+
+    def test_enable_full_refresh_append_persists_retention(self):
+        schema = self._create_full_refresh_schema()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_type": "full_refresh",
+                "full_refresh_append": True,
+                "snapshot_retention_mode": "days",
+                "snapshot_retention_value": 7,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["full_refresh_append"] is True
+        assert response.json()["snapshot_retention_mode"] == "days"
+        assert response.json()["snapshot_retention_value"] == 7
+        schema.refresh_from_db()
+        assert schema.is_full_refresh_append is True
+        assert schema.snapshot_retention_mode == "days"
+        assert schema.snapshot_retention_value == 7
+
+    def test_full_refresh_append_rejected_for_non_full_refresh_sync_type(self):
+        schema = self._create_full_refresh_schema(sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"full_refresh_append": True},
+        )
+
+        assert response.status_code == 400
+
+    @parameterized.expand([("too_small", 0), ("too_large", 366)])
+    def test_full_refresh_append_retention_value_bounds(self, _name: str, value: int):
+        schema = self._create_full_refresh_schema()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={
+                "sync_type": "full_refresh",
+                "full_refresh_append": True,
+                "snapshot_retention_value": value,
+            },
+        )
+
+        assert response.status_code == 400
+
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -83,6 +83,17 @@ const getAppendOnlySyncSupported = (
     }
 }
 
+export interface FullRefreshAppendConfig {
+    /** When true, each sync appends a full snapshot instead of overwriting the table. */
+    enabled: boolean
+    /** Retain the newest N snapshots ('count') or snapshots synced in the last N days ('days'). */
+    retentionMode: 'count' | 'days'
+    retentionValue: number | null
+}
+
+// Sensible starting point when a user first enables snapshot retention (keep the last 3 snapshots).
+const DEFAULT_SNAPSHOT_RETENTION_VALUE = 3
+
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
     onClose: () => void
@@ -92,7 +103,8 @@ interface SyncMethodFormProps {
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
-        incrementalFieldLookbackSeconds?: number | null
+        incrementalFieldLookbackSeconds?: number | null,
+        fullRefreshAppendConfig?: FullRefreshAppendConfig
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
@@ -128,10 +140,12 @@ const getCdcSyncSupported = (
 export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
     !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
 
-const getSaveDisabledReason = (
+export const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    fullRefreshAppend: boolean,
+    retentionValue: number | null
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -143,6 +157,10 @@ const getSaveDisabledReason = (
 
     if (syncType === 'append' && !appendField) {
         return 'You must select an append field'
+    }
+
+    if (syncType === 'full_refresh' && fullRefreshAppend && (!retentionValue || retentionValue < 1)) {
+        return 'You must set how many snapshots (or days) to keep'
     }
 }
 
@@ -215,6 +233,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const initialLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
     const [lookbackAmount, setLookbackAmount] = useState<number | null>(initialLookback.amount)
     const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
+    const [fullRefreshAppend, setFullRefreshAppend] = useState<boolean>(schema.full_refresh_append ?? false)
+    const [retentionMode, setRetentionMode] = useState<'count' | 'days'>(schema.snapshot_retention_mode ?? 'count')
+    const [retentionValue, setRetentionValue] = useState<number | null>(
+        schema.snapshot_retention_value ?? DEFAULT_SNAPSHOT_RETENTION_VALUE
+    )
 
     useEffect(() => {
         setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
@@ -224,6 +247,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
         setLookbackAmount(resetLookback.amount)
         setLookbackUnit(resetLookback.unit)
+        setFullRefreshAppend(schema.full_refresh_append ?? false)
+        setRetentionMode(schema.snapshot_retention_mode ?? 'count')
+        setRetentionValue(schema.snapshot_retention_value ?? DEFAULT_SNAPSHOT_RETENTION_VALUE)
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const lookbackSeconds =
@@ -589,6 +615,52 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             We'll replicate the whole table on every sync. This can take longer to sync and increase
                             your monthly billing.
                         </p>
+                        {radioValue === 'full_refresh' && (
+                            <div className="mt-3 pt-3 border-t border-border">
+                                <LemonSwitch
+                                    checked={fullRefreshAppend}
+                                    onChange={setFullRefreshAppend}
+                                    label="Keep previous snapshots (append)"
+                                    bordered
+                                />
+                                <p className="mt-2 mb-0 text-secondary text-sm">
+                                    Instead of overwriting, append a full snapshot of the source on each sync and retain
+                                    past ones — useful for point-in-time history of tables without an incremental field.
+                                    Each row carries a <code>_ph_snapshot_at</code> timestamp you can filter on.
+                                </p>
+                                {fullRefreshAppend && (
+                                    <div className="mt-4">
+                                        <p className="mb-1 font-semibold">Snapshot retention</p>
+                                        <p className="mb-2 text-secondary text-sm">
+                                            How many snapshots to keep. Older snapshots are pruned at sync time, so
+                                            expired snapshots can stay queryable until the next sync runs.
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <LemonInput
+                                                type="number"
+                                                min={1}
+                                                max={365}
+                                                value={retentionValue ?? undefined}
+                                                onChange={(newValue) => setRetentionValue(newValue ?? null)}
+                                                className="w-24"
+                                            />
+                                            <LemonSelect
+                                                value={retentionMode}
+                                                onChange={(newValue) => setRetentionMode(newValue)}
+                                                options={[
+                                                    { value: 'count', label: 'snapshots' },
+                                                    { value: 'days', label: 'days' },
+                                                ]}
+                                            />
+                                        </div>
+                                        <LemonBanner type="info" className="mt-2">
+                                            Retaining snapshots multiplies stored rows and query cost — each sync keeps a
+                                            full copy of the source. Keep the retention window as small as you need.
+                                        </LemonBanner>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ),
             }
@@ -624,10 +696,29 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         if (radioValue === 'cdc' && cdcTableMode !== (schema.cdc_table_mode ?? 'consolidated')) {
             return true
         }
+        if (radioValue === 'full_refresh') {
+            if (fullRefreshAppend !== (schema.full_refresh_append ?? false)) {
+                return true
+            }
+            if (fullRefreshAppend) {
+                if (retentionMode !== (schema.snapshot_retention_mode ?? 'count')) {
+                    return true
+                }
+                if (retentionValue !== (schema.snapshot_retention_value ?? null)) {
+                    return true
+                }
+            }
+        }
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const validationDisabledReason = getSaveDisabledReason(
+        radioValue,
+        incrementalFieldValue,
+        appendFieldValue,
+        fullRefreshAppend,
+        retentionValue
+    )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {
@@ -662,7 +753,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
 
             onSave('append', appendFieldValue, fieldSelected.field_type, null)
         } else {
-            onSave('full_refresh', null, null, null)
+            onSave('full_refresh', null, null, null, undefined, undefined, {
+                enabled: fullRefreshAppend,
+                retentionMode,
+                retentionValue,
+            })
         }
     }
 

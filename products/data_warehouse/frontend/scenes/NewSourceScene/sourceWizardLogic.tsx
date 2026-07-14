@@ -19,6 +19,26 @@ import {
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { FullRefreshAppendConfig } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+
+// Build the create-source schema payload keys for the full-refresh-append sub-mode. Only emitted for
+// full_refresh schemas; retention settings are included only when the sub-mode is actually enabled.
+function fullRefreshAppendSchemaPayload(
+    schema: ExternalDataSourceSyncSchema
+): Partial<ExternalDataSourceSyncSchema> {
+    if (schema.sync_type !== 'full_refresh') {
+        return {}
+    }
+    if (!schema.full_refresh_append) {
+        return { full_refresh_append: false }
+    }
+    return {
+        full_refresh_append: true,
+        snapshot_retention_mode: schema.snapshot_retention_mode ?? 'count',
+        snapshot_retention_value: schema.snapshot_retention_value ?? null,
+    }
+}
+
 import {
     ExternalDataSourceType,
     ProductIntentContext,
@@ -339,7 +359,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             incrementalFieldType: string | null,
             primaryKeyColumns: string[] | null,
             cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
-            incrementalFieldLookbackSeconds?: number | null
+            incrementalFieldLookbackSeconds?: number | null,
+            fullRefreshAppendConfig?: FullRefreshAppendConfig
         ) => ({
             schema,
             syncType,
@@ -348,6 +369,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             primaryKeyColumns,
             cdcTableMode,
             incrementalFieldLookbackSeconds,
+            fullRefreshAppendConfig,
         }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({
@@ -498,23 +520,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         primaryKeyColumns,
                         cdcTableMode,
                         incrementalFieldLookbackSeconds,
+                        fullRefreshAppendConfig,
                     }
                 ) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_type: s.table === schema.table ? syncType : s.sync_type,
-                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
-                        incremental_field_type:
-                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
-                        incremental_field_lookback_seconds:
-                            s.table === schema.table
-                                ? (incrementalFieldLookbackSeconds ?? null)
-                                : s.incremental_field_lookback_seconds,
-                        primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
-                        ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
-                            ? { cdc_table_mode: cdcTableMode }
-                            : {}),
-                    }))
+                    return state.map((s) => {
+                        if (s.table !== schema.table) {
+                            return s
+                        }
+                        const fullRefreshAppend = syncType === 'full_refresh' && !!fullRefreshAppendConfig?.enabled
+                        return {
+                            ...s,
+                            sync_type: syncType,
+                            incremental_field: incrementalField,
+                            incremental_field_type: incrementalFieldType,
+                            incremental_field_lookback_seconds: incrementalFieldLookbackSeconds ?? null,
+                            primary_key_columns: primaryKeyColumns,
+                            ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                            full_refresh_append: fullRefreshAppend,
+                            snapshot_retention_mode: fullRefreshAppend
+                                ? (fullRefreshAppendConfig?.retentionMode ?? 'count')
+                                : null,
+                            snapshot_retention_value: fullRefreshAppend
+                                ? (fullRefreshAppendConfig?.retentionValue ?? null)
+                                : null,
+                        }
+                    })
                 },
             },
         ],
@@ -1254,6 +1284,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),
+                                        ...fullRefreshAppendSchemaPayload(schema),
                                     })),
                                 },
                             })
@@ -1518,6 +1549,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                     ? { cdc_table_mode: schema.cdc_table_mode }
                                     : {}),
+                                ...fullRefreshAppendSchemaPayload(schema),
                             })),
                         },
                     })

@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
+    _append_snapshot_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
@@ -361,6 +362,8 @@ class PipelineNonDLT(Generic[ResumableData]):
         previous_file_uris = await self._delta_table_helper.get_file_uris()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        if self._schema.is_full_refresh_append:
+            pa_table = _append_snapshot_column_to_pyarrows_table(pa_table, self._job.created_at)
         pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
@@ -384,11 +387,13 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
-        write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
+        write_type: Literal["incremental", "full_refresh", "append", "full_refresh_append"] = "full_refresh"
         if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             write_type = "incremental"
         elif self._schema.is_append:
             write_type = "append"
+        elif self._schema.is_full_refresh_append:
+            write_type = "full_refresh_append"
 
         should_overwrite_table = index == 0 and not resuming_sync
 
@@ -397,6 +402,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             write_type,
             should_overwrite_table=should_overwrite_table,
             primary_keys=self._resource.primary_keys,
+            snapshot_at=self._job.created_at if self._schema.is_full_refresh_append else None,
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)
@@ -493,6 +499,17 @@ class PipelineNonDLT(Generic[ResumableData]):
         except Exception as e:
             capture_exception(e)
             await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
+
+        # Prune expired snapshots before the queryable folder and row count are (re)built below, so
+        # neither surfaces rows that are about to be deleted. A prune failure must not fail the sync.
+        if self._schema.is_full_refresh_append:
+            try:
+                await self._delta_table_helper.prune_snapshots(
+                    self._schema.snapshot_retention_mode, self._schema.snapshot_retention_value
+                )
+            except Exception as e:
+                capture_exception(e)
+                await self._logger.aexception(f"Snapshot pruning failed: {e}", exc_info=e)
 
         file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")

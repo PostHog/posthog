@@ -1,7 +1,7 @@
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { shouldOfferXmin } from './SyncMethodForm'
+import { getSaveDisabledReason, shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -33,5 +33,16 @@ describe('SyncMethodForm', () => {
 
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
+    })
+
+    // Guards the full-refresh-append retention input: with the sub-mode on, a missing or non-positive
+    // retention value must block save so we never PATCH an invalid config the backend would reject.
+    it.each([
+        ['append off, no value → allowed', false, null, undefined],
+        ['append on, valid value → allowed', true, 3, undefined],
+        ['append on, empty value → blocked', true, null, 'You must set how many snapshots (or days) to keep'],
+        ['append on, zero value → blocked', true, 0, 'You must set how many snapshots (or days) to keep'],
+    ])('save disabled reason for full refresh: %s', (_, fullRefreshAppend, retentionValue, expected) => {
+        expect(getSaveDisabledReason('full_refresh', null, null, fullRefreshAppend, retentionValue)).toBe(expected)
     })
 })

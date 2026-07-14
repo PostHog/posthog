@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
+    _append_snapshot_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
@@ -389,6 +390,8 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        if self._schema.is_full_refresh_append:
+            pa_table = _append_snapshot_column_to_pyarrows_table(pa_table, self._job.created_at)
         pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:

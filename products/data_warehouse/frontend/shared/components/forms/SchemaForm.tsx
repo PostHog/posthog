@@ -710,7 +710,8 @@ const SyncMethodModal = (): JSX.Element => {
                     incrementalFieldType,
                     primaryKeyColumns,
                     cdcTableMode,
-                    incrementalFieldLookbackSeconds
+                    incrementalFieldLookbackSeconds,
+                    fullRefreshAppendConfig
                 ) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
@@ -725,7 +726,16 @@ const SyncMethodModal = (): JSX.Element => {
                     } else if (syncType === 'cdc') {
                         updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, null, cdcTableMode)
                     } else {
-                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null, null)
+                        updateSchemaSyncType(
+                            currentSyncMethodModalSchema,
+                            syncType ?? null,
+                            null,
+                            null,
+                            null,
+                            undefined,
+                            undefined,
+                            syncType === 'full_refresh' ? fullRefreshAppendConfig : undefined
+                        )
                     }
 
                     toggleSchemaShouldSync(currentSyncMethodModalSchema, true)

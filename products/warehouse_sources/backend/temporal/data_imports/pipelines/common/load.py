@@ -336,6 +336,15 @@ async def run_post_load_operations(
             capture_exception(e)
             logger.exception(f"Compaction failed: {e}", exc_info=e)
 
+    # Prune expired snapshots before the queryable folder / row count are rebuilt below, so neither
+    # reflects rows about to be deleted. Never applies to the CDC companion write. Must not fail the sync.
+    if not is_cdc_companion and schema.is_full_refresh_append:
+        try:
+            await delta_table_helper.prune_snapshots(schema.snapshot_retention_mode, schema.snapshot_retention_value)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Snapshot pruning failed: {e}", exc_info=e)
+
     if is_cdc_companion:
         # Look up the existing companion table's queryable_folder (not the main schema.table).
         # build_table_name accesses job.pipeline (FK), so do it inside the sync wrapper.

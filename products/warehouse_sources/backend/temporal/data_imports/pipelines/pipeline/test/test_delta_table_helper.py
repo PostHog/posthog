@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -14,13 +14,19 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    PARTITION_KEY,
+    SNAPSHOT_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    _append_snapshot_column_to_pyarrows_table,
+    evolve_pyarrow_schema,
+)
 
 
 def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
@@ -901,6 +907,112 @@ class TestRunMaintenance:
 
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestFullRefreshAppend:
+    """Full refresh append keeps prior snapshots and stays idempotent across retries.
+
+    A snapshot is the set of rows sharing one `_ph_snapshot_at` value (the job's created_at). The
+    write branch must never overwrite the whole table (that would drop earlier snapshots) yet must
+    clear the current run's snapshot on its first write, so a retry re-appends cleanly instead of
+    doubling the snapshot's rows.
+    """
+
+    def _snapshot_batch(self, ids: list[int], snapshot_at: datetime) -> pa.Table:
+        return _append_snapshot_column_to_pyarrows_table(pa.table({"id": pa.array(ids, pa.int64())}), snapshot_at)
+
+    async def _write_run(self, helper: DeltaTableHelper, ids: list[int], snapshot_at: datetime) -> None:
+        # A run's first (and here only) batch overwrites nothing but clears its own snapshot first.
+        await helper.write_to_deltalake(
+            data=self._snapshot_batch(ids, snapshot_at),
+            write_type="full_refresh_append",
+            should_overwrite_table=True,
+            primary_keys=None,
+            snapshot_at=snapshot_at,
+        )
+
+    @pytest.mark.asyncio
+    async def test_appends_new_snapshot_and_keeps_prior(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        t1 = datetime(2026, 1, 1, tzinfo=UTC)
+        t2 = datetime(2026, 1, 2, tzinfo=UTC)
+
+        await self._write_run(helper, [1, 2], t1)
+        await self._write_run(helper, [1, 2], t2)
+
+        final = helper.get_delta_table.cache_clear() or (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 4
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == [t1, t2]
+
+    @pytest.mark.asyncio
+    async def test_retry_of_same_run_does_not_duplicate(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        t1 = datetime(2026, 1, 1, tzinfo=UTC)
+        t2 = datetime(2026, 1, 2, tzinfo=UTC)
+
+        await self._write_run(helper, [1, 2], t1)
+        await self._write_run(helper, [1, 2], t2)
+        # Retry of run 2 (same snapshot_at) must clear the partial t2 rows then re-append, not stack them.
+        await self._write_run(helper, [1, 2], t2)
+
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 4
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == [t1, t2]
+
+    @pytest.mark.asyncio
+    async def test_prune_count_keeps_newest_n(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (1, 2, 3)]
+        for day, snapshot_at in enumerate(snapshots):
+            await self._write_run(helper, [day], snapshot_at)
+
+        pruned = await helper.prune_snapshots("count", 2)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == snapshots[1:]
+
+    @pytest.mark.asyncio
+    async def test_prune_count_noop_when_under_retention(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (1, 2)]
+        for day, snapshot_at in enumerate(snapshots):
+            await self._write_run(helper, [day], snapshot_at)
+
+        assert await helper.prune_snapshots("count", 5) == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_days_keeps_within_window(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        now = datetime.now(UTC)
+        old = now - timedelta(days=10)
+        recent = now - timedelta(days=1)
+        await self._write_run(helper, [1], old)
+        await self._write_run(helper, [2], recent)
+
+        pruned = await helper.prune_snapshots("days", 3)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.column(SNAPSHOT_COLUMN).to_pylist() == [recent]
+
+    @pytest.mark.asyncio
+    async def test_prune_days_never_deletes_only_snapshot(self, tmp_path: Path) -> None:
+        # Every snapshot is older than the window, but the newest must survive so the table is never emptied.
+        helper = _make_local_helper(str(tmp_path / "table"))
+        now = datetime.now(UTC)
+        await self._write_run(helper, [1], now - timedelta(days=30))
+        await self._write_run(helper, [2], now - timedelta(days=20))
+
+        pruned = await helper.prune_snapshots("days", 1)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 1
 
 
 class TestIsTableCorrupted:

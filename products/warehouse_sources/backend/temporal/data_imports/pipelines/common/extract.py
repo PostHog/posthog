@@ -356,8 +356,14 @@ async def handle_reset_or_full_refresh(
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
-    elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
-        # Avoid schema mismatches from existing data about to be overwritten
+    elif (
+        schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        and not schema.is_full_refresh_append
+        and not should_resume
+    ):
+        # Avoid schema mismatches from existing data about to be overwritten. Skipped for full refresh
+        # append, which keeps prior snapshots — it clears only the current run's snapshot before its
+        # first write (see write_to_deltalake) and prunes expired snapshots post-load.
         await logger.adebug("Deleting existing table due to sync being full refresh")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()

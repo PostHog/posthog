@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema, RowFilter } from '~/types'
 
 import {
+    FullRefreshAppendConfig,
     SyncMethodForm,
     SyncMethodFormHandle,
 } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
@@ -375,9 +376,11 @@ function SyncMethodSection({
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
-        incrementalFieldLookbackSeconds?: number | null
+        incrementalFieldLookbackSeconds?: number | null,
+        fullRefreshAppendConfig?: FullRefreshAppendConfig
     ): Promise<void> => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
+        const fullRefreshAppend = syncType === 'full_refresh' && !!fullRefreshAppendConfig?.enabled
 
         const applyUpdate = async (): Promise<void> => {
             setSaving(true)
@@ -391,6 +394,17 @@ function SyncMethodSection({
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                     primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                    ...(syncType === 'full_refresh'
+                        ? {
+                              full_refresh_append: fullRefreshAppend,
+                              ...(fullRefreshAppend && fullRefreshAppendConfig
+                                  ? {
+                                        snapshot_retention_mode: fullRefreshAppendConfig.retentionMode,
+                                        snapshot_retention_value: fullRefreshAppendConfig.retentionValue,
+                                    }
+                                  : {}),
+                          }
+                        : {}),
                 })
                 lemonToast.success('Sync method saved')
                 loadSchema()
@@ -462,6 +476,9 @@ function SyncMethodSection({
                                 cdc_available: schemaIncrementalFields.cdc_available,
                                 xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
+                                full_refresh_append: schema.full_refresh_append ?? false,
+                                snapshot_retention_mode: schema.snapshot_retention_mode ?? 'count',
+                                snapshot_retention_value: schema.snapshot_retention_value ?? null,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
                                 primary_key_columns: schema.primary_key_columns ?? null,

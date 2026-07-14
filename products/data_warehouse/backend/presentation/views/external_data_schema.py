@@ -301,6 +301,37 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    full_refresh_append = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Full refresh sub-mode. When true, each sync appends a full snapshot of the source instead "
+            "of overwriting, retaining point-in-time history. Rows carry a `_ph_snapshot_at` timestamp "
+            "marking their sync. Only valid when sync_type is full_refresh. Snapshots outside the "
+            "retention window are pruned at sync time, so expired snapshots can remain queryable between "
+            "syncs. Toggling this rebuilds the table from scratch on the next sync."
+        ),
+    )
+    snapshot_retention_mode = serializers.ChoiceField(
+        choices=["count", "days"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How full-refresh-append snapshot retention is measured: 'count' keeps the newest N snapshots, "
+            "'days' keeps snapshots synced within the last N days. Paired with snapshot_retention_value."
+        ),
+    )
+    snapshot_retention_value = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Full-refresh-append retention size: the number of snapshots to keep (mode 'count') or the "
+            "number of days of snapshots to keep (mode 'days'). Minimum 1. The newest snapshot is always "
+            "kept even if older than the day window."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -359,6 +390,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "full_refresh_append",
+            "snapshot_retention_mode",
+            "snapshot_retention_value",
             "enabled_columns",
             "row_filters",
             "available_columns",
@@ -498,6 +532,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
+        ret["full_refresh_append"] = instance.is_full_refresh_append
+        ret["snapshot_retention_mode"] = instance.snapshot_retention_mode
+        ret["snapshot_retention_value"] = instance.snapshot_retention_value
         return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
@@ -575,6 +612,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
+        validated_data.pop("full_refresh_append", None)
+        validated_data.pop("snapshot_retention_mode", None)
+        validated_data.pop("snapshot_retention_value", None)
 
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
@@ -785,6 +825,30 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     payload = instance.sync_type_config
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
+
+        # Full refresh append sub-mode + snapshot retention. Persisted in sync_type_config alongside
+        # the sync type (like cdc_table_mode), so it survives a reset and rides the existing merge/lock.
+        fra_fields = ("full_refresh_append", "snapshot_retention_mode", "snapshot_retention_value")
+        fra_fields_present = any(field in data for field in fra_fields)
+        if fra_fields_present and resulting_sync_type != ExternalDataSchema.SyncType.FULL_REFRESH:
+            raise ValidationError(
+                "full_refresh_append and snapshot retention settings are only valid for the full_refresh sync type."
+            )
+        if resulting_sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and fra_fields_present:
+            payload = instance.sync_type_config
+            was_append = bool(payload.get("full_refresh_append"))
+            if "full_refresh_append" in data:
+                payload["full_refresh_append"] = bool(data.get("full_refresh_append"))
+            if data.get("snapshot_retention_mode") is not None:
+                payload["snapshot_retention_mode"] = data.get("snapshot_retention_mode")
+            if data.get("snapshot_retention_value") is not None:
+                payload["snapshot_retention_value"] = data.get("snapshot_retention_value")
+            # Turning the sub-mode on or off changes the physical table (append vs overwrite, and the
+            # `_ph_snapshot_at` column), so rebuild it from scratch on the next sync. Changing only the
+            # retention window needs no resync — the next sync's prune applies it.
+            if bool(payload.get("full_refresh_append")) != was_append and instance.table is not None:
+                trigger_refresh = True
+            validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
