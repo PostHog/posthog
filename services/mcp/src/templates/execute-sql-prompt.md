@@ -16,6 +16,10 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 
 {schema_discovery}
 
+### Common pitfalls
+
+- **`information_schema` filters need the fully-qualified `table_name`.** A `system.*` entity is stored as `table_name = 'system.insights'`, not `'insights'` — filtering on the bare name, or splitting it into `table_schema = 'system' AND table_name = 'insights'`, silently returns zero rows rather than erroring.
+
 ### Format SQL for readability
 
 Write SQL a human can scan: multi-line with indentation, one column/CTE per line, and inline `--` comments for non-obvious logic. This matters most for queries you save via `view-create` / `view-update` — the SQL editor stores and renders the string verbatim, so a minified one-liner stays unreadable for whoever opens the view later.
