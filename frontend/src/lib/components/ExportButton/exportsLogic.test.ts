@@ -9,7 +9,13 @@ import { exportsLogic, pickPollDelayMs } from './exportsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     // promise() passes the underlying promise straight through so the loader's side effects still run.
-    lemonToast: { info: jest.fn(), success: jest.fn(), error: jest.fn(), dismiss: jest.fn(), promise: jest.fn((p) => p) },
+    lemonToast: {
+        info: jest.fn(),
+        success: jest.fn(),
+        error: jest.fn(),
+        dismiss: jest.fn(),
+        promise: jest.fn((p) => p),
+    },
 }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
