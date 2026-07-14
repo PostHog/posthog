@@ -610,6 +610,20 @@ impl DataSource for DateRangeExportSource {
         Ok(())
     }
 
+    async fn cleanup_after_data_error(&self) -> Result<(), Error> {
+        // Data-error pause: quarantine staged plaintext for post-mortem (it is
+        // the exact byte stream the failing offset points into), so the resume
+        // re-downloads a clean copy while support can still inspect the bytes
+        // that failed to parse.
+        let quarantine_result = match &self.remote_staging {
+            Some(remote) => remote.quarantine_job().await,
+            None => Ok(()),
+        };
+        self.cleanup_local_resources().await;
+        debug!("Job data-error cleanup complete (staged parts quarantined)");
+        quarantine_result
+    }
+
     // We call this every time we process a chunk from a key/part
     // So this needs to be idempotent/a no-op when the key/part is already prepared
     async fn prepare_key(&self, key: &str) -> Result<(), Error> {

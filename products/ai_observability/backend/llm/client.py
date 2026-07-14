@@ -104,6 +104,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
+    from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
 
     match name:
         case "openai":
@@ -120,6 +121,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", FireworksAdapter())
         case "minimax":
             return cast("Provider", MiniMaxAdapter())
+        case "zeabur":
+            return cast("Provider", ZeaburAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(

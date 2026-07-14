@@ -64,6 +64,16 @@
         },
         {
             "kind": "native",
+            "id": "@posthog/memory-update",
+            "requires_approval": true
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-delete",
+            "requires_approval": true
+        },
+        {
+            "kind": "native",
             "id": "@posthog/web-search"
         },
         {

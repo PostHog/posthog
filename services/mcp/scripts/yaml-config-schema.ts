@@ -155,6 +155,7 @@ export const ToolConfigSchema = z
          * the tool when the flag is on (useful for sunsetting old tools).
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         /**
          * Controls how `feature_flag` gates the tool:
          * - `'enable'` (default): tool is shown only when the flag is on.
@@ -178,10 +179,19 @@ export const ToolConfigSchema = z
                 include: z.array(z.string()).optional(),
                 /** Dot-path patterns of response fields to remove. */
                 exclude: z.array(z.string()).optional(),
+                /**
+                 * Expose an optional `fields` request param so the agent can narrow the response to a
+                 * subset of `include` at call time (constrained to the allowlist). Omitting `fields`
+                 * returns the full `include` set. Requires `include`; incompatible with `exclude`.
+                 */
+                selectable: z.boolean().optional(),
             })
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {
                 message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .refine((data) => !(data.selectable && !data.include?.length), {
+                message: 'response.selectable requires response.include (the allowlist to select from)',
             })
             .optional(),
         /**
@@ -461,6 +471,7 @@ export const QueryWrapperToolConfigSchema = z
          * See ToolConfigSchema.feature_flag for full documentation.
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         /**
          * Controls how `feature_flag` gates the tool:
          * - `'enable'` (default): tool is shown only when the flag is on.
@@ -512,6 +523,7 @@ export const CategoryConfigSchema = z
          * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         feature_flag_variant: z.string().optional(),
         tools: z.record(

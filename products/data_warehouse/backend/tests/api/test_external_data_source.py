@@ -14,6 +14,8 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import psycopg
+import requests
+from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -30,7 +32,8 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
+from posthog.models.integration import Integration
 from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -358,6 +361,41 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == created_via
 
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a wizard user agent upgrades it to `wizard`.
+            (ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
+            # Explicit non-MCP values are never rewritten, even with a wizard user agent.
+            (ExternalDataSource.CreatedVia.WEB, ExternalDataSource.CreatedVia.WEB),
+            (ExternalDataSource.CreatedVia.API, ExternalDataSource.CreatedVia.API),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_wizard_user_agent_upgrades_mcp_created_via(
+        self, sent_created_via, expected_created_via, _mock_validate
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": sent_created_via,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+            headers={"user-agent": "posthog/wizard/1.0.0"},
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == expected_created_via
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -380,13 +418,20 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.created_via == ExternalDataSource.CreatedVia.API
 
-    def test_create_external_data_source_rejects_invalid_created_via(self):
+    @parameterized.expand(
+        [
+            ("garbage_value", "hacker"),
+            # `wizard` is derived server-side; a caller must not be able to self-label as wizard-created.
+            ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
+        ]
+    )
+    def test_create_external_data_source_rejects_invalid_created_via(self, _name, created_via):
         # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
-                "created_via": "hacker",
+                "created_via": created_via,
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -431,7 +476,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted_defaults_true", {}, True),
+            ("omitted_defaults_false", {}, False),
             ("explicit_true", {"direct_query_enabled": True}, True),
             ("explicit_false", {"direct_query_enabled": False}, False),
         ]
@@ -515,17 +560,17 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
-        assert source.direct_query_enabled is True
+        assert source.direct_query_enabled is False
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"direct_query_enabled": False},
+            data={"direct_query_enabled": True},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["direct_query_enabled"] is False
+        assert response.json()["direct_query_enabled"] is True
         source.refresh_from_db()
-        assert source.direct_query_enabled is False
+        assert source.direct_query_enabled is True
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
@@ -1012,7 +1057,12 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Source type already exists. Prefix is required"})
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+            },
+        )
 
         # Create with prefix
         response = self.client.post(
@@ -1127,14 +1177,14 @@ class TestExternalDataSource(APIBaseTest):
                 [(None, False)],
                 "",
                 400,
-                "Source type already exists. Prefix is required",
+                "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source.",
             ),
             (
                 "no-prefix source (empty string) blocks another no-prefix",
                 [("", False)],
                 "",
                 400,
-                "Source type already exists. Prefix is required",
+                "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source.",
             ),
             (
                 "no-prefix source still allows a prefixed source",
@@ -1713,19 +1763,76 @@ class TestExternalDataSource(APIBaseTest):
                     "id": str(snowflake_source.pk),
                     "prefix": "Analytics Snowflake",
                     "engine": "snowflake",
+                    "source_type": "Snowflake",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
+                    "source_type": "Postgres",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
                 {
                     "id": str(mysql_source.pk),
                     "prefix": "Reporting MySQL",
                     "engine": "mysql",
+                    "source_type": "MySQL",
+                    "access_method": "direct",
+                    "supports_hogql": True,
                 },
             ],
         )
+
+    def test_connections_lists_synced_sources_only_when_direct_query_enabled(self):
+        enabled_synced = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Enabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # Toggle off: must not be listed.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="Disabled synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=False,
+            job_inputs={"host": "localhost", "password": "secret"},
+        )
+        # No direct engine for the type: must not be listed even with the toggle on.
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="Stripe synced",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["id"] for item in payload], [str(enabled_synced.pk)])
+        self.assertEqual(payload[0]["access_method"], "warehouse")
+        self.assertEqual(payload[0]["source_type"], "Postgres")
+        self.assertEqual(payload[0]["supports_hogql"], True)
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -3807,7 +3914,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3823,7 +3932,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -10731,6 +10842,205 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert response.status_code == status.HTTP_200_OK
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
+
+
+class TestOAuthAccountsEndpoint(APIBaseTest):
+    _GSC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source"
+    _BING_LIST_ACCOUNTS = (
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
+    )
+
+    def setUp(self):
+        super().setUp()
+        # The endpoint requires manage access (it enumerates the provider's accounts), so default the
+        # user to admin; the forbidden-member test drops back to MEMBER explicitly.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _url(self, source_type: str, integration_id: int) -> str:
+        return (
+            f"/api/environments/{self.team.pk}/external_data_sources/oauth_accounts/"
+            f"?source_type={source_type}&integration_id={integration_id}"
+        )
+
+    def _bing_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="bing-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="bing_test",
+            created_by=self.user,
+        )
+
+    def _gsc_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-search-console",
+            config={},
+            sensitive_config={"access_token": "ya29.test"},
+            integration_id="gsc_test",
+            created_by=self.user,
+        )
+
+    @staticmethod
+    def _http_error(status_code: int) -> requests.HTTPError:
+        response = requests.Response()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    def test_regular_member_is_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        integration = self._gsc_integration()
+
+        response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_missing_params_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/oauth_accounts/?source_type=BingAds"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_unknown_source_type_returns_400(self):
+        response = self.client.get(self._url("NotARealSource", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_non_oauth_source_returns_400(self):
+        response = self.client.get(self._url("Postgres", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_oauth_source_without_listing_returns_400(self):
+        # An OAuth source that hasn't implemented get_oauth_accounts passes the isinstance check but
+        # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
+        response = self.client.get(self._url("Salesforce", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_gsc_success_maps_sites_to_accounts(self):
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(
+                f"{self._GSC_MODULE}.list_sites",
+                return_value=[{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+            ),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "https://example.com/",
+                "display_name": "https://example.com/",
+                "is_primary": False,
+                "badges": ["siteOwner"],
+                "group": None,
+                "secondary_text": None,
+            }
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_gsc_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=self._http_error(status_code)),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your account" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_success_returns_accounts(self):
+        integration = self._bing_integration()
+        with patch(self._BING_LIST_ACCOUNTS, return_value=[]):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"accounts": []}
+
+    def test_gsc_non_auth_http_error_is_not_swallowed(self):
+        # Only 401/403 become an actionable 400 — any other status keeps surfacing as a 500 so a
+        # genuine bug isn't masked by the auth handling. Restores the parity the old endpoint test had.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=self._http_error(500)),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_gsc_unexpected_error_is_not_swallowed(self):
+        # A non-actionable runtime failure inside listing must surface as a 500, not a 400 — a bare
+        # exception is a server bug, not bad user input.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=RuntimeError("boom")),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_gsc_revoked_token_returns_actionable_400(self):
+        # The lazy OAuth refresh raises RefreshError when the stored token is revoked/expired; it must
+        # become an actionable 400, not an unhandled 500.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=RefreshError("invalid_grant")),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect the integration" in str(response.json()).lower()
+
+    def test_gsc_missing_integration_returns_400(self):
+        # google_search_console_session raises Integration.DoesNotExist for a missing/foreign id — it
+        # must surface as an actionable 400, not a 500. (Mocked rather than hitting the real session,
+        # whose lazy credential load calls close_old_connections and would drop the test connection.)
+        integration = self._gsc_integration()
+        with patch(
+            f"{self._GSC_MODULE}.google_search_console_session",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_auth_error_returns_actionable_400(self):
+        # list_accounts funnels SDK auth failures through _wrap_with_fault_detail as a ValueError whose
+        # message carries the original error type; the source maps the known auth substrings to a 400.
+        integration = self._bing_integration()
+        wrapped = ValueError("Failed to list Bing Ads accounts: OAuthTokenRequestException: invalid_grant The grant")
+        with patch(self._BING_LIST_ACCOUNTS, side_effect=wrapped):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_unexpected_error_is_not_swallowed(self):
+        # A non-actionable failure inside list_accounts must surface as a 500, not be masked as a 400.
+        integration = self._bing_integration()
+        with patch(self._BING_LIST_ACCOUNTS, side_effect=RuntimeError("schema parser exploded")):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_missing_integration_returns_400(self):
+        # A missing/foreign integration id must surface as an actionable 400, not a 500.
+        response = self.client.get(self._url("BingAds", 99999999))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
 
 
 _PREVIEW_MANIFEST = {

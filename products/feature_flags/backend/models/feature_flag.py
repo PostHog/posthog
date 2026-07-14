@@ -1,6 +1,7 @@
+import copy
 import json
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -16,14 +17,13 @@ import structlog
 from django_deprecate_fields import deprecate_field
 
 from posthog.caching.flags_redis_cache import write_flags_to_cache
-from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
-from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
@@ -44,6 +44,61 @@ if TYPE_CHECKING:
 
 def default_filters() -> dict:
     return {"groups": []}
+
+
+def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Shape a scheduled-change payload into the serializer data applying it would produce.
+
+    Single source of truth for both the creation-time approval gate
+    (``products.approvals.backend.scheduled_changes.scheduled_change_serializer_data``) and the
+    apply-time dispatcher (``FeatureFlag.scheduled_changes_dispatcher``), so the change the gate
+    evaluates is exactly the change the applier makes — previously two hand-kept-in-sync copies,
+    and the deep-copy-before-mutating fix had to be patched into both separately.
+
+    Returns ``{"active": ...}`` / ``{"filters": ...}`` for a recognized payload, or ``None`` when
+    the payload is malformed (missing ``operation``/``value``) or its operation is unrecognized.
+    Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
+    dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
+    stays in the dispatcher.
+    """
+    operation = payload.get("operation")
+    if operation is None or "value" not in payload:
+        return None
+    value = payload["value"]
+
+    if operation == "update_status":
+        return {"active": value}
+
+    current_filters = flag.get_filters()
+
+    if operation == "add_release_condition":
+        new_groups = value.get("groups", []) if isinstance(value, dict) else []
+        return {
+            "filters": {
+                **current_filters,
+                "groups": current_filters.get("groups", []) + new_groups,
+            }
+        }
+
+    if operation == "update_variants":
+        if not isinstance(value, dict):
+            return None
+        new_variants = value.get("variants", [])
+        new_payloads = value.get("payloads", {})
+        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
+        # into its nested multivariate dict would mutate the flag's pre-change state in place and
+        # defeat the approval gate's old-vs-new comparison.
+        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
+        updated_multivariate["variants"] = new_variants
+        return {
+            "filters": {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
+        }
+
+    return None
 
 
 class FeatureFlagManager(RootTeamManager):
@@ -299,146 +354,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     def get_filters(self) -> dict:
         return self.filters
 
-    def transform_cohort_filters_for_easy_evaluation(
-        self,
-        using_database: str = "default",
-        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
-    ):
-        """
-        Expands cohort filters into person property filters when possible.
-        This allows for easy local flag evaluation.
-        """
-        # Expansion depends on number of conditions on the flag.
-        # If flag has only the cohort condition, we get more freedom to maneuver in the cohort expansion.
-        # If flag has multiple conditions, we can only expand the cohort condition if it's a single property group.
-        # Also support only a single cohort expansion. i.e. a flag with multiple cohort conditions will not be expanded.
-        # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
-        # worth it trying to catch all of these.
-
-        if seen_cohorts_cache is None:
-            seen_cohorts_cache = {}
-
-        if len(self.get_cohort_ids(using_database=using_database, seen_cohorts_cache=seen_cohorts_cache)) != 1:
-            return self.conditions
-
-        cohort_group_rollout = None
-        cohort: CohortOrEmpty = None
-
-        parsed_conditions = []
-        for condition in self.conditions:
-            if condition.get("variant"):
-                # variant overrides are not supported for cohort expansion.
-                return self.conditions
-
-            cohort_condition = False
-            props = condition.get("properties", [])
-            cohort_group_rollout = condition.get("rollout_percentage")
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_condition = True
-                    cohort_id = int(prop.get("value"))
-                    if cohort_id:
-                        if len(props) > 1:
-                            # We cannot expand this cohort condition if it's not the only property in its group.
-                            return self.conditions
-                        try:
-                            if cohort_id in seen_cohorts_cache:
-                                cohort = seen_cohorts_cache[cohort_id]
-                                if not cohort:
-                                    return self.conditions
-                            else:
-                                cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id,
-                                    team__project_id=self.team.project_id,
-                                    deleted=False,
-                                )
-                                seen_cohorts_cache[cohort_id] = cohort
-                        except Cohort.DoesNotExist:
-                            seen_cohorts_cache[cohort_id] = ""
-                            return self.conditions
-            if not cohort_condition:
-                # flag group without a cohort filter, let it be as is.
-                parsed_conditions.append(condition)
-
-        if not cohort or len(cohort.properties.flat) == 0:
-            return self.conditions
-
-        if not all(property.type == "person" for property in cohort.properties.flat):
-            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
-            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
-            # references; modern SDKs raise InconclusiveMatchError on unknown property types
-            # and fall back to /flags/, where the Rust matcher handles them.
-            #
-            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
-            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
-            # `match_property` in particular dispatches purely on `key` and would silently
-            # produce a wrong-but-not-erroring result.
-            return self.conditions
-
-        if any(property.negation for property in cohort.properties.flat):
-            # Local evaluation doesn't support negation.
-            return self.conditions
-
-        # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
-
-        # If there's only one effective property group, we can always express this as feature flag groups.
-        # A single ff group, if cohort properties are AND'ed together.
-        # Multiple ff groups, if cohort properties are OR'ed together.
-        from posthog.models.property.util import clear_excess_levels
-
-        target_properties = clear_excess_levels(cohort.properties)
-
-        if isinstance(target_properties, Property):
-            # cohort was effectively a single property.
-            parsed_conditions.append(
-                {
-                    "properties": [target_properties.to_dict()],
-                    "rollout_percentage": cohort_group_rollout,
-                }
-            )
-
-        elif isinstance(target_properties.values[0], Property):
-            # Property Group of properties
-            if target_properties.type == PropertyOperatorType.AND:
-                parsed_conditions.append(
-                    {
-                        "properties": [prop.to_dict() for prop in target_properties.values],
-                        "rollout_percentage": cohort_group_rollout,
-                    }
-                )
-            else:
-                # cohort OR requires multiple ff group
-                for prop in target_properties.values:
-                    parsed_conditions.append(
-                        {
-                            "properties": [prop.to_dict()],
-                            "rollout_percentage": cohort_group_rollout,
-                        }
-                    )
-        else:
-            # If there's nested property groups, we need to express that as OR of ANDs.
-            # Being a bit dumb here, and not trying to apply De Morgan's law to coerce AND of ORs into OR of ANDs.
-            if target_properties.type == PropertyOperatorType.AND:
-                return self.conditions
-
-            for prop_group in cast(list[PropertyGroup], target_properties.values):
-                if (
-                    len(prop_group.values) == 0
-                    or not isinstance(prop_group.values[0], Property)
-                    or (prop_group.type == PropertyOperatorType.OR and len(prop_group.values) > 1)
-                ):
-                    # too nested or invalid, bail out
-                    return self.conditions
-
-                parsed_conditions.append(
-                    {
-                        "properties": [prop.to_dict() for prop in prop_group.values],
-                        "rollout_percentage": cohort_group_rollout,
-                    }
-                )
-
-        return parsed_conditions
-
     def get_cohort_ids(
         self,
         using_database: str = "default",
@@ -516,33 +431,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             "project_id": self.team.project_id,
         }
 
-        serializer_data = {}
-
-        if payload["operation"] == "add_release_condition":
-            current_filters = self.get_filters()
-            current_groups = current_filters.get("groups", [])
-            new_groups = payload["value"].get("groups", [])
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "groups": current_groups + new_groups,
-            }
-        elif payload["operation"] == "update_status":
-            serializer_data["active"] = payload["value"]
-        elif payload["operation"] == "update_variants":
-            current_filters = self.get_filters()
+        # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
+        # these because an invalid change can't be approved into applying anyway; here they surface
+        # as errors at fire time.
+        if payload["operation"] == "update_variants":
             variant_data = payload["value"]
-
             new_variants = variant_data.get("variants", [])
             new_payloads = variant_data.get("payloads", {})
 
-            # Validate variant rollout percentages before proceeding
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
                 if total_rollout != 100:
                     raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
 
-            # Validate payload keys match variant keys
             variant_keys = {v.get("key") for v in new_variants}
             payload_keys = set(new_payloads.keys()) if new_payloads else set()
 
@@ -552,15 +453,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                 invalid_keys = payload_keys - variant_keys
                 raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
 
-            updated_multivariate = current_filters.get("multivariate", {})
-            updated_multivariate["variants"] = new_variants
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "multivariate": updated_multivariate,
-                "payloads": new_payloads,
-            }
-        else:
+        # Shape the payload through the shared builder the approval gate also uses, so the applied
+        # change is exactly the one the gate evaluated.
+        serializer_data = build_scheduled_change_serializer_data(self, payload)
+        if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
         serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)

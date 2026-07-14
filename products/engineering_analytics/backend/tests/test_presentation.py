@@ -36,6 +36,15 @@ def _cards() -> contracts.CICardSummary:
     return contracts.CICardSummary(open_prs=5, repos=2, stuck=1, failing_ci=1)
 
 
+def _current_branch_health() -> contracts.CurrentBranchHealth:
+    return contracts.CurrentBranchHealth(
+        default_branch="main",
+        settled_workflows=101,
+        failing_workflows=1,
+        failing_workflow_names=["Low-volume failure"],
+    )
+
+
 def _pr_list_item() -> contracts.PullRequestListItem:
     return contracts.PullRequestListItem(
         number=10,
@@ -202,6 +211,18 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert list_health.call_args.kwargs["branch"] == "main"
         assert list_health.call_args.kwargs["run_scope"] == "pull_request"
 
+    def test_current_branch_health_serializes(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_current_branch_health", return_value=_current_branch_health()):
+            response = self.client.get(self._url("current_branch_health"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "default_branch": "main",
+            "settled_workflows": 101,
+            "failing_workflows": 1,
+            "failing_workflow_names": ["Low-volume failure"],
+        }
+
     def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
         result = contracts.WorkflowRunActivity(
             points=[
@@ -212,6 +233,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                     duration_seconds=180,
                     head_branch="main",
                     pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 )
             ],
             truncated=False,
