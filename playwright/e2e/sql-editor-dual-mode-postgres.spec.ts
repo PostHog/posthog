@@ -140,9 +140,11 @@ test.describe('SQL Editor dual-mode synced Postgres source', () => {
                     .locator('[data-attr=hogql-query-editor]')
                     .press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+A`)
                 await page.locator('[data-attr=hogql-query-editor]').press('Delete')
+                // refresh_schemas qualifies schema rows in place (table -> public.table), and the
+                // live connection catalog is keyed by the row name — so query the qualified name.
                 await page
                     .locator('[data-attr=hogql-query-editor]')
-                    .pressSequentially(`SELECT id, label FROM ${tableName} ORDER BY id`)
+                    .pressSequentially(`SELECT id, label FROM public.${tableName} ORDER BY id`)
                 await page.locator('[data-attr=sql-editor-run-button]').click()
                 await expect(page.locator('[data-attr=sql-editor-run-button]')).toContainText('Cancel')
                 await expect(page.locator('[data-attr=sql-editor-run-button]')).toContainText('Run', { timeout: 60000 })
