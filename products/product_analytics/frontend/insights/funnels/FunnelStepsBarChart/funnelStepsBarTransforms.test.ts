@@ -250,17 +250,11 @@ describe('resolveFunnelStepClick', () => {
 describe('withFunnelStepsBarInteraction', () => {
     const baseConfig: BarChartConfig = { barLayout: 'grouped', tooltip: { placement: 'top' } }
 
-    it('returns the base config unchanged when the new tooltip is off', () => {
-        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: false })
-
-        expect(config).toBe(baseConfig)
-    })
-
-    it('enables a pinnable tooltip that resolves clicks to the nearest series when the new tooltip is on', () => {
+    it('enables a pinnable tooltip that resolves clicks to the nearest series', () => {
         // A breakdown puts one series per breakdown value at each step, so a pinnable tooltip
         // here always covers multiple series — resolveClickToNearestSeries must stay set or a
         // click pins the tooltip instead of opening the persons modal (the bug this guards).
-        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: true })
+        const config = withFunnelStepsBarInteraction(baseConfig)
 
         expect(config.tooltip).toEqual({ pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' })
     })
