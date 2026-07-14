@@ -14,6 +14,7 @@ import {
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -97,13 +98,13 @@ function EventsFlowingStatus(): JSX.Element {
     return (
         <div className="flex items-center gap-1.5 text-sm text-secondary">
             <IconCheckCircle className="text-success text-base shrink-0" />
-            <span>Events are flowing.</span>
+            <span>Receiving events</span>
             <Link
-                to={urls.activity(ActivityTab.ExploreEvents)}
+                to={urls.activity(ActivityTab.LiveEvents)}
                 onClick={() => captureQuickstartAction('view_events')}
                 data-attr="quickstart-view-events"
             >
-                View events
+                View live
             </Link>
         </div>
     )
@@ -118,7 +119,7 @@ function InstallHeroCard(): JSX.Element {
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <SectionHeader
                     title="Get your data flowing"
-                    subtitle="PostHog needs events from your app. One install powers every product below."
+                    subtitle="PostHog needs events from your app. One install powers every tool below."
                 />
                 <WaitingForEventsIndicator />
             </div>
@@ -509,14 +510,21 @@ export function Quickstart(): JSX.Element {
                             Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                         </h1>
                         <p className="text-secondary mb-0 max-w-200">
-                            Every product here runs on the same events. Get data flowing once, then turn things on as
-                            you need them. No extra installs.
+                            Every tool here runs on the same events. Get data flowing once, then turn things on as you
+                            need them. No extra installs.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         {installationComplete ? <EventsFlowingStatus /> : <EventsWaitingStatus />}
+                        <Link
+                            to={urls.webAnalyticsLive()}
+                            onClick={() => captureQuickstartAction('view_live_users')}
+                            data-attr="quickstart-live-users"
+                        >
+                            <LiveUserCount />
+                        </Link>
                         <HeaderStat icon={<IconApps />}>
-                            {activeProductCount} of {totalProductCount} products active
+                            {activeProductCount} of {totalProductCount} tools active
                         </HeaderStat>
                         {currentOrganization?.member_count ? (
                             <HeaderStat icon={<IconPeople />}>
@@ -532,10 +540,10 @@ export function Quickstart(): JSX.Element {
                             size="small"
                             icon={<IconSparkles />}
                             to={urls.projectHomepage()}
-                            onClick={() => captureQuickstartAction('ask_max_header')}
-                            data-attr="quickstart-header-ask-max"
+                            onClick={() => captureQuickstartAction('ask_posthog_ai_header')}
+                            data-attr="quickstart-header-ask-posthog-ai"
                         >
-                            Ask Max
+                            Ask PostHog AI
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -569,8 +577,8 @@ export function Quickstart(): JSX.Element {
 
             <section>
                 <SectionHeader
-                    title="Turn on your products"
-                    subtitle="What most teams start with. Active products are already collecting or ready to use."
+                    title="Turn on your tools"
+                    subtitle="What most teams start with. Active tools are already collecting or ready to use."
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
@@ -596,18 +604,16 @@ export function Quickstart(): JSX.Element {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <LearnCard
                         icon={<IconSparkles />}
-                        title="Ask Max anything"
-                        description={
-                            'Max is PostHog\'s AI analyst. Once events are flowing, ask questions in plain English, like "What are my most visited pages this week?"'
-                        }
-                        buttonLabel="Ask Max"
+                        title="Ask PostHog AI anything"
+                        description='Once events are flowing, ask PostHog AI questions in plain English, like "What are my most visited pages this week?"'
+                        buttonLabel="Ask PostHog AI"
                         to={urls.projectHomepage()}
-                        action="ask_max"
+                        action="ask_posthog_ai"
                     />
                     <LearnCard
                         icon={<IconBook />}
                         title="Read the docs"
-                        description="Guides for every product, SDK, and framework, from first install to advanced setups."
+                        description="Guides for every tool, SDK, and framework, from first install to advanced setups."
                         buttonLabel="Open docs"
                         to="https://posthog.com/docs"
                         targetBlank
