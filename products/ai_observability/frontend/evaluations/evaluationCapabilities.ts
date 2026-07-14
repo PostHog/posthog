@@ -52,7 +52,3 @@ export function evaluationTypeDefaultsToBooleanOutput(evaluationType: Evaluation
 export function evaluationTypeHasEditableCriteria(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationTypeDefaultsToBooleanOutput(evaluationType)
 }
-
-export function evaluationTypeSupportsSignalEmission(evaluationType: EvaluationType | null | undefined): boolean {
-    return evaluationType === 'llm_judge'
-}

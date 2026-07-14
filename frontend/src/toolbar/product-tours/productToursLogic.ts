@@ -7,9 +7,9 @@ import { findElement } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils/dom'
+import { retryImport } from 'lib/utils/retryImport'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { DEFAULT_APPEARANCE } from 'scenes/product-tours/constants'
-import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import {
     createDefaultStep,
     getDefaultStepContent,
@@ -124,7 +124,14 @@ export function getStepElement(step: TourStep): HTMLElement | null {
     return findElement(step.inferenceData)
 }
 
-function buildDraftPayload(form: TourForm, tours: ProductTour[]): Record<string, unknown> {
+// Step HTML generation drags tiptap/prosemirror/highlight.js (~500KB minified) — only needed
+// when a tour is edited or previewed, so load it on demand. Repeat awaits resolve from the
+// module cache in call order, so the draft-compare subscriptions below stay ordered.
+const importStepHtml = (): Promise<typeof import('scenes/product-tours/editor/generateStepHtml')> =>
+    retryImport(() => import('scenes/product-tours/editor/generateStepHtml'))
+
+async function buildDraftPayload(form: TourForm, tours: ProductTour[]): Promise<Record<string, unknown>> {
+    const { prepareStepForRender } = await importStepHtml()
     const stepsForApi = form.steps.map(({ element: _, ...step }) => prepareStepForRender(step))
     const existingTour = form.id ? tours.find((t) => t.id === form.id) : null
     const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingTour?.content?.step_order_history)
@@ -343,7 +350,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 // draft-save status). toolbarApi already logged it, so don't double-report.
                 const result = await toolbarApi.productTours.updateDraft(
                     formValues.id,
-                    buildDraftPayload(formValues, values.tours),
+                    await buildDraftPayload(formValues, values.tours),
                     { context: 'save_product_tour_draft', captureOnError: false }
                 )
                 if (!result.ok) {
@@ -417,12 +424,12 @@ export const productToursLogic = kea<productToursLogicType>([
     }),
 
     subscriptions(({ actions, values, cache }) => ({
-        selectedTour: (selectedTour: TourForm | null) => {
+        selectedTour: async (selectedTour: TourForm | null) => {
             if (!selectedTour) {
                 actions.resetTourForm()
                 cache.lastDraftPayload = null
             } else {
-                const incomingPayload = buildDraftPayload(selectedTour, values.tours)
+                const incomingPayload = await buildDraftPayload(selectedTour, values.tours)
                 if (!equal(incomingPayload, cache.lastDraftPayload)) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     ;(actions.setTourFormValues as any)(selectedTour)
@@ -430,11 +437,11 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
             }
         },
-        tourForm: (tourForm: TourForm) => {
+        tourForm: async (tourForm: TourForm) => {
             if (!values.selectedTourId || values.selectedTourId === 'new') {
                 return
             }
-            const payload = buildDraftPayload(tourForm, values.tours)
+            const payload = await buildDraftPayload(tourForm, values.tours)
             if (equal(cache.lastDraftPayload, payload)) {
                 return
             }
@@ -604,7 +611,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
             const isUpdate = !!tourForm.id
-            const payload = { ...buildDraftPayload(tourForm, tours), creation_context: 'toolbar' }
+            const payload = { ...(await buildDraftPayload(tourForm, tours)), creation_context: 'toolbar' }
             const result = tourForm.id
                 ? await toolbarApi.productTours.updateDraft(tourForm.id, payload, {
                       context: 'save_product_tour',
@@ -639,7 +646,7 @@ export const productToursLogic = kea<productToursLogicType>([
             }
             actions.submitTourForm()
         },
-        previewTour: () => {
+        previewTour: async () => {
             const { tourForm, posthog, selectedTourId, tours } = values
             if (posthog?.version && !hasMinProductToursVersion(posthog.version)) {
                 lemonToast.error(`Requires posthog-js ${PRODUCT_TOURS_MIN_JS_VERSION}+`)
@@ -689,7 +696,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 type: 'product_tour' as const,
                 start_date: null,
                 end_date: null,
-                steps: prepareStepsForRender(tourForm.steps),
+                steps: (await importStepHtml()).prepareStepsForRender(tourForm.steps),
                 appearance: existingTour?.content?.appearance,
             }
 
