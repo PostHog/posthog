@@ -143,6 +143,13 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 10)]
     pub concurrency: usize,
 
+    /// Read-your-write probers running alongside the blast traffic: each
+    /// repeatedly writes a unique key and immediately strong-reads it back,
+    /// asserting recency through chaos windows (handoffs, failovers) that
+    /// the end-of-run verification cannot see. 0 disables.
+    #[arg(long, default_value_t = 2)]
+    pub probers: usize,
+
     #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
     pub persons_db_url: String,
 

@@ -152,8 +152,14 @@ impl Stack {
             &log_dir,
         )?);
 
+        // The first router must win the coordinator election so chaos that
+        // targets "the coordinator" is deterministic: spawn it alone, wait
+        // for it to acquire leadership, then bring up the rest.
         let mut routers = Vec::new();
         for i in 0..config.routers {
+            if i == 1 {
+                etcd::wait_for_leader(&store, "harness-router-0", Duration::from_secs(15)).await?;
+            }
             let name = format!("harness-router-{i}");
             let proc = ServiceProcess::spawn(
                 &name,
@@ -330,18 +336,21 @@ impl Stack {
         Ok(pod_name)
     }
 
-    /// SIGKILL the first-spawned router — almost always the coordinator —
-    /// and revoke its registration lease. The election must move to a
-    /// surviving router, and in-flight freeze quorums must not count the
-    /// dead router forever.
+    /// SIGKILL the first-spawned router — the coordinator, since bring-up
+    /// waits for it to win the election — and revoke both its registration
+    /// lease (so freeze quorums stop counting it) and its election lease
+    /// (so a surviving router takes over immediately instead of waiting
+    /// out the 15s election TTL). Handoffs created after this run under
+    /// the new coordinator.
     pub async fn kill_coordinator_router(&mut self) -> Result<String> {
         if self.routers.len() < 2 {
             bail!("coordinator kill requires at least 2 routers");
         }
         let (name, mut proc) = self.routers.remove(0);
         proc.kill_now().await;
-        tracing::info!(router = %name, "killed coordinator router");
         etcd::revoke_router_lease(&self.store, &name).await?;
+        let held_election = etcd::revoke_coordinator_lease_if_held_by(&self.store, &name).await?;
+        tracing::info!(router = %name, held_election, "killed coordinator router");
         self.retired.push(proc);
         Ok(name)
     }

@@ -6,6 +6,7 @@ Revived from the original personhog-cannon draft (#55581) and extended with stac
 The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads immediately, and in Postgres (with exactly the acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
 Version monotonicity is asserted throughout: an ack observing a lower version than an earlier ack for the same person, or a strong read observing a version below the highest ack, is a violation.
+Read-your-write recency is asserted live: `--probers` (default 2) workers run write-then-strong-read cycles alongside the blast traffic, so a staleness window during a chaos event trips a probe even if it heals before the end-of-run verification.
 
 ## Requirements
 
@@ -74,8 +75,9 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 15s --restart-af
 target/debug/personhog-test-harness gate --duration 15s --writer-crash-after 5s
 target/debug/personhog-test-harness gate --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 
-# Kill the coordinator: traffic targets the last router, chaos kills the
-# first (the election winner); a later handoff runs under the new coordinator
+# Kill the coordinator: bring-up guarantees the first router holds the
+# election, traffic targets the last; the kill revokes the election lease so
+# failover is immediate and a later handoff runs under the new coordinator
 target/debug/personhog-test-harness gate --leaders 3 --routers 2 --duration 20s \
   --router-kill-after 5s --shutdown-after 9s
 

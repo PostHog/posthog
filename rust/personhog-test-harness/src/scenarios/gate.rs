@@ -10,7 +10,7 @@ use sqlx::Row;
 use crate::cli::GateArgs;
 use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
-use crate::scenarios::blast;
+use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
 use crate::state::{verify_properties, ExpectedPerson, PersonState};
@@ -186,6 +186,28 @@ pub async fn run(args: GateArgs) -> Result<()> {
         })
     };
 
+    // Read-your-write probers run for the same window as the traffic, so
+    // recency is asserted through whatever chaos fires below.
+    let probers = {
+        let client = client.clone();
+        let person_ids = person_ids.clone();
+        let collector = collector.clone();
+        let state = state.clone();
+        let (team_id, duration, prober_count) = (args.team_id, args.duration, args.probers);
+        tokio::spawn(async move {
+            consistency::run_probers(
+                &client,
+                team_id,
+                person_ids,
+                prober_count,
+                duration,
+                &collector,
+                &state,
+            )
+            .await
+        })
+    };
+
     // Fire scheduled disruptions while traffic flows. Failures aren't
     // journaled, so the invariant is untouched: whatever the leader acked
     // through the disruption must still be visible afterwards.
@@ -239,6 +261,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     traffic.await.context("traffic task panicked")??;
+    let prober_violations = probers.await.context("prober task panicked")??;
 
     if let Some(stack) = stack.as_mut() {
         stack.check_alive()?;
@@ -249,7 +272,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     println!("Verifying strong reads...");
-    let mut violations = state.take_regressions().await;
+    let mut violations = prober_violations;
+    violations.extend(state.take_regressions().await);
     violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
 
     println!("Waiting for the writer to drain, then verifying Postgres...");

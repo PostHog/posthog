@@ -1,13 +1,15 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 
 use crate::cli::ConsistencyArgs;
 use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
+use crate::state::PersonState;
 use crate::stats::StatsCollector;
 
 pub async fn run(args: ConsistencyArgs) -> Result<()> {
@@ -142,4 +144,123 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
         bail!("{total_violations} consistency violations detected");
     }
     Ok(())
+}
+
+/// Read-your-write probers for the gate: each prober repeatedly writes a
+/// unique key and immediately strong-reads it back until the deadline.
+/// They run alongside the blast traffic, so recency is asserted *during*
+/// chaos windows — a transient staleness window that has healed by the
+/// end of the run is invisible to the end-of-run verification but trips a
+/// prober on the very next read.
+///
+/// Probed writes are journaled like any other ack, so the end-of-run
+/// checks cover their durability too. The mid-run assertion checks only
+/// the prober's own key: concurrent blast acks race the journal, so
+/// comparing a live read against the full journal would flag phantom
+/// violations. A failed read is likewise not a recency violation — reads
+/// legitimately fail while a killed owner's partitions are in limbo, and
+/// end-of-run verification owns readability.
+pub async fn run_probers(
+    client: &HarnessClient,
+    team_id: i64,
+    person_ids: Arc<Vec<i64>>,
+    probers: usize,
+    duration: Duration,
+    collector: &Arc<StatsCollector>,
+    state: &PersonState,
+) -> Result<Vec<ConsistencyViolation>> {
+    let deadline = Instant::now() + duration;
+
+    let mut handles = Vec::new();
+    for worker_id in 0..probers {
+        let client = client.clone();
+        let collector = collector.clone();
+        let state = state.clone();
+        let person_ids = person_ids.clone();
+
+        handles.push(tokio::spawn(async move {
+            let mut violations = Vec::new();
+            let mut iteration: usize = 0;
+
+            while Instant::now() < deadline {
+                let person_id = person_ids[(worker_id + iteration) % person_ids.len()];
+                iteration += 1;
+                let marker = uuid::Uuid::new_v4().to_string();
+                let key = format!("harness_probe_{worker_id}_{iteration}");
+
+                let write_start = Instant::now();
+                let response = match client
+                    .update_properties(
+                        team_id,
+                        person_id,
+                        serde_json::json!({ &key: &marker }),
+                        serde_json::json!({}),
+                        vec![],
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        collector.writes.record_success(write_start.elapsed());
+                        response
+                    }
+                    Err(e) => {
+                        collector.writes.record_failure();
+                        tracing::warn!(person_id, error = %e, "probe write failed");
+                        continue;
+                    }
+                };
+                let Some(person) = response.person else {
+                    continue;
+                };
+                let mut written = HashMap::new();
+                written.insert(key.clone(), serde_json::Value::String(marker.clone()));
+                state.record_write(person_id, person.version, written).await;
+
+                let read_start = Instant::now();
+                match client
+                    .get_person(team_id, person_id, ConsistencyLevel::Strong)
+                    .await
+                {
+                    Ok(Some(person)) => {
+                        collector.reads.record_success(read_start.elapsed());
+                        let props: serde_json::Value = serde_json::from_slice(&person.properties)
+                            .unwrap_or_else(|_| serde_json::json!({}));
+                        let expected = serde_json::Value::String(marker);
+                        let actual = props.get(&key);
+                        if actual != Some(&expected) {
+                            violations.push(ConsistencyViolation {
+                                person_id,
+                                key,
+                                expected,
+                                actual: actual.cloned().unwrap_or(serde_json::Value::Null),
+                            });
+                        }
+                    }
+                    Ok(None) => {
+                        // A served read that cannot see a person with an
+                        // acked write is a violation, not an availability
+                        // blip.
+                        collector.reads.record_failure();
+                        violations.push(ConsistencyViolation {
+                            person_id,
+                            key,
+                            expected: serde_json::Value::String(marker),
+                            actual: serde_json::Value::Null,
+                        });
+                    }
+                    Err(e) => {
+                        collector.reads.record_failure();
+                        tracing::warn!(person_id, error = %e, "probe read failed");
+                    }
+                }
+            }
+            violations
+        }));
+    }
+
+    let mut all_violations = Vec::new();
+    for handle in handles {
+        all_violations.extend(handle.await.context("prober task panicked")?);
+    }
+    Ok(all_violations)
 }
