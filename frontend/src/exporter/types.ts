@@ -1,7 +1,7 @@
 import { NotebookType } from 'scenes/notebooks/types'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { AnyResponseType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { AnyResponseType, QuerySchema, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import {
     CohortType,
     DashboardType,
@@ -55,6 +55,12 @@ export interface ExportedData extends SharingConfigurationSettings {
      * `<Query cachedResults={…} />` without ever hitting the query API.
      */
     inline_query_results?: Record<string, AnyResponseType>
+    /**
+     * Ad-hoc query for an insight-less image export (`export_context.source`), with its
+     * pre-computed result in `query_results` — same rationale as `inline_query_results`.
+     */
+    query?: QuerySchema
+    query_results?: AnyResponseType
     autoplay?: boolean
     /** Player adds border by default - we want to remove it **/
     noBorder?: boolean

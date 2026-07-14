@@ -1491,6 +1491,54 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
 
+class TestSharedAdhocQueryExport(APIBaseTest):
+    """The /exporter page for an insight-less PNG asset (export_context.source) must inline the
+    pre-computed query result — the anonymous page can't authenticate against the query API."""
+
+    _SOURCE_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+
+    def _create_asset(self) -> ExportedAsset:
+        return ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": self._SOURCE_QUERY},
+        )
+
+    @patch("posthog.api.sharing.process_query_dict")
+    @patch("posthog.api.sharing.render_template")
+    def test_exporter_page_inlines_query_and_results(self, mock_render_template, mock_process_query):
+        mock_render_template.return_value = HttpResponse("<html></html>")
+        mock_process_query.return_value = {"results": [{"count": 42}], "cache_key": "abc"}
+        asset = self._create_asset()
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == 200
+
+        exported_data = json.loads(mock_render_template.call_args[1]["context"]["exported_data"])
+        assert exported_data["query"] == self._SOURCE_QUERY
+        assert exported_data["query_results"] == {"results": [{"count": 42}], "cache_key": "abc"}
+        # The read must be attributed to the export owner so warehouse access control resolves.
+        assert mock_process_query.call_args[1]["user"] == self.user
+
+    @parameterized.expand(
+        [
+            ("query_raises", Exception("boom"), None),
+            ("query_returns_error", None, {"error": "boom"}),
+        ]
+    )
+    @patch("posthog.api.sharing.process_query_dict")
+    def test_exporter_page_404s_when_query_cannot_be_calculated(
+        self, _name, side_effect, return_value, mock_process_query
+    ):
+        mock_process_query.side_effect = side_effect
+        mock_process_query.return_value = return_value
+        asset = self._create_asset()
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == 404
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):

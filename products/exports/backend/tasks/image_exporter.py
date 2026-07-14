@@ -20,6 +20,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import FunnelLayout, NodeKind
 
+from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
@@ -134,6 +135,22 @@ ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
+def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
+    """Initial viewport width for an insight-style query render.
+
+    Only left-to-right funnels (vertical layout, which is the default) need the wide
+    viewport — they grow horizontally with step count. Top-to-bottom funnels (horizontal
+    layout) grow vertically, not horizontally. Small funnels are constrained later by the
+    width measurement. The higher the number, the more RAM the Chromium driver needs.
+    """
+    source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+    is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
+    funnels_filter = source.get("funnelsFilter") or {}
+    funnel_layout = funnels_filter.get("layout")
+    is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+    return 4000 if is_left_to_right_funnel else 800
+
+
 def _export_to_png(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
@@ -184,18 +201,7 @@ def _export_to_png(
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
-            query = exported_asset.insight.query or {}
-            source = query.get("source", query)  # This to handle the InsightVizNode wrapper
-            is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
-            # Only use wide width for left-to-right funnels (vertical layout, which is the default)
-            # Top-to-bottom funnels (horizontal layout) grow vertically, not horizontally
-            funnels_filter = source.get("funnelsFilter") or {}
-            funnel_layout = funnels_filter.get("layout")
-            is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
-            # Set initial window size large enough for wide content like left-to-right funnels with many steps
-            # Small funnels will be constrained later.
-            # The higher the number, the more RAM will be required by the Chromium driver.
-            screenshot_width = 4000 if is_left_to_right_funnel else 800
+            screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -246,9 +252,17 @@ def _export_to_png(
                 css_selector=wait_for_css_selector,
                 token_preview=access_token[:10],
             )
+        elif exported_asset.export_context and exported_asset.export_context.get("source"):
+            # Ad-hoc query export: no saved insight, the query lives in export_context. The
+            # sharing view computes the (cache-warmed) result server-side at page load, so
+            # give the navigation extra headroom over the insight path.
+            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            wait_for_css_selector = ".ExportedInsight"
+            screenshot_width = _insight_query_screenshot_width(exported_asset.export_context["source"])
+            page_load_timeout = 100
         else:
             raise InvalidExportContext(
-                "Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context"
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -578,6 +592,18 @@ def export_image(
                         )
                         if result.cache_key:
                             insight_cache_keys[insight.id] = result.cache_key
+            elif exported_asset.export_context and exported_asset.export_context.get("source"):
+                logger.info("export_image.calculate_adhoc_query", asset_id=exported_asset.id)
+                # Ad-hoc query export: run the query now so a bad query fails here (with a real
+                # exception on the asset) rather than inside the headless browser, and so the
+                # sharing view's cache-aggressive recompute at page load is a cache hit.
+                process_query_dict(
+                    exported_asset.team,
+                    exported_asset.export_context["source"],
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                    # Background render (no request user); attribute the read to the export owner.
+                    user=exported_asset.created_by,
+                )
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():

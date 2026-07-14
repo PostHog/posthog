@@ -102,6 +102,34 @@ class TestImageExporter(APIBaseTest):
         with self.assertRaises(InvalidExportContext):
             image_exporter._export_to_png(exported_asset)
 
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_renders_without_insight(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        source = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": source},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        call_args, call_kwargs = mock_process_query.call_args
+        assert call_args == (self.team, source)
+        assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        assert call_kwargs["user"] == self.user
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert "/exporter?token=" in url_to_render
+        assert exported_asset.content == b"image_data"
+
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
@@ -646,6 +674,32 @@ class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
         assert "cache_keys=" in url_default
         assert "cache_keys=" in url_override
         assert url_default != url_override
+
+
+class TestInsightQueryScreenshotWidth(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("funnel_default_layout", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}, 4000),
+            (
+                "funnel_explicit_vertical",
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "vertical"}}},
+                4000,
+            ),
+            (
+                "funnel_horizontal",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "horizontal"}},
+                },
+                800,
+            ),
+            ("bare_funnel_query_without_wrapper", {"kind": "FunnelsQuery"}, 4000),
+            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, 800),
+            ("empty_query", {}, 800),
+        ]
+    )
+    def test_width_for_query(self, _name: str, query: dict, expected: int) -> None:
+        assert image_exporter._insight_query_screenshot_width(query) == expected
 
 
 class TestBuildCdpEndpoint(SimpleTestCase):

@@ -1186,6 +1186,48 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, ExportedAsset) and resource.export_context and resource.export_context.get("source"):
+            # Ad-hoc query export (no saved insight): compute the query server-side and inline the
+            # result so the exporter page can render `<Query cachedResults={…} />` without POSTing
+            # to the query API (which the asset token can't authenticate). The image exporter warms
+            # the cache right before rendering, so this is normally a cache hit.
+            source_query = resource.export_context["source"]
+            execution_mode = shared_insights_execution_mode(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            ).execution_mode
+            try:
+                query_response = process_query_dict(
+                    resource.team,
+                    source_query,
+                    execution_mode=execution_mode,
+                    # Anonymous render surface; attribute the read to the export owner so
+                    # warehouse HogQL access control resolves against their access.
+                    user=resource.created_by,
+                )
+            except Exception as e:
+                logger.warning("exported_query_calculation_failed", asset_id=resource.id, exc_info=True)
+                capture_exception(e)
+                raise NotFound("Query could not be calculated")
+
+            serialized_response: Any = None
+            if isinstance(query_response, BaseModel):
+                serialized_response = query_response.model_dump(mode="json")
+            elif isinstance(query_response, dict):
+                serialized_response = query_response
+            # `process_query_dict` swallows validation errors and returns a response with `error`
+            # populated — don't ship those to the anonymous exporter page.
+            if not isinstance(serialized_response, dict) or serialized_response.get("error"):
+                logger.warning("exported_query_returned_error", asset_id=resource.id)
+                raise NotFound("Query could not be calculated")
+
+            asset_title = "Query"
+            exported_data.update(
+                {
+                    "query": source_query,
+                    "query_results": serialized_response,
+                    "themes": get_themes_for_team(resource.team),
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
             from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 
