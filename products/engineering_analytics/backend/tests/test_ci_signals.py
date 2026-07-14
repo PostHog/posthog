@@ -36,6 +36,11 @@ from products.engineering_analytics.backend.tests.test_views import create_githu
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.models import SignalSourceConfig
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.signals"
@@ -175,47 +180,51 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     should-fire and a should-not-fire workflow and asserts the detected set, so it catches both
     missed conditions and false positives. Skips when object storage is unreachable (no dev stack)."""
 
-    def _curated_over_runs(
-        self, rows: list[dict[str, Any]], job_rows: list[dict[str, Any]] | None = None
-    ) -> CuratedGitHubSource:
-        df = pd.DataFrame(rows, columns=list(WORKFLOW_RUNS_COLUMNS.keys()))
+    def _seed_table(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        table_name: str,
+        columns: dict[str, dict[str, str]],
+        source: ExternalDataSource | None = None,
+        credential: DataWarehouseCredential | None = None,
+    ) -> tuple[DataWarehouseTable, ExternalDataSource, DataWarehouseCredential]:
+        df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
-            table, source, credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            table, out_source, out_credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name="github_workflow_runs",
-                table_columns=WORKFLOW_RUNS_COLUMNS,
+                table_name=table_name,
+                table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
+                source=source,
+                credential=credential,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
+        return table, out_source, out_credential
+
+    def _curated_over_runs(
+        self, rows: list[dict[str, Any]], job_rows: list[dict[str, Any]] | None = None
+    ) -> CuratedGitHubSource:
+        table, source, credential = self._seed_table(
+            rows, table_name="github_workflow_runs", columns=WORKFLOW_RUNS_COLUMNS
+        )
         jobs_table = None
         if job_rows is not None:
-            jobs_df = pd.DataFrame(job_rows, columns=list(WORKFLOW_JOBS_COLUMNS.keys()))
-            jobs_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
-            jobs_df.to_csv(jobs_tmp.name, index=False)
-            jobs_tmp.close()
-            self.addCleanup(Path(jobs_tmp.name).unlink, missing_ok=True)
-            try:
-                jobs_table, _source, _credential, _df, jobs_cleanup = create_data_warehouse_table_from_csv(
-                    csv_path=Path(jobs_tmp.name),
-                    table_name="github_workflow_jobs",
-                    table_columns=WORKFLOW_JOBS_COLUMNS,
-                    test_bucket=TEST_BUCKET,
-                    team=self.team,
-                    source=source,
-                    credential=credential,
-                    source_prefix=GITHUB_SOURCE_PREFIX,
-                )
-            except PermissionError as err:
-                self.skipTest(f"object storage unavailable: {err}")
-            self.addCleanup(jobs_cleanup)
+            jobs_table, _source, _credential = self._seed_table(
+                job_rows,
+                table_name="github_workflow_jobs",
+                columns=WORKFLOW_JOBS_COLUMNS,
+                source=source,
+                credential=credential,
+            )
         # pull_requests is never read by these detectors; reuse the runs table so for_team isn't needed.
         return CuratedGitHubSource(
             team=self.team,
