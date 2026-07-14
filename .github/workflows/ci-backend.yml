@@ -1265,12 +1265,21 @@ jobs:
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
                     echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
-                    node .github/scripts/post-django-migration-section.mjs \
-                      sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                     exit 0
                   fi
 
@@ -1324,8 +1333,7 @@ jobs:
                   if [ "$HAS_NEW_MIGRATIONS" = false ]; then
                       echo "No new migrations to show (all changed files already exist on base branch)"
                       echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
-                      node .github/scripts/post-django-migration-section.mjs \
-                        sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                       exit 0
                   fi
 
@@ -1343,8 +1351,7 @@ jobs:
                   else
                     MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
                   fi
-                  node .github/scripts/post-django-migration-section.mjs \
-                    sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
+                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
 
             - name: Run migration risk analysis and update CI report
               if: github.event_name == 'pull_request'
@@ -1357,6 +1364,16 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # Get risk analysis for all unapplied migrations (including third-party).
                   # --output-json gives downstream consumers (the check-run step
                   # below, and any other tool) a stable structured shape to read.
@@ -1379,20 +1396,16 @@ jobs:
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
                     if [ $EXIT_CODE -ne 0 ]; then
-                      node .github/scripts/post-django-migration-section.mjs \
-                        risk post fail "blocked migration detected" /tmp/django-migration-risk.md
+                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
                     else
-                      node .github/scripts/post-django-migration-section.mjs \
-                        risk post ok "migration analysis complete" /tmp/django-migration-risk.md
+                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
                     fi
                   elif [ $EXIT_CODE -ne 0 ]; then
                     echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
-                    node .github/scripts/post-django-migration-section.mjs \
-                      risk post fail "migration analysis failed" /tmp/django-migration-risk.md
+                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
                   else
                     echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
-                    node .github/scripts/post-django-migration-section.mjs \
-                      risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
+                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
                   fi
 
                   # Fail the job if there were blocked migrations
