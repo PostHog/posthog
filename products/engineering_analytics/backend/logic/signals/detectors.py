@@ -1,14 +1,7 @@
-"""The three v1 CI signal detectors, run over the curated GitHub read layer.
+"""The three v1 CI signal detectors: pure functions of a ``CuratedGitHubSource`` plus thresholds.
 
-Each detector is a pure function of a ``CuratedGitHubSource`` plus thresholds and returns
-``CISignalFinding`` objects — no emission, no Temporal, no Django here, so they're unit-testable
-against a seeded warehouse. All three compose ``logic/queries/`` read modules rather than authoring
-SQL inline: ``ci_broken_default_branch`` / ``ci_duration_regression`` reuse ``query_workflow_health`` (the
-same aggregate the MCP ``workflow_health`` tool returns) and ``ci_flaky_check`` reuses
-``query_workflow_flakiness`` — so detection and the read surface can never disagree (SPEC §7).
-
-Thresholds are conservative defaults — tuned to surface real, actionable conditions, not noise — and
-are arguments so a team-level config can override them later without touching the queries.
+They compose the ``logic/queries/`` read modules instead of authoring SQL, so detection and the
+MCP read surface can never disagree (SPEC §7). Thresholds are overridable arguments.
 """
 
 from collections import Counter
@@ -35,19 +28,15 @@ from products.signals.backend.enums import ReportPriority
 
 logger = structlog.get_logger(__name__)
 
-# Flaky: a job that failed then passed on a later attempt of the same run. Surface it once the job has
-# flapped on at least this many distinct runs in the window.
+# Flaky: failed then passed on a later attempt of the same run, on >= min runs in the window.
 FLAKY_WINDOW_DAYS = 7
 FLAKY_MIN_RUNS = 3
 
-# Broken default branch: the default branch is red. Short window (the branch's *current* state), enough runs to
-# be real, success rate at or below the floor with the latest completed run failing.
+# Broken default branch: latest completed run failed and success rate is at or below the floor.
 BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
-# Duration regression: p95 up meaningfully vs the immediately-preceding window of equal length. Both
-# windows need enough runs for a stable percentile; require a relative *and* absolute jump so a 2s→4s
-# blip on a fast check doesn't fire.
+# Duration regression: needs a relative AND absolute p95 jump so a 2s→4s blip doesn't fire.
 DURATION_WINDOW_DAYS = 7
 DURATION_MIN_RUNS = 20
 DURATION_MIN_PCT_INCREASE = 0.5
@@ -127,8 +116,7 @@ def detect_broken_default_branch(
         for item in query_workflow_health(
             curated=curated, date_from=date_from, date_to=now, branch=branch, run_scope=WorkflowHealthRunScope.ALL
         ):
-            # The branch-scoped health query returns every repo with runs on `branch`; keep only
-            # repos for which `branch` is actually the default branch.
+            # Keep only repos whose default branch this actually is.
             if default_branches.get((item.repo.owner, item.repo.name)) != branch:
                 continue
             if item.run_count < min_runs or item.success_rate is None or not item.latest_run_failed:
@@ -213,8 +201,7 @@ def detect_ci_duration_regressions(
             continue
         owner, repo_name, workflow_name = key
         repo = f"{owner}/{repo_name}"
-        # Key the observation to the ISO week (Monday) so hourly sweeps of a still-present
-        # regression dedupe to one signal per workflow per week instead of 168.
+        # Week-keyed so hourly sweeps of a persisting regression dedupe to one signal per week.
         observation_week = (now.date() - timedelta(days=now.weekday())).isoformat()
         findings.append(
             CISignalFinding(
@@ -252,8 +239,7 @@ def detect_ci_duration_regressions(
 
 
 def detect_all(curated: CuratedGitHubSource) -> list[CISignalFinding]:
-    """Run every detector with default thresholds, isolating failures so one bad detector (or a
-    transient query error) doesn't suppress the others' findings."""
+    """Run every detector, isolating failures so one bad detector doesn't suppress the rest."""
     findings: list[CISignalFinding] = []
     for detector in (detect_flaky_checks, detect_broken_default_branch, detect_ci_duration_regressions):
         try:

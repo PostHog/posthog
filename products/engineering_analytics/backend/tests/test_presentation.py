@@ -164,9 +164,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.json()["enabled"] is True
         rows = SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT, enabled=True)
         assert set(rows.values_list("source_type", flat=True)) == set(CI_SIGNAL_SOURCE_TYPES)
-        # Enabling snapshots the requesting user's authorized sources — the userless sweep's
-        # entire authorization, so a missing snapshot would silently scan nothing. (Exact
-        # snapshot semantics are covered in test_ci_signals.py; this guards the API wiring.)
+        # Wiring guard: exact snapshot semantics are covered in test_ci_signals.py.
         for row in rows:
             assert str(source.id) in row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
 

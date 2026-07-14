@@ -1,15 +1,9 @@
 """Scheduled CI-signals coordinator: detect across enrolled teams and emit into Signals.
 
-Mirrors the job-logs coordinator (same product, same general-purpose queue): a thin workflow that
-discovers enrolled teams and their GitHub sources, then runs one detect-and-emit activity per source.
-Each source is independent and fail-silent, so one bad warehouse source can't sink the sweep. Emission goes
-through the Signals facade's ``emit_signal``, which re-checks org AI-approval and the per-type source
-config — this coordinator only decides *when* to look.
-
-The sweep runs with no request user, so enrollment alone never authorizes reading a warehouse
-source: it scans only the source ids the enabling user snapshot-authorized (see
-``list_authorized_ci_signal_sources``), and every read runs under that user's current
-``UserAccessControl`` — deletion, revocation, or a deactivated authorizer all fail closed.
+Mirrors the job-logs coordinator: one fail-silent detect-and-emit activity per source; emit_signal
+re-checks org AI-approval and per-type config. The sweep has no request user, so it scans only the
+source ids the enabling user snapshot-authorized, under that user's current UserAccessControl
+(``list_authorized_ci_signal_sources``) — deletion, revocation, or a deactivated authorizer fail closed.
 """
 
 import json
@@ -36,9 +30,7 @@ from products.signals.backend.facade.api import emit_signal, team_ids_with_sourc
 
 logger = structlog.get_logger(__name__)
 
-# The product's rollout flag — the same one PostHogFeatureFlagPermission enforces on the API surface
-# (presentation/views.py). Signal-source enrollment and the rollout flag are orthogonal gates, so the
-# sweep re-checks the flag per team rather than emitting for teams the product isn't rolled out to.
+# Enrollment and the rollout flag are orthogonal gates; the sweep re-checks the flag per team.
 ROLLOUT_FEATURE_FLAG = "engineering-analytics"
 TEAM_ACTIVITY_BATCH_SIZE = 10
 
@@ -47,7 +39,6 @@ TEAM_ACTIVITY_BATCH_SIZE = 10
 class CISignalTarget:
     team_id: int
     source_id: str
-    # The enabling user whose warehouse RBAC authorizes reading this source (see module docstring).
     authorized_by_user_id: int
 
 
@@ -78,10 +69,9 @@ def _discover_targets_for_team(team_id: int) -> list[CISignalTarget]:
 
 def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], Team | None]:
     team = Team.objects.filter(id=target.team_id).first()
-    # Re-check the rollout flag: retries can run this activity well after discovery checked it.
+    # Re-check the flag and authorizer at detection time — retries can run long after discovery.
     if team is None or not _rollout_flag_enabled(team):
         return [], None
-    # Re-resolve the authorizing user too — access revoked or deactivated since discovery fails closed.
     user = User.objects.filter(id=target.authorized_by_user_id, is_active=True).first()
     if user is None:
         return [], None

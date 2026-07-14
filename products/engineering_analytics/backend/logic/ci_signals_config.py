@@ -29,8 +29,7 @@ CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_DURATION_REGRESSION,
 )
 CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)
-# SignalSourceConfig.config key holding the GitHub source ids the enabling user was authorized to
-# read. The coordinator scans only this snapshot — never "all of the team's sources".
+# SignalSourceConfig.config key: the source ids the enabling user authorized the sweep to read.
 AUTHORIZED_SOURCES_CONFIG_KEY = "github_source_ids"
 
 
@@ -50,12 +49,9 @@ def update_ci_signals_config(
     created_by_id: int,
     user_access_control: UserAccessControl | None = None,
 ) -> CISignalsConfig:
-    """Enable or disable the CI-signals bundle.
-
-    Enabling snapshots the GitHub sources the requesting user may access (per their warehouse
-    RBAC) as the sweep's authorization. The coordinator is userless, so this explicit snapshot —
-    not team membership — is what lets it read a source; a source connected after enabling isn't
-    scanned until someone re-enables and thereby authorizes it."""
+    """Enable or disable the CI-signals bundle. Enabling snapshots the requesting user's accessible
+    GitHub sources as the userless sweep's authorization; a source connected later isn't scanned
+    until a re-enable authorizes it."""
     config = None
     if enabled:
         authorized = [source.id for source in list_github_sources(team=team, user_access_control=user_access_control)]
@@ -73,20 +69,14 @@ def update_ci_signals_config(
 
 @dataclass(frozen=True)
 class AuthorizedCISignalSource:
-    """One GitHub source the CI-signals sweep may scan, and the user whose access authorizes it."""
-
     source_id: str
     authorized_by_user_id: int
 
 
 def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalSource]:
-    """The GitHub sources the CI-signals coordinator may scan for ``team``.
-
-    Fail-closed on every edge: the enabled snapshot is re-filtered through the enabling user's
-    *current* access, so a source deleted or revoked since enabling drops out; a missing snapshot
-    (legacy rows), a deleted or deactivated enabling user, or a disabled bundle yield nothing.
-    Never widens to "all of the team's sources" — the sweep runs with no request user, so the
-    snapshot plus the authorizer's live RBAC is its entire authorization."""
+    """The sources the coordinator may scan: the enabled snapshot re-filtered through the enabling
+    user's *current* access. Every edge fails closed (deleted/revoked source, missing snapshot,
+    deactivated authorizer) — never widens to all of the team's sources."""
     row = (
         SignalSourceConfig.objects.filter(
             team_id=team.id,

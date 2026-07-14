@@ -27,11 +27,9 @@ MAX_SIGNAL_REMEDIATION_TOKENS = 16000
 
 @dataclasses.dataclass(frozen=True)
 class SignalSourceTypesState:
-    """Enablement of a product-owned bundle of signal-source types for one team."""
+    """configured = any bundle row exists; all_enabled = every type is currently enabled."""
 
-    # Any row of the bundle exists — the product has been set up at least once.
     configured: bool
-    # Every type in the bundle is currently enabled.
     all_enabled: bool
 
 
@@ -63,13 +61,8 @@ def set_signal_source_types_enabled(
     created_by_id: int,
     config: dict | None = None,
 ) -> None:
-    """Atomically update a product-owned bundle of signal-source types.
-
-    ``config`` is the product-owned payload stored on every row of the bundle — e.g.
-    engineering_analytics snapshots the warehouse source ids the enabling user was authorized to
-    read. Every enable refreshes ``config`` and ``created_by`` (even on already-enabled rows), so
-    the stored authorization always reflects the most recent enabling user, never an earlier one.
-    """
+    """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
+    ``config`` and ``created_by`` so the stored authorization reflects the latest enabling user."""
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
@@ -108,15 +101,9 @@ def validate_signal_input(
     extra: dict | None,
     remediation: SignalRemediation | None,
 ) -> dict | None:
-    """Validate an outgoing signal against its typed contract variant, raising
-    ``pydantic.ValidationError`` for an unknown ``(source_product, source_type)`` or a payload that
-    doesn't match the variant. This is the single emit-time schema check — emitters' tests call it
-    directly so a detector's payload can't drift from the contract unnoticed.
-
-    Returns the JSON-safe remediation dict ``emit_signal`` forwards: remediation is carried as a
-    plain dict from here on (like ``extra``) so it survives the Temporal/S3 JSON round-trip, and
-    ``model_validate`` re-checks it against the variant's declared
-    ``remediation: SignalRemediation | None`` field."""
+    """The single emit-time schema check; emitters' tests call it directly so payloads can't drift
+    from the contract unnoticed. Raises ``pydantic.ValidationError`` on an unknown type pair or
+    mismatched payload; returns the JSON-safe remediation dict ``emit_signal`` forwards."""
     variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
     if variant_model is None:
         raise pydantic.ValidationError.from_exception_data(

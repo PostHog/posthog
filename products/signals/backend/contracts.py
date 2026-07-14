@@ -382,15 +382,12 @@ class HealthCheckSignalInput(SignalInputBase):
 
 
 # ── Engineering analytics ───────────────────────────────────────────────────────
-# CI signals derived from the GitHub PR/CI warehouse read layer. Detection lives in
-# products/engineering_analytics/backend/logic/signals; every value is computed deterministically
-# over a window, so the `extra` is the evidence the research agent grounds on.
+# CI signals; detection lives in products/engineering_analytics/backend/logic/signals.
 
 
 class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
-    """One immutable flaky observation: a job that failed then passed on a later attempt of the
-    same run (same commit), so only non-determinism can explain the flip. The concrete run/attempt
-    pair is the evidence the research agent starts from; grouping aggregates repeat observations."""
+    """One immutable flaky observation: failed then passed on a later attempt of the same run,
+    so only non-determinism can explain the flip."""
 
     repo_owner: str
     repo_name: str
@@ -400,7 +397,7 @@ class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
     head_sha: str
     failed_attempt: int
     passed_attempt: int
-    # How many runs this job flapped on within the window — how established the flake is.
+    # Runs this job flapped on within the window.
     flaky_count: int
     window_days: int
 

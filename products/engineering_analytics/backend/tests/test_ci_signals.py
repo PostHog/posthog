@@ -108,8 +108,7 @@ def _job_row(
 
 
 def _assert_emittable(finding: CISignalFinding) -> None:
-    # The exact emit-time schema check emit_signal runs: raises if the detector's payload has
-    # drifted from the typed contract variant (which would silently reject every signal in prod).
+    # The exact emit-time check: detector payload drift would silently reject every signal in prod.
     validate_signal_input(
         source_product=SOURCE_PRODUCT,
         source_type=finding.source_type,
@@ -132,8 +131,6 @@ def test_source_type_constants_match_signals_taxonomy() -> None:
 
 class TestCISignalSourceAuthorization(BaseTest):
     def test_sweep_scans_only_the_snapshot_the_enabling_user_authorized(self) -> None:
-        # The sweep is userless — enabling must snapshot the authorized sources, and the
-        # coordinator must never widen back to "all of the team's sources".
         first = create_github_source(self.team, prefix="one_", source_id="gh-1")
         second = create_github_source(self.team, prefix="two_", source_id="gh-2")
         update_ci_signals_config(team=self.team, enabled=True, created_by_id=self.user.id)
@@ -144,25 +141,22 @@ class TestCISignalSourceAuthorization(BaseTest):
         assert {source.source_id for source in authorized} == {str(first.id), str(second.id)}
         assert {source.authorized_by_user_id for source in authorized} == {self.user.id}
 
-        # A source connected after enabling was never authorized — excluded until a re-enable.
+        # Connected after enabling => never authorized.
         create_github_source(self.team, prefix="three_", source_id="gh-3")
         assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {
             str(first.id),
             str(second.id),
         }
 
-        # A snapshot entry whose source was deleted since drops out.
         second.deleted = True
         second.save()
         assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {str(first.id)}
 
-        # A deactivated authorizing user fails the whole sweep closed.
         self.user.is_active = False
         self.user.save()
         assert list_authorized_ci_signal_sources(team=self.team) == []
 
     def test_rows_without_a_snapshot_authorize_nothing(self) -> None:
-        # Legacy or hand-created enabled rows carry no snapshot — they must not widen the sweep.
         create_github_source(self.team, prefix="one_", source_id="gh-1")
         for source_type in CI_SIGNAL_SOURCE_TYPES:
             SignalSourceConfig.objects.create(
