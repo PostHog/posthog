@@ -43,9 +43,8 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
 
     def _email_message_side_effect(**kwargs: Any) -> EmailMessage:
         email_message = EmailMessage(**kwargs)
-        _original_send = email_message.send
 
-        def _send_side_effect(send_async: bool = True) -> Any:
+        def _send_side_effect(*_args: Any, **_kwargs: Any) -> None:
             # Already appended before send() runs, so subtract 1 to get this message's index.
             index_in_test = len(mocked_email_messages) - 1
             base = test_name or email_message.campaign_key
@@ -57,8 +56,6 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
                 f.write(email_message.html_body)
 
             print(f"Email rendered to {output_file}")  # noqa: T201
-
-            return _original_send()
 
         email_message.send = MagicMock()  # type: ignore
         email_message.send.side_effect = _send_side_effect
