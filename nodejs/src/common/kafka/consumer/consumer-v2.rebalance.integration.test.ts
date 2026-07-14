@@ -450,10 +450,12 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
     })
 
     // The flush-on-revoke contract the session replay consumer relies on, at v2's cooperative
-    // protocol. The flush takes a realistic non-zero time so an unassign racing ahead of the
-    // hook has a wide window to manifest.
-    it('flush-on-revoke: hook runs while assigned, stored offsets commit, no reprocessing', async () => {
-        const flushDurationMs = 1_000
+    // protocol. The flush deliberately outlives session.timeout.ms (6s): the background
+    // heartbeat thread must keep the member alive for its whole duration — a slow flush is
+    // bounded by max.poll.interval.ms, never the session timeout. The long window also gives
+    // an unassign racing ahead of the hook ample time to manifest.
+    it('flush-on-revoke outliving the session timeout: hook runs while assigned, stored offsets commit, no reprocessing', async () => {
+        const flushDurationMs = 7_000
         const topic = `v2_int_reb_hook_${randomUUID()}`
         const groupId = `v2-int-reb-hook-${randomUUID()}`
         await createTopic(topic, 2)
