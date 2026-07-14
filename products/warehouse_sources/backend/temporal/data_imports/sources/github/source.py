@@ -250,11 +250,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     @staticmethod
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:
         webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
-        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-        # i.e. workflow_jobs and reviews) can only ever be populated by the webhook: the
-        # per-parent fan-out is too expensive to backfill at volume. Offer it as webhook-only
-        # so users can't pick a poll mode that would sync an empty table forever. workflow_runs
-        # keeps its poll backfill; the webhook just replaces re-polling for it.
+        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0:
+        # workflow_jobs, workflow_runs, reviews) can only ever be populated by the webhook —
+        # backfilling the full history is too expensive against a shared, rate-limited budget.
+        # Offer it as webhook-only so users can't pick a poll mode that would sync an empty table
+        # forever; the webhook replaces both re-polling and the initial history crawl.
         webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
         supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
         return SourceSchema(
