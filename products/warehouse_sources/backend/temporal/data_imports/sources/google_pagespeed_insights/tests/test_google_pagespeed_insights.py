@@ -65,6 +65,26 @@ class TestParseUrls:
         with pytest.raises(ValueError):
             parse_urls(raw)
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://10.0.0.1",
+            "http://192.168.1.1",
+            # Cloud metadata endpoint (link-local) — the classic SSRF target.
+            "http://169.254.169.254",
+            "http://[::1]",
+            "https://service.internal",
+            "https://printer.local",
+        ],
+    )
+    def test_rejects_private_hosts(self, raw):
+        # Defense-in-depth: private / loopback / internal hosts are rejected up front rather than
+        # handed to the connector, even though the actual fetch runs on Google's servers.
+        with pytest.raises(ValueError, match="cannot be analyzed"):
+            parse_urls(raw)
+
     def test_rejects_too_many_urls(self):
         raw = "\n".join(f"https://example.com/{i}" for i in range(MAX_URLS + 1))
         with pytest.raises(ValueError, match="Too many URLs"):
@@ -213,6 +233,24 @@ class TestFetch:
         assert "key=REDACTED" in message
         # The host prefix is preserved so non-retryable-error matching still works.
         assert "for url: https://pagespeedonline.googleapis.com" in message
+
+    @pytest.mark.parametrize("exc_type", [requests.ConnectionError, requests.ReadTimeout, requests.exceptions.SSLError])
+    def test_transport_error_redacts_key_and_preserves_type(self, exc_type):
+        # Transport failures (no HTTP response) embed the full request URL, including `key=...`, in
+        # their message. They must be re-raised redacted and with their original type so the key never
+        # reaches `latest_error` and retry classification is unchanged.
+        session = mock.MagicMock()
+        session.get.side_effect = exc_type(
+            "HTTPSConnectionPool(host='pagespeedonline.googleapis.com'): "
+            "url: /pagespeedonline/v5/runPagespeed?url=https://x&key=SUPERSECRETKEY"
+        )
+
+        with pytest.raises(exc_type) as exc_info:
+            _fetch_once(session, "k", "DESKTOP", "https://posthog.com", structlog.get_logger())
+
+        message = str(exc_info.value)
+        assert "SUPERSECRETKEY" not in message
+        assert "key=REDACTED" in message
 
 
 class TestValidateCredentials:

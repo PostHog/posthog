@@ -1,4 +1,5 @@
 import re
+import ipaddress
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -41,6 +42,28 @@ class PageSpeedRetryableError(Exception):
     pass
 
 
+# Hostname suffixes that only ever resolve inside a private network / to the loopback interface.
+_PRIVATE_HOST_SUFFIXES = (".localhost", ".local", ".internal")
+
+
+def _is_private_host(host: str) -> bool:
+    """True for hosts that name a private, loopback, link-local, or otherwise non-public address.
+
+    The runPagespeed fetch is executed by Google's servers (not PostHog's egress), so a private or
+    internal URL is unreachable there rather than a server-side request forgery against our network.
+    This rejection is defense-in-depth: it fails such URLs early with a clear message and keeps the
+    connector from being pointed at internal-looking hosts.
+    """
+    lowered = host.lower()
+    if lowered == "localhost" or lowered.endswith(_PRIVATE_HOST_SUFFIXES):
+        return True
+    try:
+        ip = ipaddress.ip_address(lowered)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+
+
 def parse_urls(raw: str | None) -> list[str]:
     """Parse the user's free-text ``urls`` field into a de-duplicated list of URLs.
 
@@ -62,6 +85,12 @@ def parse_urls(raw: str | None) -> list[str]:
         parsed = urlparse(stripped)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             raise ValueError(f"Line {line_number} ({stripped!r}) must be a full URL starting with http:// or https://.")
+
+        if parsed.hostname is None or _is_private_host(parsed.hostname):
+            raise ValueError(
+                f"Line {line_number} ({stripped!r}) points at a private, local, or non-public address, "
+                "which cannot be analyzed. Enter a publicly reachable URL."
+            )
 
         if stripped in seen:
             continue
@@ -113,7 +142,13 @@ def _fetch(
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
     url = _build_url(target_url, strategy, api_key)
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        # Connection / SSL / timeout errors embed the full request URL (including `key=...`) in their
+        # message. `latest_error` stores `str(error)` after retries are exhausted, so re-raise the same
+        # exception type with the key redacted — preserving the type keeps retry classification intact.
+        raise type(exc)(_redact_key(str(exc))) from None
 
     # 429 (rate/quota limit) and transient 5xx are retryable; back off and try again. A persistent
     # per-URL analysis failure (e.g. a page that never loads) also surfaces as 5xx and will fail the
@@ -183,7 +218,7 @@ def validate_credentials(api_key: str, urls_raw: str | None) -> tuple[bool, str 
 
     url = _build_url(urls[0], "DESKTOP", api_key)
     try:
-        response = make_tracked_session().get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
         return False, "Could not reach the Google PageSpeed Insights API. Please try again."
 
@@ -206,7 +241,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = PAGESPEED_ENDPOINTS[endpoint]
     # One session reused across every URL so urllib3 keeps the connection alive instead of re-handshaking.
-    session = make_tracked_session()
+    # `redact_values` masks the API key wherever the tracked transport logs or samples the request URL.
+    session = make_tracked_session(redact_values=(api_key,))
 
     for target_url in urls:
         response = _fetch(session, api_key, config.strategy, target_url, logger)
@@ -235,8 +271,10 @@ def google_pagespeed_insights_source(
         partition_keys=[config.partition_key],
         # One row per URL, each stamped with an analysis timestamp of ~now; rows arrive in config order.
         sort_mode="asc",
-        # PageSpeed responses are large, deeply-nested JSON documents (~0.5-1 MiB each). Cap the
-        # per-chunk byte budget low so the source->Arrow conversion can't materialise an oversized
-        # table and OOM the worker when many URLs are configured.
-        chunk_size_bytes=50 * 1024 * 1024,
+        # PageSpeed responses are large, deeply-nested JSON documents (~0.5-1 MiB each, larger for
+        # complex pages). We emit one row per URL, so keep the per-chunk byte budget below a single
+        # report: the batcher then flushes after roughly every report instead of accumulating the whole
+        # URL list into one oversized Arrow/Delta write that could OOM or time out the worker. The
+        # buffered footprint stays ~one report regardless of how many URLs are configured.
+        chunk_size_bytes=1 * 1024 * 1024,
     )
