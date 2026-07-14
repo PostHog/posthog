@@ -16,6 +16,7 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, SubBatch};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::preprocess::Preprocessor;
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
 
@@ -100,6 +101,9 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
+    /// Header-only preprocess pipeline run before dispatch. `None` when
+    /// `PREPROCESS_MODE=off` (the default), in which case dispatch is unchanged.
+    preprocessor: Option<Arc<Preprocessor>>,
 }
 
 impl IngestionConsumer {
@@ -129,6 +133,7 @@ impl IngestionConsumer {
             deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
+            preprocessor: None,
         }
     }
 
@@ -138,6 +143,7 @@ impl IngestionConsumer {
         transport: Arc<HttpTransport>,
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
+        preprocessor: Option<Arc<Preprocessor>>,
     ) -> anyhow::Result<Self> {
         // In endpointslice mode the worker set comes from discovery, so there is
         // no static readiness list — main gates startup on the first discovered
@@ -183,6 +189,7 @@ impl IngestionConsumer {
             ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
+            preprocessor,
         })
     }
 
@@ -284,6 +291,7 @@ impl IngestionConsumer {
         let transport = Arc::clone(&self.transport);
         let group_id = self.group_id.clone();
         let max_batch_size = self.batch_size;
+        let preprocessor = self.preprocessor.clone();
 
         let handle = tokio::spawn(async move {
             Self::process_collected_batch(
@@ -293,6 +301,7 @@ impl IngestionConsumer {
                 transport,
                 group_id,
                 max_batch_size,
+                preprocessor,
             )
             .await
         });
@@ -438,6 +447,7 @@ impl IngestionConsumer {
         transport: Arc<HttpTransport>,
         group_id: String,
         max_batch_size: usize,
+        preprocessor: Option<Arc<Preprocessor>>,
     ) -> anyhow::Result<ProcessedBatch> {
         let batch_size = collected.messages.len();
         let start = Instant::now();
@@ -478,19 +488,37 @@ impl IngestionConsumer {
             .record(*lag_ms as f64);
         }
 
-        // Health-aware assignment: groups by routing key, honors stickiness,
-        // skips unhealthy/dead workers, and defers keys whose worker is
-        // draining/dead (held in the dispatcher's stash, flushed at completion).
-        let sub_batches = dispatcher.assign(&batch_id, collected.messages);
+        // Header-only preprocess triage (drop / DLQ / overflow) before dispatch.
+        // With no preprocessor (`PREPROCESS_MODE=off`) this is a no-op passthrough.
+        // Removed messages (drops, produced verdicts) are counted as accepted so
+        // the commit gate still closes even though they never reach a worker.
+        let (messages, preprocess_accepted) = match &preprocessor {
+            Some(pp) => {
+                let outcome = pp.process(collected.messages).await?;
+                (outcome.survivors, outcome.removed_accepted)
+            }
+            None => (collected.messages, 0),
+        };
 
-        // Nothing to send and nothing deferred to wait for → no usable workers.
-        if sub_batches.is_empty() && !dispatcher.has_deferred(&batch_id) {
-            counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
-            anyhow::bail!("No healthy workers available to route batch");
-        }
+        // If preprocessing removed every message there is nothing to dispatch;
+        // the batch is fully accounted for and commits on the removed count.
+        let total_accepted = if messages.is_empty() {
+            preprocess_accepted
+        } else {
+            // Health-aware assignment: groups by routing key, honors stickiness,
+            // skips unhealthy/dead workers, and defers keys whose worker is
+            // draining/dead (held in the dispatcher's stash, flushed at completion).
+            let sub_batches = dispatcher.assign(&batch_id, messages);
 
-        let total_accepted =
-            Self::scatter(&dispatcher, &transport, &batch_id, sub_batches, false).await?;
+            // Nothing to send and nothing deferred to wait for → no usable workers.
+            if sub_batches.is_empty() && !dispatcher.has_deferred(&batch_id) {
+                counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
+                anyhow::bail!("No healthy workers available to route batch");
+            }
+
+            Self::scatter(&dispatcher, &transport, &batch_id, sub_batches, false).await?
+                + preprocess_accepted
+        };
 
         Ok(ProcessedBatch {
             offsets: collected.offsets,
