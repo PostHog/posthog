@@ -2279,6 +2279,40 @@ class TestPrinter(BaseTest):
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
 
+    @parameterized.expand(
+        [
+            ("z_micros", "2026-06-30T09:59:12.988000Z", 6, "2026-06-30 09:59:12.988000"),
+            ("offset_utc_micros", "2026-06-30T09:59:12.988000+00:00", 6, "2026-06-30 09:59:12.988000"),
+            ("z_millis_precision_3", "2026-07-14T18:06:29.299Z", 3, "2026-07-14 18:06:29.299000"),
+            ("z_no_micros", "2026-06-30T09:59:12Z", 6, "2026-06-30 09:59:12.000000"),
+        ]
+    )
+    def test_zoned_datetime_string_in_toDateTime64_is_normalized(
+        self, _name: str, value: str, precision: int, expected_naive: str
+    ):
+        # toDateTime64('<zoned string>', ...) fed a 'Z'/offset string reaches ClickHouse's strict parser
+        # verbatim and fails; it must be re-expressed as a naive string in the call's timezone.
+        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events")
+        assert f"toDateTime64('{expected_naive}', {precision}, 'UTC')" in printed, printed
+        assert value not in printed, printed
+
+    def test_zoned_datetime_string_in_toDateTime64_converted_to_arg_timezone(self):
+        # The explicit third argument is the timezone ClickHouse interprets the naive string in, so the
+        # instant must be converted into it (09:59:12 UTC is 02:59:12 US/Pacific).
+        printed = self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, 'US/Pacific') FROM events")
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, 'US/Pacific')" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("already_naive_micros", "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')"),
+            ("invalid_zoned_string", "toDateTime64('2026-30-06T00:00:00Z', 6, 'UTC')"),  # looks zoned but invalid
+        ]
+    )
+    def test_toDateTime64_left_unchanged(self, _name: str, call: str):
+        # Naive strings already parse, and strings that only look zoned must still error loudly downstream.
+        printed = self._select(f"SELECT {call} FROM events")
+        assert call in printed, printed
+
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()

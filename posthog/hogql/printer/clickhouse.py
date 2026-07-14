@@ -2,6 +2,7 @@ import re
 from datetime import date, datetime
 from typing import ClassVar, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings as django_settings
 
@@ -144,6 +145,11 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
                 else:
                     args.append(self.visit(arg))
+        elif node.name == "toDateTime64" and (naive_arg := self._zoned_datetime64_naive_arg(node)) is not None:
+            # ClickHouse's toDateTime64 uses a strict parser that rejects datetime strings carrying a
+            # 'Z' or an offset, so re-express the instant as a naive string in the call's target timezone
+            # (which toDateTime64 does accept, and which preserves the instant).
+            args = [self._print_escaped_string(naive_arg), *[self.visit(arg) for arg in node_args[1:]]]
         elif node.name == "concat":
             args = []
             for arg in node_args:
@@ -566,6 +572,26 @@ class ClickHousePrinter(BasePrinter):
     @staticmethod
     def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
         return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
+
+    def _zoned_datetime64_naive_arg(self, node: ast.Call) -> str | None:
+        """For toDateTime64('<zoned string>', ...), return the instant as a naive datetime string in the
+        call's target timezone; None when the first argument isn't a timezone-carrying datetime string.
+
+        ClickHouse's toDateTime64 can't parse a string ending in 'Z' or an offset, so the instant is parsed
+        in Python and re-expressed in the timezone ClickHouse will interpret the naive string in — the
+        explicit third argument when present, otherwise the project timezone the printer appends."""
+        if not node.args:
+            return None
+        parsed = self._parse_zoned_datetime_constant(node.args[0])
+        if parsed is None:
+            return None
+        tz = self._get_timezone()
+        if len(node.args) == 3 and isinstance(node.args[2], ast.Constant) and isinstance(node.args[2].value, str):
+            tz = node.args[2].value
+        try:
+            return parsed.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        except (ValueError, OverflowError, ZoneInfoNotFoundError, KeyError):
+            return None
 
     def _resolves_to_datetime(self, node: ast.Expr) -> bool:
         if node.type is None:
