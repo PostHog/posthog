@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { OpportunityApi, ProposedExperimentApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
+import { HelpfulnessVote } from './HelpfulnessVote'
 import { type OpportunityRowAction, opportunitiesLogic, transitionsForStatus } from './opportunitiesLogic'
 
 // Exhaustive over the enums so a new backend value fails compilation here instead of rendering unstyled.
@@ -91,7 +92,12 @@ export function OpportunitiesPanel(): JSX.Element {
             title: '',
             key: 'actions',
             width: 0,
-            render: (_, opportunity) => <OpportunityRowActions opportunity={opportunity} />,
+            render: (_, opportunity) => (
+                <div className="flex items-center gap-2 justify-end">
+                    <OpportunityRowActions opportunity={opportunity} />
+                    <OpportunityVote opportunity={opportunity} />
+                </div>
+            ),
         },
     ]
 
@@ -173,6 +179,18 @@ function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi })
                     </LemonButton>
                 ))}
         </div>
+    )
+}
+
+function OpportunityVote({ opportunity }: { opportunity: OpportunityApi }): JSX.Element {
+    const { feedbackVotesInFlight } = useValues(opportunitiesLogic)
+    const { voteOnOpportunity } = useActions(opportunitiesLogic)
+    return (
+        <HelpfulnessVote
+            item={opportunity}
+            inFlight={opportunity.id in feedbackVotesInFlight}
+            onVote={(helpful, reason) => voteOnOpportunity(opportunity.id, helpful, reason)}
+        />
     )
 }
 

@@ -15,6 +15,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { InsightType } from '~/types'
 
 import {
+    pulseBriefsFeedbackCreate,
     pulseBriefsGenerateCreate,
     pulseBriefsList,
     pulseBriefsRetrieve,
@@ -101,6 +102,11 @@ export const pulseLogic = kea<pulseLogicType>([
         deleteConfig: (configId: string) => ({ configId }),
         configDeleted: (configId: string) => ({ configId }),
         configDeleteFailed: true,
+        voteOnBrief: (briefId: string, helpful: boolean | null, reason: string = '') => ({ briefId, helpful, reason }),
+        briefFeedbackVoteStarted: (briefId: string) => ({ briefId }),
+        briefFeedbackVoteSucceeded: (briefId: string) => ({ briefId }),
+        briefFeedbackVoteFailed: (briefId: string) => ({ briefId }),
+        briefFeedbackUpdated: (brief: ProductBriefApi) => ({ brief }),
     }),
     forms(({ actions, values }) => ({
         configForm: {
@@ -267,6 +273,21 @@ export const pulseLogic = kea<pulseLogicType>([
                 configDeleteFailed: () => null,
             },
         ],
+        // Keyed by brief id so a vote spinner/guard is scoped to the brief being voted on.
+        briefFeedbackVotesInFlight: [
+            {} as Record<string, true>,
+            {
+                briefFeedbackVoteStarted: (state, { briefId }) => ({ ...state, [briefId]: true as const }),
+                briefFeedbackVoteSucceeded: (state, { briefId }) => {
+                    const { [briefId]: _, ...rest } = state
+                    return rest
+                },
+                briefFeedbackVoteFailed: (state, { briefId }) => {
+                    const { [briefId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         briefConfigs: {
             configSaved: (state, { config, created }) =>
                 created ? [config, ...state] : state.map((existing) => (existing.id === config.id ? config : existing)),
@@ -306,6 +327,8 @@ export const pulseLogic = kea<pulseLogicType>([
                 state?.id === briefId && state.status === ProductBriefStatusEnumApi.Generating
                     ? { ...state, status: ProductBriefStatusEnumApi.Failed, error: BRIEF_UNREACHABLE_MESSAGE }
                     : state,
+            // Server-confirmed swap of the shown brief with its updated feedback fields.
+            briefFeedbackUpdated: (state, { brief }) => (state?.id === brief.id ? brief : state),
         },
     }),
     selectors({
@@ -334,7 +357,10 @@ export const pulseLogic = kea<pulseLogicType>([
         goalMetricInsightOptions: [
             (s) => [s.goalMetricInsights],
             (goalMetricInsights): LemonInputSelectOption[] =>
-                goalMetricInsights.map((insight) => ({ key: insight.short_id, label: insight.name })),
+                goalMetricInsights.map((insight: { short_id: string; name: string }) => ({
+                    key: insight.short_id,
+                    label: insight.name,
+                })),
         ],
         // The goal of the config the shown brief was generated for — the subtle header line above
         // the brief detail. Null when the brief is config-less or its config has no goal.
@@ -445,6 +471,29 @@ export const pulseLogic = kea<pulseLogicType>([
                 }
             } finally {
                 cache.pollInFlight = false
+            }
+        },
+        voteOnBrief: async ({ briefId, helpful, reason }) => {
+            // In-flight guard, server call, server-confirmed swap on success, toast on failure —
+            // mirrors runTransition. The buttons are also disabled via briefFeedbackVotesInFlight.
+            if (briefId in values.briefFeedbackVotesInFlight) {
+                return
+            }
+            actions.briefFeedbackVoteStarted(briefId)
+            try {
+                const updated = await pulseBriefsFeedbackCreate(currentProjectId(), briefId, { helpful, reason })
+                actions.briefFeedbackVoteSucceeded(briefId)
+                actions.briefFeedbackUpdated(updated)
+            } catch (error) {
+                actions.briefFeedbackVoteFailed(briefId)
+                // 4xx are expected user/validation errors; surface 5xx and network failures to error
+                // tracking so vote-endpoint breakage is visible beyond a per-user toast.
+                if (!(error instanceof ApiError) || (error.status ?? 500) >= 500) {
+                    posthog.captureException(error)
+                }
+                lemonToast.error(
+                    error instanceof ApiError && error.detail ? error.detail : 'Saving your feedback failed'
+                )
             }
         },
         openConfigModal: ({ config }) => {

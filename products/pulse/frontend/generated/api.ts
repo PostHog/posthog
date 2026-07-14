@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BriefConfigApi,
+    FeedbackVoteRequestApi,
     GenerateBriefRequestApi,
     OpportunityApi,
     PaginatedBriefConfigListApi,
@@ -187,6 +188,24 @@ export const pulseBriefsRetrieve = async (
     })
 }
 
+export const getPulseBriefsFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/briefs/${id}/feedback/`
+}
+
+export const pulseBriefsFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    feedbackVoteRequestApi: FeedbackVoteRequestApi,
+    options?: RequestInit
+): Promise<ProductBriefApi> => {
+    return apiMutator<ProductBriefApi>(getPulseBriefsFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(feedbackVoteRequestApi),
+    })
+}
+
 export const getPulseBriefsGenerateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/pulse/briefs/generate/`
 }
@@ -273,6 +292,24 @@ export const pulseOpportunitiesDismissCreate = async (
     return apiMutator<OpportunityApi>(getPulseOpportunitiesDismissCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getPulseOpportunitiesFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/pulse/opportunities/${id}/feedback/`
+}
+
+export const pulseOpportunitiesFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    feedbackVoteRequestApi: FeedbackVoteRequestApi,
+    options?: RequestInit
+): Promise<OpportunityApi> => {
+    return apiMutator<OpportunityApi>(getPulseOpportunitiesFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(feedbackVoteRequestApi),
     })
 }
 
