@@ -4045,6 +4045,7 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'visual_review'
+    | 'code_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -8045,6 +8046,7 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    REVIEW_HOG = 'review_hog',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',

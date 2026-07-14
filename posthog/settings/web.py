@@ -65,6 +65,7 @@ PRODUCTS_APPS = [
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
+    "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
@@ -576,6 +577,9 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # ReviewHog findings expose the same priority set on two fields (effective_priority +
+        # reviewer_priority); pin one shared name for the choice set.
+        "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
         # The metrics query's OTel metric-type filter; without a pinned name it
         # collides with the experiments MetricTypeEnum (funnel/ratio/...).
         "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
