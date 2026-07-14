@@ -28,7 +28,7 @@ export function parseVersion(version: string): SemanticVersion {
 }
 
 // Validates a version string against the same shape the backend's `parse_semver` enforces
-// (feature flag `_validate_filters`), so a non-semver value (an email, a hex string) is caught
+// (feature flag `validate_filters`), so a non-semver value (an email, a hex string) is caught
 // inline before a save 400s. Intentionally stricter than the backend on component format: the
 // backend coerces each component with Python's `int()`, which tolerates things like a leading
 // `+` or `_` digit separators, while this only accepts plain digits. Kept separate from

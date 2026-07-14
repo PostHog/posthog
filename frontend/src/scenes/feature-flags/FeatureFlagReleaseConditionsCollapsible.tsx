@@ -49,7 +49,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -86,6 +86,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -618,26 +619,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            errorMessages={
-                                                propertySelectErrors?.[index]?.properties?.some(
-                                                    (message) => typeof message?.value === 'string'
-                                                )
-                                                    ? propertySelectErrors[index].properties?.map(
-                                                          (message, messageIndex) =>
-                                                              typeof message?.value === 'string' ? (
-                                                                  <div
-                                                                      key={messageIndex}
-                                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
-                                                                  >
-                                                                      <IconErrorOutline className="text-xl" />{' '}
-                                                                      {message.value}
-                                                                  </div>
-                                                              ) : (
-                                                                  <React.Fragment key={messageIndex} />
-                                                              )
-                                                      )
-                                                    : null
-                                            }
+                                            errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
