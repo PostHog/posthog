@@ -50,13 +50,43 @@ _SAFE_MACHINE_CONFIG_KEYS = frozenset(
 # A machine's per-process config entries repeat the same secret vectors as the top level.
 _PROCESS_SECRET_KEYS = frozenset({"env", "secrets"})
 
+# `metadata` is a free-form user key/value map, so a value like `metadata.api_token` would
+# otherwise reach the warehouse. Only Fly's own platform-set keys are known-safe; everything
+# else is dropped.
+_SAFE_METADATA_KEYS = frozenset(
+    {
+        "fly_platform_version",
+        "fly_process_group",
+        "fly_release_id",
+        "fly_release_version",
+        "fly_flyctl_version",
+        "fly_managed_postgres",
+    }
+)
+
 
 class FlyIoRetryableError(Exception):
     pass
 
 
+def _strip_headers(value: Any) -> Any:
+    """Recursively drop every `headers` mapping from a nested structure. Fly service and check
+    definitions can carry request headers (e.g. a health-check `Authorization`), a credential
+    vector we never want to land in the warehouse."""
+    if isinstance(value, dict):
+        return {key: _strip_headers(item) for key, item in value.items() if key != "headers"}
+    if isinstance(value, list):
+        return [_strip_headers(item) for item in value]
+    return value
+
+
 def _sanitize_machine_config(config: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in config.items() if key in _SAFE_MACHINE_CONFIG_KEYS}
+    # `metadata` is user-defined free-form key/values; keep only Fly's own platform keys so a
+    # user-set secret (e.g. `metadata.api_token`) can't slip through the allowlist.
+    metadata = safe.get("metadata")
+    if isinstance(metadata, dict):
+        safe["metadata"] = {key: value for key, value in metadata.items() if key in _SAFE_METADATA_KEYS}
     # `processes` is operational (cmd/entrypoint/guest) but each entry can carry its own
     # `env`/`secrets`, so strip those while keeping the rest of the process definition.
     processes = safe.get("processes")
@@ -67,7 +97,9 @@ def _sanitize_machine_config(config: dict[str, Any]) -> dict[str, Any]:
             else process
             for process in processes
         ]
-    return safe
+    # Final defensive pass: `services`/`checks` (and anything nested under them) can embed
+    # request-header maps that carry credentials — drop them wherever they appear.
+    return _strip_headers(safe)
 
 
 def _sanitize_machine(row: dict[str, Any]) -> dict[str, Any]:

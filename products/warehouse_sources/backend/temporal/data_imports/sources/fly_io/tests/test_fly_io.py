@@ -199,6 +199,50 @@ class TestMachineSecretRedaction:
         # The original row is not mutated in place.
         assert "env" in row["config"]
 
+    def test_sanitize_keeps_only_platform_metadata_keys(self) -> None:
+        # Fly metadata is a free-form user map, so a user-set secret must not survive; only Fly's
+        # own platform keys are known-safe and kept.
+        row = {
+            "id": "m1",
+            "config": {
+                "image": "app",
+                "metadata": {
+                    "fly_process_group": "web",
+                    "fly_release_id": "rel_123",
+                    "api_token": "FlyV1 super-secret",
+                    "DATABASE_PASSWORD": "hunter2",
+                },
+            },
+        }
+        metadata = _sanitize_machine(row)["config"]["metadata"]
+        assert metadata == {"fly_process_group": "web", "fly_release_id": "rel_123"}
+
+    def test_sanitize_strips_request_headers_from_services_and_checks(self) -> None:
+        # Service/check request headers can carry an Authorization credential, so every nested
+        # `headers` map must be dropped while the rest of the networking config is kept.
+        row = {
+            "id": "m1",
+            "config": {
+                "image": "app",
+                "services": [
+                    {
+                        "internal_port": 8080,
+                        "checks": [
+                            {
+                                "type": "http",
+                                "path": "/health",
+                                "headers": [{"name": "Authorization", "value": "Bearer secret"}],
+                            }
+                        ],
+                    }
+                ],
+                "checks": {"web": {"type": "http", "path": "/", "headers": [{"name": "X-Token", "value": "shhh"}]}},
+            },
+        }
+        config = _sanitize_machine(row)["config"]
+        assert config["services"] == [{"internal_port": 8080, "checks": [{"type": "http", "path": "/health"}]}]
+        assert config["checks"] == {"web": {"type": "http", "path": "/"}}
+
     def test_sanitize_leaves_row_without_config_untouched(self) -> None:
         row = {"id": "m1", "state": "started"}
         assert _sanitize_machine(row) == row
