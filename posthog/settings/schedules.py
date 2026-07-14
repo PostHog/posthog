@@ -106,6 +106,17 @@ REALTIME_COHORT_CALCULATION_P99_P100_INTERVAL_MINUTES: int = get_from_env(
     type_cast=int,
 )
 
+# How often precalculated_events is reconciled against person_distinct_id_overrides to
+# repair rows made stale by person merges. Must fire well within the overrides squash
+# cadence (SQUASH_PERSON_OVERRIDES_SCHEDULE, weekly by default): the squash deletes
+# override rows after folding them into events, and reconciliation needs to see those rows
+# before then.
+RECONCILE_PRECALCULATED_EVENTS_INTERVAL_MINUTES: int = get_from_env(
+    "RECONCILE_PRECALCULATED_EVENTS_INTERVAL_MINUTES",
+    360,
+    type_cast=int,
+)
+
 # Batch delay settings for different percentile ranges
 REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES: int = get_from_env(
     "REALTIME_COHORT_CALCULATION_P0_P50_BATCH_DELAY_MINUTES",

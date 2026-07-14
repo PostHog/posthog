@@ -236,21 +236,35 @@ async def backfill_precalculated_events_activity(
             logger.warning("Invalid BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
             KAFKA_FLUSH_BATCH_SIZE = 1000
 
+        # events.person_id is the value resolved at ingestion time; if the distinct_id was
+        # later re-identified or merged onto another person, only person_distinct_id_overrides
+        # knows about it (until the squash job folds overrides back into events). Resolve
+        # through the overrides here — mirroring the HogQL events↔overrides lazy join — so
+        # backfills write current identity and re-runs repair rows made stale by merges.
         events_query = """
             SELECT
-                uuid,
-                event,
-                toDate(timestamp) as date,
-                distinct_id,
-                person_id,
-                properties
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND event IN %(event_names)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              AND person_id IS NOT NULL
-            ORDER BY timestamp
+                e.uuid AS uuid,
+                e.event AS event,
+                toDate(e.timestamp) AS date,
+                e.distinct_id AS distinct_id,
+                if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                e.properties AS properties
+            FROM events AS e
+            LEFT JOIN (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) AS person_id
+                FROM person_distinct_id_overrides
+                WHERE team_id = %(team_id)s
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS o ON e.distinct_id = o.distinct_id
+            WHERE e.team_id = %(team_id)s
+              AND e.event IN %(event_names)s
+              AND e.timestamp >= %(start_time)s
+              AND e.timestamp < %(end_time)s
+              AND e.person_id IS NOT NULL
+            ORDER BY e.timestamp
             FORMAT JSONEachRow
         """
 
