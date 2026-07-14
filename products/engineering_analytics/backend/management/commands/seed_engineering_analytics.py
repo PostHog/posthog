@@ -413,8 +413,10 @@ def _seed_trace_spans(team: Team) -> int:
             for day in range(_SPAN_DAYS):
                 is_current = day >= _SPAN_DAYS // 2
                 daily = current_daily if is_current else prior_daily
-                # ±1 wobble so trends read organic, never below zero.
-                daily = max(0, daily + ((day * 7 + test_index * 3) % 3) - 1)
+                # ±1 wobble so trends read organic, never below zero. A quiet window (0/day)
+                # stays truly quiet: one wobble span would qualify the test as flaky there
+                # (min_rerun_passes=1), flattening every roster delta to ±0.
+                daily = max(0, daily + ((day * 7 + test_index * 3) % 3) - 1) if daily else 0
                 for occurrence in range(daily):
                     span_index += 1
                     # Mix of outcomes: retries dominate, with failures (PR-attributed and
