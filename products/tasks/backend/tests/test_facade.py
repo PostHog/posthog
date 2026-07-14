@@ -118,12 +118,12 @@ class TestFacadeReadsAndMappers(TestCase):
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
         # a cloud environment and the (caller-unsettable) wizard_config state key.
+        kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
+        kwargs.setdefault("state", {"wizard_config": {}})
         return TaskRun.objects.create(
             task=task,
             team=task.team,
             status=status,
-            environment=TaskRun.Environment.CLOUD,
-            state={"wizard_config": {}},
             **kwargs,
         )
 
