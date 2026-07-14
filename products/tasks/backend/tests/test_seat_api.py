@@ -420,8 +420,34 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
 
     @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-    def test_all_billing_failures_returns_404(self, _mock_token, mock_request, _mock_license):
+    def test_all_billing_failures_returns_503(self, _mock_token, mock_request, _mock_license):
+        """A failed lookup is not a confirmed absence: the LLM gateway caches a 404
+        as seat_missing and free-caps the user, so a billing outage must surface
+        as an error it fails open on, never as 404."""
         mock_request.return_value = _billing_response({"error": "fail"}, status_code=500, ok=False)
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_partial_failure_with_no_seat_returns_503(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"error": "fail"}, status_code=500, ok=False),
+            _billing_response({"error": "No seat found for this user"}, status_code=404, ok=False),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_all_orgs_conclusively_no_seat_returns_404(self, _mock_token, mock_request, _mock_license):
+        """404 stays 404 when every org's lookup succeeded and found nothing —
+        the gateway's seat_missing free-cap depends on this conclusive signal."""
+        mock_request.return_value = _billing_response(
+            {"error": "No seat found for this user"}, status_code=404, ok=False
+        )
         self._auth_as_member()
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_404_NOT_FOUND

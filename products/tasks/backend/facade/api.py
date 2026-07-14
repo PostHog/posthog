@@ -3243,9 +3243,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
+def _list_tasks_queryset(
+    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:
