@@ -388,7 +388,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AviatorSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1679,7 +1679,9 @@ class HarveySourceConfig(config.Config):
 
 @config.config
 class HatchetSourceConfig(config.Config):
-    pass
+    api_token: str
+    host: str | None = None
+    tenant_id: str | None = None
 
 
 @config.config
@@ -3849,7 +3851,7 @@ class TwelveDataSourceConfig(config.Config):
 
 @config.config
 class TwelveLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3917,7 +3919,8 @@ class UpPromoteSourceConfig(config.Config):
 
 @config.config
 class UpstashSourceConfig(config.Config):
-    pass
+    email: str
+    api_key: str
 
 
 @config.config
@@ -3937,7 +3940,7 @@ class VWOSourceConfig(config.Config):
 
 @config.config
 class VantageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4136,7 +4139,7 @@ class ZapSignSourceConfig(config.Config):
 
 @config.config
 class ZapierSupportedStorageSourceConfig(config.Config):
-    pass
+    secret: str
 
 
 @config.config

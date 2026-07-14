@@ -196,6 +196,10 @@ class TaskProcessingContext:
         value = (self.state or {}).get("branch")
         return value if isinstance(value, str) else None
 
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
+
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
         return {

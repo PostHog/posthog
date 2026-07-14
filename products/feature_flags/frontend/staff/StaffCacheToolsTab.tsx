@@ -1,9 +1,19 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { truncate } from 'lib/utils/strings'
 
 import {
@@ -13,6 +23,7 @@ import {
     StaffCacheKind,
     StaffReadableCacheKind,
     StaffTeamResult,
+    StaffWarmRun,
 } from './featureFlagsStaffToolsLogic'
 import { StaffCacheEntryModal } from './StaffCacheEntryModal'
 import { StaffTeamSearchInput } from './StaffTeamSearchInput'
@@ -22,6 +33,99 @@ const NO_SELECTION_REASON = 'Select at least one team'
 const ALL_CACHES: StaffCacheKind[] = ['evaluation', 'definitions']
 
 const READABLE_CACHE_KINDS: StaffReadableCacheKind[] = ['evaluation', 'definitions']
+
+const WARM_RUN_STATE_TAGS: Record<StaffWarmRun['state'], { type: 'completion' | 'success' | 'muted'; label: string }> =
+    {
+        running: { type: 'completion', label: 'Running' },
+        completed: { type: 'success', label: 'Completed' },
+        cancelled: { type: 'muted', label: 'Cancelled' },
+    }
+
+const WARM_RUN_SCOPE_LABELS: Record<StaffWarmRun['scope'], string> = {
+    all_teams: 'all teams',
+    teams_with_flags: 'teams with flags',
+}
+
+function WarmRunPanel(): JSX.Element {
+    const { warmRun, warmRunCancelResultLoading } = useValues(featureFlagsStaffToolsLogic)
+    const { cancelWarmRun } = useAsyncActions(featureFlagsStaffToolsLogic)
+
+    if (!warmRun) {
+        return (
+            <div className="border rounded p-4">
+                <h3 className="mb-1">Warm-all run</h3>
+                <p className="text-secondary mb-0">
+                    No warm-all run has been recorded. Runs started with the Rust warmer (<code>warm-flags-cache</code>)
+                    publish live status here.
+                </p>
+            </div>
+        )
+    }
+
+    const stateTag = WARM_RUN_STATE_TAGS[warmRun.state]
+    const percent = warmRun.total > 0 ? Math.min(100, Math.round((warmRun.processed / warmRun.total) * 100)) : 0
+    const cancelDisabledReason = warmRun.cancel_requested ? 'Cancellation already requested' : undefined
+
+    return (
+        <div className="border rounded p-4 space-y-2">
+            <div className="flex items-center gap-2">
+                <h3 className="mb-0">Warm-all run</h3>
+                <LemonTag type={stateTag.type}>{stateTag.label}</LemonTag>
+                {warmRun.is_stale && <LemonTag type="warning">Stale</LemonTag>}
+                <span className="flex items-baseline gap-1 text-secondary">
+                    {WARM_RUN_SCOPE_LABELS[warmRun.scope] ?? warmRun.scope} · started
+                    <TZLabel time={warmRun.started_at} />
+                </span>
+                {warmRun.state === 'running' && !warmRun.is_stale && (
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
+                        size="small"
+                        className="ml-auto"
+                        loading={warmRunCancelResultLoading}
+                        disabledReason={cancelDisabledReason}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: 'Cancel the warm-all run?',
+                                description:
+                                    'The warmer stops dispatching new teams at its next heartbeat and finishes the teams already in flight. Already-warmed caches are kept.',
+                                shouldAwaitSubmit: true,
+                                primaryButton: {
+                                    children: 'Cancel run',
+                                    status: 'danger',
+                                    onClick: async () => await cancelWarmRun(),
+                                },
+                                secondaryButton: {
+                                    children: 'Keep running',
+                                },
+                            })
+                        }
+                    >
+                        Cancel run
+                    </LemonButton>
+                )}
+            </div>
+            <LemonProgress percent={percent} />
+            <div className="flex items-center gap-2 text-secondary">
+                <span>
+                    {warmRun.processed.toLocaleString()}/{warmRun.total.toLocaleString()} teams ({percent}%) ·{' '}
+                    {warmRun.successful.toLocaleString()} ok, {warmRun.failed.toLocaleString()} failed
+                </span>
+                <span className="flex items-baseline gap-1 ml-auto">
+                    Last heartbeat
+                    <TZLabel time={warmRun.updated_at} />
+                </span>
+            </div>
+            {warmRun.is_stale && (
+                <LemonBanner type="warning">
+                    This run stopped reporting progress. The warmer process likely died (deploy, OOM, or manual kill)
+                    without writing a final state. Re-run the warmer to continue; its status shows the last dispatched
+                    team id ({warmRun.last_team_id ?? 'unknown'}) as a resume cursor.
+                </LemonBanner>
+            )}
+        </div>
+    )
+}
 
 function CacheStatusCell({ status, onView }: { status?: StaffCacheEntryStatus; onView: () => void }): JSX.Element {
     const tag = !status ? (
@@ -120,6 +224,8 @@ export function StaffCacheToolsTab(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <WarmRunPanel />
+
             <StaffTeamSearchInput />
 
             <div className="flex flex-wrap items-center gap-2 mt-2">
