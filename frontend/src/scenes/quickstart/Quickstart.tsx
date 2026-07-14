@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconBook, IconCheckCircle, IconGraduationCap, IconSparkles } from '@posthog/icons'
+import {
+    IconApps,
+    IconBook,
+    IconCheckCircle,
+    IconGear,
+    IconGraduationCap,
+    IconPeople,
+    IconSparkles,
+} from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -13,11 +21,13 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab, OnboardingStepKey } from '~/types'
 
@@ -58,6 +68,27 @@ function WaitingForEventsIndicator(): JSX.Element {
                 <div className="w-2 h-2 bg-accent rounded-full" />
             </div>
             <span className="text-sm text-accent whitespace-nowrap">Waiting for your first event…</span>
+        </div>
+    )
+}
+
+function EventsWaitingStatus(): JSX.Element {
+    return (
+        <div className="flex items-center gap-2 text-sm text-secondary">
+            <div className="relative flex items-center justify-center shrink-0">
+                <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
+                <div className="w-2 h-2 bg-accent rounded-full" />
+            </div>
+            <span>Waiting for your first event…</span>
+        </div>
+    )
+}
+
+function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex items-center gap-1.5 text-sm text-secondary">
+            <span className="text-base leading-none">{icon}</span>
+            {children}
         </div>
     )
 }
@@ -462,22 +493,75 @@ function PublicationsSection(): JSX.Element | null {
 
 export function Quickstart(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { featuredProducts, moreProducts } = useValues(quickstartLogic)
+    const { featuredProducts, moreProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { showInviteModal } = useActions(inviteLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
     const installationComplete = useInstallationComplete('ingested_event')
 
     return (
         <div className="flex flex-col gap-8 py-4">
             <section className="rounded-lg border bg-surface-secondary flex items-stretch gap-6 overflow-hidden">
                 <img src={HERO_IMAGE_URL} alt="" className="w-56 lg:w-72 shrink-0 object-cover hidden md:block" />
-                <div className="flex flex-col justify-center gap-2 min-w-0 p-4 md:p-6 md:pl-0">
-                    <h1 className="text-3xl font-bold mb-0">
-                        Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
-                    </h1>
-                    <p className="text-secondary mb-0 max-w-200">
-                        Every product here runs on the same events. Get data flowing once, then turn things on as you
-                        need them. No extra installs.
-                    </p>
-                    {installationComplete && <EventsFlowingStatus />}
+                <div className="flex flex-col justify-center gap-3 min-w-0 flex-1 p-4 md:p-6 md:pl-0">
+                    <div>
+                        <h1 className="text-3xl font-bold mb-1">
+                            Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
+                        </h1>
+                        <p className="text-secondary mb-0 max-w-200">
+                            Every product here runs on the same events. Get data flowing once, then turn things on as
+                            you need them. No extra installs.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {installationComplete ? <EventsFlowingStatus /> : <EventsWaitingStatus />}
+                        <HeaderStat icon={<IconApps />}>
+                            {activeProductCount} of {totalProductCount} products active
+                        </HeaderStat>
+                        {currentOrganization?.member_count ? (
+                            <HeaderStat icon={<IconPeople />}>
+                                {currentOrganization.member_count === 1
+                                    ? '1 teammate'
+                                    : `${currentOrganization.member_count} teammates`}
+                            </HeaderStat>
+                        ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconSparkles />}
+                            to={urls.projectHomepage()}
+                            onClick={() => captureQuickstartAction('ask_max_header')}
+                            data-attr="quickstart-header-ask-max"
+                        >
+                            Ask Max
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPeople />}
+                            onClick={() => {
+                                captureQuickstartAction('invite_teammate_header')
+                                showInviteModal()
+                            }}
+                            data-attr="quickstart-header-invite"
+                        >
+                            Invite teammates
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            icon={<IconGear />}
+                            tooltip="Choose what your Home button opens"
+                            onClick={() => {
+                                captureQuickstartAction('configure_homepage')
+                                showConfigureHomeModal()
+                            }}
+                            data-attr="quickstart-header-configure-home"
+                        >
+                            Change homepage
+                        </LemonButton>
+                    </div>
                 </div>
             </section>
 
