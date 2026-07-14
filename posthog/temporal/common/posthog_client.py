@@ -18,7 +18,27 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_USER,
+    classify_failure_type,
+    is_user_query_error_type,
+)
+
 logger = get_write_only_logger()
+
+
+def _is_user_query_error(e: BaseException) -> bool:
+    """User-fault query errors (invalid HogQL, malformed filters) are the expected outcome of
+    running a bad user query, not a defect worth an error-tracking issue. The exports failure
+    handler already classifies them as FAILURE_TYPE_USER and fails the export non-retryably, so
+    reporting them here just adds noise. Reuse that classification so "user error" stays defined
+    in one place."""
+    # Export activities wrap the original error in an ApplicationError, preserving the underlying
+    # class name in `type` (see posthog.temporal.exports.activities.export_asset_activity).
+    if isinstance(e, temporalio.exceptions.ApplicationError) and is_user_query_error_type(e.type):
+        return True
+    # Otherwise classify the live exception, covering activities that raise the query error directly.
+    return isinstance(e, Exception) and classify_failure_type(e) == FAILURE_TYPE_USER
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -66,11 +86,16 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # Cancellations (worker drain, activity timeout, workflow cancellation), our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
+            # rate limiter already records via record_outbound_decision), and user-fault query
+            # errors (a bad user query that correctly fails the export) are all expected outcomes,
             # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or _is_user_query_error(e)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
