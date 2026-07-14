@@ -3,6 +3,7 @@ import traceback
 from django.db import transaction
 
 from posthog.tasks.alerts import utils as alert_utils
+from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.models import AlertConfiguration
@@ -14,6 +15,7 @@ def run_alert_check(alert_id: str) -> None:
 
     error = None
     result = None
+    previous_state = alert.state
     try:
         result = check_alert_for_insight(alert)
     except Exception as e:
@@ -31,6 +33,11 @@ def run_alert_check(alert_id: str) -> None:
             interval=result.interval if result else None,
             triggered_metadata=result.triggered_metadata if result else None,
         )
+
+    # Outside the persistence transaction: the investigation issues ClickHouse
+    # queries and must never hold the row lock or affect the check outcome.
+    if should_investigate_metrics_alert(alert, previous_state=previous_state, new_state=alert_check.state):
+        run_metrics_alert_investigation(alert, alert_check)
 
     if not notify:
         return

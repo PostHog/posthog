@@ -700,7 +700,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             organization=organization,
         )
 
-        # Investigation agent is only supported for detector-based alerts.
+        # Investigation agent is supported for detector-based alerts (the agent
+        # workflow) and for metrics threshold alerts (a synchronous facade
+        # investigation attached to the firing check) — nothing else.
         investigation_enabled = attrs.get(
             "investigation_agent_enabled",
             self.instance.investigation_agent_enabled if self.instance else False,
@@ -710,7 +712,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 "detector_config",
                 self.instance.detector_config if self.instance else None,
             )
-            if not detector_config:
+            if not detector_config and insight.alertable_query_kind != NodeKind.METRICS_QUERY:
                 raise ValidationError(
                     {
                         "investigation_agent_enabled": [
