@@ -2,7 +2,7 @@ import json
 import uuid
 import typing as t
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
@@ -11122,7 +11122,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             created_by=self.user,
         )
 
-    def _google_ads_accounts(self, listed: list[dict]):
+    def _google_ads_accounts(self, listed: list[dict[str, Any]]):
         with (
             patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
             patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
@@ -11132,7 +11132,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
             return self.client.get(self._url("GoogleAds", self._google_ads_integration().id))
 
     def test_google_ads_maps_hierarchy_to_accounts(self):
-        listed = [
+        listed: list[dict[str, Any]] = [
             {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
             {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
         ]
@@ -11165,7 +11165,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager, so
         # it names the true parent only one level down. A sub-manager's client must not claim to sit
         # "under" the root.
-        listed = [
+        listed: list[dict[str, Any]] = [
             {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
             {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Sub Manager", "manager": True},
             {"parent_id": "6501924158", "id": "5555555555", "level": "2", "name": "Deep Client", "manager": False},
