@@ -42,6 +42,7 @@
 
         .ExportedInsight__content {
             flex: 0 0 auto;
+
             // `min-height: 0` overrides the flex-item `auto` floor so the aspect-ratio governs the height
             // instead of the content's min-content height stretching the box taller than a square.
             min-height: 0;
