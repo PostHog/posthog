@@ -26,10 +26,7 @@ pub async fn run_cleanup(args: CleanupArgs) -> Result<()> {
         .await
         .context("connecting to persons DB")?;
 
-    let (persons, pdis) = seed::cleanup_team(&pool, args.team_id).await?;
-    println!(
-        "Deleted {persons} persons and {pdis} distinct ids for team {}",
-        args.team_id
-    );
+    let persons = seed::cleanup_team(&pool, args.team_id).await?;
+    println!("Deleted {persons} persons for team {}", args.team_id);
     Ok(())
 }

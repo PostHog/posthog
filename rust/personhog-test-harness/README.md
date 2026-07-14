@@ -35,7 +35,6 @@ target/debug/personhog-test-harness gate --external-router-url http://127.0.0.1:
 
 The spawned stack is isolated from the dev stack: its own port range (51xxx), its own etcd prefix (`/personhog-test-harness/`), and a per-run changelog topic (`personhog_test_harness_<run_id>`, deleted on teardown).
 Persons are seeded directly in Postgres for a reserved harness team id (SQL is the interim seeding mechanism until the create RPC's future is settled; `src/seed.rs` is the swap seam).
-There is no team to seed — the persons database has no team table and no foreign key on `team_id`, so the harness team exists only as an integer on rows — and cleanup deletes distinct-id rows that nothing writes yet, so RPC-based seeding (which will write them) can swap in without leaking.
 Service logs land in `<bin-dir>/harness-logs/<run_id>/`.
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).

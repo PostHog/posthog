@@ -72,23 +72,12 @@ pub fn validate_table_name(table: &str) -> Result<()> {
     Ok(())
 }
 
-/// Delete all persons (and any distinct-id rows) for `team_id`. The harness
-/// owns its team ids outright, so a team-wide delete is the whole cleanup.
-///
-/// Cleanup is deliberately broader than what today's seeder writes: nothing
-/// currently inserts distinct-id rows (traffic is id-keyed), but RPC-based
-/// seeding via CreatePerson will, and cleanup owning everything a harness
-/// team could accumulate means that swap can't leak rows. Deleting from an
-/// empty set costs nothing.
-pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<(u64, u64)> {
+/// Delete all persons for `team_id`. The harness owns its team ids
+/// outright, so a team-wide delete is the whole cleanup. Nothing writes
+/// distinct-id rows today (traffic is id-keyed), so nothing cleans them —
+/// that changes together when seeding grows a mechanism that writes them.
+pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<u64> {
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-
-    let pdis = sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
-        .bind(team)
-        .execute(pool)
-        .await
-        .context("deleting distinct ids")?
-        .rows_affected();
 
     let persons = sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(team)
@@ -97,5 +86,5 @@ pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<(u64, u64)> {
         .context("deleting persons")?
         .rows_affected();
 
-    Ok((persons, pdis))
+    Ok(persons)
 }

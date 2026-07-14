@@ -264,7 +264,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
 
     if !args.keep_data {
-        let (persons, _) = seed::cleanup_team(&pool, args.team_id).await?;
+        let persons = seed::cleanup_team(&pool, args.team_id).await?;
         if args.pg_target_table != "posthog_person" {
             seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
         }
