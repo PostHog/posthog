@@ -97,6 +97,17 @@ function DatasetCard({
     )
 }
 
+// Most severe first, matching the order the API returns tables in.
+const STATUS_SEVERITY: Record<ManagedWarehouseReadinessStateEnumApi, number> = {
+    needs_attention: 0,
+    backfilling: 1,
+    catching_up: 2,
+    waiting: 3,
+    unknown: 4,
+    up_to_date: 5,
+    not_configured: 6,
+}
+
 const sourceColumns: LemonTableColumns<ManagedWarehouseSourceTableStatusApi> = [
     {
         title: 'Source',
@@ -107,11 +118,13 @@ const sourceColumns: LemonTableColumns<ManagedWarehouseSourceTableStatusApi> = [
                 <div className="text-xs text-muted">{table.source_type}</div>
             </div>
         ),
+        sorter: (a, b) => a.source_name.localeCompare(b.source_name) || a.table_name.localeCompare(b.table_name),
     },
     {
         title: 'Table',
         dataIndex: 'table_name',
         render: (tableName) => <code>{tableName}</code>,
+        sorter: (a, b) => a.table_name.localeCompare(b.table_name),
     },
     {
         title: 'Warehouse status',
@@ -122,6 +135,7 @@ const sourceColumns: LemonTableColumns<ManagedWarehouseSourceTableStatusApi> = [
                 <div className="text-xs text-muted">{table.detail}</div>
             </div>
         ),
+        sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
     },
     {
         title: 'Backfill',
@@ -134,12 +148,15 @@ const sourceColumns: LemonTableColumns<ManagedWarehouseSourceTableStatusApi> = [
         dataIndex: 'pending_batches',
         render: (pendingBatches) =>
             typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
+        // Unavailable counts sort last rather than as zero, which would read as "nothing pending".
+        sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
     },
     {
         title: 'Last source import',
         dataIndex: 'last_synced_at',
         render: (lastSyncedAt) =>
             typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
+        sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
     },
 ]
 
