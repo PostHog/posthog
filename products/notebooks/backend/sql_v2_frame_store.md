@@ -205,6 +205,10 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
 - Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
   kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
   makes every download fail (loud, not silent).
+- Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
+  Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
+  mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
+  objects. The rule is infra-owned; app-level cleanup would duplicate it poorly.
 - Known degraded-mode caveat: with the flag off (the default) or object storage down, a `delivery: "object"`
   request falls back to the inline path clamped at 50k rows and the frame is silently truncated. Fine for
   frames under the clamp; a user-visible truncation signal is a follow-up before GA.
