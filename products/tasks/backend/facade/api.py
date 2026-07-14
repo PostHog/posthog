@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     is_blocked_sandbox_env_key,
 )
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.logic.services.image_builder import (
@@ -139,6 +140,7 @@ __all__ = [
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
+    "complete_idle_local_task_run",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -627,13 +629,16 @@ def get_stale_queued_task_run_ids(
     *,
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
-    cloud_only: bool = False,
+    environment: str | None = None,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
-    ``cloud_only`` restricts the sweep to cloud-environment runs. Local (desktop) runs sit in
-    QUEUED by design while the desktop agent drives them, so dispatch-recovery callers must
-    exclude them — cloud-dispatching one hijacks the user's live local session.
+    ``environment`` restricts the sweep to runs of that environment. A QUEUED cloud run is
+    awaiting a workflow that should have started, but a local (desktop) run sits in QUEUED by
+    design while the desktop agent drives it — so sweep callers must scope themselves and act
+    per environment: dispatch recovery must only touch cloud runs (cloud-dispatching a local
+    run hijacks the user's live local session), and the janitor fails stale cloud runs but
+    quietly completes stale local ones.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
@@ -642,8 +647,8 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
-    if cloud_only:
-        queryset = queryset.filter(environment=TaskRun.Environment.CLOUD)
+    if environment is not None:
+        queryset = queryset.filter(environment=environment)
     return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
 
 
@@ -876,7 +881,7 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
-def fail_task_run(run_id: str | UUID, error: str) -> bool:
+def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
     Refetches filtered on ``status=QUEUED`` so a run that left the queue between the
@@ -887,11 +892,39 @@ def fail_task_run(run_id: str | UUID, error: str) -> bool:
     ).first()  # nosemgrep: celery-task-team-scope-audit
     if run is None:
         return False
-    run.mark_failed(error)
+    run.mark_failed(error, error_type=error_type)
     return True
 
 
-def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
+def complete_idle_local_task_run(run_id: str | UUID) -> bool:
+    """Quietly finalize a local (desktop-driven) run left idling in QUEUED. Returns whether
+    a run was acted on.
+
+    Local runs never get a cloud workflow, so QUEUED is their steady state while the desktop
+    drives the session — once the desktop goes away, nothing else ever terminalizes the row.
+    An idle session that ended is the run's normal end state, so it finalizes as COMPLETED,
+    and without a push notification: pinging a user a day after they closed their session is
+    noise, not signal.
+
+    Compare-and-set claim (like ``claim_and_fail_stale_run``): the conditional update flips the
+    run only while it is still QUEUED *and* local, so a run that left the queue — or was handed
+    off to cloud (handoff keeps status QUEUED) — between the candidate scan and this call is
+    skipped rather than terminalized under its just-dispatched workflow. The winner finalizes
+    via ``mark_completed`` (``completed_at``, stream + analytics). Intentionally cross-team
+    (janitor sweep).
+    """
+    claimed = TaskRun.objects.filter(
+        pk=run_id, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+    ).update(status=TaskRun.Status.COMPLETED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    return True
+
+
+def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
     Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
@@ -907,7 +940,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
-        run.mark_failed(error)
+        run.mark_failed(error, error_type=error_type)
     return True
 
 
@@ -1490,6 +1523,9 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
+#     the derived id); a caller could otherwise repoint their run at another team's workflow and
+#     signal or terminate-and-restart it.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1506,6 +1542,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        "workflow_id",
+        "pending_dispatch",
     }
 )
 
@@ -1795,6 +1833,17 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
+            # This PATCH performed the DB transition, so it owns the task_run_failed
+            # capture. The workflow's status-update activity sees the row already
+            # FAILED and skips its own capture, keeping the event single-emitted.
+            run.capture_event(
+                "task_run_failed",
+                {
+                    "error_message": truncate_error_message(run.error_message),
+                    "error_type": "agent_reported",
+                    "duration_seconds": run._duration_seconds(),
+                },
+            )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
@@ -2595,7 +2644,6 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keep ORM off the api import path
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
         signal_agent_text_delta,
@@ -2617,7 +2665,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(TaskRun.get_workflow_id(str(run.task_id), str(run.id)), trimmed)
+            signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -4253,7 +4301,12 @@ def _slack_repo_research_dto(
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
-    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
+    workflow_id = (
+        research_run.workflow_id
+        if research_run is not None
+        else TaskRun.get_workflow_id(research_task_id, research_run_id)
+    )
     return contracts.SlackThreadContextRepoResearchDTO(
         task_id=research_task_id,
         run_id=research_run_id,
@@ -4316,7 +4369,7 @@ def resolve_slack_thread_context(
     for run in runs:
         state = run.state if isinstance(run.state, dict) else {}
         output = run.output if isinstance(run.output, dict) else {}
-        task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+        task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
             presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)

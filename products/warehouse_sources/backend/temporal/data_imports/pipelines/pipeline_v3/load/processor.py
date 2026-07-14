@@ -354,7 +354,13 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     _release_pipeline_lock_for_job(export_signal)
 
 
-def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
+def process_message(
+    message: Any,
+    progress_callback: Callable[[], None] | None = None,
+    verify_ownership: Callable[[], None] | None = None,
+) -> None:
+    """Load one batch into Delta Lake. ``verify_ownership`` raises if the group lease was lost;
+    re-checked before each lasting side effect since the heartbeat only detects loss between beats."""
     export_signal = ExportSignalMessage.from_dict(message)
 
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
@@ -413,6 +419,8 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
+            if verify_ownership is not None:
+                verify_ownership()
             _run_post_load_for_already_processed_batch(export_signal)
             _mark_job_completed(export_signal)
             return
@@ -523,6 +531,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
 
+        if verify_ownership is not None:
+            verify_ownership()
+
         if cdc_write_mode == "scd2_append":
             logger.debug(
                 "writing_scd2_to_delta_lake",
@@ -601,6 +612,11 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                 schema_cdc_table_mode=schema.cdc_table_mode,
                 resource_name=export_signal.resource_name,
             )
+
+            # Minutes may have passed since the batch's write — re-check before post-load
+            # commits and job completion promote the staged cursor under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
 
             async_to_sync(run_post_load_operations)(
                 job=job,

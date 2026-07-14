@@ -2061,7 +2061,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_3_high", "gpt-5.3-codex", "high"),
             ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
             ("gpt_5_6_sol_xhigh", "gpt-5.6-sol", "xhigh"),
+            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max"),
             ("gpt_5_6_luna_xhigh", "gpt-5.6-luna", "xhigh"),
+            ("gpt_5_6_luna_max", "gpt-5.6-luna", "max"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2092,7 +2094,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
-    @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
+    @parameterized.expand([("plan",), ("auto",), ("read-only",), ("full-access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
         task = self.create_task()
@@ -2126,8 +2128,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "codex_rejects_claude_mode",
                 "codex",
                 "gpt-5.4",
-                "plan",
-                "Invalid choice 'plan' for runtime_adapter 'codex'. Supported values: 'auto', 'read-only', 'full-access'.",
+                "bypassPermissions",
+                "Invalid choice 'bypassPermissions' for runtime_adapter 'codex'. Supported values: 'plan', 'auto', 'read-only', 'full-access'.",
             ),
         ]
     )
@@ -2289,7 +2291,6 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
             ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
-            ("gpt_5_6_sol_max", "gpt-5.6-sol", "max", "low, medium, high, xhigh"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2400,6 +2401,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("low",),
             ("medium",),
             ("high",),
+            # xhigh is load-bearing: ReviewHog pins it for its one-shot and review runs.
+            ("xhigh",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2427,17 +2430,18 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
-        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
-        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
-        # rejection capture also fires for a model that has some supported efforts.
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-4-6 supports low/medium/high but not xhigh (claude-sonnet-5 accepts the
+        # full set, ReviewHog pins its xhigh) - this pins the "Supported values: <non-empty list>"
+        # message and confirms the rejection capture also fires for a model with some supported
+        # efforts.
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
             },
             format="json",
@@ -2449,7 +2453,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
             ),
             "attr": "reasoning_effort",
         }
@@ -2461,11 +2465,11 @@ class TestTaskAPI(BaseTaskAPITest):
             event="task run reasoning effort rejected",
             properties={
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
                 "error": (
                     "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
                 ),
             },
             groups=ANY,
@@ -3730,14 +3734,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
+                "workflow_id": "wf-real",
+                "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
         # credential-propagation target at a sandbox they control, inflate the run's compute /
-        # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
+        # lifetime to provision an oversized, long-lived sandbox, turn the run into a wizard run
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
-        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
+        # decisions, change Modal resume snapshot metadata, repoint the run at another
+        # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
+        # scopes) via pending_dispatch. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3754,6 +3762,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
+                    "workflow_id": "wf-another-teams-workflow",
+                    "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
                     "scratch": "ok",
                 }
             },
@@ -3773,6 +3783,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
+        assert run.state["workflow_id"] == "wf-real"
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -3787,6 +3799,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
+                    "workflow_id",
+                    "pending_dispatch",
                     "scratch",
                 ],
             },
@@ -3800,6 +3814,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
+        assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

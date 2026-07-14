@@ -6,8 +6,6 @@ import { IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,6 +14,80 @@ import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
+
+// Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
+// The available globals depend on the trigger type: batch runs have no external triggering event,
+// but the worker backfills a real event.distinct_id at dequeue, so batch must expose `event` too or
+// the editor wrongly flags {event.distinct_id} as unknown.
+export function buildSampleGlobals(
+    triggerType: string | undefined,
+    variables: Array<Record<string, any>> | undefined | null
+): Record<string, any> {
+    const workflowVariables: Record<string, any> = {}
+    variables?.forEach((variable) => {
+        // Use placeholder values based on variable type
+        if (variable.type === 'string') {
+            workflowVariables[variable.key] = 'example_value'
+        } else if (variable.type === 'number') {
+            workflowVariables[variable.key] = 123
+        } else if (variable.type === 'boolean') {
+            workflowVariables[variable.key] = true
+        } else if (variable.type === 'dictionary' || variable.type === 'json') {
+            workflowVariables[variable.key] = {}
+        } else {
+            workflowVariables[variable.key] = null
+        }
+    })
+
+    const sampleGlobals: Record<string, any> = {
+        variables: workflowVariables,
+    }
+
+    if (triggerType === 'webhook') {
+        sampleGlobals.request = {
+            method: 'POST',
+            headers: {},
+            body: {},
+            params: {},
+        }
+    } else if (triggerType === 'event') {
+        sampleGlobals.event = {
+            event: 'example_event',
+            distinct_id: 'user123',
+            properties: {
+                $current_url: 'https://example.com',
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
+        sampleGlobals.groups = {}
+    } else if (triggerType === 'batch') {
+        // Batch runs carry a synthesized event whose distinct_id the worker backfills from the
+        // person, so {event.distinct_id} resolves at runtime. Expose it here so the editor
+        // doesn't flag it as an unknown global.
+        sampleGlobals.event = {
+            event: '$batch_hog_flow_invocation',
+            distinct_id: 'user123',
+            properties: {},
+            timestamp: '2024-01-01T12:00:00Z',
+        }
+        sampleGlobals.person = {
+            id: 'person123',
+            properties: {
+                email: 'user@example.com',
+                name: 'John Doe',
+            },
+        }
+    }
+
+    return sampleGlobals
+}
 
 export function HogFlowFunctionConfiguration({
     templateId,
@@ -37,11 +109,9 @@ export function HogFlowFunctionConfiguration({
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
-    const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
@@ -68,64 +138,7 @@ export function HogFlowFunctionConfiguration({
     }
 
     const triggerType = workflow?.trigger?.type
-
-    // Build workflow variables object for autocomplete
-    const workflowVariables: Record<string, any> = {}
-    if (workflow?.variables) {
-        workflow.variables.forEach((variable) => {
-            // Use placeholder values based on variable type
-            if (variable.type === 'string') {
-                workflowVariables[variable.key] = 'example_value'
-            } else if (variable.type === 'number') {
-                workflowVariables[variable.key] = 123
-            } else if (variable.type === 'boolean') {
-                workflowVariables[variable.key] = true
-            } else if (variable.type === 'dictionary' || variable.type === 'json') {
-                workflowVariables[variable.key] = {}
-            } else {
-                workflowVariables[variable.key] = null
-            }
-        })
-    }
-
-    const sampleGlobals: Record<string, any> = {
-        variables: workflowVariables,
-    }
-
-    if (triggerType === 'webhook') {
-        sampleGlobals.request = {
-            method: 'POST',
-            headers: {},
-            body: {},
-            params: {},
-        }
-    } else if (triggerType === 'event') {
-        // Event-based triggers
-        sampleGlobals.event = {
-            event: 'example_event',
-            distinct_id: 'user123',
-            properties: {
-                $current_url: 'https://example.com',
-            },
-            timestamp: '2024-01-01T12:00:00Z',
-        }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
-        sampleGlobals.groups = {}
-    } else if (triggerType === 'batch') {
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
-    }
+    const sampleGlobals = buildSampleGlobals(triggerType, workflow?.variables)
 
     return (
         <>
@@ -140,7 +153,7 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
-            {isEmailStep && engagementEventsAvailable ? (
+            {isEmailStep ? (
                 engagementEventsEnabled ? (
                     <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
                         <IconCheck className="text-success text-base" />

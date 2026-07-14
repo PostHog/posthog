@@ -23,6 +23,7 @@ from posthog.tasks.alerts.trends import (
     _has_breakdown,
     _is_non_time_series_trend,
     _pick_series_result,
+    query_excludes_incomplete_periods,
 )
 
 from products.alerts.backend.evaluation.contract import (
@@ -71,6 +72,13 @@ class TrendsExtractor:
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
         check_current_interval = bool(config.check_ongoing_interval)
+        # The query clips the ongoing interval, so the trailing point is complete.
+        already_complete = query_excludes_incomplete_periods(query)
+        if check_current_interval and already_complete:
+            raise ValueError(
+                "check_ongoing_interval is not supported when the insight excludes incomplete periods "
+                "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results"
+            )
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
 
@@ -132,7 +140,16 @@ class TrendsExtractor:
             case _:
                 raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
 
-        series = self._to_series(config, calculation_result, has_breakdown, is_non_time_series, anchor_is_current)
+        # A clipped query's trailing point is complete: anchor on it instead of skipping back one
+        # more period, while keeping is_current_interval false so breach wording stays "previous".
+        series = self._to_series(
+            config,
+            calculation_result,
+            has_breakdown,
+            is_non_time_series,
+            anchor_last_point=anchor_is_current or already_complete,
+            is_current_interval=anchor_is_current,
+        )
         # subject/framed use the ExtractionResult defaults ("The insight value", framed).
         return ExtractionResult(
             series=series,
@@ -188,7 +205,9 @@ class TrendsExtractor:
         calculation_result: InsightResult,
         has_breakdown: bool,
         is_non_time_series: bool,
-        anchor_is_current: bool,
+        *,
+        anchor_last_point: bool,
+        is_current_interval: bool,
     ) -> list[ComparableSeries]:
         if has_breakdown:
             results = cast(list[dict[str, Any]], calculation_result.result)
@@ -204,16 +223,17 @@ class TrendsExtractor:
                 dates = result.get("dates") or result.get("days") or [None] * len(data)
                 points = [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
 
-            # Anchor on the current (ongoing) interval, or the last complete one. On a series
-            # shorter than expected this can go negative and wrap, which the comparator then
-            # treats as having no previous point — acceptable for a degenerate sparse series.
-            current_index = len(points) - 1 if anchor_is_current else len(points) - 2
+            # Anchor on the last point (the ongoing interval, or the last complete one on a clipped
+            # query), or the second-to-last. On a series shorter than expected this can go negative
+            # and wrap, which the comparator then treats as having no previous point — acceptable
+            # for a degenerate sparse series.
+            current_index = len(points) - 1 if anchor_last_point else len(points) - 2
             series.append(
                 ComparableSeries(
                     label=humanize_breakdown_label(result["label"]),
                     points=points,
                     current_index=current_index,
-                    is_current_interval=anchor_is_current,
+                    is_current_interval=is_current_interval,
                 )
             )
         return series

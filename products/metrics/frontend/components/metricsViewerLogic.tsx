@@ -11,6 +11,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectsEqual } from 'lib/utils/objects'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,7 +20,11 @@ import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '
 import { QueryBasedInsightModel } from '~/types'
 import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
-import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import {
+    metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
+    metricsQueryCreate,
+} from 'products/metrics/frontend/generated/api'
 import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 import type {
     _MetricAnomalyReportApi,
@@ -138,13 +143,21 @@ export const resolveDate = (value: string | null | undefined): string | null => 
     return dj.isValid() ? dj.toISOString() : null
 }
 
+// The picker reports raw ingest strings; only enum members may reach the API.
+const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
+    const known = Object.values(OtelMetricTypeEnumApi) as string[]
+    return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
+}
+
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], metricNamePickerLogic, ['items']],
+        actions: [metricNamePickerLogic, ['loadItemsSuccess']],
     })),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
+        setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => ({ metricType }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         // Auto-applied on metric switch — a separate action so usage tracking can
         // tell it apart from the user picking an aggregation themselves.
@@ -155,7 +168,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
+        setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Saves the current query as an insight (reusing the last save while the
+        // query is unchanged) and opens the dashboard picker for it.
+        addToDashboard: true,
+        openAddToDashboardModal: true,
+        closeAddToDashboardModal: true,
+        setLastSavedQueryNode: (query: MetricsQuery) => ({ query }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -163,6 +183,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     reducers({
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
+        // The picked metric's type, latched at pick time (and backfilled if the
+        // picker list arrives later). Not derived from the picker's `items` —
+        // those are live search results, so typing a new search would wipe a
+        // derived value and queries/saves would silently go untyped. Sent with
+        // queries so a name that exists as several types (e.g. a counter and a
+        // gauge) charts only the picked one instead of blending them.
+        selectedMetricType: [
+            null as OtelMetricTypeEnumApi | null,
+            { setSelectedMetricType: (_, { metricType }) => metricType },
+        ],
         aggregation: [
             DEFAULT_AGGREGATION as MetricAggregation,
             {
@@ -178,11 +208,37 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
+        // Free-text search backing the group-by attribute-key autocomplete.
+        groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
         // The filter bar's UniversalFilters group; converted into backend matchers by `queryFilters`.
         filterGroup: [DEFAULT_UNIVERSAL_GROUP_FILTER, { setFilterGroup: (_, { filterGroup }) => filterGroup }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
+        ],
+        isAddToDashboardModalOpen: [
+            false,
+            {
+                openAddToDashboardModal: () => true,
+                closeAddToDashboardModal: () => false,
+            },
+        ],
+        // The query node exactly as the last successful save sent it. The reuse
+        // check compares against this, not the server-returned insight.query —
+        // the API may normalize the stored node (injected defaults, version
+        // stamps), and a comparison against that would never match and would
+        // save a duplicate insight on every click.
+        lastSavedQueryNode: [null as MetricsQuery | null, { setLastSavedQueryNode: (_, { query }) => query }],
+        // Armed while an addToDashboard-initiated save is in flight, so the success
+        // path opens the modal instead of the "View insight" toast. Not reset on
+        // success by a reducer — the success listener must still read it as armed.
+        pendingAddToDashboard: [
+            false,
+            {
+                addToDashboard: () => true,
+                openAddToDashboardModal: () => false,
+                saveAsInsightFailure: () => false,
+            },
         ],
         // A real query failure (bad regex, 500, timeout) — surfaced as a banner so it isn't mistaken
         // for the empty-result state. Cleared when a new query starts or one succeeds; an aborted
@@ -199,16 +255,49 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         setMetricName: ({ metricName }) => {
+            const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
+            actions.setSelectedMetricType(toKnownMetricType(metricType))
             // Each metric type has one sensible default; a manual aggregation pick
             // holds only until the next metric switch.
-            const metricType = values.items.find((item) => item.name === metricName)?.metric_type
             const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
             if (recommended && recommended !== values.aggregation) {
                 actions.setRecommendedAggregation(recommended)
             }
         },
+        // Recovers the type when the metric name was set before the picker's list
+        // arrived (initial load); an already-latched type is left alone.
+        loadItemsSuccess: () => {
+            if (values.selectedMetricType !== null || !values.hasMetricName) {
+                return
+            }
+            const metricType = values.items.find((item) => item.name === values.metricName.trim())?.metric_type
+            const known = toKnownMetricType(metricType)
+            if (known) {
+                actions.setSelectedMetricType(known)
+            }
+        },
         saveAsInsightFailure: ({ error }) => {
             lemonToast.error(`Failed to save insight: ${error}`)
+        },
+        addToDashboard: () => {
+            if (!values.metricsQueryNode) {
+                return
+            }
+            // Re-clicking with an unchanged query reuses the saved insight instead
+            // of littering saved insights with duplicates.
+            if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.metricsQueryNode)) {
+                actions.openAddToDashboardModal()
+                return
+            }
+            actions.saveAsInsight()
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (savedInsight && values.pendingAddToDashboard) {
+                actions.openAddToDashboardModal()
+            }
+        },
+        setGroupBySearch: () => {
+            actions.loadAttributeKeyOptions({})
         },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
@@ -237,6 +326,26 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         },
     })),
     loaders(({ values, actions }) => ({
+        // Backs the group-by attribute-key autocomplete. Scoped to the viewer's window so
+        // suggestions match the data on screen; debounced to match the chart fetch cadence.
+        attributeKeyOptions: [
+            [] as { key: string; label: string }[],
+            {
+                loadAttributeKeyOptions: async (_, breakpoint) => {
+                    await breakpoint(300)
+                    const dateFrom = resolveDate(values.dateFrom) ?? undefined
+                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const response = await metricsAttributesRetrieve(String(values.currentTeamId), {
+                        search: values.groupBySearch,
+                        ...(dateFrom ? { dateFrom } : {}),
+                        ...(dateTo ? { dateTo } : {}),
+                        limit: 100,
+                    })
+                    breakpoint()
+                    return response.results.map((result) => ({ key: result.name, label: result.name }))
+                },
+            },
+        ],
         queryResults: [
             [] as MetricsViewerSeries[],
             {
@@ -289,12 +398,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         query,
                         saved: true,
                     })
-                    lemonToast.success('Insight saved', {
-                        button: {
-                            label: 'View insight',
-                            action: () => router.actions.push(urls.insightView(insight.short_id)),
-                        },
-                    })
+                    actions.setLastSavedQueryNode(query)
+                    // The add-to-dashboard flow opens the dashboard picker instead of a toast.
+                    if (!values.pendingAddToDashboard) {
+                        lemonToast.success('Insight saved', {
+                            button: {
+                                label: 'View insight',
+                                action: () => router.actions.push(urls.insightView(insight.short_id)),
+                            },
+                        })
+                    }
                     return insight
                 },
             },
@@ -335,23 +448,28 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
-        // The picked metric's type (from the names list). Sent with the query so
-        // a name that exists as several types (e.g. a counter and a gauge)
-        // charts only the picked one instead of blending them.
-        selectedMetricType: [
-            (s) => [s.metricName, s.items],
-            (metricName, items): OtelMetricTypeEnumApi | null => {
-                const metricType = items.find((item) => item.name === metricName.trim())?.metric_type
-                const known = Object.values(OtelMetricTypeEnumApi) as string[]
-                return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
-            },
-        ],
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
         metricsQueryNode: [
-            (s) => [s.metricName, s.aggregation, s.dateFrom, s.dateTo, s.groupByKeys, s.queryFilters],
-            (metricName, aggregation, dateFrom, dateTo, groupByKeys, queryFilters): MetricsQuery | null => {
+            (s) => [
+                s.metricName,
+                s.aggregation,
+                s.selectedMetricType,
+                s.dateFrom,
+                s.dateTo,
+                s.groupByKeys,
+                s.queryFilters,
+            ],
+            (
+                metricName,
+                aggregation,
+                selectedMetricType,
+                dateFrom,
+                dateTo,
+                groupByKeys,
+                queryFilters
+            ): MetricsQuery | null => {
                 const trimmedName = metricName.trim()
                 if (!trimmedName) {
                     return null
@@ -360,6 +478,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     name: 'a',
                     metricName: trimmedName,
                     aggregation: aggregation === 'p95' ? 'quantile' : aggregation,
+                    // Pins the OTel type so the saved tile can't blend same-named
+                    // series of different types (mirrors the live viewer's query).
+                    ...(selectedMetricType ? { metricType: selectedMetricType } : {}),
                     ...(aggregation === 'p95' ? { quantile: 0.95 } : {}),
                     ...(queryFilters.length
                         ? {

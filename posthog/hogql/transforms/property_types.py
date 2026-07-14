@@ -17,6 +17,7 @@ from posthog.hogql.database.schema.events import (
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -210,11 +211,11 @@ class PropertySwapper(CloningVisitor):
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault) require a String first argument and raise
+    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
     # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float — the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault"}
+    # to Float, the raw String value has to flow through for the parser to work.
+    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     def __init__(
         self,
@@ -516,6 +517,10 @@ class PropertySwapper(CloningVisitor):
         # regardless of the constant's original tzinfo (see escape_sql.py:249).
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
+                return expr
+            # ClickHouse's toDateTime64 can't parse 'Z'/offset strings, so parse them in Python instead.
+            if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
+                inner.value = zoned
                 return expr
             new_call = ast.Call(
                 name="toDateTime64",

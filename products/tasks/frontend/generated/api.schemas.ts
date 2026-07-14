@@ -525,6 +525,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
+ * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
@@ -544,6 +545,7 @@ export const OriginProductEnumApi = {
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
 } as const
 
@@ -618,6 +620,7 @@ export interface TaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
@@ -732,6 +735,7 @@ export interface PatchedTaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
@@ -974,6 +978,7 @@ export const CodexRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `plan` - plan
  * * `auto` - auto
  * * `read-only` - read-only
  * * `full-access` - full-access
@@ -982,6 +987,7 @@ export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
 
 export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Plan: 'plan',
     Auto: 'auto',
     ReadOnly: 'read-only',
     FullAccess: 'full-access',
@@ -1050,6 +1056,7 @@ export interface CodexTaskRunCreateSchemaApi {
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
+     * * `plan` - plan
      * * `auto` - auto
      * * `read-only` - read-only
      * * `full-access` - full-access */
@@ -1509,7 +1516,7 @@ export interface TaskRunBootstrapCreateRequestApi {
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
-    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
+    /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2362,7 +2369,7 @@ export interface SlackThreadContextRepoResearchApi {
      * @nullable
      */
     status: string | null
-    /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`). */
+    /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
     task_processing_workflow_id: string
     /**
      * Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.
@@ -2413,7 +2420,7 @@ export interface SlackThreadContextRunApi {
      * @nullable
      */
     error_message: string | null
-    /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`). */
+    /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
     task_processing_workflow_id: string
     /**
      * Full Temporal Web UI URL for the task-processing workflow; null when `TEMPORAL_UI_HOST` is unset.

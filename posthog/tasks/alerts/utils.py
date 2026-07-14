@@ -213,9 +213,17 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
+def send_notifications_for_breaches(
+    alert: AlertConfiguration,
+    breaches: list[str],
+    idempotency_key: str,
+    extra_properties: dict[str, str] | None = None,
+) -> list[str]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once delivery on retries.
+
+    `extra_properties` are merged into the internal-event properties that HogFunction
+    destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
     """
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
@@ -243,7 +251,9 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
+    # Join with newlines so each breach/investigation line renders on its own line in
+    # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": "\n".join(breaches), **(extra_properties or {})})
 
     return email_targets
 
@@ -281,6 +291,7 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
+    extra_properties: dict[str, str] | None = None,
 ) -> list[str] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -313,6 +324,12 @@ def dispatch_alert_notification(
                     "caller must pass the breaches list from AlertEvaluationResult"
                 )
             logger.info("Sending alert firing notifications", alert_id=alert.id)
+            # Only forward extra_properties when there's something to add (anomaly investigations),
+            # keeping the common threshold-alert call unchanged.
+            if extra_properties:
+                return send_notifications_for_breaches(
+                    alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                )
             return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
         case _:
             raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")

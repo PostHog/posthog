@@ -1502,7 +1502,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept "
             "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
-            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
+            "Codex runtimes accept 'plan', 'auto', 'read-only', and 'full-access'."
         ),
     )
     rtk_enabled = serializers.BooleanField(
@@ -1673,8 +1673,8 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
-            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
-            "'read-only'."
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', "
+            "and 'read-only'."
         ),
     )
     rtk_enabled = serializers.BooleanField(
@@ -2420,7 +2420,10 @@ class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
         help_text="Research run status, or null if the run row could not be loaded.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,
@@ -2462,7 +2465,10 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         help_text="Error captured on terminal failure, or null on success.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,
