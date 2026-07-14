@@ -2012,6 +2012,19 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetricsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+        ),
+    )
+    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+
+
 class MetricsQueryFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

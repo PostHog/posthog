@@ -133,6 +133,23 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
+    // ---- Debug API ----
+    /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
+    /// `/debug/events` SSE) on the health server, recording structured events
+    /// (batch lifecycle, deferrals, retries, worker health) into a bounded
+    /// in-memory buffer. Consumed by the ingestion control plane UI. A pure
+    /// observer for dev and incident debugging; off by default. Requires
+    /// DEBUG_API_SECRET — enabling without a secret mounts nothing.
+    #[envconfig(from = "DEBUG_API_ENABLED", default = "false")]
+    pub debug_api_enabled: bool,
+
+    /// Shared secret callers must present as `X-Debug-Api-Secret` on every
+    /// `/debug/*` request. Dedicated to this one control-plane→consumer hop
+    /// (deliberately not `INTERNAL_API_SECRET` — see .agents/security.md).
+    /// Empty fails closed: the debug API is not mounted without it.
+    #[envconfig(from = "DEBUG_API_SECRET", default = "")]
+    pub debug_api_secret: String,
+
     // ---- Ordering sentinels ----
     /// Kill switch for the ordering sentinels (per-partition commit
     /// contiguity/monotonicity checks and per-key send-order checks). They are
