@@ -71,9 +71,13 @@ def _format_datetime_param(value: Any) -> str:
 
 
 def _make_session(api_key: str) -> requests.Session:
+    # capture=False: Vapi response bodies carry secrets under names the sample-capture
+    # scrubbers don't recognise (`credentials` arrays, `twilioAuthToken`, webhook `secret`,
+    # header maps) — see `_scrub_sensitive_values`, which only protects the warehouse path.
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         redact_values=(api_key,),
+        capture=False,
     )
 
 
