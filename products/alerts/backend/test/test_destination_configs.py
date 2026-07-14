@@ -18,7 +18,7 @@ PROSE_SPEC = EventKindSpec(
     button_url="https://example.com/insight",
     button_label="View insight",
     webhook_body={},
-    body_lines=("Pageviews is 42, breaching 30", "Signups is 7, breaching 5"),
+    intro_lines=("Pageviews is 42, breaching 30", "Signups is 7, breaching 5"),
     extra_buttons=(Button(url="https://example.com/alert", label="Manage alert"),),
 )
 

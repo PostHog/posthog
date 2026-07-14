@@ -41,7 +41,7 @@ class EventKindSpec:
     button_label: str
     webhook_body: dict[str, Any]
     product_label: str = "alert"
-    body_lines: tuple[str, ...] = ()
+    intro_lines: tuple[str, ...] = ()
     extra_buttons: tuple[Button, ...] = ()
 
     def destination_description(self, alert_name: str) -> str:
@@ -70,8 +70,8 @@ def destination_filter(alert_id: str, event_id: str) -> dict[str, Any]:
 
 def slack_body(spec: EventKindSpec) -> str:
     parts = []
-    if spec.body_lines:
-        parts.append("\n".join(spec.body_lines))
+    if spec.intro_lines:
+        parts.append("\n".join(spec.intro_lines))
     if spec.details:
         parts.append("\n".join(f"*{label}:* {value}" for label, value in spec.details))
     return "\n\n".join(parts)
@@ -102,7 +102,7 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
 
 def teams_text(spec: EventKindSpec) -> str:
     parts = [f"**{spec.header}**"]
-    parts.extend(spec.body_lines)
+    parts.extend(spec.intro_lines)
     if spec.details:
         parts.append("\n\n".join(f"**{label}:** {value}" for label, value in spec.details))
     parts.append(
