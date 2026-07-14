@@ -123,6 +123,7 @@ def roll_out_variant(
     variant_key: str,
     *,
     release_to_everyone: bool = False,
+    release_condition_description: str | None = None,
 ) -> dict:
     """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
 
@@ -133,18 +134,16 @@ def roll_out_variant(
     When ``release_to_everyone`` is True, a catch-all release condition is prepended
     that rolls the variant out to 100% of users — note that under top-down
     first-match evaluation this overrides any existing release conditions and
-    per-user variant overrides below it.
+    per-user variant overrides below it. ``release_condition_description`` is set as
+    the description of that catch-all condition, so callers can say why it was added;
+    it has no effect unless ``release_to_everyone`` is True.
     """
     groups = list(current_filters.get("groups", []))
     if release_to_everyone:
-        groups = [
-            {
-                "properties": [],
-                "rollout_percentage": 100,
-                "description": "Added automatically when the experiment was ended to keep only one variant.",
-            },
-            *groups,
-        ]
+        catch_all: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
+        if release_condition_description is not None:
+            catch_all["description"] = release_condition_description
+        groups = [catch_all, *groups]
 
     return {
         "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
@@ -168,6 +167,7 @@ def ship_variant(
     variant_key: str,
     *,
     release_to_everyone: bool = False,
+    release_condition_description: str | None = None,
     team: Team,
     user: Any,
     request: Any | None = None,
@@ -179,7 +179,9 @@ def ship_variant(
     are preserved untouched — the variant is served only to users who already match
     them. Pass ``release_to_everyone=True`` to also prepend a catch-all release
     condition that rolls the variant out to 100% of users (overrides any existing
-    release conditions and per-user variant overrides).
+    release conditions and per-user variant overrides), with
+    ``release_condition_description`` as its description — that parameter has no
+    effect unless ``release_to_everyone`` is True.
 
     ``base_filters`` lets a caller fold companion adjustments it already computed from
     the flag's current filters into the same gated write; defaults to the flag's
@@ -196,7 +198,12 @@ def ship_variant(
     if not any(v["key"] == variant_key for v in variants):
         raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
-    new_filters = roll_out_variant(filters, variant_key, release_to_everyone=release_to_everyone)
+    new_filters = roll_out_variant(
+        filters,
+        variant_key,
+        release_to_everyone=release_to_everyone,
+        release_condition_description=release_condition_description,
+    )
     return update_flag(flag, {"filters": new_filters}, team=team, user=user, request=request)
 
 

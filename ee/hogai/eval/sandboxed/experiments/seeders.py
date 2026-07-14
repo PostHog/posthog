@@ -49,8 +49,8 @@ ENDED_EXPERIMENT_NAME = "checkout cta v2"
 
 
 # Verbatim string PostHog writes onto a feature flag's `properties[].description`
-# when an experiment is shipped, see roll_out_variant in
-# products.feature_flags.backend.facade.api
+# when an experiment is shipped, see the ship_flag_variant call in
+# products.experiments.backend.experiment_service
 SHIP_VARIANT_FLIP_SIGNATURE = "Added automatically when the experiment was ended to keep only one variant."
 
 

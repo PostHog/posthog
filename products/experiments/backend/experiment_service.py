@@ -2599,6 +2599,7 @@ class ExperimentService:
             flag,
             variant_key,
             release_to_everyone=release_to_everyone,
+            release_condition_description="Added automatically when the experiment was ended to keep only one variant.",
             base_filters=base_filters,
             team=self.team,
             user=self.user,

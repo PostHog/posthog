@@ -116,7 +116,12 @@ class TestRollOutVariant:
             "aggregation_group_type_index": None,
         }
 
-        result = roll_out_variant(current_filters, "test", release_to_everyone=True)
+        result = roll_out_variant(
+            current_filters,
+            "test",
+            release_to_everyone=True,
+            release_condition_description="Rolled out by the caller.",
+        )
 
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "Control Group", "rollout_percentage": 0},
@@ -125,7 +130,7 @@ class TestRollOutVariant:
         assert result["groups"][0] == {
             "properties": [],
             "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
+            "description": "Rolled out by the caller.",
         }
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == {}
@@ -180,11 +185,8 @@ class TestRollOutVariant:
             {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
             {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
         ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
+        # No description on the catch-all when the caller doesn't pass one
+        assert result["groups"][0] == {"properties": [], "rollout_percentage": 100}
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == current_filters["payloads"]
         assert result["aggregation_group_type_index"] == 1
