@@ -210,6 +210,9 @@ class SandboxEvent(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
 
 
+_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
+
+
 @temporalio.workflow.defn(name="execute-sandbox")
 class ExecuteSandboxWorkflow(PostHogWorkflow):
     """Run a single sandbox session for a task run.
@@ -252,6 +255,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._heartbeat_received: bool = False
         self._pending_followups: list[PendingFollowup] = []
         self._pending_outbound: list[OutboundSignal] = []
+        self._active_followup_task: asyncio.Task[None] | None = None
 
         # Set in the `finally` block before we start emitting the terminal
         # completion signal. While true, signal handlers that would otherwise
@@ -306,13 +310,52 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 self._task_completed
                 or self._sandbox_gone
                 or self._heartbeat_received
-                or len(self._pending_followups) > 0
+                or self._has_dispatchable_followup()
                 or len(self._pending_outbound) > 0
             )
         )
         if self._sandbox_gone and not self._task_completed:
             return SandboxEvent.SANDBOX_GONE
         return SandboxEvent.SIGNAL_RECEIVED
+
+    def _has_dispatchable_followup(self) -> bool:
+        if self._active_followup_task is None:
+            return bool(self._pending_followups)
+        if self._active_followup_task.done():
+            return True
+        return any(followup.steer for followup in self._pending_followups)
+
+    def _pop_next_followup(self, *, steer_only: bool = False) -> PendingFollowup | None:
+        for index, followup in enumerate(self._pending_followups):
+            if not steer_only or followup.steer:
+                return self._pending_followups.pop(index)
+        return None
+
+    async def _dispatch_next_followup(self) -> bool:
+        if self._active_followup_task is not None:
+            if self._active_followup_task.done():
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await task
+                return True
+            followup = self._pop_next_followup(steer_only=True)
+            if followup is None:
+                return False
+            await self._handle_followup(followup)
+            return True
+
+        followup = self._pop_next_followup()
+        if followup is None:
+            return False
+        self._active_followup_task = asyncio.create_task(self._handle_followup(followup))
+        return True
+
+    async def _finish_active_followup(self) -> None:
+        if self._active_followup_task is None:
+            return
+        task = self._active_followup_task
+        self._active_followup_task = None
+        await task
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
         await workflow.sleep(self.context.inactivity_timeout().total_seconds())
@@ -425,7 +468,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         # check at the top of the loop exits us on the next pass.
                         await self._flush_pending_outbound()
 
-                        if self._pending_followups:
+                        if workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                            if await self._dispatch_next_followup():
+                                continue
+                        elif self._pending_followups:
                             followup = self._pending_followups.pop(0)
                             await self._handle_followup(followup)
                             continue
@@ -440,6 +486,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown sandbox event: {event}")
 
+            await self._finish_active_followup()
             await self._cancel_relay(relay_task)
             # Drain any outbound signals that landed during shutdown so the
             # parent never waits on a signal we silently dropped.
@@ -537,6 +584,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # point on are rejected so the orchestrator's retry path can
             # route them to a fresh sandbox instead of waiting on us.
             self._shutting_down = True
+
+            if self._active_followup_task is not None:
+                await self._cancel_relay(self._active_followup_task)
+                self._active_followup_task = None
 
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)

@@ -399,7 +399,7 @@ class TestHandleFollowup:
             PendingFollowup(message="msg", artifact_ids=["art-1"], ack_id="ack-ok", source="user")
         )
 
-        send_mock.assert_awaited_once_with(message="msg", artifact_ids=["art-1"])
+        send_mock.assert_awaited_once_with(message="msg", artifact_ids=["art-1"], steer=False)
         assert workflow._pending_outbound == [
             OutboundSignal(
                 target_signal=PARENT_ACK_SIGNAL,
@@ -786,7 +786,7 @@ class TestHandleFollowupInFlightTracking:
 
         snapshot: dict[str, bool] = {}
 
-        async def fake_send(message=None, artifact_ids=None):
+        async def fake_send(message=None, artifact_ids=None, steer=False):
             snapshot["in_flight_at_await"] = "ack-track" in workflow._in_flight_followup_ack_ids
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send)
@@ -814,6 +814,31 @@ class TestHandleFollowupInFlightTracking:
 
         assert "ack-fail" not in workflow._in_flight_followup_ack_ids
         assert "ack-fail" in workflow._acked_ids
+
+    async def test_steer_dispatches_while_followup_turn_is_active(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        release_followup = asyncio.Event()
+        deliveries: list[tuple[str | None, bool]] = []
+
+        async def fake_send_followup(*, message, artifact_ids, steer=False):
+            deliveries.append((message, steer))
+            if not steer:
+                await release_followup.wait()
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+
+        await workflow.send_followup_message("ack-normal", "keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.send_followup_message("ack-steer", "use green instead", steer=True)
+        assert await workflow._dispatch_next_followup() is True
+
+        assert deliveries == [("keep working", False), ("use green instead", True)]
+        release_followup.set()
+        await workflow._finish_active_followup()
 
     async def test_parent_attached_replay_only_re_acks(self, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()

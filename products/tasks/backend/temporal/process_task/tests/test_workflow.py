@@ -298,6 +298,35 @@ class TestProcessTaskWorkflow:
         assert result.error is not None
 
 
+class TestProcessTaskFollowupDispatch:
+    async def test_steer_dispatches_while_followup_turn_is_active(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        release_followup = asyncio.Event()
+        deliveries: list[tuple[str | None, bool]] = []
+
+        async def fake_send_followup(*, message, artifact_ids, steer=False):
+            deliveries.append((message, steer))
+            if not steer:
+                await release_followup.wait()
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("keep working")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.send_followup_message("use green instead", steer=True)
+        assert await workflow._dispatch_next_followup() is True
+
+        assert deliveries == [("keep working", False), ("use green instead", True)]
+        release_followup.set()
+        await workflow._finish_active_followup()
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
