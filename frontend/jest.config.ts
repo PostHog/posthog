@@ -183,6 +183,9 @@ const config: Config = {
         '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
+        // src/styles/index.tsx uses `import.meta.hot` (Vite HMR), which is a syntax error
+        // under Sucrase/CJS — and styles do nothing in jsdom anyway.
+        '^~/styles$': '<rootDir>/src/test/mocks/styleMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
         // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
