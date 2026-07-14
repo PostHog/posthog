@@ -58,6 +58,25 @@ export function captureToolbarException(
     })
 }
 
+/**
+ * True for the expected, transient fetch failures the toolbar already handles
+ * gracefully — offline, ad-blocker, CORS block, corporate proxy, request timeout.
+ * `fetch` surfaces network-level failures as a `TypeError`, and `AbortSignal.timeout()`
+ * as a `TimeoutError` (older browsers: `AbortError`) `DOMException`. These are not bugs;
+ * capturing them as exceptions only buries real toolbar errors and burns ingestion, so
+ * callers route them to a log/metric instead. Genuine failures (HTTP 5xx, malformed
+ * JSON, unexpected `Error`s) are not benign and should still be captured.
+ */
+export function isBenignNetworkError(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        return true
+    }
+    return false
+}
+
 export const useToolbarFeatureFlag = (flag: FeatureFlagKey, match?: string): boolean => {
     const [flagValue, setFlagValue] = useState<boolean | string | undefined>(toolbarPosthogJS.getFeatureFlag(flag))
 

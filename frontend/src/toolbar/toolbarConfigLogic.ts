@@ -3,7 +3,7 @@ import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reduce
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
@@ -594,7 +594,7 @@ function initInstrumentation(
 }
 
 function classifyFetchError(error: unknown): string {
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
         return 'timeout'
     }
     if (error instanceof TypeError) {
@@ -657,13 +657,24 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
+            // This probe is a UX helper, not a security boundary, and the toolbar
+            // degrades gracefully by opening the config modal. The failure — almost
+            // always an offline / ad-blocker / CORS / corporate-proxy hiccup — is
+            // already recorded on the `toolbar ui host check` analytics event below,
+            // so we deliberately don't also report it to error tracking, where these
+            // handled network failures would bury real toolbar bugs.
+            const errorType = classifyFetchError(error)
+            // Read ui_host from checkBaseProps (captured synchronously above), not from
+            // values.* — this catch can fire after the logic unmounts, and re-reading a
+            // kea selector then throws "path not found in store".
+            toolbarLogger.warn('config', 'uiHost reachability check failed', {
+                ui_host: checkBaseProps.ui_host,
+                error_type: errorType,
             })
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
@@ -772,7 +783,12 @@ async function exchangeCodeForTokens(
             duration_ms: Math.round(performance.now() - startTime),
         })
         toolbarLogger.error('auth', 'Token exchange network error')
-        captureToolbarException(err, 'token_exchange_network')
+        // A transient network/CORS failure here is already surfaced to the user via the
+        // toast + the `toolbar oauth exchange` analytics event above; only capture
+        // genuinely unexpected errors (e.g. a malformed-JSON SyntaxError from a 200).
+        if (!isBenignNetworkError(err)) {
+            captureToolbarException(err, 'token_exchange_network')
+        }
         lemonToast.error('Authentication failed due to a network error. Please try again.')
         return false
     } finally {
