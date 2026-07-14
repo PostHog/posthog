@@ -211,6 +211,7 @@
         "eventsource-parser": "^3.0.0",
         "fast-deep-equal": "catalog:",
         "fastpriorityqueue": "^0.7.5",
+        "fflate": "^0.8.2",
         "frimousse": "^0.3.0",
         "fuse.js": "catalog:",
         "hast-util-to-html": "^9.0.5",

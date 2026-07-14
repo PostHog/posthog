@@ -177,7 +177,13 @@
             "type": "mcp_analytics",
             "intents": ["llm_analytics"]
         },
-        { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
+        {
+            "path": "Metrics",
+            "category": "App monitoring",
+            "iconType": "metrics",
+            "type": null,
+            "intents": ["metrics"]
+        },
         {
             "path": "Product analytics",
             "category": "Analytics",
