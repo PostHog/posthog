@@ -16,9 +16,10 @@ _DJANGO_INITIALIZED = False
 def setup_django(*, debug: bool = True) -> None:
     """Configure the environment and initialize Django for a harness run.
 
-    Sets the eval env flags (``DEBUG``/``TEST``/``IN_EVAL_TESTING``) before
-    Django reads them, then runs ``django.setup()`` and Django's test-environment
-    setup. Safe to call more than once — subsequent calls are a no-op.
+    Sets the eval env flags (``DEBUG``/``TEST``/``IN_EVAL_TESTING``) and disables
+    local self-capture before Django reads them, then runs ``django.setup()`` and
+    Django's test-environment setup. Safe to call more than once — subsequent
+    calls are a no-op.
     """
     global _DJANGO_INITIALIZED
     if _DJANGO_INITIALIZED:
@@ -28,6 +29,8 @@ def setup_django(*, debug: bool = True) -> None:
     os.environ["DEBUG"] = "1" if debug else "0"
     os.environ["TEST"] = "1"
     os.environ["IN_EVAL_TESTING"] = "1"
+    # Eval traces use an explicit regional client; local self-capture would poll flags with the development API key.
+    os.environ["SELF_CAPTURE"] = "0"
 
     django.setup()
 

@@ -47,7 +47,7 @@ class _TranscriptSink:
             if self.finished:
                 return
             prefix = "" if self.ends_with_newline else "\n"
-            line = f"{prefix}{self.path}\n"
+            line = f"{prefix}Full run transcript (stdout and stderr):\n{self.path}\n"
             self.file.write(line)
             self.file.flush()
             self.stdout.write(line)

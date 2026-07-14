@@ -177,7 +177,8 @@ Every real eval invocation mirrors its complete stdout and stderr to:
 ee/hogai/eval/sandboxed/logs/harness/<timestamp>_<id>.log
 ```
 
-The final terminal line is the absolute path to that transcript, with no label or output after it, so a person or agent can reliably open it.
+The line before the path identifies it as the full stdout/stderr run transcript.
+The final terminal line is the unlabeled absolute path, with no output after it, so a person or agent can reliably open it.
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
