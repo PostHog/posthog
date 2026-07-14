@@ -703,6 +703,11 @@ def _update_flag_definitions(team: Team | int, ttl: int | None = None) -> bool:
 # HyperCache management config for warming/verification. Uses the same team-scoping
 # queryset as flags_cache, giving flag definitions the same ~89% team reduction that
 # the flags cache already has.
+# The refresh builds flag definitions from team id/project_id; it reads no other Team
+# columns. Narrowing the SELECT keeps it resilient to newly added Team columns the read
+# replica may not have applied yet (organization_id keeps the select_related valid).
+_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS = ["id", "project_id", "organization_id"]
+
 FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flag_definitions_hypercache,
     update_fn=_update_flag_definitions,
@@ -715,6 +720,7 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # Guard the verifier's direct db_data write against caching an emptied
     # group_type_mapping (personhog lag), same as the signal-driven write path.
     should_skip_write=_skip_write_if_group_mapping_emptied,
+    refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
 )
 
 
