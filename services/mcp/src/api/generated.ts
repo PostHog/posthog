@@ -12984,6 +12984,49 @@ export namespace Schemas {
       GithubIssue: 'github_issue',
     } as const;
 
+    export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
+
+    /**
+     * Response shape for one system announcement in a channel's feed.
+     */
+    export interface ChannelFeedMessageDTO {
+      id: string;
+      channel: string;
+      author?: TaskUserBasicInfo | null;
+      author_kind: string;
+      event: string;
+      payload: ChannelFeedMessageDTOPayload;
+      content: string;
+      created_at: string;
+    }
+
+    /**
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building
+     */
+    export type EventEnum = typeof EventEnum[keyof typeof EventEnum];
+
+
+    export const EventEnum = {
+      ContextCreated: 'context_created',
+      ContextMdBuilding: 'context_md_building',
+    } as const;
+
+    /**
+     * Request body for posting a system announcement into a channel's feed.
+     */
+    export interface ChannelFeedMessageWrite {
+      /** Lifecycle event key.
+       *
+       * * `context_created` - context_created
+       * * `context_md_building` - context_md_building */
+      event: EventEnum;
+      /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+      payload?: unknown;
+      /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+      created_at?: string;
+    }
+
     /**
      * * `widget` - Widget
      * * `email` - Email
@@ -26087,7 +26130,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -26136,6 +26179,7 @@ export namespace Schemas {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard
+     * * `self_driving` - self_driving
      */
     export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
 
@@ -26145,6 +26189,7 @@ export namespace Schemas {
       Api: 'api',
       Mcp: 'mcp',
       Wizard: 'wizard',
+      SelfDriving: 'self_driving',
     } as const;
 
     /**
@@ -26155,12 +26200,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
@@ -34951,6 +34997,15 @@ export namespace Schemas {
       results: ChannelDTO[];
     }
 
+    export interface PaginatedChannelFeedMessageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelFeedMessageDTO[];
+    }
+
     export interface PaginatedClickhouseEventList {
       /** @nullable */
       next?: string | null;
@@ -38451,12 +38506,17 @@ export namespace Schemas {
       results: TaskSummaryDTO[];
     }
 
+    export type TaskThreadMessageDTOPayload = { [key: string]: unknown };
+
     /**
      * Response shape for one message in a task's thread.
      */
     export interface TaskThreadMessageDTO {
       id: string;
       task: string;
+      author_kind: string;
+      event: string;
+      payload: TaskThreadMessageDTOPayload;
       content: string;
       created_at: string;
       author?: TaskUserBasicInfo | null;
@@ -41763,12 +41823,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
@@ -74133,6 +74194,17 @@ export namespace Schemas {
     };
 
     export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskChannelsFeedListParams = {
     /**
      * Number of results to return per page.
      */
