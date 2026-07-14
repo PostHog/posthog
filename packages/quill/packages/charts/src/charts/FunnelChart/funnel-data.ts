@@ -21,7 +21,7 @@ export interface FunnelFromCountsOptions {
 
 /** Builds the `steps` + single-`series` pair for a no-breakdown funnel from raw step counts,
  *  with each step valued as its conversion from the first step (percent, 0–100). Multi-variant
- *  funnels (breakdowns, experiment variants) resolve their own per-variant percentages and pass
+ *  funnels resolve their own per-variant percentages and pass
  *  `Series[]` directly. */
 export function funnelFromCounts(
     steps: FunnelStepCount[],

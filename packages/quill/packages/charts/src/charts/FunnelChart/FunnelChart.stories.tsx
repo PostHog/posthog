@@ -5,7 +5,7 @@ import { Stage, useReactiveTheme } from '../../story-helpers'
 import { funnelFromCounts } from './funnel-data'
 import { FunnelChart } from './FunnelChart'
 
-const STEPS = ['Visited signup', 'Created account', 'Created insight', 'Invited teammate']
+const STEPS = ['Visited signup', 'Created account', 'Started trial', 'Invited teammate']
 
 const SINGLE = funnelFromCounts([
     { label: STEPS[0], count: 12840 },
@@ -14,9 +14,9 @@ const SINGLE = funnelFromCounts([
     { label: STEPS[3], count: 1289 },
 ])
 
-// Experiment-style: every variant starts at 100% (the exposure step is the basis).
-const EXPERIMENT_STEPS = ['Experiment exposure', 'Purchased addon']
-const EXPERIMENT_SERIES: Series[] = [
+// Multi-variant comparison: every variant starts at 100% (the first step is the basis).
+const VARIANT_STEPS = ['Viewed pricing', 'Started checkout']
+const VARIANT_SERIES: Series[] = [
     { key: 'control', label: 'control', data: [100, 22.4] },
     { key: 'test', label: 'test', data: [100, 27.9] },
 ]
@@ -37,14 +37,14 @@ export const SingleSeries: Story = {
     },
 }
 
-export const ExperimentVariants: Story = {
+export const MultipleVariants: Story = {
     render: () => {
         const theme = useReactiveTheme()
         return (
             <Stage width={520}>
                 <FunnelChart
-                    steps={EXPERIMENT_STEPS}
-                    series={EXPERIMENT_SERIES}
+                    steps={VARIANT_STEPS}
+                    series={VARIANT_SERIES}
                     theme={theme}
                     onStepClick={({ stepIndex, series, converted }) =>
                         alert(`${converted ? 'Converted' : 'Dropped off'} · step ${stepIndex + 1} · ${series.label}`)
@@ -86,8 +86,8 @@ export const FewStepsClustered: Story = {
         return (
             <Stage width={640}>
                 <FunnelChart
-                    steps={EXPERIMENT_STEPS}
-                    series={EXPERIMENT_SERIES}
+                    steps={VARIANT_STEPS}
+                    series={VARIANT_SERIES}
                     theme={theme}
                     config={{ maxBandRange: 320, legend: { show: true, interactive: false } }}
                 />
