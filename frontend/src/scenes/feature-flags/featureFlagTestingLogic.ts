@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs, Dayjs } from 'lib/dayjs'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { PersonType } from '~/types'
@@ -35,6 +36,12 @@ export interface PerDistinctIdEvaluation {
 }
 
 const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
+
+// Caps how many merged distinct IDs are evaluated concurrently. test_evaluation is
+// ClickHouse-backed and throttle-gated, so a person with many merged IDs shouldn't
+// turn one button click into an unbounded burst of concurrent requests.
+const TEST_EVALUATION_CONCURRENCY_LIMIT = 6
+const testEvaluationConcurrencyController = new ConcurrencyController(TEST_EVALUATION_CONCURRENCY_LIMIT)
 
 // Build the request body for a single evaluation. Shared by the single-ID and
 // batch paths so groups/timestamp are parsed and validated identically. Throws on
@@ -175,19 +182,17 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     return await Promise.all(
                         distinctIds.map(async (distinctId): Promise<PerDistinctIdEvaluation> => {
                             try {
-                                const result = await featureFlagsTestEvaluationCreate(
-                                    String(values.currentProjectId),
-                                    flagId,
-                                    { ...baseData, distinct_id: distinctId }
-                                )
+                                const result = await testEvaluationConcurrencyController.run({
+                                    debugTag: `feature-flag-test-evaluation-${distinctId}`,
+                                    fn: () =>
+                                        featureFlagsTestEvaluationCreate(String(values.currentProjectId), flagId, {
+                                            ...baseData,
+                                            distinct_id: distinctId,
+                                        }),
+                                })
                                 return { distinctId, result, error: null }
                             } catch (e) {
-                                const apiError = e as ApiError
-                                return {
-                                    distinctId,
-                                    result: null,
-                                    error: apiError?.detail || apiError?.message || 'Evaluation failed',
-                                }
+                                return { distinctId, result: null, error: evaluationErrorMessage('', e) }
                             }
                         })
                     )

@@ -35,9 +35,6 @@ const CONDITION_DISPLAY_STYLES = {
 } as const
 
 function formatFlagResult(value: TestResult['result']): string {
-    if (typeof value === 'boolean') {
-        return value ? 'true' : 'false'
-    }
     return String(value)
 }
 
@@ -109,6 +106,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     // The batch row whose detail is currently expanded — the explicit selection, or
     // the first row when nothing has been clicked yet (matches the activeResult selector).
     const activeDistinctId = selectedResultDistinctId ?? allEvaluations?.[0]?.distinctId ?? null
+    // The active row's failure reason, when it has one — used to explain why the detail
+    // panel below has nothing to show instead of silently rendering blank.
+    const activeError = allEvaluations?.find((evaluation) => evaluation.distinctId === activeDistinctId)?.error ?? null
 
     return (
         <div className="space-y-6">
@@ -285,13 +285,17 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                 {/* Right Panel - Analysis and Properties */}
                 <div
-                    className={`flex-1 bg-bg-light p-6 rounded-lg border ${result ? 'flex flex-col' : 'content-center'}`}
+                    className={`flex-1 bg-bg-light p-6 rounded-lg border ${
+                        result || allEvaluations ? 'flex flex-col' : 'content-center'
+                    }`}
                 >
-                    {result ? (
+                    {result || allEvaluations ? (
                         <div className="space-y-6 flex-1 flex flex-col min-h-0">
                             {/* Per-ID results table — shown when a person's merged distinct IDs were
                                 evaluated as a batch. Every ID's outcome is visible at once, so
-                                divergence between them is obvious without cycling one at a time. */}
+                                divergence between them is obvious without cycling one at a time.
+                                Rendered independently of `result`: an errored active row must not
+                                hide the successful rows sitting right next to it. */}
                             {allEvaluations && (
                                 <div className="space-y-3">
                                     <h5 className="font-semibold">Results by distinct ID</h5>
@@ -332,14 +336,14 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                 title: 'Flag result',
                                                 key: 'result',
                                                 render: (_, record) =>
-                                                    record.error ? (
-                                                        <Tooltip title={record.error}>
+                                                    record.result ? (
+                                                        <FlagResultValue value={record.result.result} />
+                                                    ) : (
+                                                        <Tooltip title={record.error ?? 'Evaluation failed'}>
                                                             <span className="text-danger text-xs">
                                                                 Evaluation failed
                                                             </span>
                                                         </Tooltip>
-                                                    ) : (
-                                                        <FlagResultValue value={record.result!.result} />
                                                     ),
                                             },
                                         ]}
@@ -347,137 +351,150 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 </div>
                             )}
 
-                            {/* Evaluation Result */}
-                            <div className="space-y-3">
-                                <h5 className="font-semibold">
-                                    {allEvaluations ? 'Details for selected distinct ID' : 'Evaluation result'}
-                                </h5>
+                            {result ? (
+                                <>
+                                    {/* Evaluation Result */}
+                                    <div className="space-y-3">
+                                        <h5 className="font-semibold">
+                                            {allEvaluations ? 'Details for selected distinct ID' : 'Evaluation result'}
+                                        </h5>
 
-                                <div className="space-y-2">
-                                    <LemonLabel>Flag result</LemonLabel>
-                                    <div>
-                                        <FlagResultValue value={result.result} />
-                                    </div>
-                                </div>
-
-                                {/* Distinct ID used for rollout/variant bucketing. Only shown when the
-                                    backend echoes an explicit value — it returns null when a different ID
-                                    was actually bucketed against, and falling back to the requested ID
-                                    here would mislabel which ID drove the result. */}
-                                {bucketingDistinctId && (
-                                    <div className="space-y-2">
-                                        <LemonLabel>Bucketed using distinct ID</LemonLabel>
-                                        <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
-                                            {bucketingDistinctId}
+                                        <div className="space-y-2">
+                                            <LemonLabel>Flag result</LemonLabel>
+                                            <div>
+                                                <FlagResultValue value={result.result} />
+                                            </div>
                                         </div>
+
+                                        {/* Distinct ID used for rollout/variant bucketing. Only shown when the
+                                            backend echoes an explicit value — it returns null when a different ID
+                                            was actually bucketed against, and falling back to the requested ID
+                                            here would mislabel which ID drove the result. */}
+                                        {bucketingDistinctId && (
+                                            <div className="space-y-2">
+                                                <LemonLabel>Bucketed using distinct ID</LemonLabel>
+                                                <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
+                                                    {bucketingDistinctId}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Timestamp Warning */}
+                                        {formData.timestamp && (
+                                            <LemonBanner type="info" className="mb-4">
+                                                <strong>Historical evaluation:</strong> Both flag conditions and person
+                                                properties reflect their state at the specified timestamp, not current
+                                                values.
+                                            </LemonBanner>
+                                        )}
+
+                                        {result.payload != null && (
+                                            <div className="space-y-2">
+                                                <LemonLabel>Payload</LemonLabel>
+                                                <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light">
+                                                    {JSON.stringify(result.payload, null, 2)}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
 
-                                {/* Timestamp Warning */}
-                                {formData.timestamp && (
-                                    <LemonBanner type="info" className="mb-4">
-                                        <strong>Historical evaluation:</strong> Both flag conditions and person
-                                        properties reflect their state at the specified timestamp, not current values.
-                                    </LemonBanner>
-                                )}
+                                    {/* Two Column Layout: Conditions and Properties */}
+                                    <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 flex-1 min-h-0">
+                                        {/* Left Column - Condition Analysis */}
+                                        {hasConditions && (
+                                            <div className="space-y-3 xl:col-span-2 flex flex-col min-h-0">
+                                                <LemonLabel>Condition analysis</LemonLabel>
 
-                                {result.payload != null && (
-                                    <div className="space-y-2">
-                                        <LemonLabel>Payload</LemonLabel>
-                                        <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light">
-                                            {JSON.stringify(result.payload, null, 2)}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                                                <div className="flex-1 space-y-3 overflow-auto">
+                                                    {enrichedConditions.map((condition) => {
+                                                        const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
 
-                            {/* Two Column Layout: Conditions and Properties */}
-                            <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 flex-1 min-h-0">
-                                {/* Left Column - Condition Analysis */}
-                                {hasConditions && (
-                                    <div className="space-y-3 xl:col-span-2 flex flex-col min-h-0">
-                                        <LemonLabel>Condition analysis</LemonLabel>
-
-                                        <div className="flex-1 space-y-3 overflow-auto">
-                                            {enrichedConditions.map((condition) => {
-                                                const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
-
-                                                return (
-                                                    <div
-                                                        key={condition.index}
-                                                        className={`border rounded-lg p-3 break-words ${styles.card}`}
-                                                    >
-                                                        <div className="flex items-center gap-2 mb-2">
-                                                            <h6 className="font-medium text-sm">
-                                                                Condition #{condition.index}
-                                                            </h6>
-                                                            {condition.display.label && (
-                                                                <span
-                                                                    className={`px-2 py-1 rounded text-xs font-mono ${styles.badge}`}
-                                                                >
-                                                                    {condition.display.label}
-                                                                </span>
-                                                            )}
-                                                            {condition.rollout_percentage < 100 && (
-                                                                <span className="px-2 py-1 rounded text-xs bg-bg-light text-muted font-mono">
-                                                                    {condition.rollout_percentage}%
-                                                                </span>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="mb-2 text-xs text-muted">
-                                                            {condition.explanation}
-                                                        </div>
-
-                                                        {condition.properties.length > 0 && (
-                                                            <div className="space-y-1">
-                                                                {condition.properties.map(
-                                                                    (
-                                                                        property: ConditionAnalysis['properties'][number],
-                                                                        idx: number
-                                                                    ) => (
-                                                                        <div
-                                                                            key={`${property.key}-${idx}`}
-                                                                            className="text-xs text-muted pl-2"
+                                                        return (
+                                                            <div
+                                                                key={condition.index}
+                                                                className={`border rounded-lg p-3 break-words ${styles.card}`}
+                                                            >
+                                                                <div className="flex items-center gap-2 mb-2">
+                                                                    <h6 className="font-medium text-sm">
+                                                                        Condition #{condition.index}
+                                                                    </h6>
+                                                                    {condition.display.label && (
+                                                                        <span
+                                                                            className={`px-2 py-1 rounded text-xs font-mono ${styles.badge}`}
                                                                         >
-                                                                            • {property.explanation}
-                                                                        </div>
-                                                                    )
+                                                                            {condition.display.label}
+                                                                        </span>
+                                                                    )}
+                                                                    {condition.rollout_percentage < 100 && (
+                                                                        <span className="px-2 py-1 rounded text-xs bg-bg-light text-muted font-mono">
+                                                                            {condition.rollout_percentage}%
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="mb-2 text-xs text-muted">
+                                                                    {condition.explanation}
+                                                                </div>
+
+                                                                {condition.properties.length > 0 && (
+                                                                    <div className="space-y-1">
+                                                                        {condition.properties.map(
+                                                                            (
+                                                                                property: ConditionAnalysis['properties'][number],
+                                                                                idx: number
+                                                                            ) => (
+                                                                                <div
+                                                                                    key={`${property.key}-${idx}`}
+                                                                                    className="text-xs text-muted pl-2"
+                                                                                >
+                                                                                    • {property.explanation}
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                    </div>
                                                                 )}
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                )
-                                            })}
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Right Column - Person Properties */}
+                                        <div
+                                            className={`space-y-3 ${
+                                                hasConditions ? 'xl:col-span-3' : 'xl:col-span-5'
+                                            } flex flex-col min-h-0`}
+                                        >
+                                            <div>
+                                                <LemonLabel>
+                                                    Person properties{' '}
+                                                    {formData.timestamp ? 'at evaluation time' : '(current)'}
+                                                </LemonLabel>
+                                            </div>
+
+                                            <div className="flex-1 overflow-auto">
+                                                <PropertiesTable
+                                                    properties={result.person_properties}
+                                                    type={PropertyDefinitionType.Person}
+                                                    searchable={true}
+                                                    sortProperties={true}
+                                                    highlightedKeys={Array.from(usedProperties)}
+                                                    highlightVariant="subtle"
+                                                    embedded={true}
+                                                />
+                                            </div>
                                         </div>
                                     </div>
-                                )}
-
-                                {/* Right Column - Person Properties */}
-                                <div
-                                    className={`space-y-3 ${
-                                        hasConditions ? 'xl:col-span-3' : 'xl:col-span-5'
-                                    } flex flex-col min-h-0`}
-                                >
-                                    <div>
-                                        <LemonLabel>
-                                            Person properties {formData.timestamp ? 'at evaluation time' : '(current)'}
-                                        </LemonLabel>
+                                </>
+                            ) : (
+                                <LemonBanner type="error">
+                                    <div className="text-sm">
+                                        This distinct ID's evaluation failed{activeError ? `: ${activeError}` : '.'}{' '}
+                                        Select another row above to see its analysis.
                                     </div>
-
-                                    <div className="flex-1 overflow-auto">
-                                        <PropertiesTable
-                                            properties={result.person_properties}
-                                            type={PropertyDefinitionType.Person}
-                                            searchable={true}
-                                            sortProperties={true}
-                                            highlightedKeys={Array.from(usedProperties)}
-                                            highlightVariant="subtle"
-                                            embedded={true}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                                </LemonBanner>
+                            )}
                         </div>
                     ) : (
                         <div className="flex-grow flex items-center justify-center h-64">
