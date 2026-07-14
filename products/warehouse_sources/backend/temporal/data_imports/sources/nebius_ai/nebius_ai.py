@@ -139,9 +139,9 @@ def get_rows(
 
         # Prefer the server-provided cursor; fall back to the last row's id when the endpoint
         # omits `last_id` (some OpenAI-compatible list responses only return `has_more`). Index the
-        # required primary key rather than `.get()` so a page that claims `has_more` but is missing
-        # its final `id` fails loudly instead of silently dropping every later page.
-        last_id = data.get("last_id") or (items[-1]["id"] if isinstance(items[-1], dict) else None)
+        # required primary key directly so any malformed final row — missing `id` or not even a
+        # mapping — fails loudly instead of silently dropping every later page.
+        last_id = data.get("last_id") or items[-1]["id"]
         if not data.get("has_more") or not last_id:
             break
 
