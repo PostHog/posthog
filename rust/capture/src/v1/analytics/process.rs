@@ -83,7 +83,13 @@ pub async fn process_batch(
 
     // Verify gateway provenance before the quota limiter so verified events can
     // be exempted from the llm_events meter (they're wallet-billed, not AIO).
-    apply_gateway_provenance(state, context, &mut events);
+    let provenance = CapturePipeline::builder()
+        .step(ApplyGatewayProvenance::new(
+            state.ai_gateway_signing_secret.clone(),
+            ctx_snapshot.clone(),
+        ))
+        .build();
+    super::pipeline::run_in_place(&provenance, &mut events).await;
 
     crate::v1::quota_limiter_shim::apply_quota_limits(
         &state.quota_limiter,
@@ -168,13 +174,63 @@ pub async fn process_batch(
 // the trusted marker and exempts it from the llm_events meter; anything else has its
 // `$ai_gateway*` props stripped. The strip path skips the parse unless the raw bytes
 // plausibly carry a gateway key, so ordinary traffic stays off the hot path.
+//
+// Production goes through the `ApplyGatewayProvenance` step; this state-taking
+// wrapper remains for the existing test suite.
+#[cfg(test)]
 fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    apply_gateway_provenance_with_secret(
+        state.ai_gateway_signing_secret.as_deref(),
+        context,
+        events,
+    )
+}
+
+/// Framework step wrapping [`apply_gateway_provenance`]. Sync and per-event.
+/// Fail-closed by design: an `$ai_*` event whose gateway props can't be parsed
+/// is dropped rather than passed through — a billing exemption must never
+/// survive unverified (this is why it is NOT `fail_open()`-wrapped).
+pub struct ApplyGatewayProvenance {
+    secret: Option<String>,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyGatewayProvenance {
+    pub fn new(secret: Option<String>, ctx: Arc<RequestContext>) -> Self {
+        Self { secret, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyGatewayProvenance {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_gateway_provenance_with_secret(
+            self.secret.as_deref(),
+            &self.ctx,
+            std::slice::from_mut(&mut event),
+        );
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_gateway_provenance"
+    }
+}
+
+fn apply_gateway_provenance_with_secret(
+    secret: Option<&str>,
+    context: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
     use crate::v1::gateway_provenance as gp;
 
-    let secret = state
-        .ai_gateway_signing_secret
-        .as_deref()
-        .filter(|s| !s.is_empty());
+    let secret = secret.filter(|s| !s.is_empty());
     let now = context.server_received_at;
 
     for ev in events.iter_mut() {
