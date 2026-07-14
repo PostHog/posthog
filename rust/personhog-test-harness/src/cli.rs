@@ -246,8 +246,8 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub keep_data: bool,
 
-    /// Directory to build service binaries from / find them in. Defaults to
-    /// the directory containing this binary (the cargo target dir).
+    /// Directory containing the service binaries. Defaults to the
+    /// workspace target directory for this build profile.
     #[arg(long)]
     pub bin_dir: Option<PathBuf>,
 }

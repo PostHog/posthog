@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{env, fmt};
 
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
@@ -89,6 +90,23 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     events
 }
 
+/// The workspace target directory for the profile this harness was built
+/// with, derived from the crate's location at compile time. The runtime
+/// executable path is deliberately not consulted — its output is
+/// attacker-influenceable — and the harness only ever runs sibling
+/// binaries produced by the same cargo build; `--bin-dir` overrides for
+/// anything else.
+fn default_bin_dir() -> PathBuf {
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target")
+        .join(profile)
+}
+
 /// The full e2e correctness gate: bring up an isolated stack (or target a
 /// running one), seed persons, drive update traffic through the router —
 /// optionally disrupting the stack mid-traffic — then assert every acked
@@ -110,14 +128,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let mut stack = match &args.external_router_url {
         Some(_) => None,
         None => {
-            let bin_dir = match &args.bin_dir {
-                Some(dir) => dir.clone(),
-                None => env::current_exe()
-                    .context("resolving current executable")?
-                    .parent()
-                    .context("executable has no parent directory")?
-                    .to_path_buf(),
-            };
+            let bin_dir = args.bin_dir.clone().unwrap_or_else(default_bin_dir);
             Some(
                 Stack::up(StackConfig {
                     bin_dir,
