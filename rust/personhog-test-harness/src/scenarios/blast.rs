@@ -37,7 +37,7 @@ pub async fn run(args: BlastArgs) -> Result<()> {
     )
     .await?;
 
-    let mut violations = state.take_regressions().await;
+    let mut violations = state.take_anomalies().await;
     if args.verify {
         println!("Verifying reads with STRONG consistency...");
         violations.extend(verify_strong(&client, &collector, &state, args.team_id).await?);

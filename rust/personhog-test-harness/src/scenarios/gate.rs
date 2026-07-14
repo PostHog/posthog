@@ -284,7 +284,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     println!("Verifying strong reads...");
     let mut violations = prober_violations;
-    violations.extend(state.take_regressions().await);
+    violations.extend(state.take_anomalies().await);
     violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
 
     println!("Waiting for the writer to drain, then verifying Postgres...");

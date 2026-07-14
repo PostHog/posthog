@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
 
@@ -18,11 +18,15 @@ pub struct PersonState {
 #[derive(Default)]
 struct Journal {
     persons: HashMap<i64, ExpectedPerson>,
-    /// Acks whose version regressed below an earlier ack for the same
-    /// person. The leader serializes writes per person and bumps the
-    /// version on every change, so an ack observing a lower version means
-    /// the version chain went backwards (e.g. a zombie or a stale warm).
-    regressions: Vec<ConsistencyViolation>,
+    /// Acks that broke an invariant at journaling time. The leader
+    /// serializes writes per person and bumps the version on every change,
+    /// so each version of a person is assigned to at most one acked write;
+    /// a duplicate means two writes were served from the same base state
+    /// (a stale warm, a stale fallback, or a zombie leader). Arrival order
+    /// is deliberately not checked: concurrent writers' acks are recorded
+    /// in whatever order the responses land, so a lower version arriving
+    /// after a higher one is normal.
+    anomalies: Vec<ConsistencyViolation>,
 }
 
 pub struct ExpectedPerson {
@@ -31,6 +35,9 @@ pub struct ExpectedPerson {
     pub written_properties: HashMap<String, serde_json::Value>,
     /// Highest version the leader acked for this person.
     pub last_version: i64,
+    /// Every version the leader acked for this person, for duplicate
+    /// detection.
+    acked_versions: HashSet<i64>,
 }
 
 impl PersonState {
@@ -53,24 +60,20 @@ impl PersonState {
             .or_insert_with(|| ExpectedPerson {
                 written_properties: HashMap::new(),
                 last_version: 0,
+                acked_versions: HashSet::new(),
             });
-        if version < entry.last_version {
-            let last_version = entry.last_version;
-            journal.regressions.push(ConsistencyViolation {
-                person_id,
-                key: "__ack_version_regression".to_string(),
-                expected: serde_json::json!(format!(">= {last_version}")),
-                actual: serde_json::json!(version),
-            });
-        } else {
-            entry.last_version = version;
-        }
-        let entry = journal
-            .persons
-            .get_mut(&person_id)
-            .expect("entry inserted above");
+        let duplicate = !entry.acked_versions.insert(version);
+        entry.last_version = entry.last_version.max(version);
         for (k, v) in properties {
             entry.written_properties.insert(k, v);
+        }
+        if duplicate {
+            journal.anomalies.push(ConsistencyViolation {
+                person_id,
+                key: "__ack_version_duplicate".to_string(),
+                expected: serde_json::json!("each version acked at most once"),
+                actual: serde_json::json!(version),
+            });
         }
     }
 
@@ -85,7 +88,7 @@ impl PersonState {
         properties: HashMap<String, serde_json::Value>,
     ) {
         let mut journal = self.inner.write().await;
-        journal.regressions.push(ConsistencyViolation {
+        journal.anomalies.push(ConsistencyViolation {
             person_id,
             key: "__ack_missing_person".to_string(),
             expected: serde_json::json!("update response carries the person"),
@@ -97,16 +100,16 @@ impl PersonState {
             .or_insert_with(|| ExpectedPerson {
                 written_properties: HashMap::new(),
                 last_version: 0,
+                acked_versions: HashSet::new(),
             });
         for (k, v) in properties {
             entry.written_properties.insert(k, v);
         }
     }
 
-    /// Ack-version regressions and response anomalies observed while
-    /// journaling.
-    pub async fn take_regressions(&self) -> Vec<ConsistencyViolation> {
-        mem::take(&mut self.inner.write().await.regressions)
+    /// Duplicate-version and response anomalies observed while journaling.
+    pub async fn take_anomalies(&self) -> Vec<ConsistencyViolation> {
+        mem::take(&mut self.inner.write().await.anomalies)
     }
 
     /// Verify a strong read against the journal: every acked property must
@@ -227,7 +230,7 @@ mod tests {
         state.record_write(1, 1, props(&[("k1", "v1")])).await;
         state.record_write(1, 2, props(&[("k2", "v2")])).await;
 
-        assert!(state.take_regressions().await.is_empty());
+        assert!(state.take_anomalies().await.is_empty());
         let snapshot = state.snapshot().await;
         let person = &snapshot[&1];
         assert_eq!(person.last_version, 2);
@@ -235,22 +238,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ack_version_regression_is_flagged_once_and_max_is_kept() {
+    async fn out_of_order_acks_are_benign_and_max_is_kept() {
         let state = PersonState::new();
         state.record_write(1, 5, props(&[("k1", "v1")])).await;
         state.record_write(1, 3, props(&[("k2", "v2")])).await;
 
-        let regressions = state.take_regressions().await;
-        assert_eq!(
-            violation_keys(regressions),
-            vec!["__ack_version_regression"]
-        );
-        // Drained on take, and the regressed ack's key is still journaled
-        // under the surviving max version.
-        assert!(state.take_regressions().await.is_empty());
+        // Concurrent writers' acks land in arbitrary order; distinct
+        // versions arriving out of order are not an anomaly.
+        assert!(state.take_anomalies().await.is_empty());
         let snapshot = state.snapshot().await;
         let person = &snapshot[&1];
         assert_eq!(person.last_version, 5);
+        assert!(person.written_properties.contains_key("k2"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_acked_version_is_flagged_and_both_keys_journaled() {
+        let state = PersonState::new();
+        state.record_write(1, 5, props(&[("k1", "v1")])).await;
+        state.record_write(1, 5, props(&[("k2", "v2")])).await;
+
+        assert_eq!(
+            violation_keys(state.take_anomalies().await),
+            vec!["__ack_version_duplicate"]
+        );
+        // Drained on take, and both acked writes' keys stay journaled for
+        // end-of-run verification.
+        assert!(state.take_anomalies().await.is_empty());
+        let snapshot = state.snapshot().await;
+        let person = &snapshot[&1];
+        assert_eq!(person.last_version, 5);
+        assert!(person.written_properties.contains_key("k1"));
         assert!(person.written_properties.contains_key("k2"));
     }
 
@@ -261,7 +279,7 @@ mod tests {
         state.record_ack_anomaly(1, props(&[("k2", "v2")])).await;
 
         assert_eq!(
-            violation_keys(state.take_regressions().await),
+            violation_keys(state.take_anomalies().await),
             vec!["__ack_missing_person"]
         );
         let snapshot = state.snapshot().await;
