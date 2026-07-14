@@ -235,6 +235,7 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
@@ -2595,15 +2596,7 @@ const api = {
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{
-            success: (FeatureFlagType & {
-                flag_dependency_warnings?: string[]
-                schedule_copy_warning?: string
-                team_id?: number
-                updated_existing?: boolean
-            })[]
-            failed: any
-        }> {
+        ): Promise<CopyFlagsResponseApi> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(

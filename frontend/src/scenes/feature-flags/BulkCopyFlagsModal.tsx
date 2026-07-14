@@ -14,7 +14,29 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BULK_COPY_MAX_TARGET_PROJECTS, BulkCopyFailure, flagSelectionLogic } from './flagSelectionLogic'
+import {
+    BULK_COPY_MAX_TARGET_PROJECTS,
+    BulkCopyFailure,
+    BulkCopyResult,
+    flagSelectionLogic,
+} from './flagSelectionLogic'
+
+/** Splits each copied entry's projectIds into freshly created flags vs. overwrites of flags that already existed in the target. */
+export function splitCopiedByOverwrite(copied: BulkCopyResult['copied']): {
+    newCopies: Array<{ key: string; projectIds: number[] }>
+    overwrites: Array<{ key: string; projectIds: number[] }>
+} {
+    const newCopies = copied
+        .map((entry) => ({
+            key: entry.key,
+            projectIds: entry.projectIds.filter((id) => !entry.updatedProjectIds.includes(id)),
+        }))
+        .filter((entry) => entry.projectIds.length > 0)
+    const overwrites = copied
+        .map((entry) => ({ key: entry.key, projectIds: entry.updatedProjectIds }))
+        .filter((entry) => entry.projectIds.length > 0)
+    return { newCopies, overwrites }
+}
 
 function CopiedFlagsList({
     entries,
@@ -98,16 +120,7 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
 
     const pendingApproval = bulkCopyResult?.failed.filter((failure) => failure.approvalPending) ?? []
     const hardFailures = bulkCopyResult?.failed.filter((failure) => !failure.approvalPending) ?? []
-    // Split copies into freshly created flags and overwrites of flags that already existed in the target
-    const newCopies = (bulkCopyResult?.copied ?? [])
-        .map((entry) => ({
-            key: entry.key,
-            projectIds: entry.projectIds.filter((id) => !entry.updatedProjectIds.includes(id)),
-        }))
-        .filter((entry) => entry.projectIds.length > 0)
-    const overwrites = (bulkCopyResult?.copied ?? [])
-        .map((entry) => ({ key: entry.key, projectIds: entry.updatedProjectIds }))
-        .filter((entry) => entry.projectIds.length > 0)
+    const { newCopies, overwrites } = splitCopiedByOverwrite(bulkCopyResult?.copied ?? [])
 
     const submitDisabledReason =
         bulkCopyTargetProjectIds.length === 0
@@ -151,6 +164,11 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                                 ? `Copying ${bulkCopyProgress.done} of ${bulkCopyProgress.total}…`
                                 : 'Copy flags'}
                         </LemonButton>
+                        <span aria-live="polite" aria-atomic="true" className="sr-only">
+                            {bulkCopyRunning && bulkCopyProgress
+                                ? `Copying ${bulkCopyProgress.done} of ${bulkCopyProgress.total}`
+                                : ''}
+                        </span>
                     </>
                 )
             }

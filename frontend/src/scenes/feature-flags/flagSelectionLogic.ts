@@ -10,8 +10,6 @@ import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import type { CopyFlagsResultApi } from 'products/feature_flags/frontend/generated/api.schemas'
-
 import { featureFlagsLogic } from './featureFlagsLogic'
 import type { flagSelectionLogicType } from './flagSelectionLogicType'
 
@@ -62,6 +60,31 @@ export interface BulkCopyResult {
     warnings: string[]
     /** Selected flags that no longer resolved to a key (e.g. deleted between selection and submit). */
     skippedFlagCount: number
+}
+
+function summarizeBulkCopy(
+    copied: BulkCopyResult['copied'],
+    failed: BulkCopyFailure[],
+    targetCount: number
+): { level: 'success' | 'warning' | 'error'; message: string } {
+    const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
+    const hardFailureCount = failed.length - pendingApprovalCount
+    const updatedPairCount = copied.reduce((count, entry) => count + entry.updatedProjectIds.length, 0)
+    const summary =
+        `Copied ${pluralize(copied.length, 'flag')} to ${pluralize(targetCount, 'project')}` +
+        (updatedPairCount > 0 ? ` (${pluralize(updatedPairCount, 'existing flag')} overwritten)` : '')
+    if (failed.length === 0 && copied.length > 0) {
+        return { level: 'success', message: summary }
+    }
+    if (copied.length > 0 || pendingApprovalCount > 0) {
+        return {
+            level: 'warning',
+            message: `${summary}${pendingApprovalCount > 0 ? `, ${pendingApprovalCount} pending approval` : ''}${
+                hardFailureCount > 0 ? `, ${hardFailureCount} failed` : ''
+            }`,
+        }
+    }
+    return { level: 'error', message: 'No flags were copied' }
 }
 
 function errorMessageFrom(error: unknown): string {
@@ -269,14 +292,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                         copy_schedule: values.bulkCopySchedule,
                         disable_copied_flag: values.bulkCopyDisableCopiedFlag,
                     })
-                    const failedEntries: CopyFlagsResultApi[] = Array.isArray(response.failed) ? response.failed : []
+                    const failedEntries = response.failed
                     // Copied targets are inferred as requested-minus-failed (robust to success items
                     // missing team_id during deploy skew); overwrites come from the per-item flag.
                     const failedProjectIds = new Set(failedEntries.map((entry) => entry.project_id))
                     const copiedProjectIds = targetProjectIds.filter((id) => !failedProjectIds.has(id))
                     const updatedProjectIds = response.success
                         .filter((item) => item.updated_existing && item.team_id != null)
-                        .map((item) => item.team_id as number)
+                        .map((item) => item.team_id)
                     if (copiedProjectIds.length > 0) {
                         copied.push({ key, projectIds: copiedProjectIds, updatedProjectIds })
                     }
@@ -312,23 +335,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             })
             actions.reportFeatureFlagBulkCopy(keys.length, targetProjectIds.length, failed.length)
 
-            const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
-            const hardFailureCount = failed.length - pendingApprovalCount
-            const updatedPairCount = copied.reduce((count, entry) => count + entry.updatedProjectIds.length, 0)
-            const summary =
-                `Copied ${pluralize(copied.length, 'flag')} to ${pluralize(targetProjectIds.length, 'project')}` +
-                (updatedPairCount > 0 ? ` (${pluralize(updatedPairCount, 'existing flag')} overwritten)` : '')
-            if (failed.length === 0 && copied.length > 0) {
-                lemonToast.success(summary)
-            } else if (copied.length > 0 || pendingApprovalCount > 0) {
-                lemonToast.warning(
-                    `${summary}${pendingApprovalCount > 0 ? `, ${pendingApprovalCount} pending approval` : ''}${
-                        hardFailureCount > 0 ? `, ${hardFailureCount} failed` : ''
-                    }`
-                )
-            } else {
-                lemonToast.error('No flags were copied')
-            }
+            const { level, message } = summarizeBulkCopy(copied, failed, targetProjectIds.length)
+            lemonToast[level](message)
         },
     })),
 

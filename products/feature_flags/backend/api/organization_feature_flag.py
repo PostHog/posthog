@@ -343,6 +343,26 @@ class OrganizationFeatureFlagView(
                 )
                 continue
 
+            # Being able to see a team isn't the same as being able to write flags into it. Check
+            # editor access against the specific flag when one already exists at this key (an
+            # overwrite), or against the feature_flag resource type in general when this would be a
+            # fresh copy (no object to check access against yet).
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team__project_id=target_project_id).first()
+            target_user_access_control = UserAccessControl(request.user, target_team)
+            target_has_access = (
+                target_user_access_control.check_access_level_for_object(existing_flag, "editor")
+                if existing_flag is not None
+                else target_user_access_control.check_access_level_for_resource("feature_flag", required_level="editor")
+            )
+            if not target_has_access:
+                failed_projects.append(
+                    {
+                        "project_id": target_project_id,
+                        "error_message": "You do not have permission to create or edit feature flags in this project.",
+                    }
+                )
+                continue
+
             # get all linked cohorts, sorted by creation order
             seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
@@ -467,7 +487,6 @@ class OrganizationFeatureFlagView(
                 "is_remote_configuration": flag_to_copy.is_remote_configuration,
                 "has_encrypted_payloads": flag_to_copy.has_encrypted_payloads,
             }
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team__project_id=target_project_id).first()
 
             context = {
                 "request": request,

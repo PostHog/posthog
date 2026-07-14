@@ -191,4 +191,19 @@ describe('flagSelectionLogic bulk copy', () => {
         expect(logic.values.bulkCopyResult).toBeNull()
         expect(logic.values.bulkCopyRunning).toBe(false)
     })
+
+    it('stops before issuing any copy request when none of the selected flags resolve to a key', async () => {
+        useCopyMocks((body) => successResponse(body.feature_flag_key), {})
+        logic = flagSelectionLogic()
+        logic.mount()
+
+        logic.actions.openBulkCopyModal({ sourceProjectId: MOCK_TEAM_ID, flagIds: [1, 2] })
+        logic.actions.setBulkCopyTargetProjectIds([TARGET_A])
+        logic.actions.bulkCopyFlags()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(copyRequests).toHaveLength(0)
+        expect(logic.values.bulkCopyResult).toBeNull()
+        expect(logic.values.bulkCopyRunning).toBe(false)
+    })
 })

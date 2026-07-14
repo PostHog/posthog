@@ -882,6 +882,50 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
         self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
+    def test_copy_feature_flag_to_team_without_flag_editor_access_fails(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            }
+        ]
+        self.organization.save()
+
+        # team_2 stays visible, but feature_flag write access there is restricted
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=None,
+            organization_member=None,
+            role=None,
+            access_level="viewer",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
+        self.assertEqual(
+            response.json()["failed"],
+            [
+                {
+                    "project_id": self.team_2.id,
+                    "error_message": "You do not have permission to create or edit feature flags in this project.",
+                }
+            ],
+        )
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists())
+
     def test_copy_feature_flag_approval_required_reports_pending_and_continues(self):
         from products.approvals.backend.exceptions import ApprovalRequired
         from products.approvals.backend.models import ChangeRequest
