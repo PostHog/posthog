@@ -70,6 +70,18 @@ describe('facets', () => {
             ])
             expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
         })
+
+        it('drops empty strings written by external state so they cannot become stuck filters', () => {
+            const group = groupWith([
+                {
+                    key: 'status_code',
+                    type: PropertyFilterType.Span,
+                    operator: PropertyOperator.Exact,
+                    value: ['Error', ''],
+                },
+            ])
+            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
+        })
     })
 
     describe('mergeSelectedIntoOptions', () => {

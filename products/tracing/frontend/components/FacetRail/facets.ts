@@ -100,7 +100,8 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
     const existing = innerFilters(group).find((f) => isFacetFilter(f, source))
     const value = existing?.value
     if (Array.isArray(value)) {
-        return value.map(String)
+        // Empty strings from external state (URL, saved view) would select a value with no visible row.
+        return value.map(String).filter((v) => v !== '')
     }
     return value != null && value !== '' ? [String(value)] : []
 }
