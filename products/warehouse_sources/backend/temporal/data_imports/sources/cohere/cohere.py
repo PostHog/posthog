@@ -21,6 +21,19 @@ class CohereRetryableError(Exception):
     pass
 
 
+class CohereError(Exception):
+    pass
+
+
+def _extract_items(data: dict[str, Any], config: CohereEndpointConfig, url: str) -> list[dict[str, Any]]:
+    # A successful response that omits the envelope key is a shape mismatch, not empty data.
+    # Every Cohere schema is full-refresh-only, so silently treating a missing key as an empty
+    # page would clear the existing warehouse table; fail loudly instead of destroying data.
+    if config.data_key not in data:
+        raise CohereError(f"Cohere response missing expected '{config.data_key}' key: url={url}")
+    return data[config.data_key]
+
+
 def _get_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
@@ -33,7 +46,10 @@ def validate_credentials(api_key: str) -> bool:
     # touching a user's data. An invalid key returns 401 ("invalid api token").
     url = f"{COHERE_BASE_URL}/models"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), params={"page_size": 1}, timeout=10)
+        # `redact_values` masks the API key in logged URLs and captured HTTP samples.
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers=_get_headers(api_key), params={"page_size": 1}, timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -80,12 +96,13 @@ def get_rows(
     config = COHERE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # `redact_values` masks the API key in logged URLs and captured HTTP samples.
+    session = make_tracked_session(redact_values=(api_key,))
     url = f"{COHERE_BASE_URL}{config.path}"
 
     if config.pagination == CoherePagination.NONE:
         data = _fetch_page(session, url, headers, {}, logger)
-        items = data.get(config.data_key, [])
+        items = _extract_items(data, config, url)
         if items:
             yield items
         return
@@ -107,7 +124,7 @@ def _paginate_offset(
     offset = 0
     while True:
         data = _fetch_page(session, url, headers, {"limit": config.page_size, "offset": offset}, logger)
-        items = data.get(config.data_key, [])
+        items = _extract_items(data, config, url)
         if not items:
             break
         yield items
@@ -130,7 +147,7 @@ def _paginate_page_token(
         if page_token:
             params["page_token"] = page_token
         data = _fetch_page(session, url, headers, params, logger)
-        items = data.get(config.data_key, [])
+        items = _extract_items(data, config, url)
         if items:
             yield items
         page_token = data.get(config.next_token_key)
@@ -144,14 +161,18 @@ def cohere_source(
     logger: FilteringBoundLogger,
 ) -> SourceResponse:
     config = COHERE_ENDPOINTS[endpoint]
+    partitioned = config.partition_key is not None
 
+    # Leave every partition field unset for endpoints without a creation timestamp (the model
+    # catalog). Setting partition_count/size here would make the warehouse writer fall back to
+    # primary_keys and md5-partition the table by `name`; None keeps it unpartitioned as intended.
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(api_key=api_key, endpoint=endpoint, logger=logger),
         primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
+        partition_count=1 if partitioned else None,
+        partition_size=1 if partitioned else None,
+        partition_mode="datetime" if partitioned else None,
+        partition_format="month" if partitioned else None,
+        partition_keys=[config.partition_key] if partitioned else None,
     )

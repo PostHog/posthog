@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere import cohere
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.cohere import (
+    CohereError,
     CohereRetryableError,
     _paginate_offset,
     _paginate_page_token,
@@ -37,6 +38,16 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(cohere, "make_tracked_session", return_value=session):
             assert validate_credentials("test-key") is False
+
+    def test_session_redacts_api_key(self) -> None:
+        # The bearer token must be masked in captured HTTP samples and logged URLs.
+        response = MagicMock()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(cohere, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("secret-key")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestFetchPage:
@@ -137,6 +148,20 @@ class TestGetRows:
         assert [r["job_id"] for r in rows] == ["j1", "j2"]
         assert len(calls) == 1
 
+    def test_missing_envelope_key_raises_instead_of_emptying(self) -> None:
+        # A successful response whose shape lacks the envelope key must fail loudly, not be
+        # treated as an empty page that clears the full-refresh table.
+        with patch.object(cohere, "_fetch_page", return_value={"unexpected": []}):
+            with patch.object(cohere, "make_tracked_session", return_value=MagicMock()):
+                with pytest.raises(CohereError):
+                    list(get_rows("test-key", "datasets", MagicMock()))
+
+    def test_session_redacts_api_key(self) -> None:
+        with patch.object(cohere, "_fetch_page", return_value={"embed_jobs": []}):
+            with patch.object(cohere, "make_tracked_session", return_value=MagicMock()) as make_session:
+                list(get_rows("secret-key", "embed_jobs", MagicMock()))
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
 
 class TestCohereSource:
     @parameterized.expand([(e,) for e in COHERE_ENDPOINTS])
@@ -148,10 +173,16 @@ class TestCohereSource:
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
+            assert response.partition_count == 1
+            assert response.partition_size == 1
         else:
-            # The model catalog has no creation timestamp, so it is not partitioned.
+            # The model catalog has no creation timestamp, so it must stay fully unpartitioned.
+            # partition_count/size are left None too: a stray count makes the writer fall back to
+            # primary_keys and md5-partition by name.
             assert response.partition_mode is None
             assert response.partition_keys is None
+            assert response.partition_count is None
+            assert response.partition_size is None
 
     def test_models_primary_key_is_name_not_id(self) -> None:
         # Model catalog rows are keyed by name; there is no id field to dedupe on.
