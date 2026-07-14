@@ -385,14 +385,17 @@ async fn verify_postgres(
                         &expected.written_properties,
                         props,
                     ));
-                    // The writer applies changelog records in order under a
-                    // version guard, so once quiesced the row must sit at
-                    // exactly the highest acked version.
-                    if *version != expected.last_version {
+                    // The highest acked version is a floor, not an exact
+                    // target: a write that produced its record but lost the
+                    // response (a drain, a client timeout) is unacked yet
+                    // still applied, legitimately leaving the row above the
+                    // floor. Below it, an acked write never reached
+                    // Postgres.
+                    if *version < expected.last_version {
                         violations.push(ConsistencyViolation {
                             person_id: *person_id,
                             key: "__version".to_string(),
-                            expected: serde_json::json!(expected.last_version),
+                            expected: serde_json::json!(format!(">= {}", expected.last_version)),
                             actual: serde_json::json!(version),
                         });
                     }
