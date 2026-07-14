@@ -111,7 +111,7 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
     try:
         license = get_cached_instance_license()
         response = BillingManager(license, None).dispute_signals_pr(organization, payload)
-        credit_amount_usd = Decimal(response["credit_amount_usd"])
+        credit_amount_usd = Decimal(str(response["credit_amount_usd"]))
     except Exception as exc:
         if self.request.retries < _REFUND_SYNC_MAX_RETRIES:
             countdown = min(_REFUND_SYNC_RETRY_BASE_SECONDS * (2**self.request.retries), _REFUND_SYNC_RETRY_MAX_SECONDS)
