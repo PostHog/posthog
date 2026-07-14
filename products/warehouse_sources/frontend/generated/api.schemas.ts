@@ -7149,6 +7149,10 @@ export type ExternalDataSourcesOauthAccountsRetrieveParams = {
      */
     integration_id: number
     /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string
+    /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
     source_type: string

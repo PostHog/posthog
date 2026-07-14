@@ -159,6 +159,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    filter_integration_accounts,
     fold_column_name,
     get_cdc_adapter,
     get_primary_key_columns,
@@ -1808,6 +1809,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 required=True,
                 description="The OAuth integration id whose accounts should be listed.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                required=False,
+                description="Optional case-insensitive filter over account name/value, for sources whose "
+                "resource list is large (e.g. GitHub repositories).",
+            ),
         ],
         responses={200: IntegrationAccountsResponseSerializer},
     )
@@ -1815,9 +1823,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the accounts/properties a connected OAuth integration exposes, in the shared
         IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
-        this endpoint just routes by source type and serializes the result."""
+        this endpoint just routes by source type, applies the optional search filter, and serializes."""
         source_type = request.query_params.get("source_type")
         integration_id = request.query_params.get("integration_id")
+        search = request.query_params.get("search") or None
         if not source_type or not integration_id:
             raise ValidationError("source_type and integration_id are required")
 
@@ -1834,13 +1843,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
 
-        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
@@ -1850,6 +1859,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
+        # Belt-and-suspenders: sources that support server-side search already return matching results;
+        # this filters sources that returned a full list and ignored `search`.
+        accounts = filter_integration_accounts(accounts, search)
         response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
         # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
         # otherwise poison the picker for 60s for every admin on the team.

@@ -964,7 +964,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
 
-        # When re-enabling a webhook schema, force a full refresh to avoid missing data
+        # When re-enabling a webhook schema, request a pipeline reset so a gap from the
+        # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
+        # re-crawl; webhook-only sources (no poll backfill) resume webhook ingestion over
+        # the existing table instead of wiping it — see handle_reset_or_full_refresh.
         if (
             should_sync is True
             and instance.should_sync is False

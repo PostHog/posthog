@@ -337,9 +337,8 @@ class TestEngineeringAnalyticsManagedViewSet(BaseTest):
         viewset.sync_views()
 
         views = self._views(viewset)
-        self.assertEqual(len(views), 1)
-        view = views[0]
-        self.assertEqual(view.name, self.VIEW_NAME)
+        self.assertEqual(len(views), 3)
+        view = next(v for v in views if v.name == self.VIEW_NAME)
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
         # A non-materialized view is computed at query time — it must never be scheduled for
@@ -359,8 +358,8 @@ class TestEngineeringAnalyticsManagedViewSet(BaseTest):
         viewset.sync_views()
         second = self._views(viewset)
 
-        self.assertEqual(len(first), 1)
-        self.assertEqual([v.id for v in first], [v.id for v in second])
+        self.assertEqual(len(first), 3)
+        self.assertEqual(sorted(v.id for v in first), sorted(v.id for v in second))
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_creates_nothing_without_qualifying_source(self, _):

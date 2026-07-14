@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { toMcpInputSchema } from '@/hono/tool-catalog'
 import { isToolCallPayload, type ToolResultPayload } from '@/lib/build-tool-result'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { createRenderUiTool, getRenderableToolNames, RENDER_UI_TOOL_NAME } from '@/tools/render-ui'
@@ -23,14 +24,18 @@ function makeTool(name: string, resourceUri?: string): Tool<ZodObjectAny> {
     }
 }
 
-// A detail app (`survey`) is dispatchable; a custom app (`debug`) is not.
+// Generated and opted-in custom apps are dispatchable; other custom apps are not.
 const surveyTool = makeTool('survey-get', URI_MAP['survey'])
+const queryTrendsTool = makeTool('query-trends', URI_MAP['query-results'])
 const debugTool = makeTool('debug-tool', URI_MAP['debug'])
 const plainTool = makeTool('plain-tool')
 
 describe('render-ui tool', () => {
-    it('only counts tools whose UI app has a generated view as renderable', () => {
-        expect(getRenderableToolNames([surveyTool, debugTool, plainTool])).toEqual(['survey-get'])
+    it('only counts tools whose UI app has a reusable view as renderable', () => {
+        expect(getRenderableToolNames([surveyTool, queryTrendsTool, debugTool, plainTool])).toEqual([
+            'survey-get',
+            'query-trends',
+        ])
     })
 
     it('excludes non-read-only tools so render-ui cannot dispatch mutating tools', () => {
@@ -44,14 +49,47 @@ describe('render-ui tool', () => {
     })
 
     it('restricts tool_name to the renderable tools', () => {
-        const tool = createRenderUiTool([surveyTool, debugTool, plainTool], mockContext)
+        const tool = createRenderUiTool([surveyTool, queryTrendsTool, debugTool, plainTool], mockContext)
         expect(tool).not.toBeNull()
         const schema = tool!.schema
 
         expect(schema.safeParse({ tool_name: 'survey-get', tool_input: { surveyId: 'abc' } }).success).toBe(true)
-        // Non-UI and custom-app tools are not valid enum members.
+        expect(schema.safeParse({ tool_name: 'query-trends', tool_input: { kind: 'TrendsQuery' } }).success).toBe(true)
+        // Non-UI and non-dispatchable custom-app tools are not valid enum members.
         expect(schema.safeParse({ tool_name: 'plain-tool' }).success).toBe(false)
         expect(schema.safeParse({ tool_name: 'debug-tool' }).success).toBe(false)
+    })
+
+    it('advertises the render-ui input schema', () => {
+        const tool = createRenderUiTool([surveyTool, queryTrendsTool, debugTool, plainTool], mockContext)
+        expect(tool).not.toBeNull()
+
+        expect(toMcpInputSchema(tool!.schema)).toMatchInlineSnapshot(`
+          {
+            "properties": {
+              "tool_input": {
+                "additionalProperties": {},
+                "description": "The generated input for that tool. The UI app uses it to fetch and render the visualization.",
+                "propertyNames": {
+                  "type": "string",
+                },
+                "type": "object",
+              },
+              "tool_name": {
+                "description": "A tool that has a UI app — its visualization will be rendered for the user.",
+                "enum": [
+                  "survey-get",
+                  "query-trends",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "tool_name",
+            ],
+            "type": "object",
+          }
+        `)
     })
 
     it('emits a render directive payload with the envelope and render-ui resourceUri', async () => {
