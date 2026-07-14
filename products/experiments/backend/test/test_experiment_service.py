@@ -44,6 +44,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
+    EXPOSURE_FROZEN_PROPERTIES_KEY,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -3813,6 +3814,249 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Unfreeze exposure
     # ------------------------------------------------------------------
+
+    _FREEZE_PROPERTY_CONDITION = {
+        "key": "created_at",
+        "type": "person",
+        "operator": "is_date_before",
+        "value": "2026-07-01",
+    }
+
+    def test_freeze_exposure_property_mode_success(self) -> None:
+        experiment = self._create_running_experiment(name="Freeze Property", feature_flag_key="freeze-property-flag")
+        original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
+
+        # The whole point of the property mode: no exposure scan, no snapshot cohort.
+        with patch.object(
+            ExperimentService, "_fetch_exposed_person_uuids", side_effect=AssertionError("scan must not run")
+        ):
+            frozen = self._service().freeze_exposure(
+                experiment,
+                request=self._make_request(),
+                freeze_mode="property",
+                property_conditions=[self._FREEZE_PROPERTY_CONDITION],
+            )
+        frozen.feature_flag.refresh_from_db()
+
+        assert not Cohort.objects.filter(team=self.team, name__startswith="Exposure snapshot").exists()
+
+        groups = frozen.feature_flag.filters["groups"]
+        assert len(groups) >= 1
+        for group in groups:
+            assert group["properties"][-1] == self._FREEZE_PROPERTY_CONDITION
+            assert group[EXPOSURE_FROZEN_GROUP_KEY] is True
+            assert group[EXPOSURE_FROZEN_PROPERTIES_KEY] == [self._FREEZE_PROPERTY_CONDITION]
+            assert EXPOSURE_FROZEN_COHORT_KEY not in group
+            assert EXPOSURE_FROZEN_GROUP_MARKER in group["description"]
+
+        assert frozen.feature_flag.filters["multivariate"] == original_variants
+        assert frozen.end_date is None
+        assert frozen.is_running is True
+        assert frozen.is_exposure_frozen is True
+
+    def test_freeze_exposure_property_mode_unfreeze_round_trip(self) -> None:
+        experiment = self._create_running_experiment(
+            name="Property Round Trip", feature_flag_key="property-roundtrip-flag"
+        )
+        flag = experiment.feature_flag
+        # One bare group, plus one whose user-authored condition is identical to the freeze
+        # condition — unfreeze must remove only the occurrence the freeze appended.
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        overlapping = {
+            "properties": [deepcopy(self._FREEZE_PROPERTY_CONDITION)],
+            "rollout_percentage": 100,
+            "description": "Signup gated",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, overlapping]})
+        original_filters = deepcopy(flag.filters)
+
+        frozen = self._service().freeze_exposure(
+            experiment,
+            request=self._make_request(),
+            freeze_mode="property",
+            property_conditions=[self._FREEZE_PROPERTY_CONDITION],
+        )
+        frozen.feature_flag.refresh_from_db()
+        assert frozen.feature_flag.filters["groups"][1]["properties"] == [
+            self._FREEZE_PROPERTY_CONDITION,
+            self._FREEZE_PROPERTY_CONDITION,
+        ]
+
+        unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
+        unfrozen.feature_flag.refresh_from_db()
+
+        assert unfrozen.feature_flag.filters == original_filters
+        assert unfrozen.is_exposure_frozen is False
+        assert unfrozen.is_running is True
+
+    @parameterized.expand(
+        [
+            ("no_conditions", None, "at least one property condition"),
+            ("empty_conditions", [], "at least one property condition"),
+            (
+                "cohort_condition",
+                [{"key": "id", "type": "cohort", "value": 1, "operator": "in"}],
+                "not supported",
+            ),
+            (
+                "flag_dependency_condition",
+                [{"key": "other-flag", "type": "flag", "operator": "flag_evaluates_to", "value": True}],
+                "not supported",
+            ),
+            (
+                "group_condition_on_person_flag",
+                [{"key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": "free"}],
+                "must be person properties",
+            ),
+            ("missing_key", [{"type": "person", "operator": "exact", "value": "x"}], "property key"),
+            ("missing_operator", [{"key": "created_at", "type": "person", "value": "2026-01-01"}], "operator"),
+            (
+                "missing_value",
+                [{"key": "created_at", "type": "person", "operator": "is_date_before"}],
+                "missing a value",
+            ),
+        ]
+    )
+    def test_freeze_exposure_property_mode_rejects_invalid_conditions(
+        self, _name: str, conditions: list[dict] | None, expected_error: str
+    ) -> None:
+        experiment = self._create_running_experiment(
+            name="Property Invalid", feature_flag_key=f"property-invalid-{_name}"
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().freeze_exposure(
+                experiment, request=self._make_request(), freeze_mode="property", property_conditions=conditions
+            )
+        assert expected_error.lower() in str(ctx.exception).lower()
+        experiment.refresh_from_db()
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_cohort_mode_rejects_property_conditions(self) -> None:
+        experiment = self._create_running_experiment(name="Cohort No Props", feature_flag_key="cohort-no-props-flag")
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().freeze_exposure(
+                experiment,
+                request=self._make_request(),
+                property_conditions=[self._FREEZE_PROPERTY_CONDITION],
+            )
+        assert "only accepted with the property freeze mode" in str(ctx.exception)
+
+    def test_freeze_exposure_property_mode_group_aggregated(self) -> None:
+        experiment = self._create_running_experiment(name="Property Groups", feature_flag_key="property-groups-flag")
+        flag = experiment.feature_flag
+        flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+        flag.save()
+        experiment.refresh_from_db()
+
+        group_condition = {
+            "key": "plan",
+            "type": "group",
+            "group_type_index": 0,
+            "operator": "exact",
+            "value": "enterprise",
+        }
+        frozen = self._service().freeze_exposure(
+            experiment, request=self._make_request(), freeze_mode="property", property_conditions=[group_condition]
+        )
+        frozen.feature_flag.refresh_from_db()
+
+        assert frozen.is_exposure_frozen is True
+        for group in frozen.feature_flag.filters["groups"]:
+            assert group["properties"][-1] == group_condition
+
+    @parameterized.expand(
+        [
+            (
+                "person_condition",
+                {"key": "created_at", "type": "person", "operator": "is_date_before", "value": "2026-01-01"},
+                "must be group properties",
+            ),
+            (
+                "wrong_group_type_index",
+                {"key": "plan", "type": "group", "group_type_index": 1, "operator": "exact", "value": "x"},
+                "same group type",
+            ),
+        ]
+    )
+    def test_freeze_exposure_property_mode_group_aggregated_condition_mismatch(
+        self, _name: str, condition: dict, expected_error: str
+    ) -> None:
+        experiment = self._create_running_experiment(
+            name="Property Groups Bad", feature_flag_key=f"property-groups-bad-{_name}"
+        )
+        flag = experiment.feature_flag
+        flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+        flag.save()
+        experiment.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().freeze_exposure(
+                experiment, request=self._make_request(), freeze_mode="property", property_conditions=[condition]
+            )
+        assert expected_error.lower() in str(ctx.exception).lower()
+
+    @parameterized.expand(
+        [
+            ("mostly_local", 90, 100, "property", ["local_evaluation"], 0.9),
+            ("mostly_remote", 5, 100, "cohort", [], 0.05),
+            # Below FREEZE_EXPOSURE_LOCAL_EVAL_MIN_EVENTS the flag can't be classified.
+            ("too_few_events", 5, 5, "cohort", [], None),
+            ("no_events", 0, 0, "cohort", [], None),
+        ]
+    )
+    def test_check_freeze_exposure_local_evaluation_detection(
+        self,
+        _name: str,
+        local: int,
+        total: int,
+        expected_mode: str,
+        expected_reasons: list[str],
+        expected_share: float | None,
+    ) -> None:
+        experiment = self._create_running_experiment(name="Freeze Check", feature_flag_key=f"freeze-check-{_name}")
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            return_value=MagicMock(results=[[local, total]]),
+        ):
+            result = self._service().check_freeze_exposure(experiment)
+
+        assert result["recommended_freeze_mode"] == expected_mode
+        assert result["reasons"] == expected_reasons
+        assert result["local_evaluation_share"] == expected_share
+        assert result["flag_called_event_count"] == total
+
+    def test_check_freeze_exposure_group_aggregated_recommends_property(self) -> None:
+        experiment = self._create_running_experiment(
+            name="Freeze Check Groups", feature_flag_key="freeze-check-groups-flag"
+        )
+        flag = experiment.feature_flag
+        flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+        flag.save()
+        experiment.refresh_from_db()
+
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            return_value=MagicMock(results=[[0, 0]]),
+        ):
+            result = self._service().check_freeze_exposure(experiment)
+
+        assert result["recommended_freeze_mode"] == "property"
+        assert result["reasons"] == ["group_aggregated"]
+
+    def test_check_freeze_exposure_survives_query_failure(self) -> None:
+        # Detection is best-effort — an unclassifiable flag must fall back to the cohort
+        # recommendation instead of blocking the freeze flow with a 500.
+        experiment = self._create_running_experiment(
+            name="Freeze Check Fail", feature_flag_key="freeze-check-fail-flag"
+        )
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            side_effect=Exception("boom"),
+        ):
+            result = self._service().check_freeze_exposure(experiment)
+
+        assert result["recommended_freeze_mode"] == "cohort"
+        assert result["local_evaluation_share"] is None
 
     def test_unfreeze_exposure_restores_original_filters(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Test", feature_flag_key="unfreeze-flag")

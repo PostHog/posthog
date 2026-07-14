@@ -20,13 +20,13 @@ export function hasFrozenExposureStamps(experiment: Pick<Experiment, 'feature_fl
     return !!experiment.feature_flag?.filters?.groups?.some((group) => group.exposure_frozen === true)
 }
 
-/** Whether an experiment can have its exposure frozen (ignoring permissions). */
+/** Whether an experiment can have its exposure frozen (ignoring permissions).
+ * Group-aggregated experiments qualify too — they can't use the snapshot-cohort freeze
+ * (a person cohort can't hold groups), but the property-based freeze covers them. */
 export function canFreezeExposure(
     experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag' | 'holdout_id' | 'holdout'>
 ): boolean {
     const flagFilters = experiment.feature_flag?.filters
-    // Freezing exposure narrows the flag to a person cohort, which group-aggregated flags can't use.
-    const isGroupAggregated = flagFilters?.aggregation_group_type_index != null
     // Holdout assignment and early access enrollment (super_groups) are evaluated before release
     // conditions, so the freeze couldn't stop enrollment through them — the backend rejects these.
     const hasHoldout =
@@ -40,7 +40,6 @@ export function canFreezeExposure(
         !hasEnded(experiment) &&
         !isExperimentPaused(experiment) &&
         !isExperimentExposureFrozen(experiment) &&
-        !isGroupAggregated &&
         !hasHoldout &&
         !hasSuperGroups
     )
@@ -89,7 +88,7 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
             <div className="text-sm text-secondary max-w-md">
                 <p>
                     New users can <b>enroll again</b> under the flag's original release conditions. Everyone already
-                    enrolled keeps their variant, and the snapshot cohort is removed.
+                    enrolled keeps their variant, and the conditions the freeze added are removed.
                 </p>
                 <p>
                     Heads up: users enrolled before the freeze and after the unfreeze joined at different times, which

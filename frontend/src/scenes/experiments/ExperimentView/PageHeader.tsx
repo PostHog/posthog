@@ -42,7 +42,6 @@ import {
     canFreezeExposure,
     confirmArchiveExperiment,
     confirmDeleteExperiment,
-    confirmFreezeExposure,
     confirmUnfreezeExposure,
     hasFrozenExposureStamps,
 } from '../experimentActions'
@@ -50,7 +49,12 @@ import { experimentLogic } from '../experimentLogic'
 import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
-import { FinishExperimentModal, PauseExperimentModal, ResumeExperimentModal } from './ExperimentModals'
+import {
+    FinishExperimentModal,
+    FreezeExposureModal,
+    PauseExperimentModal,
+    ResumeExperimentModal,
+} from './ExperimentModals'
 import { ExperimentSceneMenuBar } from './ExperimentSceneMenuBar'
 
 export function PageHeaderCustom(): JSX.Element {
@@ -64,6 +68,7 @@ export function PageHeaderCustom(): JSX.Element {
         experimentLoading,
         launchExperimentLoading,
         freezeExposureLoading,
+        freezeExposureCheckLoading,
         unfreezeExposureLoading,
     } = useValues(experimentLogic)
     const {
@@ -74,9 +79,10 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
+        freezeExposureClicked,
     } = useActions(experimentLogic)
     // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
-    const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
+    const { unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
@@ -267,9 +273,10 @@ export function PageHeaderCustom(): JSX.Element {
                                                 <ButtonPrimitive
                                                     menuItem
                                                     data-attr="freeze-exposure"
-                                                    onClick={() => confirmFreezeExposure(() => freezeExposure())}
+                                                    onClick={() => freezeExposureClicked()}
                                                     disabledReasons={{
                                                         'Freezing exposure...': freezeExposureLoading,
+                                                        'Checking freeze options...': freezeExposureCheckLoading,
                                                     }}
                                                 >
                                                     <IconLock /> Freeze exposure
@@ -332,6 +339,7 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
+                        <FreezeExposureModal />
                     </ScenePanelActionsSection>
                     <ExperimentDebugToggle />
                 </ScenePanel>

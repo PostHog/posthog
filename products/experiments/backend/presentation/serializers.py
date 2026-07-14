@@ -22,7 +22,7 @@ from posthog.schema import (
     ExperimentRunningTimeCalculation,
 )
 
-from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, ValueField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
@@ -1017,6 +1017,82 @@ class ArchiveExperimentSerializer(serializers.Serializer):
             "When the linked feature flag is still enabled, also disable and archive it along with "
             "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
         ),
+    )
+
+
+class FreezePropertyConditionSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="Key of the property the freeze condition matches on, e.g. `created_at`. Under server-side "
+        "local evaluation only properties the SDK caller passes in are visible, so pick one your code already sends."
+    )
+    # CharField rather than ChoiceField: `type` is a collision-prone enum name across the API schema,
+    # and the allowed values are enforced by the freeze service anyway.
+    type = serializers.CharField(
+        default="person",
+        help_text="Condition type: `person` for person-aggregated flags, `group` for group-aggregated flags. "
+        "Cohort, flag-dependency, and behavioral conditions are not locally evaluable and are rejected.",
+    )
+    operator = serializers.CharField(
+        default="exact",
+        help_text="Property filter operator, e.g. `is_date_before`, `exact`, `lt`.",
+    )
+    value = ValueField(
+        required=False,
+        help_text="Value the condition compares against, e.g. an ISO date for `is_date_before`. "
+        "Optional only for `is_set` / `is_not_set` operators.",
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="For `group` conditions: must match the feature flag's aggregation group type index.",
+    )
+
+
+class FreezeExposureSerializer(serializers.Serializer):
+    freeze_mode = serializers.ChoiceField(
+        choices=["cohort", "property"],
+        default="cohort",
+        help_text="How to narrow the flag's release conditions. `cohort` (default) snapshots the already-exposed "
+        "users into a static cohort — exact, but not resolvable by SDKs doing server-side local evaluation and "
+        "capped in size. `property` ANDs the given property conditions into each release condition instead — "
+        "locally evaluable and instant, but only correct when enrollment is gated on those properties "
+        "(e.g. a signup-date cutoff).",
+    )
+    property_conditions = serializers.ListField(
+        child=FreezePropertyConditionSerializer(),
+        required=False,
+        allow_null=True,
+        help_text="Property conditions to AND into every release condition. Required when `freeze_mode` is "
+        "`property`, rejected otherwise.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("freeze_mode") == "property" and not attrs.get("property_conditions"):
+            raise ValidationError("property_conditions is required when freeze_mode is 'property'.")
+        if attrs.get("freeze_mode") != "property" and attrs.get("property_conditions"):
+            raise ValidationError("property_conditions is only accepted when freeze_mode is 'property'.")
+        return attrs
+
+
+class FreezeExposureCheckSerializer(serializers.Serializer):
+    recommended_freeze_mode = serializers.ChoiceField(
+        choices=["cohort", "property"],
+        help_text="Freeze mode the caller should offer. `property` when the cohort mode would not work for this "
+        "experiment; `cohort` otherwise.",
+    )
+    reasons = serializers.ListField(
+        child=serializers.ChoiceField(choices=["local_evaluation", "group_aggregated"]),
+        help_text="Why the cohort mode is unsafe: `local_evaluation` (the flag is predominantly evaluated by "
+        "server-side local-evaluation SDKs, which cannot resolve static cohorts) and/or `group_aggregated` "
+        "(the flag targets groups, which a person cohort cannot hold). Empty when the cohort mode is fine.",
+    )
+    local_evaluation_share = serializers.FloatField(
+        allow_null=True,
+        help_text="Share (0–1) of the flag's recent $feature_flag_called events with locally_evaluated=true. "
+        "Null when the flag emitted too few events to classify (e.g. send_feature_flag_events disabled).",
+    )
+    flag_called_event_count = serializers.IntegerField(
+        help_text="Number of $feature_flag_called events for the flag in the detection window."
     )
 
 

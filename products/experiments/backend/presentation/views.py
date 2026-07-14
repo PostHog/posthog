@@ -61,6 +61,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
     ExperimentWriteSerializer,
+    FreezeExposureCheckSerializer,
+    FreezeExposureSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
@@ -607,7 +609,7 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        request=None,
+        request=FreezeExposureSerializer,
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
@@ -615,20 +617,54 @@ class EnterpriseExperimentsViewSet(
         """
         Freeze exposure on a running experiment while metrics keep flowing.
 
-        Snapshots the already-exposed users into a static cohort and narrows the
-        linked feature flag so only those users keep matching — new users can no
-        longer enter the experiment. ``end_date`` is left null so long-term metrics
-        (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
-        their assigned variant. The serialized status becomes 'exposure_frozen'.
+        In the default cohort mode, snapshots the already-exposed users into a
+        static cohort and narrows the linked feature flag so only those users keep
+        matching — new users can no longer enter the experiment. In the property
+        mode (``freeze_mode="property"``), ANDs the given ``property_conditions``
+        into every release condition instead — locally evaluable and instant, but
+        only correct when enrollment is gated on those properties (use
+        ``freeze_exposure_check`` to see which mode fits). Either way, ``end_date``
+        is left null so long-term metrics (revenue/LTV/renewals/retention) keep
+        accumulating. Enrolled users keep their assigned variant. The serialized
+        status becomes 'exposure_frozen'.
 
         Returns 400 if the experiment is not running, exposure is already frozen,
-        the experiment is group-aggregated (group flags cannot be frozen with a
-        person cohort), or the exposed set is too large to snapshot synchronously.
+        the experiment is group-aggregated in cohort mode (group flags cannot be
+        frozen with a person cohort), or the exposed set is too large to snapshot
+        synchronously in cohort mode.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = FreezeExposureSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        service = ExperimentService(team=self.team, user=request.user)
+        frozen_experiment = service.freeze_exposure(
+            experiment,
+            request=request,
+            freeze_mode=request_serializer.validated_data["freeze_mode"],
+            property_conditions=request_serializer.validated_data.get("property_conditions"),
+        )
+        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        responses=FreezeExposureCheckSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def freeze_exposure_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Recommend a freeze mode for the experiment, without freezing anything.
+
+        The cohort mode silently degrades for feature flags evaluated by
+        server-side local-evaluation SDKs — static cohorts are excluded from the
+        local-evaluation flag definitions, so those SDKs fall back to /decide (or
+        to the default under only_evaluate_locally) — and it cannot freeze
+        group-aggregated flags. This endpoint detects both cases (local evaluation
+        via the recent share of $feature_flag_called events with
+        locally_evaluated=true) so the freeze UI can steer the user to the
+        property-based freeze before they freeze.
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        frozen_experiment = service.freeze_exposure(experiment, request=request)
-        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+        return Response(FreezeExposureCheckSerializer(service.check_freeze_exposure(experiment)).data)
 
     @extend_schema(
         request=None,

@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
@@ -1323,6 +1324,83 @@ describe('experimentLogic', () => {
             expect(errorMock).toHaveBeenCalledWith('Experiment exposure is already frozen.')
             expect(logic.values.freezeExposureLoading).toBe(false)
             createSpy.mockRestore()
+        })
+    })
+
+    describe('freezeExposureClicked', () => {
+        it('surfaces the property freeze modal instead of the confirm dialog when the check recommends it', async () => {
+            const getSpy = jest.spyOn(api, 'get').mockResolvedValue({
+                recommended_freeze_mode: 'property',
+                reasons: ['local_evaluation'],
+                local_evaluation_share: 0.9,
+                flag_called_event_count: 100,
+            })
+            const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+            await expectLogic(keyed, () => {
+                keyed.actions.freezeExposureClicked()
+            })
+                .toDispatchActions(['setFreezeExposureCheck', 'openFreezeExposureModal'])
+                .toFinishAllListeners()
+
+            expect(getSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/freeze_exposure_check`)
+            )
+            // The property mode is a proxy the user must confirm — never freeze via the plain dialog.
+            expect(dialogSpy).not.toHaveBeenCalled()
+            // Person-aggregated experiments get an editable signup-date cutoff prefilled.
+            expect(keyed.values.freezeExposurePropertyConditions).toHaveLength(1)
+            expect(keyed.values.freezeExposurePropertyConditions[0].key).toBe('created_at')
+
+            getSpy.mockRestore()
+            dialogSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('opens the regular confirm dialog when the check recommends the cohort mode', async () => {
+            const getSpy = jest.spyOn(api, 'get').mockResolvedValue({
+                recommended_freeze_mode: 'cohort',
+                reasons: [],
+                local_evaluation_share: 0,
+                flag_called_event_count: 100,
+            })
+            const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+            logic.actions.setExperiment(experiment)
+            await expectLogic(logic, () => {
+                logic.actions.freezeExposureClicked()
+            }).toFinishAllListeners()
+
+            expect(dialogSpy).toHaveBeenCalled()
+
+            getSpy.mockRestore()
+            dialogSpy.mockRestore()
+        })
+
+        it('sends the property conditions in the freeze request body in property mode', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ ...experiment, status: 'exposure_frozen' })
+            const condition = { key: 'created_at', type: 'person', operator: 'is_date_before', value: '2026-07-01' }
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+            await expectLogic(keyed, () => {
+                keyed.actions.freezeExposure({ freezeMode: 'property', propertyConditions: [condition as any] })
+            }).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/freeze_exposure`),
+                {
+                    freeze_mode: 'property',
+                    property_conditions: [condition],
+                }
+            )
+
+            createSpy.mockRestore()
+            keyed.unmount()
         })
     })
 

@@ -22,6 +22,8 @@ export const modalsLogic = kea<modalsLogicType>([
         closeFinishExperimentModal: true,
         openPauseExperimentModal: true,
         closePauseExperimentModal: true,
+        openFreezeExposureModal: true,
+        closeFreezeExposureModal: true,
         openResumeExperimentModal: true,
         closeResumeExperimentModal: true,
         openEditConclusionModal: true,
@@ -84,6 +86,13 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openPauseExperimentModal: () => true,
                 closePauseExperimentModal: () => false,
+            },
+        ],
+        isFreezeExposureModalOpen: [
+            false,
+            {
+                openFreezeExposureModal: () => true,
+                closeFreezeExposureModal: () => false,
             },
         ],
         isResumeExperimentModalOpen: [

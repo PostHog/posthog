@@ -27,6 +27,12 @@ EXPOSURE_FROZEN_GROUP_KEY = "exposure_frozen"
 # can remove exactly that condition even if users added their own cohort conditions meanwhile.
 EXPOSURE_FROZEN_COHORT_KEY = "exposure_frozen_cohort"
 
+# Companion key for the property-based freeze mode: records the exact property conditions the freeze
+# AND-ed into the group (instead of a snapshot cohort), so unfreezing can remove exactly those
+# conditions even if users added their own property conditions meanwhile. Property-based freezing
+# exists because static cohorts cannot be resolved by SDKs doing server-side local evaluation.
+EXPOSURE_FROZEN_PROPERTIES_KEY = "exposure_frozen_properties"
+
 # Human-readable note prepended to each release group's `description` when freezing. Purely
 # informational — the description stays user-editable prose and carries no state.
 EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."

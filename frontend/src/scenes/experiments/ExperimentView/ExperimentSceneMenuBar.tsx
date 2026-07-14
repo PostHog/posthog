@@ -47,7 +47,6 @@ import {
     canFreezeExposure,
     confirmArchiveExperiment,
     confirmDeleteExperiment,
-    confirmFreezeExposure,
     confirmUnfreezeExposure,
     hasFrozenExposureStamps,
 } from '../experimentActions'
@@ -74,6 +73,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         isExperimentStopped,
         isCreatingExperimentDashboard,
         freezeExposureLoading,
+        freezeExposureCheckLoading,
         unfreezeExposureLoading,
         showDebugPanel,
     } = useValues(experimentLogic)
@@ -84,9 +84,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExperimentDashboard,
         resetRunningExperiment,
         toggleDebugPanel,
+        freezeExposureClicked,
     } = useActions(experimentLogic)
     // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
-    const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
+    const { unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
@@ -305,9 +306,15 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 {showFreezeExposure && (
                                     <SceneMenuBarItem
                                         opensFloatingUi
-                                        onClick={() => confirmFreezeExposure(() => freezeExposure())}
-                                        disabled={freezeExposureLoading}
-                                        tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
+                                        onClick={() => freezeExposureClicked()}
+                                        disabled={freezeExposureLoading || freezeExposureCheckLoading}
+                                        tooltip={
+                                            freezeExposureLoading
+                                                ? 'Freezing exposure…'
+                                                : freezeExposureCheckLoading
+                                                  ? 'Checking freeze options…'
+                                                  : undefined
+                                        }
                                         data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
                                     >
                                         <IconLock />

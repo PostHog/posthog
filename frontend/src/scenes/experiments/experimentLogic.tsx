@@ -57,6 +57,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -68,7 +69,9 @@ import {
     FeatureFlagType,
     InsightType,
     MultivariateFlagVariant,
+    PropertyFilterType,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import {
@@ -78,6 +81,7 @@ import {
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
     MetricInsightId,
 } from './constants'
+import { confirmFreezeExposure } from './experimentActions'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
@@ -137,6 +141,14 @@ export type ExperimentWarningKey =
     | 'running_but_no_rollout'
     | 'ended_but_multiple_variants_rolled_out'
     | 'not_started_but_multiple_variants_rolled_out'
+
+/** Response of the freeze_exposure_check endpoint — which freeze mode fits this experiment. */
+export interface ExperimentFreezeExposureCheck {
+    recommended_freeze_mode: 'cohort' | 'property'
+    reasons: ('local_evaluation' | 'group_aggregated')[]
+    local_evaluation_share: number | null
+    flag_called_event_count: number
+}
 
 export interface ExperimentWarning {
     key: ExperimentWarningKey
@@ -529,6 +541,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
+                'openFreezeExposureModal',
+                'closeFreezeExposureModal',
                 'openReleaseConditionsModal',
                 'closePrimaryMetricsReorderModal',
                 'closeSecondaryMetricsReorderModal',
@@ -581,8 +595,14 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
         pauseExperiment: true,
         resumeExperiment: true,
-        freezeExposure: true,
+        freezeExposureClicked: true,
+        freezeExposure: (payload?: { freezeMode: 'property'; propertyConditions: AnyPropertyFilter[] }) => ({
+            payload,
+        }),
         setFreezeExposureLoading: (loading: boolean) => ({ loading }),
+        setFreezeExposureCheckLoading: (loading: boolean) => ({ loading }),
+        setFreezeExposureCheck: (check: ExperimentFreezeExposureCheck | null) => ({ check }),
+        setFreezeExposurePropertyConditions: (conditions: AnyPropertyFilter[]) => ({ conditions }),
         unfreezeExposure: true,
         setUnfreezeExposureLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
@@ -1151,6 +1171,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFreezeExposureLoading: (_, { loading }) => loading,
             },
         ],
+        freezeExposureCheckLoading: [
+            false,
+            {
+                setFreezeExposureCheckLoading: (_, { loading }) => loading,
+            },
+        ],
+        freezeExposureCheck: [
+            null as ExperimentFreezeExposureCheck | null,
+            {
+                setFreezeExposureCheck: (_, { check }) => check,
+            },
+        ],
+        freezeExposurePropertyConditions: [
+            [] as AnyPropertyFilter[],
+            {
+                setFreezeExposurePropertyConditions: (_, { conditions }) => conditions,
+            },
+        ],
         unfreezeExposureLoading: [
             false,
             {
@@ -1453,16 +1491,68 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        freezeExposure: async () => {
+        freezeExposureClicked: async () => {
+            if (values.freezeExposureLoading || values.freezeExposureCheckLoading) {
+                return
+            }
+            // Detect-and-default: the common case freezes with a cohort after a plain confirm, but
+            // when the cohort mode can't work (local-evaluation SDKs, group-aggregated flags) the
+            // property-based freeze is surfaced instead — never applied silently, since it's a
+            // proxy the user must confirm.
+            actions.setFreezeExposureCheckLoading(true)
+            let check: ExperimentFreezeExposureCheck | null = null
+            try {
+                check = await api.get(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure_check`
+                )
+            } catch {
+                check = null
+            } finally {
+                actions.setFreezeExposureCheckLoading(false)
+            }
+            const isGroupAggregated = values.experiment.feature_flag?.filters?.aggregation_group_type_index != null
+            if (check?.recommended_freeze_mode === 'property' || (!check && isGroupAggregated)) {
+                actions.setFreezeExposureCheck(
+                    check ?? {
+                        recommended_freeze_mode: 'property',
+                        reasons: ['group_aggregated'],
+                        local_evaluation_share: null,
+                        flag_called_event_count: 0,
+                    }
+                )
+                actions.setFreezeExposurePropertyConditions(
+                    isGroupAggregated
+                        ? []
+                        : [
+                              {
+                                  key: 'created_at',
+                                  type: PropertyFilterType.Person,
+                                  operator: PropertyOperator.IsDateBefore,
+                                  value: dayjs().utc().format('YYYY-MM-DD HH:mm:ss'),
+                              },
+                          ]
+                )
+                actions.openFreezeExposureModal()
+            } else {
+                confirmFreezeExposure(() => asyncActions.freezeExposure())
+            }
+        },
+        freezeExposure: async ({ payload }) => {
             if (values.freezeExposureLoading) {
                 return
             }
             actions.setFreezeExposureLoading(true)
             try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
-                )
+                const url = `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
+                const response: Experiment =
+                    payload?.freezeMode === 'property'
+                        ? await api.create(url, {
+                              freeze_mode: 'property',
+                              property_conditions: payload.propertyConditions,
+                          })
+                        : await api.create(url)
                 actions.setExperiment(response)
+                actions.closeFreezeExposureModal()
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
             } catch (error: any) {

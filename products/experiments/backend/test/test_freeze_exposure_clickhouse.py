@@ -76,6 +76,39 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
     def _service(self) -> ExperimentService:
         return ExperimentService(team=self.team, user=self.user)
 
+    def test_check_freeze_exposure_counts_locally_evaluated_share(self) -> None:
+        # CH-backed proof for the detection query in check_freeze_exposure — the unit tests stub
+        # execute_hogql_query, so this is what catches a broken query (wrong event, wrong property,
+        # wrong window) that would misclassify every flag.
+        experiment = self._create_running_experiment("freeze-local-eval-flag")
+        recent = timezone.now() - timedelta(hours=1)
+
+        for index in range(3):
+            self._expose_person(
+                f"local-{index}",
+                "freeze-local-eval-flag",
+                recent,
+                extra_properties={"locally_evaluated": True},
+            )
+        self._expose_person("remote-1", "freeze-local-eval-flag", recent)
+        # Other flags and events outside the lookback window must not count.
+        self._expose_person("other-flag", "some-other-flag", recent, extra_properties={"locally_evaluated": True})
+        self._expose_person(
+            "stale",
+            "freeze-local-eval-flag",
+            timezone.now() - timedelta(days=5),
+            extra_properties={"locally_evaluated": True},
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.experiment_service.FREEZE_EXPOSURE_LOCAL_EVAL_MIN_EVENTS", 4):
+            result = self._service().check_freeze_exposure(experiment)
+
+        assert result["flag_called_event_count"] == 4
+        assert result["local_evaluation_share"] == 0.75
+        assert result["recommended_freeze_mode"] == "property"
+        assert result["reasons"] == ["local_evaluation"]
+
     def test_fetch_exposed_person_uuids_returns_only_the_exposed_set(self) -> None:
         experiment = self._create_running_experiment("freeze-fetch-flag")
         assert experiment.start_date is not None

@@ -65,6 +65,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
+    EXPOSURE_FROZEN_PROPERTIES_KEY,
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
@@ -142,6 +143,29 @@ FREEZE_EXPOSURE_RESOLVE_CONCURRENCY = 4
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
+
+# How the freeze narrows the flag's release groups. "cohort" snapshots the exposed users into a
+# static cohort — exact, but unresolvable by SDKs doing server-side local evaluation (static cohorts
+# are excluded from the local-eval flag definitions), capped at FREEZE_EXPOSURE_MAX_EXPOSED_USERS,
+# and person-only. "property" ANDs caller-chosen property conditions into each group instead — a
+# proxy that is only correct when enrollment is gated on those properties (e.g. signup date), but it
+# evaluates locally, is instant, and works for group-aggregated flags too.
+ExperimentFreezeMode = Literal["cohort", "property"]
+
+# Local-evaluation detection for freeze_exposure_check: the share of the flag's recent
+# $feature_flag_called events carrying locally_evaluated=true. Above the threshold the flag is
+# treated as evaluated by local-evaluation SDKs, for which a static-cohort freeze silently degrades
+# (the SDK can't resolve the cohort and falls back to /decide, or to the default under
+# only_evaluate_locally). The minimum keeps a handful of stray events from classifying the flag.
+FREEZE_EXPOSURE_LOCAL_EVAL_LOOKBACK_DAYS = 3
+FREEZE_EXPOSURE_LOCAL_EVAL_MIN_EVENTS = 20
+FREEZE_EXPOSURE_LOCAL_EVAL_SHARE_THRESHOLD = 0.5
+# Property-condition types that flag release conditions support and local evaluation can resolve.
+# Cohort conditions defeat the purpose of the property mode, and flag-dependency ("flag") or
+# behavioral conditions aren't locally evaluable either.
+FREEZE_EXPOSURE_ALLOWED_PROPERTY_TYPES = {"person", "group"}
+# Operators that match on key presence alone, so the condition needs no value.
+_VALUELESS_PROPERTY_OPERATORS = {"is_set", "is_not_set"}
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
@@ -1783,7 +1807,14 @@ class ExperimentService:
     # Not wrapped in @transaction.atomic at the method level: building the snapshot cohort writes to
     # ClickHouse and Postgres (non-transactional side effects), so rather than rely on rollback we
     # clean up the cohort by hand if the locked phase below fails.
-    def freeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
+    def freeze_exposure(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any,
+        freeze_mode: ExperimentFreezeMode = "cohort",
+        property_conditions: list[dict] | None = None,
+    ) -> Experiment:
         """Freeze exposure on a running experiment while metrics keep flowing.
 
         Moves the experiment into an "exposure frozen" state: it snapshots the
@@ -1793,6 +1824,10 @@ class ExperimentService:
         (``multivariate.variants`` is left untouched). Unlike ``end_experiment``,
         ``end_date`` stays null so long-term metrics (revenue/LTV/renewals/retention)
         keep accumulating — the whole point of freezing exposure.
+
+        ``freeze_mode="property"`` narrows with the caller's ``property_conditions``
+        instead of a snapshot cohort — see _freeze_exposure_with_properties. The rest
+        of this docstring describes the default cohort mode.
 
         The snapshot is built synchronously, *before* the flag is narrowed, so the
         flag never points at an unpopulated cohort (which would briefly match no
@@ -1819,6 +1854,11 @@ class ExperimentService:
         ``request`` is required because FeatureFlagSerializer needs a real request
         with authentication and session context to persist the flag change.
         """
+        if freeze_mode == "property":
+            return self._freeze_exposure_with_properties(experiment, property_conditions, request=request)
+        if property_conditions:
+            raise ValidationError("property_conditions is only accepted with the property freeze mode.")
+
         # Phase timings are logged at the end: the freeze spans several backends (ClickHouse scan,
         # personhog RPCs, cohort build with its cache side effects, flag save) whose relative cost
         # can't be reconstructed from any single backend's logs — see experiment_freeze_exposure_timing.
@@ -1882,7 +1922,9 @@ class ExperimentService:
                 # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
                 # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
                 # rather than locally.
-                new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
+                new_filters = self._transform_filters_for_frozen_exposure(
+                    locked_flag.filters, cohort_id=exposure_snapshot.id
+                )
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
@@ -1913,7 +1955,9 @@ class ExperimentService:
 
         # end_date intentionally left null — metrics keep flowing.
 
-        self._report_lifecycle_event(experiment, "experiment exposure frozen", request=request)
+        self._report_lifecycle_event(
+            experiment, "experiment exposure frozen", request=request, extra_metadata={"freeze_mode": "cohort"}
+        )
 
         # flag_save_ms includes the transaction commit, so it carries the on-commit flag cache
         # rebuilds; cohort_build_ms carries the cohort dependency cache warm-up triggered by the
@@ -1932,7 +1976,9 @@ class ExperimentService:
 
         return experiment
 
-    def _validate_freeze_exposure_state(self, experiment: Experiment) -> None:
+    def _validate_freeze_exposure_state(
+        self, experiment: Experiment, *, freeze_mode: ExperimentFreezeMode = "cohort"
+    ) -> None:
         """Guards for freeze_exposure, run twice: unlocked before the expensive snapshot build to
         fail fast, and again under the flag lock to fail closed against whatever landed mid-build."""
         if experiment.is_draft:
@@ -1954,8 +2000,13 @@ class ExperimentService:
         flag = experiment.feature_flag
         if flag.deleted:
             raise ValidationError("Experiment's feature flag has been deleted.")
-        if flag.aggregation_group_type_index is not None:
-            raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
+        if freeze_mode == "cohort" and flag.aggregation_group_type_index is not None:
+            # Cohort-mode only: a person cohort can't hold groups. The property mode can freeze
+            # group-aggregated flags with a group-property condition.
+            raise ValidationError(
+                "Group-aggregated experiments cannot have their exposure frozen with a cohort. "
+                "Use the property-based freeze instead."
+            )
         # Holdout assignment and early-access enrollment (super_groups) are evaluated by the flag
         # matcher before release conditions, so narrowing the release groups to a cohort cannot stop
         # new users from entering through those paths. Fail closed rather than freeze partially.
@@ -1974,6 +2025,204 @@ class ExperimentService:
         # the frozen state (derived from the per-group key) could never be detected.
         if not flag_filters.get("groups"):
             raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
+
+    def _freeze_exposure_with_properties(
+        self, experiment: Experiment, property_conditions: list[dict] | None, *, request: Any
+    ) -> Experiment:
+        """Freeze exposure by AND-ing the given property conditions into every release group.
+
+        The local-evaluation-compatible counterpart to the cohort freeze: property conditions are
+        shipped in the local-eval flag definitions and resolve without a server round-trip, whereas
+        a static cohort cannot be evaluated locally (SDKs fall back to /decide, or to the default
+        under only_evaluate_locally). No ClickHouse scan, no person resolution, no cohort — so no
+        exposed-user cap, and group-aggregated flags are supported with group-property conditions.
+
+        The conditions are a *proxy* for "already enrolled": only correct when enrollment is gated
+        on them (e.g. a signup-date cutoff for a new-user experiment). An old user whose first
+        exposure lands after the freeze still matches and enrolls. Callers must surface this
+        choice to the user rather than apply it silently — see freeze_exposure_check.
+
+        Local evaluation only sees properties the caller passes to the SDK; it never fetches person
+        properties. The chosen property must be one the customer's code already sends, which is why
+        the conditions are caller-supplied rather than derived here.
+        """
+        freeze_started_at = time.monotonic()
+
+        # Phase 1 — unlocked: fail obviously-invalid requests before taking the flag lock.
+        self._validate_freeze_exposure_state(experiment, freeze_mode="property")
+        validated_conditions = self._validate_freeze_property_conditions(experiment, property_conditions)
+
+        with transaction.atomic():
+            # Same locking discipline as the cohort path: re-check every guard against the fresh
+            # flag row so a concurrent freeze/pause/end/edit can't slip underneath the save.
+            locked_flag = (
+                FeatureFlag.objects.select_for_update()
+                .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+                .first()
+            )
+            if locked_flag is None:
+                raise ValidationError("Experiment's feature flag has been deleted.")
+            experiment.refresh_from_db()
+            experiment.feature_flag = locked_flag
+            self._validate_freeze_exposure_state(experiment, freeze_mode="property")
+            self._validate_freeze_property_conditions(experiment, property_conditions)
+
+            new_filters = self._transform_filters_for_frozen_exposure(
+                locked_flag.filters, property_conditions=validated_conditions
+            )
+            update_flag(
+                locked_flag,
+                {"filters": new_filters},
+                team=self.team,
+                user=self.user,
+                request=request,
+            )
+
+        # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
+        locked_flag.refresh_from_db()
+        experiment.feature_flag = locked_flag
+
+        # end_date intentionally left null — metrics keep flowing.
+
+        self._report_lifecycle_event(
+            experiment, "experiment exposure frozen", request=request, extra_metadata={"freeze_mode": "property"}
+        )
+
+        logger.info(
+            "experiment_freeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            freeze_mode="property",
+            total_ms=round((time.monotonic() - freeze_started_at) * 1000),
+        )
+
+        return experiment
+
+    def _validate_freeze_property_conditions(
+        self, experiment: Experiment, property_conditions: list[dict] | None
+    ) -> list[dict]:
+        """Validate the caller-supplied narrowing conditions for the property freeze mode.
+
+        Enforces what makes the mode work at all — conditions a local-evaluation SDK can resolve
+        (person/group properties, matching the flag's aggregation) — and a minimal shape so the
+        stamped EXPOSURE_FROZEN_PROPERTIES_KEY round-trips cleanly on unfreeze. Full flag-filter
+        validation still runs in the FeatureFlagSerializer when the narrowed filters are saved.
+        """
+        if not property_conditions:
+            raise ValidationError("The property freeze mode requires at least one property condition.")
+
+        group_type_index = experiment.feature_flag.aggregation_group_type_index
+        expected_type = "person" if group_type_index is None else "group"
+        for condition in property_conditions:
+            if not isinstance(condition, dict) or not isinstance(condition.get("key"), str) or not condition["key"]:
+                raise ValidationError("Each freeze property condition must be an object with a property key.")
+            condition_type = condition.get("type", "person")
+            if condition_type not in FREEZE_EXPOSURE_ALLOWED_PROPERTY_TYPES:
+                raise ValidationError(
+                    f"Freeze property conditions must be locally evaluable {expected_type} properties; "
+                    f"'{condition_type}' conditions are not supported."
+                )
+            if condition_type != expected_type:
+                raise ValidationError(
+                    f"This experiment's feature flag aggregates by {expected_type}, "
+                    f"so freeze conditions must be {expected_type} properties."
+                )
+            if expected_type == "group" and condition.get("group_type_index") != group_type_index:
+                raise ValidationError(
+                    "Freeze property conditions must target the same group type as the experiment's feature flag."
+                )
+            operator = condition.get("operator")
+            if not isinstance(operator, str) or not operator:
+                raise ValidationError("Each freeze property condition must have an operator.")
+            if operator not in _VALUELESS_PROPERTY_OPERATORS and condition.get("value") in (None, "", []):
+                raise ValidationError(f"Freeze property condition on '{condition['key']}' is missing a value.")
+        return [deepcopy(condition) for condition in property_conditions]
+
+    def check_freeze_exposure(self, experiment: Experiment) -> dict[str, Any]:
+        """Recommend a freeze mode for the experiment, without freezing anything.
+
+        The cohort mode is exact but silently degrades for flags evaluated by server-side
+        local-evaluation SDKs (static cohorts are excluded from the local-eval definitions), and it
+        can't hold groups. This check detects those cases so the UI can steer the user to the
+        property mode *before* they freeze — never swapping modes silently, since the property mode
+        is a proxy the user must confirm. The over-cap case (too many exposed users) is not
+        pre-detected here — it would need the same expensive scan the freeze itself runs — so
+        callers steer to the property mode when the cohort freeze is rejected for size instead.
+
+        Local evaluation is detected per flag from the recent share of $feature_flag_called events
+        with locally_evaluated=true. Flags with send_feature_flag_events disabled emit none and
+        can't be classified (share stays null, cohort recommended) — the property mode remains
+        available explicitly.
+        """
+        flag_filters = experiment.feature_flag.filters or {} if experiment.feature_flag_id else {}
+        reasons: list[str] = []
+        if flag_filters.get("aggregation_group_type_index") is not None:
+            reasons.append("group_aggregated")
+
+        local_share: float | None = None
+        event_count = 0
+        query = ast.SelectQuery(
+            select=[
+                ast.Call(
+                    name="countIf",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "locally_evaluated"])]),
+                            right=ast.Constant(value="true"),
+                        )
+                    ],
+                ),
+                ast.Call(name="count", args=[]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$feature_flag_called"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["properties", "$feature_flag"]),
+                        right=ast.Constant(value=experiment.get_feature_flag_key()),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(
+                            value=timezone.now() - timedelta(days=FREEZE_EXPOSURE_LOCAL_EVAL_LOOKBACK_DAYS)
+                        ),
+                    ),
+                ]
+            ),
+        )
+        try:
+            with tags_context(
+                product=Product.EXPERIMENTS,
+                team_id=self.team.pk,
+                org_id=self.team.organization_id,
+            ):
+                response = execute_hogql_query(query, team=self.team)
+            local_count, event_count = response.results[0]
+            if event_count >= FREEZE_EXPOSURE_LOCAL_EVAL_MIN_EVENTS:
+                local_share = local_count / event_count
+                if local_share > FREEZE_EXPOSURE_LOCAL_EVAL_SHARE_THRESHOLD:
+                    reasons.append("local_evaluation")
+        except Exception:
+            # Detection is best-effort: an unclassifiable flag falls back to the cohort
+            # recommendation (today's behavior) rather than blocking the freeze flow.
+            logger.exception(
+                "experiment_freeze_exposure_check_failed", team_id=self.team.pk, experiment_id=experiment.pk
+            )
+
+        return {
+            "recommended_freeze_mode": "property" if reasons else "cohort",
+            "reasons": reasons,
+            "local_evaluation_share": local_share,
+            "flag_called_event_count": event_count,
+        }
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
@@ -2132,26 +2381,41 @@ class ExperimentService:
         return cohort
 
     @staticmethod
-    def _transform_filters_for_frozen_exposure(current_filters: dict, cohort_id: int) -> dict:
-        """AND a static-cohort condition into every release group and stamp the freeze key.
+    def _transform_filters_for_frozen_exposure(
+        current_filters: dict, *, cohort_id: int | None = None, property_conditions: list[dict] | None = None
+    ) -> dict:
+        """AND the narrowing condition(s) into every release group and stamp the freeze key.
+
+        The narrowing is either the snapshot-cohort condition (``cohort_id``, cohort mode) or the
+        caller's ``property_conditions`` (property mode) — exactly one must be given.
 
         AND (not a new group): groups are OR'd, so a separate group would *widen* access.
         AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
         preserved so a future unfreeze or manual revert strips back to exactly the original.
-        The frozen state lives in the structured EXPOSURE_FROZEN_GROUP_KEY on each group;
-        the marker is merely prepended to the (preserved) ``description`` as a human-readable
-        note. Everything else (``multivariate``, ``payloads``, aggregation index) is left
-        byte-for-byte.
+        The frozen state lives in the structured EXPOSURE_FROZEN_GROUP_KEY on each group; the
+        mode-specific companion key (EXPOSURE_FROZEN_COHORT_KEY / EXPOSURE_FROZEN_PROPERTIES_KEY)
+        records what was added so unfreeze strips exactly that. The marker is merely prepended to
+        the (preserved) ``description`` as a human-readable note. Everything else
+        (``multivariate``, ``payloads``, aggregation index) is left byte-for-byte.
         """
-        cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
+        assert (cohort_id is None) != (property_conditions is None)
+        if cohort_id is not None:
+            added_conditions = [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]
+        else:
+            assert property_conditions is not None
+            added_conditions = property_conditions
 
         new_groups = []
         for group in current_filters.get("groups", []):
-            # One deepcopy per group so the new filters never alias the original flag's dicts.
+            # One deepcopy per group so the new filters never alias the original flag's dicts
+            # (or the caller's conditions).
             new_group = deepcopy(group)
-            new_group["properties"] = [*new_group.get("properties", []), cohort_condition]
+            new_group["properties"] = [*new_group.get("properties", []), *deepcopy(added_conditions)]
             new_group[EXPOSURE_FROZEN_GROUP_KEY] = True
-            new_group[EXPOSURE_FROZEN_COHORT_KEY] = cohort_id
+            if cohort_id is not None:
+                new_group[EXPOSURE_FROZEN_COHORT_KEY] = cohort_id
+            else:
+                new_group[EXPOSURE_FROZEN_PROPERTIES_KEY] = deepcopy(added_conditions)
             existing_description = new_group.get("description")
             new_group["description"] = (
                 f"{EXPOSURE_FROZEN_GROUP_MARKER} {existing_description}"
@@ -2164,13 +2428,15 @@ class ExperimentService:
     @staticmethod
     def _strip_frozen_exposure_from_filters(current_filters: dict) -> tuple[dict, list[int]]:
         """Inverse of _transform_filters_for_frozen_exposure: remove the freeze stamps from every
-        release group — the AND'd snapshot-cohort condition (identified via the per-group
-        EXPOSURE_FROZEN_COHORT_KEY, so user-added cohort conditions survive), the two structured
-        keys, and the description marker note. Groups without the freeze key pass through untouched.
+        release group — the AND'd narrowing conditions (identified via the per-group
+        EXPOSURE_FROZEN_COHORT_KEY / EXPOSURE_FROZEN_PROPERTIES_KEY, so user-added conditions
+        survive), the structured keys, and the description marker note. Groups without the freeze
+        key pass through untouched.
 
-        Returns the stripped filters plus the snapshot cohort ids that were referenced, so callers
-        can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
-        then: deleting earlier would yank the cohort from under a still-frozen flag if the save fails.
+        Returns the stripped filters plus the snapshot cohort ids that were referenced (cohort-mode
+        freezes only), so callers can clean up the then-orphaned cohorts once the stripped filters
+        are persisted — and only then: deleting earlier would yank the cohort from under a
+        still-frozen flag if the save fails.
         """
         new_groups = []
         cohort_ids: list[int] = []
@@ -2192,6 +2458,18 @@ class ExperimentService:
                         and condition.get("value") == cohort_id
                     )
                 ]
+            frozen_properties = new_group.pop(EXPOSURE_FROZEN_PROPERTIES_KEY, None)
+            if frozen_properties:
+                # Remove one occurrence per stamped condition, scanning from the end — the freeze
+                # appended them last, so an identical user-authored condition that predates the
+                # freeze survives.
+                remaining = list(new_group.get("properties", []))
+                for frozen_condition in frozen_properties:
+                    for index in range(len(remaining) - 1, -1, -1):
+                        if remaining[index] == frozen_condition:
+                            del remaining[index]
+                            break
+                new_group["properties"] = remaining
             description = new_group.get("description")
             if isinstance(description, str) and EXPOSURE_FROZEN_GROUP_MARKER in description:
                 stripped_description = description.replace(EXPOSURE_FROZEN_GROUP_MARKER, "").strip()

@@ -5608,6 +5608,59 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(second_unfreeze.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_freeze_exposure_property_mode_endpoint(self) -> None:
+        data = self._create_running_experiment(
+            name="Property Freeze Endpoint", flag_key="property-freeze-endpoint-flag"
+        )
+        experiment_id = data["id"]
+
+        freeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
+            {
+                "freeze_mode": "property",
+                "property_conditions": [
+                    {"key": "created_at", "type": "person", "operator": "is_date_before", "value": "2026-07-01"}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(freeze_response.status_code, status.HTTP_200_OK)
+        body = freeze_response.json()
+        self.assertEqual(body["status"], "exposure_frozen")
+        self.assertIsNone(body["end_date"])
+        # The narrowing is the property condition itself — no snapshot cohort involved.
+        for group in body["feature_flag"]["filters"]["groups"]:
+            self.assertEqual(group["properties"][-1]["key"], "created_at")
+
+    def test_freeze_exposure_property_mode_requires_conditions(self) -> None:
+        data = self._create_running_experiment(name="Property Freeze Invalid", flag_key="property-freeze-invalid-flag")
+        experiment_id = data["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
+            {"freeze_mode": "property"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_freeze_exposure_check_endpoint(self) -> None:
+        data = self._create_running_experiment(name="Freeze Check Endpoint", flag_key="freeze-check-endpoint-flag")
+        experiment_id = data["id"]
+
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            return_value=MagicMock(results=[[95, 100]]),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure_check/"
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["recommended_freeze_mode"], "property")
+        self.assertEqual(body["reasons"], ["local_evaluation"])
+        self.assertEqual(body["local_evaluation_share"], 0.95)
+        self.assertEqual(body["flag_called_event_count"], 100)
+
     def test_freeze_exposure_draft_returns_400(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

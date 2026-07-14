@@ -14,6 +14,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -127,6 +129,94 @@ export function EditConclusionModal(): JSX.Element {
             }
         >
             <ConclusionForm />
+        </LemonModal>
+    )
+}
+
+export function FreezeExposureModal(): JSX.Element {
+    const { experiment, freezeExposureLoading, freezeExposureCheck, freezeExposurePropertyConditions } =
+        useValues(experimentLogic)
+    const { freezeExposure, setFreezeExposurePropertyConditions } = useActions(experimentLogic)
+    const { closeFreezeExposureModal } = useActions(modalsLogic)
+    const { isFreezeExposureModalOpen } = useValues(modalsLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const groupTypeIndex = experiment.feature_flag?.filters?.aggregation_group_type_index
+    const isGroupAggregated = groupTypeIndex != null
+    const aggregationTargetName = isGroupAggregated ? aggregationLabel(groupTypeIndex).plural : 'users'
+    const taxonomicGroupTypes = isGroupAggregated
+        ? [`${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType]
+        : [TaxonomicFilterGroupType.PersonProperties]
+
+    const reasons = freezeExposureCheck?.reasons ?? []
+
+    return (
+        <LemonModal
+            isOpen={isFreezeExposureModalOpen}
+            onClose={closeFreezeExposureModal}
+            title="Freeze exposure with a property condition"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closeFreezeExposureModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        data-attr="experiment-property-freeze-confirm"
+                        loading={freezeExposureLoading}
+                        disabledReason={
+                            freezeExposurePropertyConditions.length === 0 &&
+                            'Add at least one property condition to freeze on'
+                        }
+                        onClick={() =>
+                            freezeExposure({
+                                freezeMode: 'property',
+                                propertyConditions: freezeExposurePropertyConditions,
+                            })
+                        }
+                    >
+                        Freeze exposure
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4 text-sm">
+                {reasons.includes('local_evaluation') && (
+                    <LemonBanner type="warning">
+                        This flag is mostly evaluated with <b>server-side local evaluation</b>, which can't resolve the
+                        static cohort a regular exposure freeze uses — the freeze wouldn't take effect for those
+                        evaluations.
+                    </LemonBanner>
+                )}
+                {reasons.includes('group_aggregated') && (
+                    <LemonBanner type="warning">
+                        This experiment's flag targets {aggregationTargetName}, which can't be held in the person cohort
+                        a regular exposure freeze uses.
+                    </LemonBanner>
+                )}
+                <p>
+                    Instead, freeze by narrowing the release conditions with a property condition. New{' '}
+                    {aggregationTargetName} stop matching, everyone already enrolled keeps their variant, and metrics
+                    keep updating. The condition evaluates everywhere, including local evaluation.
+                </p>
+                <p>
+                    This works best when enrollment is gated on the property — for example a signup-date cutoff for an
+                    experiment that only new {aggregationTargetName} enter. Pick a property your SDK code already passes
+                    when evaluating the flag, since local evaluation only sees the properties you send it.
+                </p>
+                <div>
+                    <LemonLabel>Only keep serving {aggregationTargetName} matching</LemonLabel>
+                    <div className="mt-2">
+                        <PropertyFilters
+                            propertyFilters={freezeExposurePropertyConditions}
+                            onChange={setFreezeExposurePropertyConditions}
+                            pageKey={`experiment-freeze-exposure-${experiment.id}`}
+                            taxonomicGroupTypes={taxonomicGroupTypes}
+                        />
+                    </div>
+                </div>
+            </div>
         </LemonModal>
     )
 }
