@@ -257,6 +257,54 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            # Read paths must hide metric alert results (last_value, check history, breach labels)
+            # from tokens lacking the metrics data scope — otherwise alert:read alone reads values
+            # from alerts a session user scheduled, bypassing the write-side gate.
+            ("alert_read_only_hidden", ["alert:read"], False),
+            ("alert_read_with_metrics_read_visible", ["alert:read", "metrics:read"], True),
+        ]
+    )
+    def test_api_key_read_paths_gate_metrics_alerts(
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+        _name: str,
+        scopes: list[str],
+        visible: bool,
+    ) -> None:
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, lower=1.0)  # session-created, so no write-side scope gate
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="metrics alerts read test",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/alerts", **auth)
+        assert list_response.status_code == 200, list_response.json()
+        listed_ids = {result["id"] for result in list_response.json()["results"]}
+        assert (alert["id"] in listed_ids) is visible
+
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}", **auth)
+        assert detail_response.status_code == (200 if visible else 404), detail_response.json()
+
+        # Thresholds (nested under the insight) embed full alerts including check values, so they
+        # must be gated the same way.
+        thresholds_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight['id']}/thresholds", **auth
+        )
+        assert thresholds_response.status_code == 200, thresholds_response.json()
+        threshold_alert_ids = {
+            nested["id"] for result in thresholds_response.json()["results"] for nested in result.get("alerts", [])
+        }
+        assert (alert["id"] in threshold_alert_ids) is visible
+
+    @parameterized.expand(
+        [
             (
                 "trends_config_on_metrics_insight",
                 {"type": "TrendsAlertConfig", "series_index": 0},
