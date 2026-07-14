@@ -271,6 +271,7 @@ the row lists both.
 | my_hours                  | HTTP                        | requests                                                        | ✅                          |
 | mysql                     | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                       | HTTP                        | requests                                                        | ✅                          |
+| nebius_ai                 | HTTP                        | requests                                                        | ✅                          |
 | netlify                   | HTTP                        | requests                                                        | ✅                          |
 | new_york_times            | HTTP                        | requests                                                        | ✅                          |
 | news_api                  | HTTP                        | requests                                                        | ✅                          |
@@ -673,7 +674,6 @@ doesn't conflict with concurrent PRs.
 - mono
 - nasa
 - navan
-- nebius_ai
 - neon
 - netsuite
 - new_relic
