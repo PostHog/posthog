@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -21,7 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import LANGFUSE_ENDPOINTS
 
 
-def _response(*, status_code: int = 200, json_data: Any = None, text: str = "", headers: Any = None) -> mock.MagicMock:
+def _response(
+    *,
+    status_code: int = 200,
+    json_data: Any = None,
+    text: str = "",
+    headers: Any = None,
+    body_chunks: Optional[list[bytes]] = None,
+) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = 200 <= status_code < 400
@@ -30,6 +38,13 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "", 
     response.text = text
     response.json.return_value = json_data
     response.headers = headers or {}
+    # get_rows streams the body (stream=True) and JSON-decodes the bytes, so the body must flow
+    # through iter_content rather than response.json(). body_chunks lets a test drip the body in
+    # pieces (e.g. to exceed the size cap).
+    if body_chunks is None:
+        payload = json.dumps(json_data).encode() if json_data is not None else text.encode()
+        body_chunks = [payload] if payload else []
+    response.iter_content.return_value = body_chunks
     return response
 
 
@@ -416,6 +431,26 @@ class TestGetRows:
                 )
             )
         assert mts.call_args.kwargs["retry"].total == 0
+
+    @pytest.mark.parametrize(
+        "attr, value, chunks",
+        [
+            ("MAX_RESPONSE_BYTES", 4, [b"aaaa", b"aaaa"]),  # decoded body past the byte cap
+            ("MAX_TRANSFER_SECONDS", -1, [b"a"]),  # transfer past the wall-clock deadline
+        ],
+    )
+    def test_response_over_limit_raises_non_retryable(self, attr, value, chunks):
+        # A hostile/self-hosted host could stream an unbounded or slow-drip body and pin a shared
+        # worker. The read must abort past either cap before parsing JSON, with a non-retryable
+        # error (retrying can't shrink or speed up the body). A single queued response also proves
+        # no retry happens: a retry would consume a second one and raise StopIteration instead.
+        manager = self._manager()
+        with (
+            mock.patch.object(langfuse_module, attr, value),
+            pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
+        ):
+            self._run(manager, [_response(body_chunks=chunks)])
+        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
 
 
 class TestRetryBehavior:

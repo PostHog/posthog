@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    RESPONSE_LIMIT_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
@@ -101,6 +102,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             "403 Client Error": "Your Langfuse API keys do not have access to this resource. Check the keys and try again.",
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",
+            RESPONSE_LIMIT_ERROR: "The Langfuse host returned a response that was too large or too slow to download. Check that the host points at a real Langfuse instance.",
         }
 
     def get_schemas(

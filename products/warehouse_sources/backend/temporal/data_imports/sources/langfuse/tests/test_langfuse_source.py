@@ -4,7 +4,10 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import LangfuseResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
+    RESPONSE_LIMIT_ERROR,
+    LangfuseResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source import LangfuseSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -50,7 +53,7 @@ class TestLangfuseSource:
         assert secret_key_field.secret is True
         assert secret_key_field.required is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
+    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", RESPONSE_LIMIT_ERROR])
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 

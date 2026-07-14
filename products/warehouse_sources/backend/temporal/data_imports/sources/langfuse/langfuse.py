@@ -1,4 +1,6 @@
 import re
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -25,9 +27,19 @@ MAX_RETRIES = 6
 # the Hobby plan), so honor Retry-After up to a full window plus slack.
 MAX_RETRY_AFTER_SECONDS = 120
 
+# The host is customer-controlled (self-hosted Langfuse), so bound how much a single page fetch can
+# cost a shared worker. The per-read `timeout` only limits the gap between bytes — a hostile host can
+# return an unbounded body (OOM) or drip bytes just under that gap to occupy a worker for days. These
+# cap the decoded body size and the total transfer wall-clock before the JSON is parsed. A legitimate
+# page (at most `page_size` rows) is far smaller and far faster, so both limits are generous.
+MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+MAX_TRANSFER_SECONDS = 600
+RESPONSE_CHUNK_BYTES = 1024 * 1024
+
 DEFAULT_HOST = "https://cloud.langfuse.com"
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
+RESPONSE_LIMIT_ERROR = "Langfuse response exceeded a transfer limit"
 
 
 class LangfuseRetryableError(Exception):
@@ -37,6 +49,13 @@ class LangfuseRetryableError(Exception):
 
 
 class LangfuseHostNotAllowedError(Exception):
+    pass
+
+
+class LangfuseResponseTooLargeError(Exception):
+    """A page response blew past the byte or wall-clock cap — treated as non-retryable (a hostile or
+    misbehaving host won't return a smaller/faster body on retry)."""
+
     pass
 
 
@@ -143,6 +162,34 @@ def _parse_retry_after(response: requests.Response) -> float | None:
     if raw and raw.strip().isdigit():
         return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
     return None
+
+
+def _read_capped_body(response: requests.Response, endpoint: str) -> bytes:
+    """Stream the response body under a byte cap and a wall-clock deadline, then return the raw bytes.
+
+    Called only when the caller opened the request with ``stream=True`` so the body isn't buffered
+    until here. ``iter_content`` decodes any content-encoding, so ``total`` and the cap track the
+    decoded size that actually lands in memory. Raises :class:`LangfuseResponseTooLargeError` (which
+    is non-retryable) before the JSON is decoded rather than letting a hostile host OOM or occupy the
+    worker.
+    """
+    started = time.monotonic()
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise LangfuseResponseTooLargeError(
+                f"{RESPONSE_LIMIT_ERROR}: {endpoint} returned more than {MAX_RESPONSE_BYTES} bytes"
+            )
+        if time.monotonic() - started > MAX_TRANSFER_SECONDS:
+            raise LangfuseResponseTooLargeError(
+                f"{RESPONSE_LIMIT_ERROR}: {endpoint} transfer exceeded {MAX_TRANSFER_SECONDS}s"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _retry_wait(retry_state: RetryCallState) -> float:
@@ -255,8 +302,11 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(params: dict[str, Any]) -> dict[str, Any]:
+        # stream=True so the (customer-controlled) body isn't buffered until we read it under a cap.
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
-        response = session.get(url, params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+        response = session.get(
+            url, params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
@@ -271,11 +321,13 @@ def get_rows(
                 f"(status={response.status_code}); refusing to follow it"
             )
 
+        body = _read_capped_body(response, endpoint)
+
         if not response.ok:
-            logger.error(f"Langfuse API error: status={response.status_code}, body={response.text}, url={url}")
+            logger.error(f"Langfuse API error: status={response.status_code}, body={body[:2048]!r}, url={url}")
             response.raise_for_status()
 
-        return response.json()
+        return json.loads(body)
 
     while True:
         params = dict(base_params)
