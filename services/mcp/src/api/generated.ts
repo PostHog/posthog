@@ -2784,7 +2784,7 @@ export namespace Schemas {
       /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /** Properties specific to the trends insight */
@@ -9125,65 +9125,114 @@ export namespace Schemas {
       smooth_n?: number | null;
     }
 
+    export type ZScoreDetectorConfigType = typeof ZScoreDetectorConfigType[keyof typeof ZScoreDetectorConfigType];
+
+
+    export const ZScoreDetectorConfigType = {
+      Zscore: 'zscore',
+    } as const;
+
     export interface ZScoreDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: 'zscore';
+      type: ZScoreDetectorConfigType;
       /** Rolling window size for calculating mean/std (default: 30) */
       window?: number | null;
     }
+
+    export type MADDetectorConfigType = typeof MADDetectorConfigType[keyof typeof MADDetectorConfigType];
+
+
+    export const MADDetectorConfigType = {
+      Mad: 'mad',
+    } as const;
 
     export interface MADDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: 'mad';
+      type: MADDetectorConfigType;
       /** Rolling window size for calculating median/MAD (default: 30) */
       window?: number | null;
     }
+
+    export type IQRDetectorConfigType = typeof IQRDetectorConfigType[keyof typeof IQRDetectorConfigType];
+
+
+    export const IQRDetectorConfigType = {
+      Iqr: 'iqr',
+    } as const;
 
     export interface IQRDetectorConfig {
       /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: 'iqr';
+      type: IQRDetectorConfigType;
       /** Rolling window size for calculating quartiles (default: 30) */
       window?: number | null;
     }
+
+    export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
+
+
+    export const ThresholdDetectorConfigType = {
+      Threshold: 'threshold',
+    } as const;
 
     export interface ThresholdDetectorConfig {
       /** Lower bound - values below this are anomalies */
       lower_bound?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: 'threshold';
+      type: ThresholdDetectorConfigType;
       /** Upper bound - values above this are anomalies */
       upper_bound?: number | null;
     }
+
+    export type ECODDetectorConfigType = typeof ECODDetectorConfigType[keyof typeof ECODDetectorConfigType];
+
+
+    export const ECODDetectorConfigType = {
+      Ecod: 'ecod',
+    } as const;
 
     export interface ECODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'ecod';
+      type: ECODDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
+
+
+    export const COPODDetectorConfigType = {
+      Copod: 'copod',
+    } as const;
 
     export interface COPODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'copod';
+      type: COPODDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
+
+
+    export const IsolationForestDetectorConfigType = {
+      IsolationForest: 'isolation_forest',
+    } as const;
 
     export interface IsolationForestDetectorConfig {
       /** Number of trees in the forest (default: 100) */
@@ -9192,7 +9241,7 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'isolation_forest';
+      type: IsolationForestDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
@@ -9206,6 +9255,13 @@ export namespace Schemas {
       Median: 'median',
     } as const;
 
+    export type KNNDetectorConfigType = typeof KNNDetectorConfigType[keyof typeof KNNDetectorConfigType];
+
+
+    export const KNNDetectorConfigType = {
+      Knn: 'knn',
+    } as const;
+
     export interface KNNDetectorConfig {
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
@@ -9215,10 +9271,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'knn';
+      type: KNNDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
+
+
+    export const HBOSDetectorConfigType = {
+      Hbos: 'hbos',
+    } as const;
 
     export interface HBOSDetectorConfig {
       /** Number of histogram bins (default: 10) */
@@ -9227,10 +9290,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'hbos';
+      type: HBOSDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
+
+
+    export const LOFDetectorConfigType = {
+      Lof: 'lof',
+    } as const;
 
     export interface LOFDetectorConfig {
       /** Number of neighbors for LOF (default: 20) */
@@ -9239,10 +9309,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'lof';
+      type: LOFDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
+
+
+    export const OCSVMDetectorConfigType = {
+      Ocsvm: 'ocsvm',
+    } as const;
 
     export interface OCSVMDetectorConfig {
       /** SVM kernel type (default: "rbf") */
@@ -9253,17 +9330,24 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'ocsvm';
+      type: OCSVMDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
+
+
+    export const PCADetectorConfigType = {
+      Pca: 'pca',
+    } as const;
 
     export interface PCADetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'pca';
+      type: PCADetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
@@ -9276,12 +9360,19 @@ export namespace Schemas {
       Or: 'or',
     } as const;
 
+    export type EnsembleDetectorConfigType = typeof EnsembleDetectorConfigType[keyof typeof EnsembleDetectorConfigType];
+
+
+    export const EnsembleDetectorConfigType = {
+      Ensemble: 'ensemble',
+    } as const;
+
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
       detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
-      type?: 'ensemble';
+      type: EnsembleDetectorConfigType;
     }
 
     /**
@@ -12063,6 +12154,32 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system
+     */
+    export type BillingExemptReasonEnum = typeof BillingExemptReasonEnum[keyof typeof BillingExemptReasonEnum];
+
+
+    export const BillingExemptReasonEnum = {
+      PosthogHealthCheck: 'posthog_health_check',
+      PosthogOnboarding: 'posthog_onboarding',
+      PosthogSystem: 'posthog_system',
+    } as const;
+
+    /**
+     * * `excluded` - Excluded
+     * * `credited` - Credited
+     */
+    export type BillingPathEnum = typeof BillingPathEnum[keyof typeof BillingPathEnum];
+
+
+    export const BillingPathEnum = {
+      Excluded: 'excluded',
+      Credited: 'credited',
+    } as const;
+
+    /**
      * * `email` - email
      */
     export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
@@ -14465,6 +14582,8 @@ export namespace Schemas {
       active: boolean;
       /** Team ID the flag was copied to */
       team_id: number;
+      /** True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created */
+      updated_existing: boolean;
       /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
       flag_dependency_warnings?: string[];
       /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
@@ -14476,6 +14595,10 @@ export namespace Schemas {
       project_id?: number;
       /** Error message (present on failure) */
       error_message?: string;
+      /** True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved */
+      approval_pending?: boolean;
+      /** ID of the pending change request created in the target project (present when approval_pending is true) */
+      change_request_id?: string;
     }
 
     export interface CopyFlagsResponse {
@@ -30144,9 +30267,10 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
-      /** Resolved harness labels seen for this exception, deduped and sorted. */
+      /** Resolved harness labels seen for this failure, deduped and sorted. */
       harnesses: string[];
       last_seen: string;
+      /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
     }
@@ -30178,7 +30302,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -37461,6 +37585,66 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other
+     */
+    export type SignalReportRefundReasonEnum = typeof SignalReportRefundReasonEnum[keyof typeof SignalReportRefundReasonEnum];
+
+
+    export const SignalReportRefundReasonEnum = {
+      PrIncorrect: 'pr_incorrect',
+      PrNotUseful: 'pr_not_useful',
+      Duplicate: 'duplicate',
+      Other: 'other',
+    } as const;
+
+    export interface SignalReportRefund {
+      readonly id: string;
+      /** Why the user refunded this PR (feeds the refund review).
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      readonly reason: SignalReportRefundReasonEnum;
+      /** Optional free-form note captured with the refund. */
+      readonly note: string;
+      /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+       *
+       * * `excluded` - Excluded
+       * * `credited` - Credited */
+      readonly billing_path: BillingPathEnum;
+      /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+      readonly credits: number;
+      /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+      readonly pr_url: string;
+      /** When the first billable PR run was created — the charge this reverses. */
+      readonly pr_run_created_at: string;
+      /**
+         * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      readonly credit_amount_usd: string | null;
+      /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+      readonly billing_synced: boolean;
+      /** When the refund was created. */
+      readonly created_at: string;
+    }
+
+    export type RefundIneligibilityReasonEnum = typeof RefundIneligibilityReasonEnum[keyof typeof RefundIneligibilityReasonEnum];
+
+
+    export const RefundIneligibilityReasonEnum = {
+      AlreadyRefunded: 'already_refunded',
+      BillingExempt: 'billing_exempt',
+      NoBillablePr: 'no_billable_pr',
+      OutOfPeriod: 'out_of_period',
+    } as const;
+
     export interface SignalReport {
       readonly id: string;
       /** @nullable */
@@ -37512,6 +37696,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /** The report's PR refund, when one exists. One refund per report, ever. */
+      readonly refund: SignalReportRefund | null;
+      /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+      readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+       *
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
+      readonly billing_exempt_reason: BillingExemptReasonEnum | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -50880,6 +51074,49 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
+
+    export type QueryResponseAlternative62InsightItemItem = { [key: string]: unknown };
+
+    export type QueryResponseAlternative62Probability = {[key: string]: number};
+
+    export interface QueryResponseAlternative62 {
+      credible_intervals: QueryResponseAlternative62CredibleIntervals;
+      expected_loss: number;
+      funnels_query?: FunnelsQuery | null;
+      insight: QueryResponseAlternative62InsightItemItem[][];
+      kind?: 'ExperimentFunnelsQuery';
+      probability: QueryResponseAlternative62Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantFunnelsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type QueryResponseAlternative63CredibleIntervals = {[key: string]: number[]};
+
+    export type QueryResponseAlternative63InsightItem = { [key: string]: unknown };
+
+    export type QueryResponseAlternative63Probability = {[key: string]: number};
+
+    export interface QueryResponseAlternative63 {
+      count_query?: TrendsQuery | null;
+      credible_intervals: QueryResponseAlternative63CredibleIntervals;
+      exposure_query?: TrendsQuery | null;
+      insight: QueryResponseAlternative63InsightItem[];
+      kind?: 'ExperimentTrendsQuery';
+      p_value: number;
+      probability: QueryResponseAlternative63Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantTrendsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
     export interface QueryResponseAlternative64 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -51726,7 +51963,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
@@ -53815,6 +54052,66 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportRefundRequest {
+      /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      reason: SignalReportRefundReasonEnum;
+      /**
+         * Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      note?: string;
+    }
+
+    export interface SignalReportRefundResponse {
+      readonly id: string;
+      /** Why the user refunded this PR (feeds the refund review).
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      readonly reason: SignalReportRefundReasonEnum;
+      /** Optional free-form note captured with the refund. */
+      readonly note: string;
+      /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+       *
+       * * `excluded` - Excluded
+       * * `credited` - Credited */
+      readonly billing_path: BillingPathEnum;
+      /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+      readonly credits: number;
+      /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+      readonly pr_url: string;
+      /** When the first billable PR run was created — the charge this reverses. */
+      readonly pr_run_created_at: string;
+      /**
+         * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      readonly credit_amount_usd: string | null;
+      /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+      readonly billing_synced: boolean;
+      /** When the refund was created. */
+      readonly created_at: string;
+      /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
+      readonly already_refunded: boolean;
+    }
+
+    export interface SignalReportRefundSummaryResponse {
+      /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
+      credited_refund_count: number;
+      /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+      credited_credits: number;
+      /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+      period_billable_credits: number;
     }
 
     export interface SignalReportStateRequest {
@@ -74503,6 +74800,10 @@ export namespace Schemas {
     };
 
     export type TasksListParams = {
+    /**
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     */
+    all_team_tasks?: boolean;
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
      *

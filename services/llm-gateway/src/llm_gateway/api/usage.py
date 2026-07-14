@@ -92,6 +92,7 @@ async def get_usage(
         end_user_id=str(user.user_id),
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        seat_missing=plan_info.seat_missing,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )
