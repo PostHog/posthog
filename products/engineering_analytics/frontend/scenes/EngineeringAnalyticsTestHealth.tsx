@@ -88,8 +88,9 @@ function FlakyTestLeaderboard(): JSX.Element {
         {
             title: 'Test',
             key: 'nodeid',
+            width: 360,
             render: (_, row) => (
-                <div className="flex max-w-[32rem] flex-col gap-0.5">
+                <div className="flex max-w-[22rem] flex-col gap-0.5">
                     <Tooltip title={row.nodeid}>
                         <span className="truncate font-mono text-xs">{row.nodeid}</span>
                     </Tooltip>
@@ -138,15 +139,6 @@ function FlakyTestLeaderboard(): JSX.Element {
             render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedPrCount)}</span>,
         },
         {
-            title: 'Branches',
-            key: 'branchCount',
-            width: 100,
-            align: 'right',
-            tooltip: 'Distinct git branches across the test’s flaky-signal runs in the window.',
-            sorter: (a, b) => a.branchCount - b.branchCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.branchCount)}</span>,
-        },
-        {
             title: 'Last seen',
             key: 'lastSeenAt',
             width: 120,
@@ -161,11 +153,15 @@ function FlakyTestLeaderboard(): JSX.Element {
         {
             title: '',
             key: 'actions',
-            width: 120,
+            width: 130,
+            align: 'right',
             render: (_, row) => (
                 <LemonButton
                     size="small"
-                    type="secondary"
+                    type="tertiary"
+                    icon={<IconShieldLock />}
+                    tooltip="Review the evidence and owner before opening a tracking issue and quarantine PR."
+                    aria-label={`Quarantine ${row.nodeid}`}
                     onClick={() =>
                         openQuarantineModal({
                             action: 'quarantine',
@@ -218,7 +214,7 @@ function FlakyTestLeaderboard(): JSX.Element {
                         dataSource={flakyTests?.rows ?? []}
                         rowKey={(row) => row.nodeid}
                         loading={flakyTestsLoading}
-                        pagination={{ pageSize: 25 }}
+                        pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
                         emptyState="No flaky tests detected in this window."
                         nouns={['flaky test', 'flaky tests']}

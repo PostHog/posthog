@@ -283,6 +283,7 @@ export interface SignalReportRefundResponseApi {
  * * `llm_analytics` - llm_analytics
  * * `github` - github
  * * `linear` - linear
+ * * `jira` - jira
  * * `zendesk` - zendesk
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking
@@ -300,6 +301,7 @@ export const SignalSourceProductApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
@@ -431,6 +433,17 @@ export interface LinearIssueSignalExtraApi {
     team_name: string | null
     created_at: string
     updated_at: string
+}
+
+export interface JiraIssueSignalExtraApi {
+    key: string
+    url: string | null
+    status: string | null
+    priority: string | null
+    assignee: string | null
+    labels: string[]
+    created: string | null
+    updated: string | null
 }
 
 export interface ConversationsTicketSignalExtraApi {
@@ -594,6 +607,7 @@ export type SignalExtraApi =
     | ZendeskTicketSignalExtraApi
     | GithubIssueSignalExtraApi
     | LinearIssueSignalExtraApi
+    | JiraIssueSignalExtraApi
     | ConversationsTicketSignalExtraApi
     | ErrorTrackingSignalExtraApi
     | PgAnalyzeIssueSignalExtraApi
@@ -646,6 +660,7 @@ export interface SignalNodeApi {
      * * `llm_analytics` - llm_analytics
      * * `github` - github
      * * `linear` - linear
+     * * `jira` - jira
      * * `zendesk` - zendesk
      * * `conversations` - conversations
      * * `error_tracking` - error_tracking
@@ -769,6 +784,7 @@ export interface SignalReportStateRequestApi {
  * * `note` - Note
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
  */
 export type SignalReportArtefactTypeEnumApi =
     (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
@@ -788,6 +804,7 @@ export const SignalReportArtefactTypeEnumApi = {
     Note: 'note',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
 } as const
 
 export interface _UserApi {
@@ -2322,6 +2339,7 @@ export interface ForgetResponseApi {
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
  * * `linear` - Linear
+ * * `jira` - Jira
  * * `zendesk` - Zendesk
  * * `conversations` - Conversations
  * * `error_tracking` - Error tracking
@@ -2340,6 +2358,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
     Linear: 'linear',
+    Jira: 'jira',
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',

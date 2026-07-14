@@ -1,10 +1,19 @@
+from typing import Any, cast
+
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db import transaction
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.timezone import now
 
 from posthog.admin.filters import DeletedFilter
+from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.user import User
 
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -82,9 +91,65 @@ class InsightAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "dashboard", "created_by", "last_modified_by")
     ordering = ("-created_at",)
+    actions = ["restore_selected"]
 
     def get_queryset(self, request):
         return Insight.objects_including_soft_deleted.all()
+
+    def get_actions(self, request: HttpRequest) -> dict[str, Any]:
+        # Drop the built-in hard-delete: insights are soft-deleted product-side.
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    @admin.action(
+        permissions=["change"],
+        description="Restore selected insights (re-activates tiles on live dashboards)",
+    )
+    def restore_selected(self, request: HttpRequest, queryset: QuerySet[Insight]) -> None:
+        insights = list(queryset.filter(deleted=True).select_related("team"))
+        # Count before restoring: the changelist queryset carries the deleted=True filter, so a
+        # later count() would exclude the rows we just un-deleted and skew "skipped" negative.
+        skipped = queryset.count() - len(insights)
+        user = cast(User, request.user)
+        # Mirrors the bulk_restore endpoint. Atomic so a mid-batch failure can't leave insights
+        # restored without their tiles or activity entries (PostHog has no ATOMIC_REQUESTS).
+        with transaction.atomic():
+            for insight in insights:
+                insight.deleted = False
+                insight.last_modified_at = now()
+                insight.last_modified_by = user
+                insight.save()  # post_save signal re-creates the FileSystem entry
+
+            if insights:
+                # Re-activate tiles on live dashboards, and log manually since Insight has no
+                # ModelActivityMixin. Unnamed insights are skipped in the log, matching the API.
+                DashboardTile.objects_including_soft_deleted.filter(
+                    insight_id__in=[insight.id for insight in insights],
+                    deleted=True,
+                    dashboard__deleted=False,
+                ).update(deleted=False)
+                bulk_log_activity(
+                    [
+                        LogActivityEntry(
+                            organization_id=insight.team.organization_id,
+                            team_id=insight.team_id,
+                            user=user,
+                            was_impersonated=False,
+                            item_id=insight.id,
+                            scope="Insight",
+                            activity="restored",
+                            detail=Detail(name=insight.name or insight.derived_name, short_id=insight.short_id),
+                        )
+                        for insight in insights
+                        if insight.name or insight.derived_name
+                    ]
+                )
+
+        message = f"Restored {len(insights)} insights."
+        if skipped:
+            message += f" Skipped {skipped} that were not soft-deleted."
+        self.message_user(request, message, messages.SUCCESS)
 
     fieldsets = (
         (None, {"fields": ("name", "description", "team", "short_id")}),

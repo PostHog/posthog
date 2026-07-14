@@ -3,10 +3,13 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase import metabase as metabase_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
+    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
     MetabaseAuthError,
     MetabaseHostNotAllowedError,
@@ -122,6 +125,16 @@ class TestResolveAuthHeaders:
         session, patch = self._patch_mint(_response(json_data={}))
         with patch, pytest.raises(MetabaseAuthError):
             _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+
+    def test_session_non_json_body_raises_auth_error(self):
+        # A 2xx whose body isn't JSON (host isn't a Metabase API) must surface as a non-retryable
+        # MetabaseAuthError, not a raw JSONDecodeError bubbling out of the activity.
+        response = _response(status_code=200)
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+        session, patch = self._patch_mint(response)
+        with patch, pytest.raises(MetabaseAuthError) as exc:
+            _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+        assert SESSION_RESPONSE_NOT_JSON_ERROR in str(exc.value)
 
     @pytest.mark.parametrize("status_code", [404, 422, 500])
     def test_session_unexpected_status_raises_retryable_not_httperror(self, status_code):
