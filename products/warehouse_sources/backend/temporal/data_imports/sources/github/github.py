@@ -926,20 +926,23 @@ def github_source(
         if webhook_source_manager is not None
         else False
     )
-    # Webhook-only endpoints (webhook-capable with initial_lookback_days == 0: workflow_runs,
-    # workflow_jobs, reviews) do no poll backfill — the webhook is the source of truth. When a
-    # schema that is actually configured for webhook sync has webhook mode inactive (no webhook
-    # function yet, or reset_pipeline forced the poll path), yield nothing rather than crawling the
-    # full REST history — otherwise the direct workflow_runs poll ignores the zero-day marker and
-    # re-crawls all of /actions/runs. Gate on schema.is_webhook so a legacy poll-mode workflow_runs
-    # schema keeps polling instead of silently freezing. Matches the Slack/Stripe webhook-only
-    # sources; the schema_is_webhook read only runs on the poll fallback (webhook_enabled False).
-    webhook_only_poll_noop = bool(
-        webhook_source_manager is not None
-        and webhook_only
-        and not webhook_enabled
-        and async_to_sync(webhook_source_manager.schema_is_webhook)()
+    # Effective webhook-only: the endpoint is webhook-first (zero lookback) AND this schema is
+    # actually in webhook sync mode. webhook_enabled already implies schema.is_webhook; otherwise
+    # confirm against the DB (only on the poll fallback, so no extra read when webhook is active).
+    # Gating on the schema, not just the endpoint config, keeps a legacy poll-mode workflow_runs
+    # schema correct on two fronts: it keeps polling (the poll no-op below stays off), and its
+    # SourceResponse.webhook_only stays False so a reset still wipes+rebuilds (handle_reset_or_full_refresh
+    # only preserves the table for genuinely webhook-only schemas).
+    webhook_only_schema = bool(
+        webhook_only
+        and webhook_source_manager is not None
+        and (webhook_enabled or async_to_sync(webhook_source_manager.schema_is_webhook)())
     )
+    # A webhook-only schema whose webhook mode is inactive (no function yet, or reset_pipeline forced
+    # the poll path) yields nothing rather than crawling the full REST history — otherwise the direct
+    # workflow_runs poll ignores the zero-day marker and re-crawls all of /actions/runs. Matches the
+    # Slack/Stripe webhook-only sources.
+    webhook_only_poll_noop = webhook_only_schema and not webhook_enabled
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:
         if webhook_enabled:
@@ -993,7 +996,7 @@ def github_source(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
-        webhook_only=webhook_only,
+        webhook_only=webhook_only_schema,
     )
 
 

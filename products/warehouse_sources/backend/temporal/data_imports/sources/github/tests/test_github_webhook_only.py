@@ -33,6 +33,8 @@ def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -
         rows = list(result)
 
     assert rows == []
+    # An actual webhook-mode schema is webhook_only, so a reset preserves its table.
+    assert response.webhook_only is True
     fetch_page.assert_not_called()
     webhook_source_manager.get_items.assert_not_called()
 
@@ -63,4 +65,6 @@ def test_poll_mode_workflow_runs_still_polls() -> None:
         list(result)
 
     fetch_page.assert_called()
+    # A legacy poll-mode schema is NOT webhook_only, so a reset still wipes and rebuilds.
+    assert response.webhook_only is False
     webhook_source_manager.get_items.assert_not_called()
