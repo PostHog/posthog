@@ -2562,3 +2562,78 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
     dispatched = serializers.BooleanField(
         help_text="True when the requested side effect was dispatched; false when skipped (e.g. run not found)."
     )
+
+
+class TasksAIRunPreferencesSerializer(serializers.Serializer):
+    """The default AI run triple stored at team or user level.
+
+    Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+    their responses. `runtime_adapter` and `model` must be set together; send all three
+    as null to clear a stored preference.
+    """
+
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        default=None,
+        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Default reasoning effort for models that expose an effort control.",
+    )
+
+
+class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
+    """The AI run triple a new run will effectively use when the caller pins nothing,
+    plus which preference level supplied it."""
+
+    runtime_adapter = serializers.CharField(
+        allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
+    )
+    model = serializers.CharField(
+        allow_null=True, help_text="Effective default model identifier, or null when no preference is stored."
+    )
+    reasoning_effort = serializers.CharField(
+        allow_null=True, help_text="Effective default reasoning effort, or null when unset or unsupported."
+    )
+    source = serializers.ChoiceField(
+        choices=["user", "team", "none"],
+        help_text="Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.",
+    )
+
+
+class TasksTeamConfigResponseSerializer(serializers.Serializer):
+    """Team-level tasks configuration."""
+
+    ai_run_preferences = TasksAIRunPreferencesSerializer(
+        help_text="Project-wide default AI run triple; empty object when unset."
+    )
+
+
+class TasksUserConfigResponseSerializer(serializers.Serializer):
+    """The requesting user's per-project tasks configuration."""
+
+    ai_run_preferences = TasksAIRunPreferencesSerializer(
+        help_text="The requesting user's per-project default AI run triple; empty object when unset."
+    )
+    resolved_ai_run_defaults = TasksResolvedAIRunDefaultsSerializer(
+        help_text="The defaults a new run will use when no explicit runtime selection is sent."
+    )
