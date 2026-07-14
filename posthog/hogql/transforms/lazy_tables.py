@@ -673,12 +673,13 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    # The join's ON constraint may reference other joins on the same table (its
-                    # `constraint_tables`), which ClickHouse resolves left-to-right and so must appear
-                    # earlier in the chain. Scan the whole remaining chain — not just the immediate
-                    # next join — and insert after the last such dependency, or right after the
-                    # source table when none are present. Looking only one join ahead placed this
-                    # join before a dependency that a non-dependent join had been inserted in front of.
+                    # The join's ON constraint may depend on other joins (`constraint_tables`); the
+                    # ones that matter here are those earlier in this source table's join chain,
+                    # which ClickHouse resolves left-to-right and so must appear before this join.
+                    # Scan the whole remaining chain — not just the immediate next join — and insert
+                    # after the last such dependency, or right after the source table when none are
+                    # present. Looking only one join ahead placed this join before a dependency that
+                    # a non-dependent join had been inserted in front of.
                     insert_after = join_ptr
                     scan = join_ptr.next_join
                     while scan is not None:
