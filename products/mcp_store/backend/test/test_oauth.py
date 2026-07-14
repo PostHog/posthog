@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
-    MAX_METADATA_REDIRECTS,
     TIMEOUT,
     OAuthTokenExchangeError,
     SSRFBlockedError,
@@ -62,8 +61,9 @@ class TestResolveIssuer(TestCase):
         result = _resolve_issuer(metadata, expected_issuer)
         self.assertEqual(result, expected_result)
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_mismatched_issuer_triggers_cross_validation(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_mismatched_issuer_triggers_cross_validation(self, mock_get, _allow):
         cross_validated = {
             "issuer": "https://real-auth.example.com",
             "authorization_endpoint": "https://real-auth.example.com/authorize",
@@ -84,10 +84,11 @@ class TestResolveIssuer(TestCase):
 
         self.assertEqual(result, cross_validated)
         mock_get.assert_called_once()
-        self.assertIn("real-auth.example.com", mock_get.call_args.args[1])
+        self.assertIn("real-auth.example.com", mock_get.call_args.args[0])
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_cross_validation_mismatch_raises(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_cross_validation_mismatch_raises(self, mock_get, _allow):
         mock_resp = MagicMock()
         mock_resp.ok = True
         mock_resp.json.return_value = {
@@ -106,8 +107,9 @@ class TestResolveIssuer(TestCase):
         with self.assertRaises(ValueError, msg="Issuer mismatch"):
             _resolve_issuer(metadata, "https://origin.com")
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_cross_validation_fetch_fails(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_cross_validation_fetch_fails(self, mock_get, _allow):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
         mock_get.return_value = mock_resp
@@ -142,7 +144,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.pinned_request", return_value=mock_resp) as mock_post:
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp) as mock_post:
             result = refresh_oauth_token(
                 token_url="https://example.com/token",
                 refresh_token="old-refresh",
@@ -163,8 +165,9 @@ class TestRefreshOauthToken(SimpleTestCase):
         self.assertEqual(call_kwargs["auth"], expected_auth)
         self.assertEqual(result["access_token"], "new-token")
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_refresh_sends_resource_indicator(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_refresh_sends_resource_and_disables_redirects(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"access_token": "new-token"}
@@ -179,6 +182,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         )
 
         call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs["allow_redirects"] is False
         assert call_kwargs["data"]["resource"] == "https://mcp.example.com/"
 
     def test_http_error_raises_token_refresh_error(self):
@@ -186,7 +190,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.status_code = 401
         mock_resp.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=mock_resp)
 
-        with patch("products.mcp_store.backend.oauth.pinned_request", return_value=mock_resp):
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",
@@ -201,7 +205,7 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"error": "invalid_grant"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.pinned_request", return_value=mock_resp):
+        with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",
@@ -210,10 +214,7 @@ class TestRefreshOauthToken(SimpleTestCase):
                 )
             self.assertIn("missing access_token", str(ctx.exception))
 
-    @patch(
-        "products.mcp_store.backend.oauth.pinned_request",
-        side_effect=SSRFBlockedError("Private IP address not allowed"),
-    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(False, "Private IP address not allowed"))
     def test_ssrf_blocked_token_url_raises_token_refresh_error(self, _mock):
         with self.assertRaises(TokenRefreshError) as ctx:
             refresh_oauth_token(
@@ -337,9 +338,10 @@ class TestIssuerValidation(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request")
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
     def test_step2_fallback_issuer_validation(
-        self, _name, auth_metadata, server_url, should_raise, cross_val_metadata, mock_get
+        self, _name, auth_metadata, server_url, should_raise, cross_val_metadata, mock_get, _allow
     ):
         not_found = self._make_response(ok=False, status_code=404)
         auth_resp = self._make_response(json_data=auth_metadata)
@@ -376,9 +378,8 @@ class TestIssuerValidation(SimpleTestCase):
 
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
             assert mock_get.call_args_list[index].kwargs["timeout"] == TIMEOUT
-            assert mock_get.call_args_list[index].kwargs["max_redirects"] == MAX_METADATA_REDIRECTS
 
     @parameterized.expand(
         [
@@ -458,9 +459,10 @@ class TestIssuerValidation(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request")
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
     def test_step1_protected_resource_issuer_validation(
-        self, _name, auth_server_url, auth_metadata, should_raise, cross_val_metadata, mock_get
+        self, _name, auth_server_url, auth_metadata, should_raise, cross_val_metadata, mock_get, _allow
     ):
         resource_resp = self._make_response(json_data={"authorization_servers": [auth_server_url]})
         auth_resp = self._make_response(json_data=auth_metadata)
@@ -495,12 +497,12 @@ class TestIssuerValidation(SimpleTestCase):
 
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
             assert mock_get.call_args_list[index].kwargs["timeout"] == TIMEOUT
-            assert mock_get.call_args_list[index].kwargs["max_redirects"] == MAX_METADATA_REDIRECTS
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_step1_preserves_same_origin_resource(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_step1_preserves_same_origin_resource(self, mock_get, _allow):
         auth_server_url = "https://auth.example.com"
         resource_resp = self._make_response(
             json_data={
@@ -522,8 +524,9 @@ class TestIssuerValidation(SimpleTestCase):
         assert metadata["resource"] == "https://mcp.example.com/mcp"
         assert mock_get.call_count == 2
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_step1_rejects_resource_on_unrelated_origin(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_step1_rejects_resource_on_unrelated_origin(self, mock_get, _allow):
         resource_resp = self._make_response(
             json_data={
                 "resource": "https://api.legit.com",
@@ -559,8 +562,9 @@ class TestIssuerValidation(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_rejects_metadata_with_endpoints_off_issuer_origin(self, _name, auth_metadata, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_rejects_metadata_with_endpoints_off_issuer_origin(self, _name, auth_metadata, mock_get, _allow):
         """A malicious MCP server cannot mix a legitimate issuer with an attacker-controlled endpoint.
 
         Otherwise, after the user authorizes against the real provider, the
@@ -599,8 +603,9 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
             "token_endpoint": f"{issuer}/token",
         }
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_variant_1_success_makes_no_fallback_calls(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_success_makes_no_fallback_calls(self, mock_get, _allow):
         """Regression guard: when variant 1 succeeds, the loop stops — no fallback URLs are tried."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -618,10 +623,11 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
         ]
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_auth_server_with_path_falls_back_to_oidc_path_insertion(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_with_path_falls_back_to_oidc_path_insertion(self, mock_get, _allow):
         """Variant 1 404s, variant 2 (OIDC path insertion) succeeds."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -641,10 +647,11 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
         ]
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_auth_server_with_path_falls_back_to_oidc_path_append(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_with_path_falls_back_to_oidc_path_append(self, mock_get, _allow):
         """Variants 1 and 2 404, variant 3 (OIDC path append) succeeds — the BuildBetter case."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -665,10 +672,11 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
         ]
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_auth_server_without_path_falls_back_to_oidc(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_auth_server_without_path_falls_back_to_oidc(self, mock_get, _allow):
         """Root auth-server URL: oauth-authorization-server 404, openid-configuration 200."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://auth.example.com"
@@ -688,10 +696,11 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
         ]
         assert mock_get.call_count == len(expected_urls)
         for index, expected_url in enumerate(expected_urls):
-            assert mock_get.call_args_list[index].args[1] == expected_url
+            assert mock_get.call_args_list[index].args[0] == expected_url
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_all_discovery_candidates_fail_raises(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_all_discovery_candidates_fail_raises(self, mock_get, _allow):
         """When every spec-mandated candidate returns 404, discovery raises and the view layer surfaces the 400."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -703,8 +712,9 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
         with self.assertRaises(requests.HTTPError):
             discover_oauth_metadata(mcp_url)
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_variant_1_malformed_metadata_does_not_fall_back(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_malformed_metadata_does_not_fall_back(self, mock_get, _allow):
         """A 200 with malformed metadata is a real misconfiguration — surface it instead of probing fallbacks."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -718,8 +728,9 @@ class TestAuthServerMetadataDiscoveryChain(TestCase):
 
         assert mock_get.call_count == 2
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_variant_1_server_error_does_not_fall_back(self, mock_get):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_variant_1_server_error_does_not_fall_back(self, mock_get, _allow):
         """A 500 is a transient failure, not 'endpoint not implemented' — surface it without retrying variants."""
         mcp_url = "https://mcp.example.com"
         auth_server_url = "https://mcp.example.com/oauth"
@@ -752,7 +763,7 @@ class TestSSRFProtection(TestCase):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request", side_effect=SSRFBlockedError("Disallowed target IP"))
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(False, "Disallowed target IP"))
     def test_ssrf_blocked(self, _name, func_name, kwargs, _mock):
         func = {
             "discover_oauth_metadata": discover_oauth_metadata,
@@ -913,7 +924,7 @@ class TestRegisterDCRClient(SimpleTestCase):
     def test_omitted_supported_methods_default_to_basic_for_confidential_clients(self):
         assert select_token_endpoint_auth_method({}, has_client_secret=True) == "client_secret_basic"
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
+    @patch("products.mcp_store.backend.oauth.requests.post")
     def test_rejects_dcr_when_provider_only_lists_unsupported_auth_methods(self, mock_post):
         with self.assertRaisesMessage(ValueError, "private_key_jwt"):
             register_dcr_client(
@@ -963,8 +974,11 @@ class TestRegisterDCRClient(SimpleTestCase):
             ),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_returns_client_secret_only_when_server_requires_it(self, _name, response_body, expected, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_returns_client_secret_only_when_server_requires_it(
+        self, _name, response_body, expected, mock_post, _allow
+    ):
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.status_code = 201
@@ -978,8 +992,9 @@ class TestRegisterDCRClient(SimpleTestCase):
 
         assert result == expected
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_registers_refresh_grant_without_refresh_scope(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_registers_refresh_grant_without_refresh_scope(self, mock_post, _allow):
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.status_code = 201
@@ -1006,9 +1021,11 @@ class TestRegisterDCRClient(SimpleTestCase):
         assert payload["token_endpoint_auth_method"] == "client_secret_post"
         assert payload["scope"] == "read write"
         assert "refresh_token" not in payload["scope"]
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_keeps_requested_basic_auth_when_dcr_response_omits_auth_method(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_keeps_requested_basic_auth_when_dcr_response_omits_auth_method(self, mock_post, _allow):
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.status_code = 201
@@ -1151,8 +1168,9 @@ class TestExchangeOauthToken(BaseTest):
             sensitive_configuration=sensitive_configuration,
         )
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_confidential_custom_install_defaults_to_http_basic(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_confidential_custom_install_defaults_to_http_basic(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.ok = True
@@ -1181,9 +1199,11 @@ class TestExchangeOauthToken(BaseTest):
         assert sent_form["grant_type"] == "authorization_code"
         assert sent_form["code_verifier"] == "pkce-verifier"
         assert mock_post.call_args.kwargs["auth"] == ("confidential-client", "confidential-secret")
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_client_secret_post_custom_install_sends_secret_in_form(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_client_secret_post_custom_install_sends_secret_in_form(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.ok = True
@@ -1214,8 +1234,9 @@ class TestExchangeOauthToken(BaseTest):
         assert sent_form["code_verifier"] == "pkce-verifier"
         assert mock_post.call_args.kwargs["auth"] is None
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_public_custom_install_omits_client_secret(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_public_custom_install_omits_client_secret(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"access_token": "abc"}
@@ -1236,8 +1257,9 @@ class TestExchangeOauthToken(BaseTest):
         sent_form = mock_post.call_args[1]["data"]
         assert "client_secret" not in sent_form
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_client_secret_basic_custom_install_uses_http_basic(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_client_secret_basic_custom_install_uses_http_basic(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.ok = True
@@ -1265,8 +1287,9 @@ class TestExchangeOauthToken(BaseTest):
         assert "client_secret" not in sent_form
         assert mock_post.call_args.kwargs["auth"] == ("basic-client", "basic-secret")
 
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_token_exchange_includes_resource_indicator(self, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_token_exchange_includes_resource_indicator(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.ok = True
@@ -1317,8 +1340,9 @@ class TestExchangeOauthToken(BaseTest):
             ("server_error_500", 500, False, True),
         ]
     )
-    @patch("products.mcp_store.backend.oauth.pinned_request")
-    def test_accepts_any_2xx_status(self, _name, status_code, ok, should_raise, mock_post):
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_accepts_any_2xx_status(self, _name, status_code, ok, should_raise, mock_post, _allow):
         """Some providers (e.g. Supabase) return 201 on token issue — we must accept it."""
         mock_resp = MagicMock()
         mock_resp.status_code = status_code

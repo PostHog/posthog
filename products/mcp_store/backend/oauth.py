@@ -9,18 +9,19 @@ import requests
 import structlog
 import tldextract
 
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
+from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
-# Providers legitimately redirect their well-known metadata URLs (trailing
-# slash, apex -> www); each hop is SSRF-revalidated and IP-pinned.
-MAX_METADATA_REDIRECTS = 3
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+
+
+class SSRFBlockedError(Exception):
+    pass
 
 
 class OAuthTokenExchangeError(Exception):
@@ -29,6 +30,12 @@ class OAuthTokenExchangeError(Exception):
 
 class OAuthAuthorizeURLError(Exception):
     pass
+
+
+def _validate_url(url: str) -> None:
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
 
 
 def _canonical_origin(url: str) -> str | None:
@@ -146,7 +153,8 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
     FALLBACK_STATUSES = {404, 405}
     last_exc: Exception = RuntimeError("no discovery candidates were attempted")
     for metadata_url in candidates:
-        metadata_resp = pinned_request("GET", metadata_url, timeout=TIMEOUT, max_redirects=MAX_METADATA_REDIRECTS)
+        _validate_url(metadata_url)
+        metadata_resp = requests.get(metadata_url, timeout=TIMEOUT)
         if metadata_resp.status_code in FALLBACK_STATUSES:
             last_exc = requests.HTTPError(response=metadata_resp)
             continue
@@ -255,10 +263,12 @@ def discover_oauth_metadata(server_url: str) -> dict:
 
     # Step 1: Try RFC 9728 Protected Resource Metadata to find the authorization server
     resource_url = f"{origin}/.well-known/oauth-protected-resource{path}"
-    resource_resp = pinned_request("GET", resource_url, timeout=TIMEOUT, max_redirects=MAX_METADATA_REDIRECTS)
+    _validate_url(resource_url)
+    resource_resp = requests.get(resource_url, timeout=TIMEOUT)
     if resource_resp.status_code == 404 and path:
         fallback_url = f"{origin}/.well-known/oauth-protected-resource"
-        resource_resp = pinned_request("GET", fallback_url, timeout=TIMEOUT, max_redirects=MAX_METADATA_REDIRECTS)
+        _validate_url(fallback_url)
+        resource_resp = requests.get(fallback_url, timeout=TIMEOUT)
 
     if resource_resp.ok:
         resource_data = resource_resp.json()
@@ -313,7 +323,8 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
     if scopes := requested_oauth_scopes(metadata):
         payload["scope"] = " ".join(scopes)
 
-    resp = pinned_request("POST", registration_endpoint, json=payload, timeout=TIMEOUT)
+    _validate_url(registration_endpoint)
+    resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT, allow_redirects=False)
     if 300 <= resp.status_code < 400:
         raise ValueError("Dynamic Client Registration endpoint redirected")
     if not resp.ok:
@@ -470,7 +481,8 @@ def refresh_oauth_token(
         raise TokenRefreshError(str(exc))
 
     try:
-        resp = pinned_request("POST", token_url, data=data, auth=auth, timeout=TIMEOUT)
+        _validate_url(token_url)
+        resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
         if 300 <= resp.status_code < 400:
             raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
@@ -563,6 +575,11 @@ def exchange_oauth_token(
     if not token_endpoint:
         raise OAuthTokenExchangeError("Missing token_endpoint in OAuth metadata")
 
+    allowed, reason = is_url_allowed(token_endpoint)
+    if not allowed:
+        logger.warning("SSRF blocked token endpoint", url=token_endpoint, reason=reason)
+        raise OAuthTokenExchangeError("Token endpoint blocked by security policy")
+
     if not is_https(token_endpoint):
         raise OAuthTokenExchangeError("Token endpoint must use HTTPS")
 
@@ -585,11 +602,7 @@ def exchange_oauth_token(
     except ValueError as exc:
         raise OAuthTokenExchangeError(str(exc))
 
-    try:
-        token_response = pinned_request("POST", token_endpoint, data=form, auth=auth, timeout=TIMEOUT)
-    except SSRFBlockedError as exc:
-        logger.warning("SSRF blocked token endpoint", url=token_endpoint, reason=str(exc))
-        raise OAuthTokenExchangeError("Token endpoint blocked by security policy")
+    token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
 
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
     if 300 <= token_response.status_code < 400:
