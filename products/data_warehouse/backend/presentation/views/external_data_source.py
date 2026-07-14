@@ -159,6 +159,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
@@ -773,7 +774,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
-            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
     )
@@ -1279,9 +1281,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
-        # client self-label as wizard-created). It is derived server-side by upgrading a
-        # machine-injected `mcp` value when the request comes from the wizard transport.
+        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+        # caller (that would let any client self-label as wizard- or PostHog Code-created). They
+        # are derived server-side by upgrading a machine-injected `mcp` value when the request
+        # comes from the wizard or PostHog Code transport.
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1291,8 +1294,8 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
-            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
-            "server-side for wizard-driven MCP calls. Defaults to `api`."
+            "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
+            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(
@@ -1807,6 +1810,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 required=True,
                 description="The OAuth integration id whose accounts should be listed.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                required=False,
+                description="Optional case-insensitive filter over account name/value, for sources whose "
+                "resource list is large (e.g. GitHub repositories).",
+            ),
         ],
         responses={200: IntegrationAccountsResponseSerializer},
     )
@@ -1814,9 +1824,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the accounts/properties a connected OAuth integration exposes, in the shared
         IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
-        this endpoint just routes by source type and serializes the result."""
+        this endpoint just routes by source type, applies the optional search filter, and serializes."""
         source_type = request.query_params.get("source_type")
         integration_id = request.query_params.get("integration_id")
+        search = request.query_params.get("search") or None
         if not source_type or not integration_id:
             raise ValidationError("source_type and integration_id are required")
 
@@ -1833,13 +1844,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
 
-        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
@@ -1849,6 +1860,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
+        # Belt-and-suspenders: sources that support server-side search already return matching results;
+        # this filters sources that returned a full list and ignored `search`.
+        accounts = filter_integration_accounts(accounts, search)
         response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
         # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
         # otherwise poison the picker for 60s for every admin on the team.
@@ -1892,12 +1906,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
-        # before the request reaches us — the agent can't set the field itself. Upgrade that
-        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
+        # Upgrade that machine-injected value when the transport identifies one of them, so their
         # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
-        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
-            created_via = ExternalDataSource.CreatedVia.WIZARD
+        if created_via == ExternalDataSource.CreatedVia.MCP:
+            transport_created_via = {
+                EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+            }
+            created_via = transport_created_via.get(get_event_source(request), created_via)
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -2481,11 +2499,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
-        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
-        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
-        # attribution.
+        # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
+        # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
+        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
+        # rewrite historical attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
