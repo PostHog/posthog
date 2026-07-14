@@ -150,10 +150,6 @@ export class KafkaConsumer {
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
-    // Optional async hook invoked with the partitions being revoked, while they are still
-    // assigned, before the unassign. Only used when waitForBackgroundTasksOnRebalance is on
-    // (that mode drives assign/unassign from this callback so we can defer the unassign).
-    private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -168,7 +164,7 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.config.waitForBackgroundTasksOnRebalance ??= defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
+        this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
@@ -413,10 +409,60 @@ export class KafkaConsumer {
                 })),
             })
 
-            // Don't block the rebalance callback: coordinate the wind-down in the background.
-            // The partitions stay assigned until revokeAndUnassign finishes, so any flush the
-            // revoke handler runs can store offsets that librdkafka commits on the unassign.
-            void this.revokeAndUnassign(assignments)
+            // Handle background task coordination asynchronously
+            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+                // Don't block the rebalance callback, but coordinate in the background
+                Promise.all(this.backgroundTask.map((t) => t.promise))
+                    .then(() => {
+                        logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.unassign()
+                        }
+                        this.updateMetricsAfterRevocation(assignments)
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
+                            this.resetRebalanceCoordination()
+                        }
+                    })
+                    .catch((error) => {
+                        logger.error('🔁', 'background_task_error_during_revocation', { error })
+                        // Still proceed with revocation even if background tasks fail
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.unassign()
+                        }
+                        this.updateMetricsAfterRevocation(assignments)
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
+                            this.resetRebalanceCoordination()
+                        }
+                    })
+            } else {
+                // No background tasks or feature disabled, proceed immediately
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    this.rdKafkaConsumer.incrementalUnassign(assignments)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+                this.updateMetricsAfterRevocation(assignments)
+            }
         } else {
             // Ignore exceptions if we are not connected
             if (this.rdKafkaConsumer.isConnected()) {
@@ -425,52 +471,6 @@ export class KafkaConsumer {
             } else {
                 logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
             }
-        }
-    }
-
-    /**
-     * Winds down a set of partitions being revoked, then unassigns them.
-     *
-     * Runs in the background off the rebalance callback so it doesn't block librdkafka, but the
-     * partitions remain assigned for its duration. That window lets us drain in-flight background
-     * work and run the optional revoke handler (which can flush and store offsets) before the
-     * unassign — so librdkafka commits those offsets as part of giving the partitions up.
-     */
-    private async revokeAndUnassign(assignments: Assignment[]): Promise<void> {
-        try {
-            await Promise.all(this.backgroundTask.map((t) => t.promise))
-            logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-        } catch (error) {
-            // Still proceed with revocation even if background tasks fail
-            logger.error('🔁', 'background_task_error_during_revocation', { error })
-        }
-
-        if (this.onPartitionsRevoked) {
-            try {
-                await this.onPartitionsRevoked(assignments)
-            } catch (error) {
-                // A failed flush must not strand the rebalance — give the partitions up anyway.
-                // The offsets simply won't have been stored, so the new owner reprocesses.
-                logger.error('🔁', 'revoke_handler_error_during_revocation', { error })
-            }
-        }
-
-        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-            this.rdKafkaConsumer.incrementalUnassign(assignments)
-        } else {
-            this.rdKafkaConsumer.unassign()
-        }
-        this.updateMetricsAfterRevocation(assignments)
-        try {
-            if (this.assignments().length === 0) {
-                this.resetRebalanceCoordination()
-            }
-        } catch (error) {
-            // Consumer might be in an erroneous state, reset anyway to be safe
-            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                error: String(error),
-            })
-            this.resetRebalanceCoordination()
         }
     }
 
@@ -597,10 +597,8 @@ export class KafkaConsumer {
     }
 
     public async connect(
-        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>,
-        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>
     ): Promise<void> {
-        this.onPartitionsRevoked = onPartitionsRevoked
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
         try {
