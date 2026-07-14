@@ -229,6 +229,12 @@ function dropProducts(products, allProducts, names, label) {
 const TACH_TOML_FILE = 'tach.toml'
 const TACH_MODULE_PREFIX = 'products.'
 
+// Turbo package names are dashed; tach module paths and product directories are
+// underscored. Every boundary crossing goes through these, so the convention is
+// stated once rather than re-derived at each call site.
+const productToModule = (product) => product.replace(/-/g, '_')
+const moduleToProduct = (module) => module.replace(/_/g, '-')
+
 // Parse tach.toml's [[modules]] blocks into product -> [products it depends
 // on]. Keys/values are tach names with the "products." prefix stripped
 // (underscores preserved) — callers normalize to/from Turbo's dashed names.
@@ -281,9 +287,6 @@ function parseTachModules(tomlText) {
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
 function tachDependents(changedProducts, moduleGraph) {
-    const toTach = (p) => p.replace(/-/g, '_')
-    const toTurbo = (p) => p.replace(/_/g, '-')
-
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
         for (const dep of deps) {
@@ -292,7 +295,7 @@ function tachDependents(changedProducts, moduleGraph) {
         }
     }
 
-    const changedSet = new Set(changedProducts.map(toTach))
+    const changedSet = new Set(changedProducts.map(productToModule))
     const visited = new Set()
     const queue = [...changedSet]
     while (queue.length > 0) {
@@ -303,21 +306,24 @@ function tachDependents(changedProducts, moduleGraph) {
             queue.push(dependent)
         }
     }
-    return [...visited].map(toTurbo)
+    return [...visited].map(moduleToProduct)
 }
 
+// Returns null when the graph can't be read or parsed. Callers must treat null as
+// "unknown dependents" and widen the matrix — never as "no dependents", which would
+// silently under-test exactly the contract changes this cascade guards.
 function loadTachModuleGraph() {
     let text
     try {
         text = fs.readFileSync(TACH_TOML_FILE, 'utf-8')
     } catch (e) {
-        console.error(`::warning::Could not read ${TACH_TOML_FILE} (${e.message}) — dependent cascade disabled for this run`)
+        console.error(`::warning::Could not read ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
         return null
     }
     try {
         return parseTachModules(text)
     } catch (e) {
-        console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — dependent cascade disabled for this run`)
+        console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
         return null
     }
 }
@@ -375,14 +381,14 @@ function collectTestFiles(dir) {
 }
 
 function productPrefix(product) {
-    return `products/${product.replace(/-/g, '_')}/`
+    return `products/${productToModule(product)}/`
 }
 
 // Check if .test_durations is stale for a product by comparing on-disk test
 // file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
 function checkProductStaleness(product, durations) {
     if (!durations) {return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }}
-    const dirName = product.replace(/-/g, '_')
+    const dirName = productToModule(product)
     const productDir = path.join('products', dirName)
     const testFiles = collectTestFiles(productDir)
     if (testFiles.length === 0) {return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }}
@@ -673,15 +679,21 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             const tachGraph = loadTachModuleGraph()
-            const dependents = tachGraph
-                ? tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
-                : []
-            if (dependents.length > 0) {
-                console.error(
-                    `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
-                )
+            if (tachGraph === null) {
+                // Fail toward over-testing, like the quarantine loaders above: without the
+                // graph we cannot know which products depend on the changed contract, and
+                // guessing "none" silently recreates the gap this cascade exists to close.
+                console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+                products = allProducts
+            } else {
+                const dependents = tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
+                if (dependents.length > 0) {
+                    console.error(
+                        `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                    )
+                }
+                products = [...new Set([...affectedProducts, ...dependents])].sort()
             }
-            products = [...new Set([...affectedProducts, ...dependents])].sort()
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
             runLegacy = false
