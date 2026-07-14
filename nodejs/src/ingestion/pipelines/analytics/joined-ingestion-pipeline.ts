@@ -27,7 +27,6 @@ import {
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
-import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
@@ -203,33 +202,29 @@ export function createJoinedIngestionPipeline<
             )
             // Header-only steps: token-level deny list and restrictions. Cheap; runs
             // per-event before we touch the body.
-            .preParse((b) =>
-                b.pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap'])).pipe(
-                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                        overflowMode,
-                        preservePartitionLocality,
-                    })
-                )
+            .parseHeaders()
+            .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
+            .pipe(
+                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                    overflowMode,
+                    preservePartitionLocality,
+                })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
             // Cookieless events (headers.distinct_id === sentinel) pass through and are
             // handled by the matching only-cookieless step in post-team, which keys on
             // the hashed distinct_id assigned by the cookieless step.
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            // Post-team-resolution validation; anything that needs the parsed event lives here.
-            .resolveTeam((b) =>
-                b
-                    .pipe(createValidateHistoricalMigrationStep())
-                    .pipe(createValidateAiEventTokensStep())
-                    .pipe(createEnrichSurveyPersonPropertiesStep())
-            )
-            .perTeam<EmitEventStepOutput>((b) =>
-                createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
-                    // Group by token:distinctId and process each group concurrently.
-                    // Events within each group are processed sequentially.
-                    .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
-                        group.sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
-                    )
+            .parseMessage()
+            .resolveTeam()
+            .pipe(createValidateHistoricalMigrationStep())
+            .pipe(createValidateAiEventTokensStep())
+            .pipe(createEnrichSurveyPersonPropertiesStep())
+            .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
+            // Group by token:distinctId and process each group concurrently.
+            // Events within each group are processed sequentially.
+            .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
+                group.sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
             )
             .afterBatch((afterBatch) =>
                 afterBatch

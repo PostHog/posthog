@@ -20,7 +20,6 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 
@@ -56,23 +55,18 @@ export function createClientWarningsPipeline<
         concurrentBatches: 1,
     })
         .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
-        .preParse((b) =>
-            b
-                .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
-                .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
-        )
-        .resolveTeam((b) => b.pipe(createValidateHistoricalMigrationStep()))
-        .perTeam<EmitEventStepOutput>((b) =>
-            b.sequentially((b) =>
-                b
-                    .pipe(createValidateEventMetadataStep())
-                    .pipe(createValidateEventPropertiesStep())
-                    .pipe(createApplyEventFiltersStep(eventFilterManager))
-                    .pipe(createDropOldEventsStep())
-                    .pipe(createHandleClientIngestionWarningStep(outputs))
-                    .pipe(createRecordIngestionLagStep())
-            )
-        )
+        .parseHeaders()
+        .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
+        .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+        .parseMessage()
+        .resolveTeam()
+        .pipe(createValidateHistoricalMigrationStep())
+        .pipe(createValidateEventMetadataStep())
+        .pipe(createValidateEventPropertiesStep())
+        .pipe(createApplyEventFiltersStep(eventFilterManager))
+        .pipe(createDropOldEventsStep())
+        .pipe(createHandleClientIngestionWarningStep(outputs))
+        .pipe(createRecordIngestionLagStep())
         .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
         .build()
 }

@@ -34,7 +34,7 @@ import {
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-processing/fetch-person-chunk-step'
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
@@ -125,130 +125,123 @@ export function createAiIngestionPipeline<
         topHog,
     } = config
 
+    const validated = newCommonIngestionPipeline<TInput, TContext, OverflowOutput>({
+        teamManager,
+        outputs,
+        promiseScheduler,
+        concurrentBatches,
+    })
+        .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+        // Header-only steps: allow only AI events, apply token restrictions.
+        .parseHeaders()
+        .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+        .pipe(
+            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                overflowMode,
+                preservePartitionLocality,
+            })
+        )
+        // Rate-limit non-cookieless events to overflow before parsing the body.
+        // Cookieless events pass through and are handled post-cookieless below.
+        .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+        .parseMessage()
+        .resolveTeam()
+        .pipe(createValidateHistoricalMigrationStep())
+        .pipe(createValidateAiEventTokensStep())
+        .pipe(createValidateEventMetadataStep())
+        .pipe(createValidateEventPropertiesStep())
+
+    // Schema enforcement is opt-in (same as analytics); only
+    // applied when enabled so AI events match that path.
+    const schemaChecked = eventSchemaEnforcementEnabled
+        ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
+        : validated
+
     return (
-        newCommonIngestionPipeline<TInput, TContext, OverflowOutput>({
-            teamManager,
-            outputs,
-            promiseScheduler,
-            concurrentBatches,
-        })
-            .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
-            // Header-only steps: allow only AI events, apply token restrictions.
-            .preParse((b) =>
-                b.pipe(createAllowEventsStep([...AI_EVENT_TYPES])).pipe(
-                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                        overflowMode,
-                        preservePartitionLocality,
-                    })
-                )
+        schemaChecked
+            .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
+            .pipe(createDropOldEventsStep())
+            .pipe(createApplyEventFiltersStep(eventFilterManager))
+            // Cookieless processing rewrites distinct_id; person fetch keys on the
+            // final distinct_id, so it must run after this batch step.
+            .gather()
+            .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
+            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            // Read-only batch person fetch (no person writes).
+            .pipeChunk(createFetchPersonChunkStep(personRepository))
+            // Prefetch hog functions for the batch's teams so the transformer
+            // honors Hog watcher's disabled-function state (mirrors analytics).
+            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            // Per-event chain. Retry is applied per step: only the steps
+            // that do transient-failure-prone I/O (hog transform, group-type
+            // fetch, emit) retry, matching the analytics per-distinct-id path.
+            .pipe(createNormalizeProcessPersonFlagStep())
+            .pipe(
+                topHog(createHogTransformEventStep(hogTransformer), [
+                    sumOk(
+                        'transformations_run',
+                        (output) => ({ team_id: String(output.team.id) }),
+                        (output) => output.transformationsRun
+                    ),
+                    sumOk(
+                        'transformations_run_per_partition',
+                        (output, input) => ({
+                            team_id: String(output.team.id),
+                            partition: String(input.message.partition),
+                        }),
+                        (output) => output.transformationsRun
+                    ),
+                    sumResult(
+                        'events_dropped_by_transformation',
+                        (_result, input) => ({
+                            team_id: String(input.team.id),
+                        }),
+                        (result) => (isDropResult(result) ? 1 : 0)
+                    ),
+                    sumResult(
+                        'events_dropped_by_transformation_per_partition',
+                        (_result, input) => ({
+                            team_id: String(input.team.id),
+                            partition: String(input.message.partition),
+                        }),
+                        (result) => (isDropResult(result) ? 1 : 0)
+                    ),
+                ]),
+                { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
             )
-            // Rate-limit non-cookieless events to overflow before parsing the body.
-            // Cookieless events pass through and are handled post-cookieless below.
-            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-            // AI token validation; anything that needs the parsed event and team lives here.
-            .resolveTeam((b) => b.pipe(createValidateHistoricalMigrationStep()).pipe(createValidateAiEventTokensStep()))
-            .perTeam<EmitEventStepOutput>((b) =>
-                b
-                    .sequentially((b) => {
-                        const validated = b
-                            .pipe(createValidateEventMetadataStep())
-                            .pipe(createValidateEventPropertiesStep())
-                        // Schema enforcement is opt-in (same as analytics); only
-                        // applied when enabled so AI events match that path.
-                        const schemaChecked = eventSchemaEnforcementEnabled
-                            ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-                            : validated
-                        return schemaChecked
-                            .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
-                            .pipe(createDropOldEventsStep())
-                            .pipe(createApplyEventFiltersStep(eventFilterManager))
-                    })
-                    // Cookieless processing rewrites distinct_id; person fetch keys on the
-                    // final distinct_id, so it must run after this batch step.
-                    .gather()
-                    .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-                    .pipeChunk(
-                        createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService)
-                    )
-                    .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-                    // Read-only batch person fetch (no person writes).
-                    .pipeChunk(createFetchPersonChunkStep(personRepository))
-                    // Prefetch hog functions for the batch's teams so the transformer
-                    // honors Hog watcher's disabled-function state (mirrors analytics).
-                    .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
-                    // Per-event chain. Retry is applied per step: only the steps
-                    // that do transient-failure-prone I/O (hog transform, group-type
-                    // fetch, emit) retry, matching the analytics per-distinct-id path.
-                    .sequentially((b) =>
-                        b
-                            .pipe(createNormalizeProcessPersonFlagStep())
-                            .pipe(
-                                topHog(createHogTransformEventStep(hogTransformer), [
-                                    sumOk(
-                                        'transformations_run',
-                                        (output) => ({ team_id: String(output.team.id) }),
-                                        (output) => output.transformationsRun
-                                    ),
-                                    sumOk(
-                                        'transformations_run_per_partition',
-                                        (output, input) => ({
-                                            team_id: String(output.team.id),
-                                            partition: String(input.message.partition),
-                                        }),
-                                        (output) => output.transformationsRun
-                                    ),
-                                    sumResult(
-                                        'events_dropped_by_transformation',
-                                        (_result, input) => ({
-                                            team_id: String(input.team.id),
-                                        }),
-                                        (result) => (isDropResult(result) ? 1 : 0)
-                                    ),
-                                    sumResult(
-                                        'events_dropped_by_transformation_per_partition',
-                                        (_result, input) => ({
-                                            team_id: String(input.team.id),
-                                            partition: String(input.message.partition),
-                                        }),
-                                        (result) => (isDropResult(result) ? 1 : 0)
-                                    ),
-                                ]),
-                                { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
-                            )
-                            .pipe(createNormalizeEventStep())
-                            .pipe(createProcessAiEventStep())
-                            // Read-only: drop person-update props so they don't
-                            // leak into person_properties (person is never written).
-                            .pipe(createStripPersonUpdatePropertiesStep())
-                            .pipe(createPrepareEventStep())
-                            // Read-only group-type resolution (no new group types created).
-                            .pipe(createReadOnlyProcessGroupsStep(groupTypeManager), {
-                                retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
-                            })
-                            .pipe(createCreateEventStep(EVENTS_OUTPUT))
-                            // Double-write to events + ai_events outputs.
-                            .pipe(createSplitAiEventsStep())
-                            .pipe(
-                                topHog(createEmitEventStep({ outputs }), [
-                                    sum(
-                                        'emitted_events',
-                                        (input) => ({ team_id: String(input.teamId) }),
-                                        (input) => input.eventsToEmit.length
-                                    ),
-                                    sum(
-                                        'emitted_events_per_partition',
-                                        (input) => ({
-                                            team_id: String(input.teamId),
-                                            partition: String(input.message.partition),
-                                        }),
-                                        (input) => input.eventsToEmit.length
-                                    ),
-                                ]),
-                                { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
-                            )
-                            .pipe(createRecordIngestionLagStep())
-                    )
+            .pipe(createNormalizeEventStep())
+            .pipe(createProcessAiEventStep())
+            // Read-only: drop person-update props so they don't
+            // leak into person_properties (person is never written).
+            .pipe(createStripPersonUpdatePropertiesStep())
+            .pipe(createPrepareEventStep())
+            // Read-only group-type resolution (no new group types created).
+            .pipe(createReadOnlyProcessGroupsStep(groupTypeManager), {
+                retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
+            })
+            .pipe(createCreateEventStep(EVENTS_OUTPUT))
+            // Double-write to events + ai_events outputs.
+            .pipe(createSplitAiEventsStep())
+            .pipe(
+                topHog(createEmitEventStep({ outputs }), [
+                    sum(
+                        'emitted_events',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_partition',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                ]),
+                { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
             )
+            .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
