@@ -203,6 +203,11 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound."
             ),
+        state: zod
+            .string()
+            .describe(
+                "Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session."
+            ),
     })
     .describe(
         "Request body for binding a completed GitHub App installation to the current team.\n\nRequires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install\nredirect: the code proves the caller actually owns the installation, without which any caller could\nbind another org's installation to their own team."

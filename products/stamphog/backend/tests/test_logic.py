@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
+from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
+from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 
 # The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
 # own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
@@ -73,3 +75,27 @@ class ParseReviewerOutputTests(SimpleTestCase):
 
         assert verdict.verdict == "escalate"
         assert any("MAYBE" in note for note in verdict.showstoppers)
+
+
+class SlackDigestEscapingTests(SimpleTestCase):
+    def _summary(self, *, title: str, author: str, body: str, intro: str = "") -> DigestSummary:
+        pr = DigestPRSummary(
+            pr_number=7, title=title, url="https://github.com/o/r/pull/7", author_login=author, summary=body
+        )
+        return DigestSummary(intro=intro, prs=[pr])
+
+    def test_mention_tokens_in_pr_fields_are_defanged(self) -> None:
+        # A merged PR's title/summary/author are attacker-controlled; a raw `<!channel>` would ping the
+        # whole digest channel. Escaping must neutralize the mention while keeping the trusted PR link.
+        blocks = _build_blocks(self._summary(title="<!channel> ship", author="<!here>", body="see <x|y>"))
+        section = next(b for b in blocks if b.get("type") == "section" and "pull/7" in b["text"]["text"])
+        text = section["text"]["text"]
+        assert "<!channel>" not in text
+        assert "<!here>" not in text
+        assert "&lt;!channel&gt;" in text
+        assert "<https://github.com/o/r/pull/7|" in text
+
+    def test_fallback_text_defangs_mentions(self) -> None:
+        text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
+        assert "<!channel>" not in text
+        assert "<!everyone>" not in text

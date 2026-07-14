@@ -103,6 +103,30 @@ def _start_review_workflow(review_run_id: str, team_id: int) -> None:
         logger.info("stamphog_review_workflow_already_running", review_run_id=review_run_id)
 
 
+def _resume_existing_delivery_run(delivery_id: str, team_id: int, repo: str) -> bool:
+    """If a run already exists for this delivery, resume it and return True; else return False.
+
+    A still-QUEUED run committed its row but never started its workflow (the post-commit start
+    failed, e.g. Temporal briefly down), so restart it rather than dropping the PR. Any other status
+    already has a live or finished workflow, so it's a no-op. Raises if the restart itself fails, so
+    the caller can retry the Celery task.
+    """
+    existing = ReviewRun.objects.for_team(team_id).filter(delivery_id=delivery_id).first()
+    if existing is None:
+        return False
+    if existing.status == ReviewRunStatus.QUEUED:
+        logger.info(
+            "stamphog_pr_event_restarting_queued_run",
+            delivery_id=delivery_id,
+            review_run_id=str(existing.id),
+            repo=repo,
+        )
+        _start_review_workflow(str(existing.id), team_id)
+    else:
+        logger.info("stamphog_pr_event_delivery_already_processed", delivery_id=delivery_id, repo=repo)
+    return True
+
+
 def _supersede_prior_runs(pr_obj: PullRequest) -> None:
     """Mark every non-terminal run for this PR as superseded, under a row lock.
 
@@ -144,7 +168,10 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     if not repo_config:
         logger.info("stamphog_merged_pr_repo_not_configured", repo=repo, installation_id=installation_id)
         return
-    if not repo_config.enabled:
+    # A digest-only repo (digest_enabled=True, review enabled=False) still needs its merges captured,
+    # otherwise the daily digest has nothing to send. Gate the merge path on either flag; the digest
+    # eligibility below still requires digest_enabled specifically.
+    if not (repo_config.enabled or repo_config.digest_enabled):
         logger.info("stamphog_merged_pr_repo_disabled", repo=repo)
         return
 
@@ -250,24 +277,12 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # workflow, so this is a plain no-op. Doing this before the create also keeps the recovery off
     # the post-IntegrityError path, where the aborted transaction can't run further queries.
     if delivery_id:
-        existing = ReviewRun.objects.for_team(team_id).filter(delivery_id=delivery_id).first()
-        if existing is not None:
-            if existing.status == ReviewRunStatus.QUEUED:
-                logger.info(
-                    "stamphog_pr_event_restarting_queued_run",
-                    delivery_id=delivery_id,
-                    review_run_id=str(existing.id),
-                    repo=repo,
-                )
-                try:
-                    _start_review_workflow(str(existing.id), team_id)
-                except Exception as e:
-                    logger.exception(
-                        "stamphog_pr_event_restart_queued_run_failed", delivery_id=delivery_id, error=str(e)
-                    )
-                    raise cast(Any, process_pull_request_event).retry(exc=e)
-            else:
-                logger.info("stamphog_pr_event_delivery_already_processed", delivery_id=delivery_id, repo=repo)
+        try:
+            resumed = _resume_existing_delivery_run(delivery_id, team_id, repo)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_restart_queued_run_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
+        if resumed:
             _mark_pr_event_processed(delivery_id)
             return
 
@@ -292,11 +307,17 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             # committed-but-unstarted run.
             transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id))
     except IntegrityError:
-        # The unique delivery_id already has a run — two near-simultaneous deliveries raced past
-        # the fast-path check and both tried to create. The winner owns the workflow, so this loser
-        # is a no-op.
-        logger.info("stamphog_pr_event_delivery_already_processed", delivery_id=delivery_id, repo=repo)
+        # The unique delivery_id already has a run — two near-simultaneous deliveries raced past the
+        # fast-path check and both tried to create. Resume the winner's run: if it committed QUEUED but
+        # its post-commit workflow start failed, restart it here instead of marking the delivery done
+        # and stranding a run no workflow ever picks up. The aborted transaction is already rolled back,
+        # so these reads run clean.
         if delivery_id:
+            try:
+                _resume_existing_delivery_run(delivery_id, team_id, repo)
+            except Exception as e:
+                logger.exception("stamphog_pr_event_restart_queued_run_failed", delivery_id=delivery_id, error=str(e))
+                raise cast(Any, process_pull_request_event).retry(exc=e)
             _mark_pr_event_processed(delivery_id)
         return
     except Exception as e:

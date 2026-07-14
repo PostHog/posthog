@@ -30,6 +30,10 @@ logger = structlog.get_logger(__name__)
 # doesn't dump ancient history into its first digest.
 DIGEST_LOOKBACK_DAYS = 7
 
+# A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
+# failing) — reclaim it so those PRs re-enter the next digest instead of being stranded forever.
+STALE_PENDING_RUN_MINUTES = 60
+
 
 @shared_task(ignore_result=True)
 def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
@@ -112,6 +116,29 @@ def provision_and_send_digest(team_id: int, audience_key: str) -> None:
     send_digest_for_channel(digest_channel_id=str(channel.id), team_id=team_id)
 
 
+def _reclaim_stale_pending_runs() -> None:
+    """Fail stale PENDING DigestRuns and unlink their PRs so the next digest retries them.
+
+    ``send_digest_for_channel`` claims its PRs (links them to a PENDING run) before posting to Slack.
+    If that worker dies before the post succeeds or its failure handler unlinks, the PRs stay attached
+    to a PENDING run forever — the digest query filters ``digest_run__isnull=True``, so they'd never be
+    sent. A run still PENDING well past when any post should have finished is such a casualty; reclaim
+    it. unscoped(): cross-team beat sweep, re-scoped per run's own team for the writes.
+    """
+    cutoff = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES)
+    stale = DigestRun.objects.unscoped().filter(status=DigestRunStatus.PENDING, created_at__lt=cutoff)
+    reclaimed = 0
+    for run_id, team_id in stale.values_list("id", "team_id").iterator():
+        with transaction.atomic():
+            PullRequest.objects.for_team(team_id).filter(digest_run_id=run_id).update(digest_run=None)
+            DigestRun.objects.for_team(team_id).filter(id=run_id).update(
+                status=DigestRunStatus.FAILED, error="Reclaimed: worker lost before the digest posted."
+            )
+        reclaimed += 1
+    if reclaimed:
+        logger.info("stamphog_digest_reclaimed_stale_pending_runs", count=reclaimed)
+
+
 @shared_task(ignore_result=True)
 def send_daily_digests() -> None:
     """Beat fan-out: enqueue one per-channel digest task for every enabled channel, then discover
@@ -120,6 +147,9 @@ def send_daily_digests() -> None:
     unscoped(): cross-team beat fan-out reads every team's enabled channels; each enqueued task is
     team-scoped via for_team.
     """
+    # Reclaim first, so PRs stranded on a crashed worker's run rejoin today's digest.
+    _reclaim_stale_pending_runs()
+
     channels = DigestChannel.objects.unscoped().filter(enabled=True).values_list("id", "team_id")
     count = 0
     for channel_id, team_id in channels.iterator():

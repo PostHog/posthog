@@ -224,8 +224,24 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     output = run.output or {}
     raw = output.get("reviewer_raw", "")
 
-    parsed = parse_reviewer_output(raw)
     client = StamphogGitHubClient(repo_config.installation_id)
+
+    # Don't post a verdict for a run that's no longer current. A push (synchronize) while this run was
+    # in the sandbox supersedes it in the DB; and even before that flag commits, GitHub's head has
+    # already moved. Approving here would sign off a commit nobody reviewed, or overwrite the newer
+    # run's sticky comment. Guard on both signals before any GitHub write.
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        activity.logger.info(f"Skipping verdict for superseded run {run.id}")
+        return {"verdict": "skipped_superseded"}
+    current_head = ((client.get_pr(repo, pull_request.pr_number).get("head") or {}).get("sha") or "").strip()
+    if current_head and current_head != run.head_sha:
+        run.status = ReviewRunStatus.SUPERSEDED
+        run.completed_at = timezone.now()
+        run.save(update_fields=["status", "completed_at", "updated_at"])
+        activity.logger.info(f"Skipping verdict for run {run.id}: head moved {run.head_sha} -> {current_head}")
+        return {"verdict": "skipped_head_moved"}
+
+    parsed = parse_reviewer_output(raw)
 
     run.gate_result = parsed.gate_result
     if parsed.stamphog_version:
@@ -379,7 +395,12 @@ def _ship_engine(sandbox: SandboxBase) -> None:
     files = _engine_source_files()
     if "review_local.py" not in files:
         raise RuntimeError(f"engine source dir {_SERVER_ENGINE_DIR} is missing review_local.py")
-    sandbox.execute(f"mkdir -p {shlex.quote(STAMPHOG_SANDBOX_ENGINE_DIR)}", timeout_seconds=30)
+    # Wipe the directory first: the PR head's checkout may carry attacker-controlled files beside
+    # our engine (e.g. tools/pr-approval-agent/yaml.py), which Python would import ahead of uv's
+    # installed dependency — arbitrary code execution with the sandbox's LLM creds. Overwriting only
+    # our known modules would leave those shadow files in place, so start from an empty dir.
+    engine_dir = shlex.quote(STAMPHOG_SANDBOX_ENGINE_DIR)
+    sandbox.execute(f"rm -rf {engine_dir} && mkdir -p {engine_dir}", timeout_seconds=30)
     for name, content in files.items():
         sandbox.write_file(f"{STAMPHOG_SANDBOX_ENGINE_DIR}/{name}", content.encode())
 

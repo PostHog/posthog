@@ -30,6 +30,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setRepoEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
         setDigestEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
         repoUpdateDone: (id: string) => ({ id }),
+        setRepoSearch: (search: string) => ({ search }),
     }),
 
     loaders(({ values }) => ({
@@ -55,10 +56,19 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         syncResult: [
             null as StamphogSyncInstallationResponseApi | null,
             {
-                syncInstallation: async ({ installationId, code }: { installationId: string; code: string }) => {
+                syncInstallation: async ({
+                    installationId,
+                    code,
+                    state,
+                }: {
+                    installationId: string
+                    code: string
+                    state: string
+                }) => {
                     return stamphogRepoConfigsSyncInstallationCreate(String(values.currentProjectId), {
                         installation_id: installationId,
                         code,
+                        state,
                     })
                 },
             },
@@ -76,6 +86,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 repoUpdateDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
+        repoSearch: ['', { setRepoSearch: (_, { search }) => search }],
     }),
 
     selectors({
@@ -91,6 +102,17 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         skippedRepos: [
             (s) => [s.syncResult],
             (syncResult: StamphogSyncInstallationResponseApi | null): readonly string[] => syncResult?.skipped ?? [],
+        ],
+        // A GitHub App install can surface hundreds of repos, so the table filters client-side by name.
+        filteredRepoConfigs: [
+            (s) => [s.repoConfigs, s.repoSearch],
+            (repoConfigs: StamphogRepoConfigApi[], repoSearch: string): StamphogRepoConfigApi[] => {
+                const needle = repoSearch.trim().toLowerCase()
+                if (!needle) {
+                    return repoConfigs
+                }
+                return repoConfigs.filter((repo) => repo.repository.toLowerCase().includes(needle))
+            },
         ],
     }),
 
@@ -128,12 +150,18 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
 
     urlToAction(({ actions }) => ({
         [urls.stamphogCallback()]: (_, searchParams) => {
-            // The GitHub setup redirect carries both installation_id and a user OAuth code;
-            // the backend needs the code to prove the caller owns the installation.
+            // The GitHub setup redirect carries installation_id, a user OAuth code, and the state token
+            // we minted in install_info. The backend needs the code to prove installation ownership and
+            // the state to prove this callback belongs to the current team's own install flow.
             const installationId = searchParams.installation_id
             const code = searchParams.code
-            if (installationId && code) {
-                actions.syncInstallation({ installationId: String(installationId), code: String(code) })
+            const state = searchParams.state
+            if (installationId && code && state) {
+                actions.syncInstallation({
+                    installationId: String(installationId),
+                    code: String(code),
+                    state: String(state),
+                })
             }
         },
     })),

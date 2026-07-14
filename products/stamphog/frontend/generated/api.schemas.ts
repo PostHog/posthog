@@ -175,8 +175,6 @@ export interface StamphogPullRequestApi {
     readonly pr_url: string
     /** Branch name of the PR head. */
     readonly head_branch: string
-    /** Trimmed PR description, capped at capture time. */
-    readonly body_excerpt: string
     /** Whether this pull request has merged (merged_at is set). */
     readonly merged: boolean
     /**
@@ -289,6 +287,8 @@ export interface StamphogSyncInstallationRequestApi {
     installation_id: string
     /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
     code: string
+    /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
+    state: string
 }
 
 /**
@@ -340,6 +340,21 @@ export const ReviewRunVerdictEnumApi = {
 } as const
 
 /**
+ * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
+ *
+ * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
+ * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+ * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
+ * access must not read. Only the terminal decision is exposed.
+ */
+export interface _GateResultSummaryApi {
+    /** Whether the deterministic gates blocked auto-review before the reviewer ran. */
+    readonly gate_blocked: boolean
+    /** The engine's raw final-verdict token, if the run reached a verdict. */
+    readonly final_verdict: string
+}
+
+/**
  * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
  *
  * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
@@ -352,11 +367,6 @@ export interface _ReviewOutputSummaryApi {
     /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
     readonly reviewer_exit_code: number
 }
-
-/**
- * Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs.
- */
-export type ReviewRunApiGateResult = { [key: string]: unknown }
 
 export interface ReviewRunApi {
     readonly id: string
@@ -395,8 +405,8 @@ export interface ReviewRunApi {
      * * `wait` - WAIT
      * * `error` - ERROR */
     readonly verdict: ReviewRunVerdictEnumApi
-    /** Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs. */
-    readonly gate_result: ReviewRunApiGateResult
+    /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
+    readonly gate_result: _GateResultSummaryApi
     /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
     readonly output: _ReviewOutputSummaryApi
     /** Error message if the run failed, blank otherwise. */

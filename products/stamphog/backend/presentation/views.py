@@ -5,9 +5,11 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
@@ -43,11 +45,41 @@ from .serializers import (
 
 logger = structlog.get_logger(__name__)
 
+# The install-flow state token binds a GitHub App install callback to the team + user that started it.
+# GitHub round-trips ?state=... through the install redirect; sync_installation only accepts a fresh,
+# validly-signed token for the current team, so a stolen installation_id + code can't be replayed
+# against another team's session.
+_INSTALL_STATE_SALT = "stamphog-install-state"
+_INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
+
+
+def _adopt_preexisting_config(team_id: int, repository: str, installation_id: str) -> StamphogRepoConfig | None:
+    """Bind a manually-created (installation-less) config to a now-verified installation.
+
+    Reached when the installation sync hits the unique (team, repository) constraint: a row for this
+    repo already exists on the team, created through the plain API/MCP path with a blank installation_id.
+    Stamp the verified installation onto it so it starts resolving webhooks, rather than reporting it
+    skipped and leaving it unbound forever. Returns None (caller skips) when the existing row is already
+    bound to a different installation — a genuine conflict we must not silently rebind.
+    """
+    existing = StamphogRepoConfig.objects.for_team(team_id).filter(provider="github", repository=repository).first()
+    if existing is None:
+        return None
+    if existing.installation_id and existing.installation_id != installation_id:
+        return None
+    if existing.installation_id != installation_id:
+        existing.installation_id = installation_id
+        try:
+            existing.save(update_fields=["installation_id", "updated_at"])
+        except IntegrityError:
+            return None
+    return existing
+
 
 class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides."""
 
-    scope_object = "INTERNAL"
+    scope_object = "stamphog"
     serializer_class = StamphogRepoConfigSerializer
     # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
     # safely_get_queryset re-applies the team filter per request.
@@ -86,10 +118,16 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
     @action(detail=False, methods=["GET"], url_path="install_info")
     def install_info(self, request: Request, **kwargs) -> Response:
-        # Lets the frontend render a "Connect a repository" button (deep link into GitHub's install
-        # page) without first completing the callback. No team data involved, so no scoping needed here.
+        # Deep link into GitHub's install page for the "Connect a repository" button. The state token
+        # binds the eventual callback to THIS team and user: GitHub round-trips ?state=... back to the
+        # Setup URL, and sync_installation rejects any callback whose state isn't a fresh token for the
+        # current team. Without it, an attacker could send a logged-in member a callback carrying the
+        # attacker's own installation and bind it to the victim's team.
         slug = settings.STAMPHOG_GITHUB_APP_SLUG
-        install_url = f"https://github.com/apps/{slug}/installations/new" if slug else ""
+        install_url = ""
+        if slug:
+            state = signing.dumps({"team_id": self.team_id, "user_id": request.user.pk}, salt=_INSTALL_STATE_SALT)
+            install_url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
         data = StamphogInstallInfoSerializer({"app_slug": slug, "install_url": install_url}).data
         return Response(data)
 
@@ -108,6 +146,24 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer.is_valid(raise_exception=True)
         installation_id = request_serializer.validated_data["installation_id"]
         code = request_serializer.validated_data["code"]
+        state = request_serializer.validated_data["state"]
+
+        # First gate: the state token must be a fresh, validly-signed token minted for THIS team by
+        # install_info. This binds the callback to the team that started the flow, so a stolen
+        # installation_id + code can't be replayed against another logged-in member's session.
+        try:
+            state_payload = signing.loads(state, salt=_INSTALL_STATE_SALT, max_age=_INSTALL_STATE_MAX_AGE_SECONDS)
+        except signing.BadSignature:
+            raise ValidationError(
+                {"state": "Invalid or expired install session. Restart the installation from PostHog."}
+            )
+        if state_payload.get("team_id") != self.team_id:
+            logger.warning(
+                "stamphog sync_installation: state team mismatch",
+                installation_id=installation_id,
+                team_id=self.team_id,
+            )
+            raise PermissionDenied("This installation link was started for a different project.")
 
         # Fail closed: no proven ownership, no binding. A missing OAuth token (bad/expired code or unset
         # Stamphog OAuth creds) is a 400; a valid user who simply can't reach the installation is a 403.
@@ -137,8 +193,8 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         synced: list[StamphogRepoConfig] = []
         skipped: list[str] = []
         for full_name in repositories:
-            # Per-row savepoint: an IntegrityError from a cross-team conflict only rolls back that row,
-            # leaving the rest of the batch (and the outer autocommit context) intact.
+            # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
+            # batch (and the outer autocommit context) intact.
             try:
                 with transaction.atomic():
                     config, _ = StamphogRepoConfig.objects.for_team(self.team_id).get_or_create(
@@ -146,11 +202,21 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         installation_id=installation_id,
                         repository=full_name,
                         # for_team() scopes the read but not row creation, so team_id is explicit here.
-                        # enabled only seeds new rows; an existing row's toggle is never flipped back on.
-                        defaults={"team_id": self.team_id, "enabled": True},
+                        # Bind disabled: an installation can surface hundreds of repos, so connect them
+                        # but don't start reviewing until a human toggles each on. enabled only seeds new
+                        # rows; an existing row's toggle is never flipped.
+                        defaults={"team_id": self.team_id, "enabled": False},
                     )
             except IntegrityError:
-                skipped.append(full_name)
+                # The unique (team, repository) constraint tripped: a same-team row for this repo already
+                # exists under a different installation_id — the manually-created config (blank
+                # installation) finally being bound. Adopt it instead of skipping; only a real conflict
+                # (already bound to another installation) stays skipped.
+                adopted = _adopt_preexisting_config(self.team_id, full_name, installation_id)
+                if adopted is None:
+                    skipped.append(full_name)
+                else:
+                    synced.append(adopted)
                 continue
             synced.append(config)
 
@@ -161,7 +227,7 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only history of stamphog review runs, filterable by repository, PR number, and status."""
 
-    scope_object = "INTERNAL"
+    scope_object = "stamphog"
     serializer_class = ReviewRunSerializer
     # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
     # safely_get_queryset re-applies the team filter per request.
@@ -219,7 +285,7 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only pull requests stamphog knows about, filterable by PR number and merge state."""
 
-    scope_object = "INTERNAL"
+    scope_object = "stamphog"
     serializer_class = PullRequestSerializer
     # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
     # safely_get_queryset re-applies the team filter per request.
@@ -264,7 +330,7 @@ class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-audience Slack destinations for the daily merged-PR digest."""
 
-    scope_object = "INTERNAL"
+    scope_object = "stamphog"
     serializer_class = DigestChannelSerializer
     # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
     # safely_get_queryset re-applies the team filter per request.
@@ -280,7 +346,7 @@ class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """Read-only history of posted (or attempted) digests, filterable by digest channel."""
 
-    scope_object = "INTERNAL"
+    scope_object = "stamphog"
     serializer_class = DigestRunSerializer
     # Unscoped base: the fail-closed manager raises at class-body eval if scoped here.
     # safely_get_queryset re-applies the team filter per request.

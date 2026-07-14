@@ -10,6 +10,7 @@ url_prefix: /stamphog
 tools:
     stamphog-repo-configs-list:
         operation: stamphog_repo_configs_list
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -26,6 +27,7 @@ tools:
             creating a new config.
     stamphog-repo-configs-get:
         operation: stamphog_repo_configs_retrieve
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -39,6 +41,7 @@ tools:
             enabled / digest_enabled flags.
     stamphog-repo-configs-create:
         operation: stamphog_repo_configs_create
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -54,6 +57,7 @@ tools:
             the daily Slack digest without turning on review.
     stamphog-repo-configs-update:
         operation: stamphog_repo_configs_partial_update
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -67,6 +71,7 @@ tools:
             its history, or `digest_enabled: false` to drop it from the daily digest.
     stamphog-repo-configs-delete:
         operation: stamphog_repo_configs_destroy
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -81,6 +86,7 @@ tools:
             temporarily.
     stamphog-pull-requests-list:
         operation: stamphog_pull_requests_list
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -97,6 +103,7 @@ tools:
             merged.
     stamphog-pull-requests-get:
         operation: stamphog_pull_requests_retrieve
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -106,10 +113,10 @@ tools:
             idempotent: true
         title: Get stamphog pull request
         description: >
-            Get a single pull request by id, including its repository, title, author, head branch, body excerpt, and
-            merge details.
+            Get a single pull request by id, including its repository, title, author, head branch, and merge details.
     stamphog-review-runs-list:
         operation: stamphog_review_runs_list
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -130,6 +137,7 @@ tools:
                 - output
     stamphog-review-runs-get:
         operation: stamphog_review_runs_retrieve
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -139,12 +147,13 @@ tools:
             idempotent: true
         title: Get stamphog review run
         description: >
-            Get a single review run by id — the full record of one automated review pass over a pull request.
-            `gate_result` is the deterministic pre-check (pass/fail, tier, reason); `output` is the reviewer's
-            structured output (reasoning, showstoppers, and the comment/review body it posted). Use this to see
-            exactly why a PR received its verdict.
+            Get a single review run by id — the record of one automated review pass over a pull request. Returns the
+            lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The
+            raw reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry
+            repository content a project member without repo access must not read.
     stamphog-digest-channels-list:
         operation: stamphog_digest_channels_list
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -160,6 +169,7 @@ tools:
             policy config) and whether it's currently enabled.
     stamphog-digest-channels-create:
         operation: stamphog_digest_channels_create
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -173,6 +183,7 @@ tools:
             `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.
     stamphog-digest-channels-update:
         operation: stamphog_digest_channels_partial_update
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -186,6 +197,7 @@ tools:
             without deleting its configuration — this is the kill switch for opting an audience out of digests.
     stamphog-digest-channels-delete:
         operation: stamphog_digest_channels_destroy
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:write
@@ -199,6 +211,7 @@ tools:
             `stamphog-digest-channels-update` with `enabled: false` if you only want to pause the digest.
     stamphog-digest-runs-list:
         operation: stamphog_digest_runs_list
+        feature_flag: stamphog
         enabled: true
         scopes:
             - stamphog:read
@@ -214,4 +227,5 @@ tools:
             text, and the Slack message timestamp it posted to.
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
+        feature_flag: stamphog
         enabled: false

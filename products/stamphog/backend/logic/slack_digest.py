@@ -27,20 +27,37 @@ class DigestSlackError(Exception):
     """The digest could not be posted to Slack (integration missing, mismatched, or API failure)."""
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Neutralize Slack mrkdwn control characters in attacker-controlled text.
+
+    PR titles, author logins, and model-generated summaries come from outside contributors. Escaping
+    ``&``/``<``/``>`` stops a merged PR from smuggling ``<!channel>`` mentions or breaking out of a link
+    into the digest channel; Slack renders the escaped entities back as the literal characters.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _link(url: str, label: str) -> str:
+    # url is trusted (built from the GitHub PR URL); the label is untrusted, so escape it and drop the
+    # `|` that would otherwise split the link syntax.
+    return f"<{url}|{_escape_mrkdwn(label).replace('|', '/')}>"
+
+
 def _build_blocks(summary: DigestSummary) -> list[dict]:
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "Merged PRs digest"}},
     ]
     if summary.intro:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary.intro}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(summary.intro)}})
     blocks.append({"type": "divider"})
     for pr in summary.prs[:_MAX_PR_BLOCKS]:
+        link = _link(pr.url, f"#{pr.pr_number} {pr.title}")
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"<{pr.url}|#{pr.pr_number} {pr.title}> — {pr.author_login}\n{pr.summary}",
+                    "text": f"{link} — {_escape_mrkdwn(pr.author_login)}\n{_escape_mrkdwn(pr.summary)}",
                 },
             }
         )
@@ -52,8 +69,9 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
-    lines = [summary.intro] if summary.intro else []
-    lines.extend(f"#{pr.pr_number} {pr.title} — {pr.summary}" for pr in summary.prs)
+    # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
+    lines = [_escape_mrkdwn(summary.intro)] if summary.intro else []
+    lines.extend(f"#{pr.pr_number} {_escape_mrkdwn(pr.title)} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs)
     return "\n".join(lines) or "Merged PRs digest"
 
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -49,12 +49,8 @@ function SyncedBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="success">
-            <p className="font-medium">Stamphog is now watching these repositories</p>
-            <ul className="list-disc list-inside">
-                {syncedRepos.map((repo) => (
-                    <li key={repo.id}>{repo.repository}</li>
-                ))}
-            </ul>
+            <p className="font-medium">Connected {syncedRepos.length} repositories</p>
+            <p>Stamphog isn't reviewing them yet. Turn on the ones you want reviewed in the table below.</p>
             {skippedRepos.length > 0 && (
                 <p className="text-warning mt-2">
                     Skipped {skippedRepos.join(', ')} because another team already owns them under this installation.
@@ -65,8 +61,9 @@ function SyncedBanner(): JSX.Element | null {
 }
 
 function RepoConfigsTable(): JSX.Element {
-    const { repoConfigs, repoConfigsLoading, updatingRepoIds } = useValues(stamphogSceneLogic)
-    const { setRepoEnabled, setDigestEnabled } = useActions(stamphogSceneLogic)
+    const { filteredRepoConfigs, repoConfigs, repoConfigsLoading, updatingRepoIds, repoSearch } =
+        useValues(stamphogSceneLogic)
+    const { setRepoEnabled, setDigestEnabled, setRepoSearch } = useActions(stamphogSceneLogic)
 
     const columns: LemonTableColumns<StamphogRepoConfigApi> = [
         {
@@ -104,13 +101,25 @@ function RepoConfigsTable(): JSX.Element {
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            dataSource={repoConfigs}
-            loading={repoConfigsLoading}
-            rowKey="id"
-            emptyState="No repositories yet. Install the Stamphog GitHub App to get started."
-        />
+        <div className="flex flex-col gap-2">
+            {repoConfigs.length > 10 && (
+                <LemonInput
+                    type="search"
+                    placeholder="Search repositories"
+                    value={repoSearch}
+                    onChange={setRepoSearch}
+                    className="max-w-100"
+                />
+            )}
+            <LemonTable
+                columns={columns}
+                dataSource={filteredRepoConfigs}
+                loading={repoConfigsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 20 }}
+                emptyState="No repositories yet. Install the Stamphog GitHub App to get started."
+            />
+        </div>
     )
 }
 

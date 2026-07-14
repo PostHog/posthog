@@ -11,13 +11,29 @@ from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogR
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
-class _GateResultField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(OpenApiTypes.OBJECT)
 class _DigestSummaryField(serializers.JSONField):
     pass
+
+
+class _GateResultSummarySerializer(serializers.Serializer):
+    """Allowlisted, content-free slice of ``ReviewRun.gate_result``.
+
+    The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
+    repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+    manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
+    access must not read. Only the terminal decision is exposed.
+    """
+
+    gate_blocked = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        help_text="Whether the deterministic gates blocked auto-review before the reviewer ran.",
+    )
+    final_verdict = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text="The engine's raw final-verdict token, if the run reached a verdict.",
+    )
 
 
 class _ReviewOutputSummarySerializer(serializers.Serializer):
@@ -113,6 +129,13 @@ class StamphogSyncInstallationRequestSerializer(serializers.Serializer):
             "the caller owns the installation before its repos are bound."
         ),
     )
+    state = serializers.CharField(
+        help_text=(
+            "Signed state token minted by install_info and round-tripped through GitHub's install "
+            "redirect. Binds the callback to the team and user that started the flow, so a stolen "
+            "installation_id + code can't be replayed against another team's session."
+        ),
+    )
 
 
 class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
@@ -151,7 +174,6 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "author_login",
             "pr_url",
             "head_branch",
-            "body_excerpt",
             "merged",
             "merged_at",
             "merge_commit_sha",
@@ -170,7 +192,6 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "author_login": {"help_text": "GitHub login of the pull request author."},
             "pr_url": {"help_text": "Full URL to the pull request on GitHub."},
             "head_branch": {"help_text": "Branch name of the PR head."},
-            "body_excerpt": {"help_text": "Trimmed PR description, capped at capture time."},
             "merged_at": {"help_text": "When the pull request merged, null if it hasn't."},
             "merge_commit_sha": {"help_text": "Merge commit SHA, blank until the pull request merges."},
             "additions": {"help_text": "Lines added, recorded when the pull request merges."},
@@ -225,9 +246,12 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Final verdict reached by the reviewer, if any.",
     )
-    gate_result = _GateResultField(
-        read_only=True,
-        help_text="Deterministic gate check outcome (pass/fail, tier, reason) computed before the reviewer runs.",
+    gate_result = serializers.SerializerMethodField(
+        help_text=(
+            "Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, "
+            "classification, and policy sub-objects are excluded — they carry changed-file paths and "
+            "policy scopes, repository content a project member without repo access must not read."
+        ),
     )
     output = serializers.SerializerMethodField(
         help_text=(
@@ -247,6 +271,18 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             summary["stamphog_version"] = raw["stamphog_version"]
         if "reviewer_exit_code" in raw:
             summary["reviewer_exit_code"] = raw["reviewer_exit_code"]
+        return summary
+
+    @extend_schema_field(_GateResultSummarySerializer)
+    def get_gate_result(self, obj: ReviewRun) -> dict[str, object]:
+        # Explicit allowlist: never echo the gates / classification / policy sub-objects, which carry
+        # changed-file paths and policy scopes.
+        raw = obj.gate_result or {}
+        summary: dict[str, object] = {}
+        if "gate_blocked" in raw:
+            summary["gate_blocked"] = raw["gate_blocked"]
+        if "final_verdict" in raw:
+            summary["final_verdict"] = raw["final_verdict"]
         return summary
 
     class Meta:
