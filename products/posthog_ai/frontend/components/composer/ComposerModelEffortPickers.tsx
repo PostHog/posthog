@@ -24,6 +24,9 @@ export interface ComposerModelEffortPickersProps {
     selectedEffort: ReasoningEffortEnumApi
     onModelChange: (model: string) => void
     onEffortChange: (effort: ReasoningEffortEnumApi) => void
+    /** The selection shown is the resolved default (user/project preference), not an explicit pick for
+     * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
+    isDefaultSelection?: boolean
 }
 
 /**
@@ -37,6 +40,7 @@ export function ComposerModelEffortPickers({
     selectedEffort,
     onModelChange,
     onEffortChange,
+    isDefaultSelection = false,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const effortOptions = getEffortsForModel(selectedModel)
     const [modelOpen, setModelOpen] = useState(false)
@@ -48,7 +52,9 @@ export function ComposerModelEffortPickers({
                 <DropdownMenuTrigger
                     render={
                         <Button variant="outline" size="sm">
-                            {getModelLabel(selectedModel)}
+                            {isDefaultSelection
+                                ? `Default · ${getModelLabel(selectedModel)}`
+                                : getModelLabel(selectedModel)}
                             <IconChevronDown />
                         </Button>
                     }

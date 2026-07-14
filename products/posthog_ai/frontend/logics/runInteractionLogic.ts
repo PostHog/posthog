@@ -18,6 +18,7 @@ import {
 
 import type { runInteractionLogicType } from './runInteractionLogicType'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
+import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
 
 export interface RunInteractionLogicProps {
     taskId: string
@@ -76,6 +77,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['currentProjectId'],
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking'],
+            taskRunDefaultsLogic,
+            ['claudeDefaultModel', 'claudeDefaultEffort'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -214,15 +217,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     selectors({
         isTerminal: [(s) => [s.currentRunStatus], (status): boolean => isTerminalRunStatus(status)],
         // The model/effort to display in the picker and launch the next run with: the optimistic client-side
-        // override, else the run's stored value, else the default. Effort is clamped to one the model supports.
+        // override, else the run's stored value, else the server-resolved default (user preference over
+        // project default), else the built-in default. Effort is clamped to one the model supports.
         selectedModel: [
-            (s) => [s.modelOverride, (_, p) => p.currentModel],
-            (override, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
+            (s) => [s.modelOverride, (_, p) => p.currentModel, s.claudeDefaultModel],
+            (override, current, serverDefault): string =>
+                override ?? current ?? serverDefault ?? DEFAULT_COMPOSER_MODEL,
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel],
-            (override, current, model): ReasoningEffortEnumApi =>
-                resolveEffortForModel(override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.claudeDefaultEffort, s.selectedModel],
+            (override, current, serverDefault, model): ReasoningEffortEnumApi =>
+                resolveEffortForModel(override ?? current ?? serverDefault ?? DEFAULT_COMPOSER_EFFORT, model),
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [(s) => [s.isThinking], (isThinking): boolean => isThinking],
@@ -270,9 +275,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 // `set_config_option` command before the message rather than ride inside `user_message`. A
                 // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                 // successful sync so the next send retries an unsent change.
-                const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
+                const activeModel =
+                    values.sentModel ?? props.currentModel ?? values.claudeDefaultModel ?? DEFAULT_COMPOSER_MODEL
                 const activeEffort = resolveEffortForModel(
-                    values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
+                    values.sentEffort ?? props.currentEffort ?? values.claudeDefaultEffort ?? DEFAULT_COMPOSER_EFFORT,
                     activeModel
                 )
                 if (values.selectedModel !== activeModel) {
