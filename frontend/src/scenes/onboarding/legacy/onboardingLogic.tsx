@@ -595,6 +595,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
             } catch {
                 // The completion update failed, so leave the user's homepage untouched
+                lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
         completeContextOnboarding: async () => {

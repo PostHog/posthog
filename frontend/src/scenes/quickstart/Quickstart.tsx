@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
@@ -14,12 +15,11 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
-import { NotFound } from 'lib/components/NotFound'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -171,7 +171,7 @@ function DataSignalsStrip(): JSX.Element | null {
 
     const steps = [
         { label: 'SDK installed', done: dataLadder.installed, hint: 'PostHog is receiving data from your app.' },
-        { label: 'Events in dev', done: dataLadder.devEvents, hint: 'Run your app locally and click around.' },
+        { label: 'First events', done: dataLadder.devEvents, hint: 'Run your app and click around.' },
         {
             label: 'Events in production',
             done: dataLadder.prodEvents,
@@ -223,7 +223,7 @@ function ProjectApiKey(): JSX.Element | null {
         >
             <span>API key</span>
             <Tooltip
-                title="Your project API key. Every SDK snippet below uses it. Safe to use in public apps."
+                title="Your project API key. Every SDK snippet uses it. It's write-only, so it's safe to include in public apps."
                 delayMs={0}
             >
                 <CopyToClipboardInline
@@ -640,8 +640,12 @@ function PublicationCard({
                     <h3 className="font-semibold text-sm mb-0 line-clamp-2">{publication.title}</h3>
                     <p className="text-secondary text-xs mb-0 line-clamp-2 flex-1">{publication.description}</p>
                     <div className="text-xs text-tertiary mt-1">
-                        {publication.author ? `${publication.author} · ` : ''}
-                        {dayjs(publication.publishedAt).fromNow()}
+                        {[
+                            publication.author,
+                            dayjs(publication.publishedAt).isValid() ? dayjs(publication.publishedAt).fromNow() : null,
+                        ]
+                            .filter(Boolean)
+                            .join(' · ')}
                     </div>
                 </div>
             </Link>
@@ -817,8 +821,18 @@ export function Quickstart(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
 
-    if (featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] !== 'test') {
-        return <NotFound object="page" />
+    const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
+    useEffect(() => {
+        // The route can outlive enrollment (it's persisted as some users' homepage),
+        // so a non-test variant gets sent home instead of stranded on a dead page
+        if (quickstartVariant !== undefined && quickstartVariant !== 'test') {
+            router.actions.replace(urls.projectHomepage())
+        }
+    }, [quickstartVariant])
+
+    if (quickstartVariant !== 'test') {
+        // Flags still loading, or the redirect above is about to land
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
@@ -893,7 +907,7 @@ export function Quickstart(): JSX.Element {
             <section>
                 <SectionHeader
                     title="Turn on your tools"
-                    subtitle="What most teams start with. Active tools are already collecting or ready to use."
+                    subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
                 />
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
@@ -973,7 +987,7 @@ export function Quickstart(): JSX.Element {
                     <LearnCard
                         icon={<IconTerminal />}
                         title="MCP server"
-                        description="Connect Claude, Cursor, and other AI assistants to your PostHog data with one command: npx @posthog/wizard mcp add"
+                        description="Connect Claude, Cursor, and other AI assistants to your PostHog data with a single command."
                         buttonLabel="Set up MCP"
                         to="https://posthog.com/docs/model-context-protocol"
                         targetBlank

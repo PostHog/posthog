@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { availableOnboardingProducts, toSentenceCase } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -237,6 +238,12 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
 const isFullTeam = (team: TeamType | TeamPublicType | null): team is TeamType =>
     !!team && 'has_completed_onboarding_for' in team
 
+// The scene is many users' homepage, so it can remount on every "Home" click. The signals
+// query aggregates 30 days of events — too expensive to re-run per mount, and statuses
+// don't need to be fresher than a few minutes.
+const TOOL_SIGNALS_CACHE_TTL_MS = 5 * 60 * 1000
+let toolSignalsCache: { teamId: number; fetchedAt: number; signals: QuickstartToolSignals | null } | null = null
+
 function buildProduct(
     key: ProductKey,
     featured: boolean,
@@ -271,10 +278,10 @@ export const quickstartLogic = kea<quickstartLogicType>([
     path(['scenes', 'quickstart', 'quickstartLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure']],
     })),
     actions({
         enableProduct: (productKey: ProductKey) => ({ productKey }),
+        productEnableFinished: (productKey: ProductKey) => ({ productKey }),
         openToolSetupModal: (productKey: ProductKey) => ({ productKey }),
         closeToolSetupModal: true,
         setPublicationsHasMore: (feed: PublicationFeedKey, hasMore: boolean) => ({ feed, hasMore }),
@@ -312,6 +319,16 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 {
                     // Errors leave signals null: statuses fall back to enablement-only semantics
                     loadToolSignals: async (): Promise<QuickstartToolSignals | null> => {
+                        const teamId = values.currentTeam?.id
+                        const cached = toolSignalsCache
+                        if (
+                            teamId &&
+                            cached &&
+                            cached.teamId === teamId &&
+                            Date.now() - cached.fetchedAt < TOOL_SIGNALS_CACHE_TTL_MS
+                        ) {
+                            return cached.signals
+                        }
                         try {
                             const query = hogql`
                                 SELECT
@@ -337,20 +354,23 @@ export const quickstartLogic = kea<quickstartLogicType>([
                                 productKey: 'platform_and_support',
                             })
                             const row = res.results?.[0]
-                            if (!row) {
-                                return null
+                            const signals: QuickstartToolSignals | null = row
+                                ? {
+                                      totalEvents: Number(row[0]) || 0,
+                                      prodEvents: Number(row[1]) || 0,
+                                      customEvents: Number(row[2]) || 0,
+                                      exceptions: Number(row[3]) || 0,
+                                      backendEvents: Number(row[4]) || 0,
+                                      flagCalls: Number(row[5]) || 0,
+                                      pageviews: Number(row[6]) || 0,
+                                      surveyResponses: Number(row[7]) || 0,
+                                      aiGenerations: Number(row[8]) || 0,
+                                  }
+                                : null
+                            if (teamId) {
+                                toolSignalsCache = { teamId, fetchedAt: Date.now(), signals }
                             }
-                            return {
-                                totalEvents: Number(row[0]) || 0,
-                                prodEvents: Number(row[1]) || 0,
-                                customEvents: Number(row[2]) || 0,
-                                exceptions: Number(row[3]) || 0,
-                                backendEvents: Number(row[4]) || 0,
-                                flagCalls: Number(row[5]) || 0,
-                                pageviews: Number(row[6]) || 0,
-                                surveyResponses: Number(row[7]) || 0,
-                                aiGenerations: Number(row[8]) || 0,
-                            }
+                            return signals
                         } catch {
                             return null
                         }
@@ -381,8 +401,10 @@ export const quickstartLogic = kea<quickstartLogicType>([
             {} as Record<string, boolean>,
             {
                 enableProduct: (state, { productKey }) => ({ ...state, [productKey]: true }),
-                updateCurrentTeamSuccess: () => ({}),
-                updateCurrentTeamFailure: () => ({}),
+                productEnableFinished: (state, { productKey }) => {
+                    const { [productKey]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
         publicationsHasMore: [
@@ -445,17 +467,21 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 (setupModalProductKey && products.find((product) => product.key === setupModalProductKey)) || null,
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         enableProduct: async ({ productKey }) => {
             const definition = QUICKSTART_PRODUCT_DEFINITIONS[productKey]
             if (!definition?.optInPayload) {
+                actions.productEnableFinished(productKey)
                 return
             }
             try {
                 await teamLogic.asyncActions.updateCurrentTeam(definition.optInPayload)
             } catch {
                 // The opt-in didn't apply, so don't record an enable that never happened
+                lemonToast.error("Couldn't enable it. Please try again.")
                 return
+            } finally {
+                actions.productEnableFinished(productKey)
             }
             posthog.capture('quickstart product enabled', { product_key: productKey })
             void addProductIntent({
@@ -463,14 +489,17 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
             })
         },
+        // Fires after signals settle so active_products reflects real data, not the empty fallback
+        loadToolSignalsSuccess: () => {
+            posthog.capture('quickstart viewed', {
+                has_ingested_event: values.hasIngestedEvent,
+                active_products: values.products.filter((product) => product.status === 'active').map((p) => p.key),
+            })
+        },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadToolSignals()
         actions.loadBlogPublications()
         actions.loadNewsletterPublications()
-        posthog.capture('quickstart viewed', {
-            has_ingested_event: values.hasIngestedEvent,
-            active_products: values.products.filter((product) => product.status === 'active').map((p) => p.key),
-        })
     }),
 ])

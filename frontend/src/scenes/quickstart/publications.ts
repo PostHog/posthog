@@ -16,7 +16,7 @@ export const QUICKSTART_NEWSLETTER_URL = 'https://newsletter.posthog.com'
 const BLOG_RSS_URL = 'https://posthog.com/rss.xml'
 // Versioned: caches written by earlier revisions held fewer items than a full
 // page and must not be served as page one of the feed
-const BLOG_CACHE_KEY = 'ph-quickstart-publications-v3-blog'
+const BLOG_CACHE_KEY = 'ph-quickstart-publications-v4-blog'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 // The blog feed embeds full post bodies, so reading it whole costs several MB. Items are
 // newest first: the response is streamed and more bytes are pulled only as the user scrolls
@@ -31,9 +31,10 @@ export interface PublicationsPage {
 interface PublicationsCache {
     fetchedAt: number
     publications: QuickstartPublication[]
+    hasMore: boolean
 }
 
-const readCache = (): QuickstartPublication[] | null => {
+const readCache = (): PublicationsCache | null => {
     try {
         const raw = window.localStorage.getItem(BLOG_CACHE_KEY)
         if (!raw) {
@@ -42,28 +43,37 @@ const readCache = (): QuickstartPublication[] | null => {
         const cache = JSON.parse(raw) as PublicationsCache
         if (
             !Array.isArray(cache.publications) ||
-            cache.publications.length < QUICKSTART_PUBLICATIONS_PAGE_SIZE ||
-            Date.now() - cache.fetchedAt > CACHE_TTL_MS
+            // A short first page is only legitimate when the feed itself ended there
+            (cache.publications.length < QUICKSTART_PUBLICATIONS_PAGE_SIZE && cache.hasMore !== false) ||
+            Date.now() - cache.fetchedAt > CACHE_TTL_MS ||
+            // A corrupted entry must fall through to a fresh fetch, not crash the render
+            !cache.publications.every(
+                (publication) =>
+                    publication && typeof publication.title === 'string' && typeof publication.url === 'string'
+            )
         ) {
             return null
         }
-        return cache.publications
+        return cache
     } catch {
         return null
     }
 }
 
-const writeCache = (publications: QuickstartPublication[]): void => {
+const writeCache = (publications: QuickstartPublication[], hasMore: boolean): void => {
     try {
-        window.localStorage.setItem(BLOG_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), publications }))
+        window.localStorage.setItem(BLOG_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), publications, hasMore }))
     } catch {
         // Storage unavailable or full. Caching is best-effort.
     }
 }
 
-// The feed glues the site origin onto already-absolute CDN image URLs
-const fixImageUrl = (url: string | null): string | undefined =>
-    url ? url.replace(/^https:\/\/posthog\.com(?=https?:\/\/)/, '') : undefined
+// The feed glues the site origin onto already-absolute CDN image URLs. Only https URLs
+// survive: feed (and cached-feed) content must never inject another scheme into the DOM.
+const fixImageUrl = (url: string | null): string | undefined => {
+    const fixed = url?.replace(/^https:\/\/posthog\.com(?=https?:\/\/)/, '')
+    return fixed?.startsWith('https://') ? fixed : undefined
+}
 
 const countItems = (xml: string): number => xml.split('</item>').length - 1
 
@@ -90,7 +100,7 @@ export function parsePublicationsRss(xml: string, limit: number): QuickstartPubl
             author: textOf(item, 'dc:creator') || undefined,
             imageUrl: fixImageUrl(item.getElementsByTagName('enclosure')[0]?.getAttribute('url') ?? null),
         }))
-        .filter((publication) => publication.title && publication.url)
+        .filter((publication) => publication.title && publication.url.startsWith('https://'))
 }
 
 /**
@@ -102,11 +112,16 @@ class FeedStream {
     private reader: ReadableStreamDefaultReader<Uint8Array> | null = null
     private decoder = new TextDecoder()
     private xml = ''
+    // Tracked incrementally per chunk: recounting the whole buffer on every read is
+    // quadratic over a multi-MB feed
+    private itemCount = 0
     private exhausted = false
-    private started = false
+    private startPromise: Promise<void> | null = null
+    // Serializes readers: the initial page load and the eager scroll sentinel can
+    // overlap, and interleaved reader.read() calls would corrupt both results
+    private pending: Promise<unknown> = Promise.resolve()
 
     private async start(): Promise<void> {
-        this.started = true
         const response = await fetch(BLOG_RSS_URL)
         if (!response.ok) {
             this.exhausted = true
@@ -116,15 +131,23 @@ class FeedStream {
             this.reader = response.body.getReader()
         } else {
             this.xml = await response.text()
+            this.itemCount = countItems(this.xml)
             this.exhausted = true
         }
     }
 
     async ensureItems(count: number): Promise<{ xml: string; exhausted: boolean }> {
-        if (!this.started) {
-            await this.start()
+        const run = this.pending.then(() => this.readUntil(count))
+        this.pending = run.catch(() => undefined)
+        return await run
+    }
+
+    private async readUntil(count: number): Promise<{ xml: string; exhausted: boolean }> {
+        if (!this.startPromise) {
+            this.startPromise = this.start()
         }
-        while (this.reader && !this.exhausted && countItems(this.xml) < count) {
+        await this.startPromise
+        while (this.reader && !this.exhausted && this.itemCount < count) {
             if (this.xml.length >= MAX_FEED_CHARS) {
                 this.exhausted = true
                 break
@@ -134,7 +157,12 @@ class FeedStream {
                 this.exhausted = true
                 break
             }
-            this.xml += this.decoder.decode(value, { stream: true })
+            const chunk = this.decoder.decode(value, { stream: true })
+            // A closing tag can straddle the chunk boundary, so scan a tag-length tail with it
+            // (the tail alone is too short to ever contain a full tag, so no double count)
+            const tail = this.xml.slice(-('</item>'.length - 1))
+            this.itemCount += countItems(tail + chunk)
+            this.xml += chunk
         }
         return { xml: this.xml, exhausted: this.exhausted }
     }
@@ -146,7 +174,7 @@ async function fetchBlogPage(offset: number): Promise<PublicationsPage> {
     if (offset === 0) {
         const cached = readCache()
         if (cached) {
-            return { publications: cached, hasMore: true }
+            return { publications: cached.publications, hasMore: cached.hasMore }
         }
     }
     if (!feedStream) {
@@ -165,7 +193,7 @@ async function fetchBlogPage(offset: number): Promise<PublicationsPage> {
     const publications = parsed.slice(offset)
     const hasMore = !exhausted || countItems(xml) > offset + QUICKSTART_PUBLICATIONS_PAGE_SIZE
     if (offset === 0 && publications.length > 0) {
-        writeCache(publications)
+        writeCache(publications, hasMore)
     }
     return { publications, hasMore }
 }

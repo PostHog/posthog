@@ -30,10 +30,12 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const { setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const quickstartEnabled = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test'
 
     const isUsingProjectDefault = !homepage
     const isUsingQuickstart = homepage?.sceneId === Scene.Quickstart
+    // Keep the option visible for anyone whose homepage already points at Quickstart,
+    // even after their flag enrollment ends, so the selection isn't orphaned
+    const quickstartEnabled = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' || isUsingQuickstart
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
     const isUsingDefaultDashboard =
         homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
