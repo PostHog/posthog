@@ -62,6 +62,60 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DataCatalogCertificationApi {
+    readonly id: string
+    /**
+     * The warehouse table this mark applies to (XOR saved_query).
+     * @nullable
+     */
+    readonly table: string | null
+    /**
+     * The warehouse view this mark applies to (XOR table).
+     * @nullable
+     */
+    readonly saved_query: string | null
+    /** Whether the marked target is a 'table' or a 'view'. */
+    readonly target_type: string
+    /** Name of the marked table or view. */
+    readonly target_name: string
+    /** proposed, certified (prefer this source), or deprecated (avoid this source). */
+    readonly status: string
+    /** Why this mark exists, e.g. 'canonical MRR source'. */
+    notes?: string
+    /** User who last set certified/deprecated, or null. */
+    readonly certified_by: UserBasicApi | null
+    /** @nullable */
+    readonly certified_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedDataCatalogCertificationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataCatalogCertificationApi[]
+}
+
+/**
+ * Input for proposing a certification: address the target by id or (convenience) by name.
+ */
+export interface CertificationCreateApi {
+    /** Warehouse table id to certify (XOR the other targets). */
+    table_id?: string
+    /** Warehouse view (saved query) id to certify. */
+    saved_query_id?: string
+    /** Table name; 409 with candidates if ambiguous. */
+    table_name?: string
+    /** View name; 409 with candidates if ambiguous. */
+    view_name?: string
+    /** Why this mark exists. */
+    notes?: string
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -338,6 +392,17 @@ export interface DataCatalogMetricRunApi {
      * @nullable
      */
     instructions: string | null
+}
+
+export type DataCatalogCertificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type DataCatalogMetricsListParams = {
