@@ -63,6 +63,7 @@ from posthog.tasks.usage_report import (
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_billable_event_count_in_period,
     get_teams_with_query_metric,
     has_non_zero_usage,
     send_all_org_usage_reports,
@@ -1426,8 +1427,9 @@ class TestQueryUsageReportSQL:
         assert "event LIKE 'helicone%%'" in main_query
         assert "event LIKE 'traceloop%%'" in main_query
         assert "OR lib_expr IN (" in main_query
-        assert "startsWith(event, '$mcp_')" in main_query
-        assert "countIf(startsWith(event, '$mcp_'))" in main_query
+        assert "event = '$mcp_tool_call'" in main_query
+        assert "uniqExactIf(" in main_query
+        assert "tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))" in main_query
         assert "'posthog-node'" in main_query
         assert "'posthog-rs'" in main_query
         assert "ai_lib_expr" not in main_query
@@ -5394,23 +5396,31 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
 
-    def test_mcp_sdk_events_are_reported_and_remain_billable_events(self) -> None:
-        from posthog.tasks.usage_report import (
-            get_all_event_metrics_in_period,
-            get_teams_with_billable_event_count_in_period,
+    def test_mcp_tool_calls_are_deduplicated_and_remain_billable_events(self) -> None:
+        billable_result_before = get_teams_with_billable_event_count_in_period(
+            self.begin, self.end, count_distinct=True
         )
-
-        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         baseline_count = billable_result_before[0][1]
 
+        tool_call_event_uuids: list[str] = []
         for index in range(2):
-            _create_event(
-                event="$mcp_tool_call",
-                team=self.team,
-                distinct_id=f"mcp_user_{index}",
-                timestamp=self.begin + relativedelta(hours=index + 1),
-                properties={"$lib": "posthog-node-mcp"},
+            tool_call_event_uuids.append(
+                _create_event(
+                    event="$mcp_tool_call",
+                    team=self.team,
+                    distinct_id=f"mcp_user_{index}",
+                    timestamp=self.begin + relativedelta(hours=index + 1),
+                    properties={"$lib": "posthog-node-mcp"},
+                )
             )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user_0",
+            event_uuid=tool_call_event_uuids[0],
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$lib": "posthog-node-mcp"},
+        )
         _create_event(
             event="$mcp_initialize",
             team=self.team,
@@ -5421,11 +5431,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         flush_persons_and_events()
 
-        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end, count_distinct=True)
         event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
-        self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 3)
+        self.assertEqual(dict(event_metrics["mcp_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(

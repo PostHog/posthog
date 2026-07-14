@@ -239,7 +239,11 @@ class UsageReportCounters:
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
     node_events_count_in_period: int
+
+    # MCP usage overlaps billable event and per-SDK totals.
     mcp_events_count_in_period: int
+
+    # SDK usage (continued)
     openclaw_events_count_in_period: int
     posthog_pi_events_count_in_period: int
     posthog_ai_events_count_in_period: int
@@ -772,7 +776,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
-    metric_filter_conditions.append("startsWith(event, '$mcp_')")
+    metric_filter_conditions.append("event = '$mcp_tool_call'")
     metric_filter = "\n            OR ".join(metric_filter_conditions)
     # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
     # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
@@ -792,7 +796,10 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {metric_expression}
             ) AS metric,
             count(1) as count,
-            countIf(startsWith(event, '$mcp_')) AS mcp_events_count
+            uniqExactIf(
+                tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)),
+                event = '$mcp_tool_call'
+            ) AS mcp_events_count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
         WHERE (
