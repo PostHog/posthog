@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
