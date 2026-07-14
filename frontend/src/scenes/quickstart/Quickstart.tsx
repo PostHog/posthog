@@ -9,18 +9,22 @@ import {
     IconCheckCircle,
     IconGear,
     IconGraduationCap,
+    IconLogomark,
     IconPeople,
     IconSparkles,
+    IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { NotFound } from 'lib/components/NotFound'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
@@ -202,6 +206,37 @@ function DataSignalsStrip(): JSX.Element | null {
                 ))}
             </div>
         </LemonCard>
+    )
+}
+
+function ProjectApiKey(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!currentTeam?.api_token) {
+        return null
+    }
+
+    return (
+        <div
+            className="flex items-center gap-1.5 text-sm text-secondary"
+            onClick={() => captureQuickstartAction('copy_api_key')}
+        >
+            <span>API key</span>
+            <Tooltip
+                title="Your project API key. Every SDK snippet below uses it. Safe to use in public apps."
+                delayMs={0}
+            >
+                <CopyToClipboardInline
+                    explicitValue={currentTeam.api_token}
+                    description="project API key"
+                    iconSize="xsmall"
+                    className="font-mono"
+                    data-attr="quickstart-copy-api-key"
+                >
+                    {`${currentTeam.api_token.slice(0, 12)}…`}
+                </CopyToClipboardInline>
+            </Tooltip>
+        </div>
     )
 }
 
@@ -811,6 +846,7 @@ export function Quickstart(): JSX.Element {
                                     : `${currentOrganization.member_count} teammates`}
                             </HeaderStat>
                         ) : null}
+                        <ProjectApiKey />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonButton
@@ -906,6 +942,42 @@ export function Quickstart(): JSX.Element {
                         to="https://posthog.com/tutorials"
                         targetBlank
                         action="open_tutorials"
+                    />
+                </div>
+            </section>
+
+            <section>
+                <SectionHeader
+                    title="PostHog, wherever you work"
+                    subtitle="Bring your data into the tools you already use."
+                />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <LearnCard
+                        icon={<IconLogomark />}
+                        title="PostHog Code"
+                        description="An AI coding agent that knows your product data. Fix errors, ship features, and query PostHog straight from your editor or terminal."
+                        buttonLabel="Get PostHog Code"
+                        to="https://posthog.com/code"
+                        targetBlank
+                        action="open_posthog_code"
+                    />
+                    <LearnCard
+                        icon={<IconSlack />}
+                        title="Slack app"
+                        description="Ask PostHog AI questions and get insights, alerts, and replies without leaving Slack."
+                        buttonLabel="Add to Slack"
+                        to="https://posthog.com/slack"
+                        targetBlank
+                        action="open_slack_app"
+                    />
+                    <LearnCard
+                        icon={<IconTerminal />}
+                        title="MCP server"
+                        description="Connect Claude, Cursor, and other AI assistants to your PostHog data with one command: npx @posthog/wizard mcp add"
+                        buttonLabel="Set up MCP"
+                        to="https://posthog.com/docs/model-context-protocol"
+                        targetBlank
+                        action="open_mcp_docs"
                     />
                 </div>
             </section>
