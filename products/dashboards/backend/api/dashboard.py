@@ -2001,10 +2001,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 to_attr="_prefetched_alerts",
             ),
             # Needed so the insight serializer's `dashboards`/`dashboard_tiles` fields don't N+1 per
-            # tile (both read insight.dashboard_tiles). This is the single tile fetch for retrieve —
-            # get_queryset no longer prefetches tiles for that action (it would just be re-fetched
-            # and discarded here).
-            "insight__dashboard_tiles__dashboard",
+            # tile — both read only `tile.dashboard_id`, so prefetch the tiles without the nested
+            # Dashboard object. This is the single tile fetch for retrieve — get_queryset no longer
+            # prefetches tiles for that action (it would just be re-fetched and discarded here).
+            "insight__dashboard_tiles",
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
