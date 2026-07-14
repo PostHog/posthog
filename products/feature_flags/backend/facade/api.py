@@ -118,7 +118,7 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
 
 
-def roll_out_variant(
+def _roll_out_variant(
     current_filters: dict,
     variant_key: str,
     *,
@@ -201,7 +201,7 @@ def ship_variant(
     if not any(v["key"] == variant_key for v in variants):
         raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
-    new_filters = roll_out_variant(
+    new_filters = _roll_out_variant(
         filters,
         variant_key,
         release_to_everyone=release_to_everyone,

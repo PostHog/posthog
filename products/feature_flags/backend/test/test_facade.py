@@ -8,9 +8,9 @@ from posthog.constants import AvailableFeature
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy
 from products.feature_flags.backend.facade.api import (
+    _roll_out_variant,
     archive_flag,
     flag_disable_requires_approval,
-    roll_out_variant,
     ship_variant,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -118,7 +118,7 @@ class TestRollOutVariant:
             "aggregation_group_type_index": None,
         }
 
-        result = roll_out_variant(current_filters, "test")
+        result = _roll_out_variant(current_filters, "test")
 
         # Variant distribution flipped
         assert result["multivariate"]["variants"] == [
@@ -143,7 +143,7 @@ class TestRollOutVariant:
             "aggregation_group_type_index": None,
         }
 
-        result = roll_out_variant(
+        result = _roll_out_variant(
             current_filters,
             "test",
             release_to_everyone=True,
@@ -176,7 +176,7 @@ class TestRollOutVariant:
             },
         }
 
-        result = roll_out_variant(current_filters, "test")
+        result = _roll_out_variant(current_filters, "test")
 
         # Caller's list reference is untouched
         assert current_filters["groups"] is original_groups
@@ -204,7 +204,7 @@ class TestRollOutVariant:
             "aggregation_group_type_index": 1,
         }
 
-        result = roll_out_variant(current_filters, "control", release_to_everyone=True)
+        result = _roll_out_variant(current_filters, "control", release_to_everyone=True)
 
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "This is control", "rollout_percentage": 100},
