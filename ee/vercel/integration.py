@@ -45,7 +45,7 @@ VercelItemType = Literal["flag", "experiment"]
 # Frameworks only expose an env var to client-side bundles if it carries their own prefix, so the
 # same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
 # original contract for already-installed users.
-CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_", "EXPO_PUBLIC_")
+CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
 
 class VercelSSOError(Exception):
