@@ -856,6 +856,7 @@ jobs:
                   name: product-junit-results-${{ strategy.job-index }}
                   path: junit-staging/junit-product-*.xml
                   if-no-files-found: ignore
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -3008,7 +3009,7 @@ jobs:
                       out = ["### Failing backend & product tests", "", f"{len(rows)} failing test(s):",
                              "", "| Shard | Test | Message |", "| --- | --- | --- |"]
                       for shard, nodeid, _f, msg in rows[:100]:
-                          out.append(f"| {shard} | `{nodeid}` | {msg.replace('|', r'\|')} |")
+                          out.append(f"| {shard} | `{nodeid.replace('|', r'\|')}` | {msg.replace('|', r'\|')} |")
                       if len(rows) > 100:
                           out += ["", f"…and {len(rows) - 100} more."]
                       text = "\n".join(out) + "\n"
