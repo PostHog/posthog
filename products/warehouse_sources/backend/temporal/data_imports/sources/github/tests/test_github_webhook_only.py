@@ -16,6 +16,7 @@ def _no_resume() -> mock.Mock:
 def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -> None:
     webhook_source_manager = mock.Mock()
     webhook_source_manager.webhook_enabled = mock.AsyncMock(return_value=False)
+    webhook_source_manager.schema_is_webhook = mock.AsyncMock(return_value=True)
 
     with mock.patch.object(github, "_fetch_page") as fetch_page:
         response = github.github_source(
@@ -33,4 +34,31 @@ def test_webhook_only_poll_yields_no_rows_when_webhook_inactive(endpoint: str) -
 
     assert rows == []
     fetch_page.assert_not_called()
+    webhook_source_manager.get_items.assert_not_called()
+
+
+def test_poll_mode_workflow_runs_still_polls() -> None:
+    # A legacy workflow_runs schema still configured for poll sync (is_webhook False) must keep
+    # polling, not get short-circuited to empty — otherwise it silently freezes once workflow_runs
+    # becomes webhook-only.
+    webhook_source_manager = mock.Mock()
+    webhook_source_manager.webhook_enabled = mock.AsyncMock(return_value=False)
+    webhook_source_manager.schema_is_webhook = mock.AsyncMock(return_value=False)
+
+    empty_page = mock.Mock()
+    empty_page.json.return_value = {"workflow_runs": []}
+    empty_page.headers = {}
+
+    with mock.patch.object(github, "_fetch_page", return_value=empty_page) as fetch_page:
+        response = github.github_source(
+            personal_access_token="tok",
+            repository="acme/widgets",
+            endpoint="workflow_runs",
+            logger=mock.Mock(),
+            resumable_source_manager=_no_resume(),
+            webhook_source_manager=webhook_source_manager,
+        )
+        list(response.items())
+
+    fetch_page.assert_called()
     webhook_source_manager.get_items.assert_not_called()

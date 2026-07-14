@@ -557,6 +557,7 @@ class TestGithubWebhookActivationGate:
     def _make_webhook_manager(self, enabled: bool) -> mock.Mock:
         manager = mock.Mock()
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.schema_is_webhook = mock.AsyncMock(return_value=True)
         manager.get_items = mock.Mock(return_value=iter([{"id": 1}]))
         return manager
 

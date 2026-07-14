@@ -925,6 +925,20 @@ def github_source(
         if webhook_source_manager is not None
         else False
     )
+    # Webhook-only endpoints (webhook-capable with initial_lookback_days == 0: workflow_runs,
+    # workflow_jobs, reviews) do no poll backfill — the webhook is the source of truth. When a
+    # schema that is actually configured for webhook sync has webhook mode inactive (no webhook
+    # function yet, or reset_pipeline forced the poll path), yield nothing rather than crawling the
+    # full REST history — otherwise the direct workflow_runs poll ignores the zero-day marker and
+    # re-crawls all of /actions/runs. Gate on schema.is_webhook so a legacy poll-mode workflow_runs
+    # schema keeps polling instead of silently freezing. Matches the Slack/Stripe webhook-only
+    # sources; the schema_is_webhook read only runs on the poll fallback (webhook_enabled False).
+    webhook_only_poll_noop = bool(
+        webhook_source_manager is not None
+        and skip_initial_sync_complete_check
+        and not webhook_enabled
+        and async_to_sync(webhook_source_manager.schema_is_webhook)()
+    )
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:
         if webhook_enabled:
@@ -953,14 +967,7 @@ def github_source(
             )
             return webhook_source_manager.get_items(table_transformer=transformer)
 
-        # Webhook-only endpoints (webhook-capable with initial_lookback_days == 0: workflow_runs,
-        # workflow_jobs, reviews) do no poll backfill — the webhook is the source of truth. When
-        # webhook mode isn't active for one (no webhook function yet, or reset_pipeline forced the
-        # poll path), yield nothing rather than crawling the full REST history. Without this the
-        # direct workflow_runs poll ignores the zero-day marker and re-crawls all of /actions/runs,
-        # the exact backfill the marker is meant to prevent. Matches the Slack/Stripe webhook-only
-        # sources; webhook_source_manager is non-None only for webhook-capable endpoints.
-        if webhook_source_manager is not None and skip_initial_sync_complete_check:
+        if webhook_only_poll_noop:
             return iter([])
 
         return get_rows(
