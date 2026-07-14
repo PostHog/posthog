@@ -299,7 +299,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("MOD(", sql)
-        self.assertNotIn("%", sql)
+        # Assert the modulo *operator* isn't rendered as a bare `%`; a plain `assertNotIn("%", sql)`
+        # would be too broad since bound values legitimately use `%(hogql_val_*)s` placeholders.
+        self.assertNotIn(" % ", sql)
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
