@@ -1144,3 +1144,7 @@ environment:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true
+    clone:test:db:for:xdist:
+        bin_script: clone-test-db-for-xdist
+        description: TEMPLATE-clone the migrated test DBs into per-worker copies for pytest-xdist
+        hidden: true
