@@ -31,6 +31,7 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
@@ -106,6 +107,7 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
+    const { openModal: openStarterDashboardModal } = useActions(metricsStarterDashboardLogic)
     const {
         metricName,
         aggregation,
