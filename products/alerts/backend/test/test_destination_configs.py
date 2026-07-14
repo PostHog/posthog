@@ -1,12 +1,12 @@
-from products.alerts.backend.destination_configs import Button, EventKindSpec, slack_blocks, teams_text
+from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
     display_kind="firing",
     header="Insight alert firing",
     details=(("Threshold", "30"),),
-    button_url="https://example.com/insight",
-    button_label="View insight",
+    primary_action_url="https://example.com/insight",
+    primary_action_label="View insight",
     webhook_body={},
 )
 
@@ -15,16 +15,16 @@ PROSE_SPEC = EventKindSpec(
     display_kind="firing",
     header="Insight alert firing",
     details=(),
-    button_url="https://example.com/insight",
-    button_label="View insight",
+    primary_action_url="https://example.com/insight",
+    primary_action_label="View insight",
     webhook_body={},
     intro_lines=("Pageviews is 42, breaching 30", "Signups is 7, breaching 5"),
-    extra_buttons=(Button(url="https://example.com/alert", label="Manage alert"),),
+    additional_actions=(AlertDestinationAction(url="https://example.com/alert", label="Manage alert"),),
 )
 
 
 class TestSpecVocabularyRendering:
-    def test_slack_renders_prose_lines_and_extra_buttons(self) -> None:
+    def test_slack_renders_intro_lines_and_additional_actions(self) -> None:
         blocks = slack_blocks(PROSE_SPEC, context_elements=("Project: PostHog", "Alert ID: alert-1"))
 
         section = next(b for b in blocks if b["type"] == "section")
@@ -42,7 +42,7 @@ class TestSpecVocabularyRendering:
             ("https://example.com/alert", "Manage alert"),
         ]
 
-    def test_teams_renders_prose_lines_and_extra_buttons(self) -> None:
+    def test_teams_renders_intro_lines_and_additional_actions(self) -> None:
         text = teams_text(PROSE_SPEC)
         assert "Pageviews is 42, breaching 30" in text
         assert "[View insight](https://example.com/insight) · [Manage alert](https://example.com/alert)" in text

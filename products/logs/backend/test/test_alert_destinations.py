@@ -117,7 +117,7 @@ class TestTeamsText(SimpleTestCase):
         assert text.startswith(f"**{spec.header}**")
         for label, value in spec.details:
             assert f"**{label}:** {value}" in text
-        assert f"[{spec.button_label}]({spec.button_url})" in text
+        assert f"[{spec.primary_action_label}]({spec.primary_action_url})" in text
         # Every asterisk must belong to a `**` pair — no Slack-style single-asterisk bold.
         assert "*" not in text.replace("**", "")
 

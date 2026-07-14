@@ -95,8 +95,8 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
             ),
         ),
-        button_url="{project.url}/logs?{event.properties.logs_url_params}",
-        button_label="View logs",
+        primary_action_url="{project.url}/logs?{event.properties.logs_url_params}",
+        primary_action_label="View logs",
         webhook_body={
             "id": "{event.uuid}",
             "type": "logs_alert.firing",
@@ -116,8 +116,8 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
             ),
         ),
-        button_url="{project.url}/logs?{event.properties.logs_url_params}",
-        button_label="View logs",
+        primary_action_url="{project.url}/logs?{event.properties.logs_url_params}",
+        primary_action_label="View logs",
         webhook_body={
             "id": "{event.uuid}",
             "type": "logs_alert.resolved",
@@ -134,8 +134,8 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
             ("Last error", "{event.properties.last_error_message}"),
         ),
-        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
-        button_label="View alert",
+        primary_action_url="{project.url}/logs/alerts/{event.properties.alert_id}",
+        primary_action_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
             "type": "logs_alert.auto_disabled",
@@ -155,8 +155,8 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Reason", "{event.properties.error_message}"),
             ("Failure count", "{event.properties.consecutive_failures}"),
         ),
-        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
-        button_label="View alert",
+        primary_action_url="{project.url}/logs/alerts/{event.properties.alert_id}",
+        primary_action_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
             "type": "logs_alert.errored",

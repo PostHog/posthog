@@ -26,7 +26,7 @@ class AlertDestinationConfig:
 
 
 @dataclass(frozen=True)
-class Button:
+class AlertDestinationAction:
     url: str
     label: str
 
@@ -37,12 +37,12 @@ class EventKindSpec:
     display_kind: str
     header: str
     details: tuple[tuple[str, str], ...]
-    button_url: str
-    button_label: str
+    primary_action_url: str
+    primary_action_label: str
     webhook_body: dict[str, Any]
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
-    extra_buttons: tuple[Button, ...] = ()
+    additional_actions: tuple[AlertDestinationAction, ...] = ()
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -90,11 +90,14 @@ def slack_blocks(spec: EventKindSpec, context_elements: tuple[str, ...]) -> list
             "type": "actions",
             "elements": [
                 {
-                    "url": button.url,
-                    "text": {"text": button.label, "type": "plain_text"},
+                    "url": action.url,
+                    "text": {"text": action.label, "type": "plain_text"},
                     "type": "button",
                 }
-                for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+                for action in (
+                    AlertDestinationAction(url=spec.primary_action_url, label=spec.primary_action_label),
+                    *spec.additional_actions,
+                )
             ],
         },
     ]
@@ -107,8 +110,11 @@ def teams_text(spec: EventKindSpec) -> str:
         parts.append("\n\n".join(f"**{label}:** {value}" for label, value in spec.details))
     parts.append(
         " · ".join(
-            f"[{button.label}]({button.url})"
-            for button in (Button(url=spec.button_url, label=spec.button_label), *spec.extra_buttons)
+            f"[{action.label}]({action.url})"
+            for action in (
+                AlertDestinationAction(url=spec.primary_action_url, label=spec.primary_action_label),
+                *spec.additional_actions,
+            )
         )
     )
     return "\n\n".join(parts)
