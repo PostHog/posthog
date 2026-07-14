@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
-use metrics::counter;
+use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
     GetPersonRequest, GetPersonResponse, Person, UpdatePersonPropertiesRequest,
@@ -15,11 +16,14 @@ use tonic::{Request, Response, Status};
 
 use personhog_common::partitioning::partition_for_person;
 
-use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
+use crate::cache::{
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
+};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::load_person_from_pg;
+use crate::recovery::ChangelogRecovery;
 
 pub struct PersonHogLeaderService {
     cache: Arc<PartitionedCache>,
@@ -37,9 +41,15 @@ pub struct PersonHogLeaderService {
     /// source the router uses). Used to validate the router's routing
     /// decision against each request's key.
     num_partitions: u32,
+    /// Persons whose latest acked state the writer may not have applied to
+    /// PG yet. Consulted on every cache miss: marked persons recover from
+    /// the changelog, unmarked persons' PG rows are known current.
+    dirty_index: Arc<DirtyIndex>,
+    recovery: Arc<ChangelogRecovery>,
 }
 
 impl PersonHogLeaderService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cache: Arc<PartitionedCache>,
         producer: FutureProducer<KafkaContext>,
@@ -48,6 +58,8 @@ impl PersonHogLeaderService {
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
         num_partitions: u32,
+        dirty_index: Arc<DirtyIndex>,
+        recovery: Arc<ChangelogRecovery>,
     ) -> Self {
         Self {
             cache,
@@ -57,6 +69,8 @@ impl PersonHogLeaderService {
             fallback_pool,
             inflight,
             num_partitions,
+            dirty_index,
+            recovery,
         }
     }
 
@@ -84,6 +98,65 @@ impl PersonHogLeaderService {
         Ok(())
     }
 
+    fn record_cache_hit() {
+        counter!(
+            "personhog_leader_person_loads_total",
+            "source" => "cache", "outcome" => "ok"
+        )
+        .increment(1);
+    }
+
+    /// Recover a cache miss from the right source. A person in the dirty
+    /// index has acked state the writer may not have applied to PG yet, so
+    /// the PG row cannot be trusted — recover the full latest state from
+    /// the changelog record at the marked offset instead. If that fetch
+    /// fails, the only honest answer is a retryable error: falling back to
+    /// PG would serve exactly the staleness this index exists to prevent.
+    /// Unmarked persons' PG rows are known current. Assumes the caller
+    /// holds the per-key lock.
+    async fn recover_or_load(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+    ) -> Result<Arc<CachedPerson>, Status> {
+        let Some(mark) = self.dirty_index.get(key) else {
+            return self.load_from_pg(partition, key).await;
+        };
+
+        let started = Instant::now();
+        let result = self.recovery.fetch_person_at(&mark, key).await;
+        histogram!("personhog_leader_person_load_duration_ms", "source" => "changelog")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        match result {
+            Ok(person) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "changelog", "outcome" => "ok"
+                )
+                .increment(1);
+                self.cache.put(partition, key.clone(), person.clone());
+                Ok(Arc::new(person))
+            }
+            Err(e) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "changelog", "outcome" => "error"
+                )
+                .increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    offset = mark.offset,
+                    error = %e,
+                    "changelog recovery failed for dirty person"
+                );
+                Err(Status::unavailable(
+                    "person state is pending durable write and changelog recovery failed; retry",
+                ))
+            }
+        }
+    }
+
     /// Load a person from PG and populate the cache. Assumes the caller
     /// holds the per-key lock.
     async fn load_from_pg(
@@ -98,16 +171,37 @@ impl PersonHogLeaderService {
             )));
         };
 
-        match load_person_from_pg(pool, key).await {
+        let started = Instant::now();
+        let result = load_person_from_pg(pool, key).await;
+        histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        match result {
             Ok(Some(person)) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "ok"
+                )
+                .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
                 Ok(Arc::new(person))
             }
-            Ok(None) => Err(Status::not_found(format!(
-                "person not found: team_id={}, person_id={}",
-                key.team_id, key.person_id
-            ))),
+            Ok(None) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "not_found"
+                )
+                .increment(1);
+                Err(Status::not_found(format!(
+                    "person not found: team_id={}, person_id={}",
+                    key.team_id, key.person_id
+                )))
+            }
             Err(e) => {
+                counter!(
+                    "personhog_leader_person_loads_total",
+                    "source" => "pg", "outcome" => "error"
+                )
+                .increment(1);
                 counter!("personhog_leader_pg_fallback_errors_total").increment(1);
                 tracing::error!(
                     team_id = key.team_id,
@@ -129,7 +223,10 @@ impl PersonHogLeaderService {
     ) -> Result<Arc<CachedPerson>, Status> {
         // Fast path: cache hit (no lock needed)
         match self.cache.get(partition, key) {
-            CacheLookup::Found(person) => return Ok(person),
+            CacheLookup::Found(person) => {
+                Self::record_cache_hit();
+                return Ok(person);
+            }
             CacheLookup::PartitionNotOwned => {
                 return Err(Status::failed_precondition(format!(
                     "partition {} not owned by this leader",
@@ -145,10 +242,11 @@ impl PersonHogLeaderService {
 
         // Double-check cache -- another request may have loaded it
         if let CacheLookup::Found(person) = self.cache.get(partition, key) {
+            Self::record_cache_hit();
             return Ok(person);
         }
 
-        self.load_from_pg(partition, key).await
+        self.recover_or_load(partition, key).await
     }
 
     /// Look up a person from cache, falling back to PG on miss.
@@ -159,12 +257,15 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         match self.cache.get(partition, key) {
-            CacheLookup::Found(person) => Ok(person),
+            CacheLookup::Found(person) => {
+                Self::record_cache_hit();
+                Ok(person)
+            }
             CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
                 "partition {} not owned by this leader",
                 partition
             ))),
-            CacheLookup::PersonNotFound => self.load_from_pg(partition, key).await,
+            CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await,
         }
     }
 }
@@ -285,6 +386,20 @@ impl PersonHogLeader for PersonHogLeaderService {
             .clone();
         let _guard = mutex.lock().await;
 
+        // Admission check before any work: if the dirty index is at
+        // capacity and this person is not already marked, acking the write
+        // would leave it durable but unmarked — reopening the
+        // stale-fallback hole on eviction. Shed instead; the index drains
+        // (and admission resumes) as the writer catches up.
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this person's write cannot \
+                 be tracked; retry later",
+            ));
+        }
+
         let person = self.lookup_or_load_locked(partition, &cache_key).await?;
 
         // Compute property updates
@@ -331,20 +446,40 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
-        if let Err(e) =
-            produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto).await
+        let offset = match produce_person_changelog(
+            &self.producer,
+            &self.changelog_topic,
+            partition,
+            &proto,
+        )
+        .await
         {
-            tracing::error!(
-                team_id = cache_key.team_id,
-                person_id = cache_key.person_id,
-                error = %e,
-                "failed to produce person state changelog"
-            );
-            return Err(Status::internal(format!(
-                "failed to durably store person state: {e}"
-            )));
-        }
+            Ok(offset) => offset,
+            Err(e) => {
+                tracing::error!(
+                    team_id = cache_key.team_id,
+                    person_id = cache_key.person_id,
+                    error = %e,
+                    "failed to produce person state changelog"
+                );
+                return Err(Status::internal(format!(
+                    "failed to durably store person state: {e}"
+                )));
+            }
+        };
 
+        // Mark before the cache insert: a reader that misses the cache in
+        // the gap sees the mark and recovers this exact record from the
+        // changelog. The mark outlives eviction and is pruned once the
+        // writer's committed offset passes it.
+        self.dirty_index.mark(
+            cache_key.clone(),
+            DirtyMark {
+                version: updated_person.version,
+                offset,
+                partition,
+            },
+        );
         self.cache.put(partition, cache_key, updated_person);
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
+use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
@@ -21,10 +22,16 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_leader::cache::PartitionedCache;
+use metrics::{counter, gauge};
+use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::inflight::InflightTracker;
+use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService};
+use personhog_leader::warming::{
+    fetch_writer_committed_offsets, WarmingConfig, WarmingRetryPolicy,
+};
 
 common_alloc::used!();
 
@@ -159,7 +166,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(num_partitions, "loaded partition count from etcd");
 
     let locks = Arc::new(DashMap::new());
-    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
+    let inflight = Arc::new(InflightTracker::new());
+    let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
+    let recovery = Arc::new(
+        ChangelogRecovery::new(RecoveryConfig {
+            kafka: config.kafka.clone(),
+            topic: config.kafka_person_state_topic.clone(),
+            pod_name: config.pod_name.clone(),
+            recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
+        })
+        .expect("failed to create changelog recovery consumer"),
+    );
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -168,12 +185,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&locks),
         Arc::clone(&inflight),
         num_partitions,
+        Arc::clone(&dirty_index),
+        recovery,
     );
 
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
-        personhog_leader::warming::WarmingConfig {
+        Arc::clone(&dirty_index),
+        WarmingConfig {
             kafka: config.kafka.clone(),
             topic: config.kafka_person_state_topic.clone(),
             pod_name: config.pod_name.clone(),
@@ -186,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.warm_fetch_watermarks_timeout_secs,
             ),
             recv_timeout: Duration::from_secs(config.warm_recv_timeout_secs),
-            retry: personhog_leader::warming::WarmingRetryPolicy {
+            retry: WarmingRetryPolicy {
                 max_attempts: config.warm_retry_max_attempts,
                 initial_backoff: Duration::from_millis(config.warm_retry_initial_backoff_ms),
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
@@ -221,6 +241,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sweep_idle_locks(&sweep_locks);
         }
     });
+
+    tokio::spawn(run_dirty_index_prune_loop(
+        Arc::clone(&dirty_index),
+        config.kafka.clone(),
+        config.kafka_person_state_topic.clone(),
+        config.writer_consumer_group.clone(),
+        Duration::from_secs(config.warm_committed_offsets_timeout_secs),
+        Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
+    ));
 
     // gRPC server. Mirrors the replica's middleware stack so the router's
     // per-backend metrics (processing time, transport/network overhead) and
@@ -301,4 +330,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// Periodically drop dirty-index marks the writer has applied to PG, and
+/// export the dirty-count and writer-lag gauges as a side effect. One
+/// batched OffsetFetch covers every partition with marks, so each tick
+/// costs a single short-lived consumer.
+async fn run_dirty_index_prune_loop(
+    dirty_index: Arc<DirtyIndex>,
+    kafka: KafkaConfig,
+    topic: String,
+    writer_group: String,
+    offsets_timeout: Duration,
+    prune_interval: Duration,
+) {
+    let mut interval = tokio::time::interval(prune_interval);
+    loop {
+        interval.tick().await;
+        // One pass over the index for the read side, one batched
+        // OffsetFetch, one retain pass for the prune — the loop's cost
+        // stays linear in the index even when a lagging writer has made
+        // it large.
+        let stats = dirty_index.partition_marks();
+        gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
+        if stats.is_empty() {
+            continue;
+        }
+        let partitions: Vec<u32> = stats.keys().copied().collect();
+        let committed_offsets = match fetch_writer_committed_offsets(
+            &kafka,
+            &writer_group,
+            &topic,
+            &partitions,
+            offsets_timeout,
+        )
+        .await
+        {
+            Ok(offsets) => offsets,
+            Err(e) => {
+                tracing::warn!(error = %e, "dirty-index prune offset fetch failed");
+                continue;
+            }
+        };
+
+        let pruned = dirty_index.prune_applied(&committed_offsets);
+        if pruned > 0 {
+            counter!("personhog_leader_dirty_index_pruned_total").increment(pruned as u64);
+        }
+        // A partition absent from the committed offsets has no writer
+        // commit yet: nothing is applied, every mark stays, and its lag
+        // is the entire marked backlog.
+        for (partition, marks) in &stats {
+            let committed = committed_offsets.get(partition).copied().unwrap_or(0);
+            let lag = (marks.max_offset + 1 - committed).max(0);
+            gauge!(
+                "personhog_leader_writer_uncommitted_offsets",
+                "partition" => partition.to_string()
+            )
+            .set(lag as f64);
+        }
+    }
 }

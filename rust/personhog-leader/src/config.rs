@@ -125,6 +125,28 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Dirty index / changelog recovery ─────────────────────────
+    /// How often to poll the writer's committed offsets and prune dirty
+    /// index marks the writer has applied to PG.
+    #[envconfig(default = "5")]
+    pub dirty_index_prune_interval_secs: u64,
+
+    /// Timeout for receiving a single changelog record when recovering an
+    /// evicted dirty person from Kafka. A point read that hasn't returned
+    /// in a few seconds isn't going to, and recoveries serialize on a
+    /// shared consumer while holding the person's per-key lock — a long
+    /// timeout amplifies a broker blip into queued multi-second stalls.
+    #[envconfig(default = "5")]
+    pub recovery_recv_timeout_secs: u64,
+
+    /// Soft bound on dirty index entries (~100 bytes each). The index
+    /// grows one mark per unique person written since the writer's
+    /// committed offset, so this bound is the memory runway a writer
+    /// outage gets before new-person writes shed with RESOURCE_EXHAUSTED.
+    /// The default (~1 GB worst case) buys hours at heavy churn.
+    #[envconfig(default = "10000000")]
+    pub dirty_index_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
     /// Read-only Postgres URL for cache miss fallback. If empty, cache
     /// misses return NotFound without querying PG.
