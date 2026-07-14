@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
+import * as constructionPng from '@posthog/brand/hoggies/png/construction-1'
 import { IconBook, IconCheckCircle, IconGraduationCap, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
@@ -34,6 +35,8 @@ export const scene: SceneExport = {
     component: Quickstart,
     logic: quickstartLogic,
 }
+
+const HedgehogBuilder = pngHoggie(constructionPng)
 
 function captureQuickstartAction(action: string, productKey?: string): void {
     posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
@@ -462,20 +465,18 @@ export function Quickstart(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-8 py-4">
-            <section className="rounded-lg border bg-surface-secondary p-4 md:p-6 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                    <Logomark size="xl" />
-                    {installationComplete && <EventsFlowingStatus />}
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold mb-1">
+            <section className="rounded-lg border bg-surface-secondary p-4 md:p-6 flex items-center justify-between gap-6 overflow-hidden">
+                <div className="flex flex-col gap-2 min-w-0">
+                    <h1 className="text-3xl font-bold mb-0">
                         Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                     </h1>
                     <p className="text-secondary mb-0 max-w-200">
                         Every product here runs on the same events. Get data flowing once, then turn things on as you
                         need them. No extra installs.
                     </p>
+                    {installationComplete && <EventsFlowingStatus />}
                 </div>
+                <HedgehogBuilder className="h-28 shrink-0 hidden md:block" />
             </section>
 
             {!installationComplete && <InstallHeroCard />}
