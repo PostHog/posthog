@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 # Outcome of an SSE task-run stream connection when it closes.
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
@@ -77,6 +78,12 @@ TASK_RUN_FAILED_TOTAL = Counter(
         "temporal_activity_retry_state",
         "cause_error_type",
     ],
+)
+
+CUSTOM_IMAGE_BUILD_TOTAL = Counter(
+    "posthog_tasks_custom_image_build_total",
+    "Custom sandbox image build lifecycle events",
+    labelnames=["outcome"],
 )
 
 
@@ -226,6 +233,13 @@ def observe_task_run_workflow_start(
 
 def observe_prewarmed_activated(task_run: "TaskRun") -> None:
     PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
+
+
+def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
+    try:
+        CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
+    except Exception:
+        logger.exception("custom_image_build_metric_failed", outcome=outcome)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:

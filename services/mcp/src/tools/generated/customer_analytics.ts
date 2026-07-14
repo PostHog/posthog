@@ -523,6 +523,9 @@ const customPropertyDefinitionsCreate = (): ToolBase<
         if (params.display_type !== undefined) {
             body['display_type'] = params.display_type
         }
+        if (params.target_type !== undefined) {
+            body['target_type'] = params.target_type
+        }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
         }
@@ -596,6 +599,9 @@ const customPropertyDefinitionsPartialUpdate = (): ToolBase<
         }
         if (params.display_type !== undefined) {
             body['display_type'] = params.display_type
+        }
+        if (params.target_type !== undefined) {
+            body['target_type'] = params.target_type
         }
         if (params.is_big_number !== undefined) {
             body['is_big_number'] = params.is_big_number
