@@ -2,6 +2,7 @@ import json
 from typing import Any, Optional, Union
 
 import structlog
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -239,7 +240,7 @@ def get_insight_analysis(
             f"Results Summary: {result_summary}"
         )
 
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": "You are a helpful data analyst that provides concise, actionable insights about PostHog analytics data.",
@@ -289,7 +290,7 @@ def get_ai_suggestions(
             f"{context_section}"
         )
 
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": "You are a helpful assistant that generates PostHog insights in JSON format. You only return valid JSON arrays.",

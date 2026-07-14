@@ -3,6 +3,8 @@ from typing import Optional
 
 from django.utils import timezone
 
+from openai.types.chat import ChatCompletionMessageParam
+
 from posthog.schema import (
     CachedSuggestedQuestionsQueryResponse,
     SuggestedQuestionsQuery,
@@ -35,7 +37,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             query_id=self.query_id,
         ).calculate()
 
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (
