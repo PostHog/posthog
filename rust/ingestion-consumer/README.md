@@ -4,6 +4,24 @@ Rust Kafka consumer that routes analytics events to Node.js ingestion workers ov
 It reads batches from Kafka, groups messages by `token:distinct_id`, pins each key to a worker (preserving per-person ordering), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
 
+## Ordering sentinels
+
+`order_sentinel.rs` turns the consumer's two core guarantees into always-on, alertable metrics (see the module docs for semantics).
+Each guarantee has a violation counter that must stay flat and a denominator that must grow:
+
+| Guarantee | Violations (must stay 0) | Denominator / supporting |
+| --- | --- | --- |
+| Commits are contiguous, monotonic, non-empty per partition | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
+| Async commits actually succeed | `ingestion_consumer_commit_results_total{result=error}` | `{result=ok}`, `ingestion_consumer_last_successful_commit_timestamp_seconds` |
+| Per-key sends are in offset order, never re-sent after ACK | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys` |
+| Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
+
+Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
+The commit-result and rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
+The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
+It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
+Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
+
 ## Testing
 
 - `cargo test -p ingestion-consumer --lib` — unit tests.
@@ -20,11 +38,10 @@ Sub-batches have no size bound: a batch (default 500 messages, each up to ~1 MB 
 The transport treats 4xx as non-retriable, so the same oversized sub-batch re-sends until the deferred-flush timeout, the process exits, Kafka redelivers, and it crash-loops deterministically — a stalled partition triggered by an ordinary burst of large events.
 Fix: cap sub-batch payload size at build time (chunks sent sequentially per worker to preserve per-key order), plus a defensive split-in-half retry on 413.
 
-### 2. Commit-error observability
+### 2. Commit-error observability — done
 
-`commit_offsets` uses `CommitMode::Async` and never observes the result; persistent commit failure (e.g. after a rebalance) is invisible until restart-time redelivery.
-Fix: a `ConsumerContext` with an offset-commit callback feeding a failure counter and a last-successful-commit gauge, alertable.
-The same context provides rebalance callbacks — log partition assignment changes at minimum.
+Addressed by `SentinelContext` (`order_sentinel.rs`): the offset-commit callback feeds `ingestion_consumer_commit_results_total{result}` and a last-successful-commit gauge, and rebalance callbacks log assignment changes and reset the ordering sentinels.
+Remaining: alert rules on the new metrics.
 
 ### 3. DLQ for poison messages
 

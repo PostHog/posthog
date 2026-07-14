@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 use crate::config::Config;
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, SubBatch};
+use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
 
@@ -43,12 +44,12 @@ impl BatchStats {
 /// Output of `collect_batch`.
 struct CollectedBatch {
     messages: Vec<SerializedKafkaMessage>,
-    offsets: HashMap<(String, i32), i64>,
+    offsets: HashMap<(String, i32), OffsetSpan>,
     stats: BatchStats,
 }
 
 struct ProcessedBatch {
-    offsets: HashMap<(String, i32), i64>,
+    offsets: HashMap<(String, i32), OffsetSpan>,
     stats: BatchStats,
     /// Messages accepted so far. Deferred groups (keys whose worker was
     /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
@@ -81,7 +82,7 @@ pub struct IngestionConsumerOptions {
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
 /// HTTP, and commits offsets only after all workers ACK.
 pub struct IngestionConsumer {
-    consumer: StreamConsumer,
+    consumer: StreamConsumer<SentinelContext>,
     dispatcher: Arc<Dispatcher>,
     transport: Arc<HttpTransport>,
     worker_urls: Vec<String>,
@@ -91,20 +92,27 @@ pub struct IngestionConsumer {
     deferred_flush_timeout: Duration,
     handle: Handle,
     group_id: String,
+    /// Validates commit contiguity/monotonicity per partition. Shared with the
+    /// consumer's [`SentinelContext`], which resets baselines on rebalance.
+    commit_sentinel: Arc<CommitSentinel>,
 }
 
 impl IngestionConsumer {
     /// Constructs a consumer from pre-built parts. Useful in integration tests
     /// where the Kafka consumer is created and subscribed externally.
     pub fn from_parts(
-        consumer: StreamConsumer,
+        consumer: StreamConsumer<SentinelContext>,
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
         worker_urls: Vec<String>,
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
+        // Share the context's commit sentinel so rebalance callbacks reset the
+        // same baselines the commit path checks against.
+        let commit_sentinel = consumer.context().commit_sentinel();
         Self {
+            commit_sentinel,
             consumer,
             dispatcher,
             transport,
@@ -136,7 +144,13 @@ impl IngestionConsumer {
         }
 
         let client_config = config.build_consumer_config();
-        let consumer: StreamConsumer = client_config.create()?;
+        let commit_sentinel = Arc::new(CommitSentinel::new());
+        commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+        let key_sentinel = dispatcher.key_order_sentinel();
+        key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+        let context = SentinelContext::new(Arc::clone(&commit_sentinel), key_sentinel);
+        let consumer: StreamConsumer<SentinelContext> =
+            client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
 
         info!(
@@ -149,6 +163,7 @@ impl IngestionConsumer {
 
         Ok(Self {
             consumer,
+            commit_sentinel,
             dispatcher,
             transport,
             worker_urls,
@@ -472,14 +487,18 @@ impl IngestionConsumer {
             let worker = sub_batch.worker.clone();
             let bid = batch_id.to_string();
             let routing_keys = sub_batch.routing_keys.clone();
+            let key_offsets = sub_batch.key_offsets.clone();
             let message_count = sub_batch.messages.len();
 
             handles.push(tokio::spawn(async move {
                 match transport
-                    .send_batch(&worker, &bid, sub_batch.messages)
+                    .send_batch(&worker, &bid, sub_batch.messages, from_flush)
                     .await
                 {
                     Ok(accepted) => {
+                        // Advance ACK high-water marks before the resolve, which
+                        // may evict the keys' sentinel state.
+                        dispatcher.on_sub_batch_acked(&key_offsets);
                         dispatcher.on_sub_batch_resolved(
                             &worker,
                             message_count,
@@ -520,7 +539,7 @@ impl IngestionConsumer {
     /// Collect messages from Kafka up to batch_size or batch_timeout.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut messages = Vec::with_capacity(self.batch_size);
-        let mut offsets: HashMap<(String, i32), i64> = HashMap::new();
+        let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
         let batch_start_ms = current_time_ms();
@@ -546,12 +565,8 @@ impl IngestionConsumer {
 
                     offsets
                         .entry((topic.clone(), partition))
-                        .and_modify(|o| {
-                            if offset > *o {
-                                *o = offset;
-                            }
-                        })
-                        .or_insert(offset);
+                        .and_modify(|span| span.extend(offset))
+                        .or_insert_with(|| OffsetSpan::new(offset));
 
                     let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
                     stats
@@ -642,15 +657,23 @@ impl IngestionConsumer {
     }
 
     /// Commit the max offset for each topic-partition.
-    fn commit_offsets(&self, offsets: &HashMap<(String, i32), i64>) -> anyhow::Result<()> {
+    fn commit_offsets(&self, offsets: &HashMap<(String, i32), OffsetSpan>) -> anyhow::Result<()> {
         if offsets.is_empty() {
+            // Unreachable while batches require messages to be spawned; counted
+            // so "no empty commits" is a measurable guarantee, not an assumption.
+            counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
+            warn!("Commit requested with no offsets");
             return Ok(());
         }
 
+        // Validate contiguity/monotonicity per partition before committing, so
+        // a violation is attributed to the batch that caused it.
+        self.commit_sentinel.check_commit(offsets);
+
         let mut tpl = TopicPartitionList::new();
-        for ((topic, partition), offset) in offsets {
+        for ((topic, partition), span) in offsets {
             // Commit offset + 1 (Kafka convention: committed offset = next to read)
-            tpl.add_partition_offset(topic, *partition, rdkafka::Offset::Offset(offset + 1))?;
+            tpl.add_partition_offset(topic, *partition, rdkafka::Offset::Offset(span.last + 1))?;
         }
 
         self.consumer.commit(&tpl, CommitMode::Async)?;

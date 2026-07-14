@@ -3,10 +3,20 @@ use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge, histogram};
 
+use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
+
+/// The max offset a sub-batch carries for one routing key. Passed back via
+/// [`Dispatcher::on_sub_batch_acked`] when the worker ACKs, so the
+/// [`KeyOrderSentinel`] can advance the key's ACK high-water mark.
+#[derive(Clone)]
+pub struct KeyOffset {
+    pub routing_key: String,
+    pub max_offset: i64,
+}
 
 /// A slice of a batch assigned to one worker, carrying the messages and the
 /// routing keys of all distinct_ids included. Routing keys are needed to
@@ -17,6 +27,9 @@ pub struct SubBatch {
     /// Unique routing keys contained in this sub-batch. Pass back to
     /// `Dispatcher::on_sub_batch_resolved` on ACK or DLQ.
     pub routing_keys: Vec<String>,
+    /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
+    /// a successful ACK (only) so the order sentinel tracks ACK progress.
+    pub key_offsets: Vec<KeyOffset>,
 }
 
 /// Sticky pin for one routing key. Tracks which worker owns the key and how
@@ -59,6 +72,7 @@ struct MessageGroup {
 struct WorkerSubBatchBuilder {
     messages: Vec<SerializedKafkaMessage>,
     routing_keys: Vec<String>,
+    key_offsets: Vec<KeyOffset>,
 }
 
 impl WorkerSubBatchBuilder {
@@ -88,8 +102,15 @@ impl WorkerAssignments {
             .or_insert_with(|| WorkerSubBatchBuilder {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
+                key_offsets: Vec::new(),
             });
 
+        if let Some(max_offset) = group.messages.iter().map(|m| m.offset).max() {
+            builder.key_offsets.push(KeyOffset {
+                routing_key: group.routing_key.clone(),
+                max_offset,
+            });
+        }
         builder.messages.extend(group.messages);
         builder.routing_keys.push(group.routing_key);
     }
@@ -109,6 +130,7 @@ impl WorkerAssignments {
                 worker,
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
+                key_offsets: builder.key_offsets,
             })
             .collect()
     }
@@ -133,6 +155,10 @@ pub struct Dispatcher {
     /// Worker selector for unpinned keys. Behind its own mutex because P2C
     /// selection mutates the RNG.
     router: Mutex<Router>,
+    /// Per-key send/ACK order checker. Called under the pin-table lock (lock
+    /// order: pin_table → sentinel; the sentinel never takes the pin table),
+    /// so its check order matches the intended per-key send order.
+    key_sentinel: Arc<KeyOrderSentinel>,
 }
 
 impl Dispatcher {
@@ -147,6 +173,7 @@ impl Dispatcher {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::new(strategy)),
+            key_sentinel: Arc::new(KeyOrderSentinel::new()),
         }
     }
 
@@ -161,7 +188,14 @@ impl Dispatcher {
             pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
+            key_sentinel: Arc::new(KeyOrderSentinel::new()),
         }
+    }
+
+    /// The per-key order sentinel, shared with the consumer's rdkafka context
+    /// so rebalances can reset its baselines.
+    pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
+        Arc::clone(&self.key_sentinel)
     }
 
     /// Assign a batch of messages to workers.
@@ -219,6 +253,8 @@ impl Dispatcher {
                     // ahead of it — honor it.
                     table.pins.get_mut(&group.routing_key).unwrap().ref_count += 1;
                     bump_load(&mut working_load, &worker, group.messages.len());
+                    self.key_sentinel
+                        .note_sent(&group.routing_key, &group.messages);
                     assignments.add_group(worker, group);
                 }
                 Some(_) => {
@@ -288,6 +324,8 @@ impl Dispatcher {
                     ref_count: 1,
                 },
             );
+            self.key_sentinel
+                .note_sent(&group.routing_key, &group.messages);
             assignments.add_group(worker, group);
         }
         drop(router);
@@ -455,6 +493,8 @@ impl Dispatcher {
                     );
                 }
             }
+            self.key_sentinel
+                .note_sent(&group.routing_key, &group.messages);
             assignments.add_group(
                 worker,
                 MessageGroup {
@@ -489,6 +529,16 @@ impl Dispatcher {
     /// deferral count, so the key keeps deferring newer messages from the moment
     /// it was first deferred until its flushed messages have actually landed —
     /// closing the window where a newer batch could race them.
+    /// Call when a worker ACKed a sub-batch (success path only, **before**
+    /// `on_sub_batch_resolved` so the sentinel state isn't evicted first).
+    /// Advances each key's ACK high-water mark in the order sentinel.
+    pub fn on_sub_batch_acked(&self, key_offsets: &[KeyOffset]) {
+        for key_offset in key_offsets {
+            self.key_sentinel
+                .note_acked(&key_offset.routing_key, key_offset.max_offset);
+        }
+    }
+
     pub fn on_sub_batch_resolved(
         &self,
         worker: &WorkerId,
@@ -535,6 +585,9 @@ impl Dispatcher {
                 pin.ref_count = pin.ref_count.saturating_sub(1);
                 if pin.ref_count == 0 && !still_deferring {
                     table.pins.remove(key);
+                    // All sends for the key resolved and nothing is deferred —
+                    // its order-sentinel history has nothing left to check.
+                    self.key_sentinel.evict(key);
                     evictions += 1;
                 }
             }
