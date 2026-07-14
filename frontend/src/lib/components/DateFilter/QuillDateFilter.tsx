@@ -94,7 +94,9 @@ export function QuillDateFilter({
                         setCalendarOpen(false)
                     }}
                     onCancel={() => setCalendarOpen(false)}
-                    className="rounded-none border-l border-border shadow-none ring-0"
+                    // flex-col + separator mt-auto pin the Cancel/Apply band to the surface bottom
+                    // when the panel column is the taller of the two
+                    className="flex shrink-0 flex-col rounded-none border-l border-border shadow-none ring-0 lg:w-auto [&>[data-slot=separator]]:mt-auto"
                 />
             )}
         </div>

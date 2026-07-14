@@ -180,5 +180,5 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="flex items-center gap-x-2 text-sm">{children}</span>
 }

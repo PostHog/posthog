@@ -468,9 +468,9 @@
     border-top: 1px solid var(--lemon-skin-border);
 }
 
-/* Exact-time row label → same metrics as the footer button rows (the generic
+/* Footer switch-row labels → same metrics as the footer button rows (the generic
    Label→LemonLabel mapping above is 600/14px, too heavy for a menu row). */
-[data-lemon-skin] label[for='date-filter-exact-time'] {
+[data-lemon-skin] label:is([for='date-filter-exact-time'], [for='date-filter-include-time']) {
     font-size: 0.8125rem;
     font-weight: 500;
 }

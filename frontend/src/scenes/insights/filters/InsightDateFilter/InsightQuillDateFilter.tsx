@@ -1,14 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconCalendar } from '@posthog/icons'
-import { Button, Label, Popover, PopoverContent, PopoverTrigger, Switch } from '@posthog/quill'
+import { IconCalendar, IconInfo } from '@posthog/icons'
+import {
+    Button,
+    Label,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Switch,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import {
     DateFilterExclusionsControl,
     dateFilterExclusionParts,
     type DateFilterExclusions,
 } from 'lib/components/DateFilter/DateFilterExclusionsControl'
+import { selectionKeyOf, type DateRangeSelection } from 'lib/components/DateFilter/DateRangePresetsPanel'
 import { dateRangeForSelection, selectionForDateRange } from 'lib/components/DateFilter/dateRangeSelection'
 import { QuillDateFilter } from 'lib/components/DateFilter/QuillDateFilter'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
@@ -41,7 +52,16 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const { weekStartDay } = useValues(teamLogic)
     const [open, setOpen] = useState(false)
 
-    const selection = selectionForDateRange(dateRange?.date_from ?? '-7d', dateRange?.date_to)
+    const storeSelection = selectionForDateRange(dateRange?.date_from ?? '-7d', dateRange?.date_to)
+    // Rolling changes debounce 300ms in the logic before the query source updates; reflect
+    // clicks immediately so rapid stepper presses accumulate instead of re-deriving from a
+    // stale store value.
+    const [pendingSelection, setPendingSelection] = useState<DateRangeSelection | null>(null)
+    const storeSelectionKey = selectionKeyOf(storeSelection)
+    useEffect(() => {
+        setPendingSelection(null)
+    }, [storeSelectionKey])
+    const selection = pendingSelection ?? storeSelection
     const triggerLabel =
         dateFilterToText(dateRange?.date_from ?? '-7d', dateRange?.date_to, 'Last 7 days', dateMapping, false) ??
         'Last 7 days'
@@ -97,7 +117,8 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
                 <QuillDateFilter
                     selection={selection}
                     onSelectionChange={(next) => {
-                        // Rolling changes ride the stepper keystroke-by-keystroke, so let them debounce
+                        setPendingSelection(next)
+                        // Rolling changes ride the stepper click-by-click, so let them debounce
                         updateDateRange(dateRangeForSelection(next), next.kind !== 'rolling')
                         if (next.kind !== 'rolling') {
                             setOpen(false)
@@ -113,7 +134,24 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
                     presetsFooter={
                         <>
                             <div className="flex h-8 items-center justify-between gap-2 px-2">
-                                <Label htmlFor="date-filter-exact-time">Exact time range</Label>
+                                <Label htmlFor="date-filter-exact-time" className="flex items-center gap-1">
+                                    Exact time range
+                                    <Tooltip>
+                                        <TooltipTrigger render={<span className="inline-flex" />}>
+                                            <IconInfo className="h-4 w-4 text-muted-foreground" />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-64 flex-col items-start whitespace-normal">
+                                            <span>
+                                                When enabled: uses the current time for period boundaries instead of
+                                                full days.
+                                            </span>
+                                            <span>
+                                                When disabled: dates are rounded to full day periods (start and end of
+                                                day).
+                                            </span>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </Label>
                                 <Switch
                                     id="date-filter-exact-time"
                                     size="sm"

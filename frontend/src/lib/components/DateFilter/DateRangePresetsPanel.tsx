@@ -1,5 +1,15 @@
 import { IconChevronRight } from '@posthog/icons'
-import { Button, cn, CUSTOM_RANGE, Text, type DateTimeValue } from '@posthog/quill'
+import {
+    Button,
+    cn,
+    CUSTOM_RANGE,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+    type DateTimeValue,
+} from '@posthog/quill'
 
 import { dayjs, type Dayjs } from 'lib/dayjs'
 
@@ -155,71 +165,85 @@ export function DateRangePresetsPanel({
         selection.kind === 'rolling' ? { count: selection.count, unit: selection.unit } : { count: 7, unit: 'days' }
 
     return (
-        <div className="flex h-full w-56 flex-col">
-            <div className="grid grid-cols-3 gap-1 px-2 pt-2 pb-1.5">
-                {shortChips.map(({ label, selection: chip }) => (
-                    <Button
-                        key={label}
-                        variant="outline"
-                        size="sm"
-                        className={CHIP_CLASSES}
-                        aria-selected={chipSelected(chip, selection)}
-                        title={chipTitle(chip, now, weekStartsOn)}
-                        onClick={() => onSelectionChange?.(chip)}
-                        data-attr={`date-presets-chip-${label.toLowerCase()}`}
-                    >
-                        {label}
-                    </Button>
-                ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
-                <Text size="sm" className="whitespace-nowrap" render={<span />}>
-                    Last
-                </Text>
-                <RelativeRangeInput
-                    className="gap-1.5 [&_[data-slot=input-group]]:w-[5.5rem] [&_[data-slot=input-group]_input]:px-0"
-                    value={rolling}
-                    onChange={({ count, unit }) => onSelectionChange?.({ kind: 'rolling', count, unit })}
-                    selectContentProps={portalProps}
-                />
-            </div>
-            <div className="grid grid-cols-2 gap-1 px-2 pt-1.5 pb-2">
-                {namedChips.map((name) => (
-                    <Button
-                        key={name}
-                        variant="outline"
-                        size="sm"
-                        className={CHIP_CLASSES}
-                        aria-selected={selection.kind === 'fixed' && selection.name === name}
-                        title={chipTitle({ kind: 'fixed', name }, now, weekStartsOn)}
-                        onClick={() => onSelectionChange?.({ kind: 'fixed', name })}
-                        data-attr={`date-presets-chip-${name.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                        {name}
-                    </Button>
-                ))}
-            </div>
-            {(onCalendarOpenChange || footer) && (
-                <div className="mt-auto flex flex-col gap-px border-t border-border p-1">
-                    {onCalendarOpenChange && (
-                        <Button
-                            variant="default"
-                            size="sm"
-                            left
-                            className="w-full"
-                            aria-expanded={calendarOpen}
-                            onClick={() => onCalendarOpenChange(!calendarOpen)}
-                            data-attr="date-presets-custom-range"
-                        >
-                            Custom range…
-                            <IconChevronRight
-                                className={cn('ms-auto transition-transform', calendarOpen && 'rotate-90')}
-                            />
-                        </Button>
-                    )}
-                    {footer}
+        <TooltipProvider delay={1000} timeout={0}>
+            <div className="flex h-full w-56 shrink-0 flex-col">
+                <div className="grid grid-cols-3 gap-1 px-2 pt-2 pb-1.5">
+                    {shortChips.map(({ label, selection: chip }) => (
+                        <Tooltip key={label}>
+                            <TooltipTrigger
+                                render={
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={CHIP_CLASSES}
+                                        aria-selected={chipSelected(chip, selection)}
+                                        onClick={() => onSelectionChange?.(chip)}
+                                        data-attr={`date-presets-chip-${label.toLowerCase()}`}
+                                    />
+                                }
+                            >
+                                {label}
+                            </TooltipTrigger>
+                            <TooltipContent {...portalProps}>{chipTitle(chip, now, weekStartsOn)}</TooltipContent>
+                        </Tooltip>
+                    ))}
                 </div>
-            )}
-        </div>
+                <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+                    <Text size="sm" className="whitespace-nowrap" render={<span />}>
+                        Last
+                    </Text>
+                    <RelativeRangeInput
+                        className="gap-1.5 [&_[data-slot=input-group]]:w-[5.5rem] [&_[data-slot=input-group]_input]:px-0"
+                        value={rolling}
+                        onChange={({ count, unit }) => onSelectionChange?.({ kind: 'rolling', count, unit })}
+                        selectContentProps={portalProps}
+                    />
+                </div>
+                <div className="grid grid-cols-2 gap-1 px-2 pt-1.5 pb-2">
+                    {namedChips.map((name) => (
+                        <Tooltip key={name}>
+                            <TooltipTrigger
+                                render={
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={CHIP_CLASSES}
+                                        aria-selected={selection.kind === 'fixed' && selection.name === name}
+                                        onClick={() => onSelectionChange?.({ kind: 'fixed', name })}
+                                        data-attr={`date-presets-chip-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                                    />
+                                }
+                            >
+                                {name}
+                            </TooltipTrigger>
+                            <TooltipContent {...portalProps}>
+                                {chipTitle({ kind: 'fixed', name }, now, weekStartsOn)}
+                            </TooltipContent>
+                        </Tooltip>
+                    ))}
+                </div>
+                {(onCalendarOpenChange || footer) && (
+                    <div className="mt-auto flex flex-col gap-px border-t border-border p-1">
+                        {onCalendarOpenChange && (
+                            <Button
+                                variant="default"
+                                size="sm"
+                                left
+                                className="w-full"
+                                aria-expanded={calendarOpen}
+                                onClick={() => onCalendarOpenChange(!calendarOpen)}
+                                data-attr="date-presets-custom-range"
+                            >
+                                Custom range…
+                                <IconChevronRight
+                                    className={cn('ms-auto transition-transform', calendarOpen && 'rotate-90')}
+                                />
+                            </Button>
+                        )}
+                        {footer}
+                    </div>
+                )}
+            </div>
+        </TooltipProvider>
     )
 }

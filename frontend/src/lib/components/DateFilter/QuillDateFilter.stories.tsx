@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { type ReactNode, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
 import {
     Button as QuillButton,
     Label as QuillLabel,
@@ -8,6 +9,9 @@ import {
     PopoverContent as QuillPopoverContent,
     PopoverTrigger as QuillPopoverTrigger,
     Switch as QuillSwitch,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import {
@@ -81,7 +85,24 @@ function DateFilterConcept({ lemonSkin }: { lemonSkin?: boolean }): JSX.Element 
                     presetsFooter={
                         <>
                             <div className="flex h-8 items-center justify-between gap-2 px-2">
-                                <QuillLabel htmlFor="date-filter-exact-time">Exact time range</QuillLabel>
+                                <QuillLabel htmlFor="date-filter-exact-time" className="flex items-center gap-1">
+                                    Exact time range
+                                    <Tooltip>
+                                        <TooltipTrigger render={<span className="inline-flex" />}>
+                                            <IconInfo className="h-4 w-4 text-muted-foreground" />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-64 flex-col items-start whitespace-normal">
+                                            <span>
+                                                When enabled: uses the current time for period boundaries instead of
+                                                full days.
+                                            </span>
+                                            <span>
+                                                When disabled: dates are rounded to full day periods (start and end of
+                                                day).
+                                            </span>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </QuillLabel>
                                 <QuillSwitch
                                     id="date-filter-exact-time"
                                     size="sm"
