@@ -70,6 +70,7 @@ the row lists both.
 | awin                      | HTTP                        | requests                                                        | ✅                          |
 | azure_devops              | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                  | HTTP                        | requests                                                        | ✅                          |
+| baseten                   | HTTP                        | requests                                                        | ✅                          |
 | beamer                    | HTTP                        | requests                                                        | ✅                          |
 | bigmailer                 | HTTP                        | requests                                                        | ✅                          |
 | bigquery                  | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
@@ -494,7 +495,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - backblaze
 - basecamp
-- baseten
 - bigcommerce
 - bitly
 - box
