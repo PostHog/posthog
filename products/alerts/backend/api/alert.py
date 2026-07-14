@@ -12,7 +12,7 @@ from pydantic import (
 )
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -40,6 +40,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -86,6 +87,53 @@ class ThresholdConfigurationField(serializers.JSONField):
 @extend_schema_field(AlertCondition)  # type: ignore[arg-type]
 class AlertConditionField(serializers.JSONField):
     pass
+
+
+def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
+    # Scope the flag to the alert's organization (via team scope), not the user's current
+    # organization — otherwise a user in multiple orgs could flip their current org to a
+    # flag-on org and create an alert in a team where the flag is disabled. get_organization is
+    # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+    # invariant can't silently degrade to an unscoped check.
+    user = context["request"].user
+    org = context["get_organization"]()
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(user.distinct_id),
+            groups={"organization": str(org.id)},
+        )
+    )
+
+
+def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> None:
+    # Shared by create/update (AlertSerializer) and simulate (AlertSimulateSerializer), so a
+    # flag-gated insight kind gets the same rejection on every alerts entry point.
+    kind = insight.alertable_query_kind
+    if kind is None:
+        raise ValidationError("Alerts are not supported for this insight.")
+    if kind == NodeKind.HOG_QL_QUERY and not _insight_alert_flag_enabled(context, "hogql-insight-alerts"):
+        raise ValidationError("SQL insight alerts are not enabled for your account.")
+    if kind == NodeKind.FUNNELS_QUERY and not _insight_alert_flag_enabled(context, "funnel-insight-alerts"):
+        raise ValidationError("Funnel insight alerts are not enabled for your account.")
+    # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
+    if kind == NodeKind.METRICS_QUERY and not _insight_alert_flag_enabled(context, "metrics"):
+        raise ValidationError("Metrics insight alerts are not enabled for your account.")
+
+
+def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insight: Insight) -> None:
+    # An alert on a metrics insight executes the query as `created_by` and delivers the computed
+    # value and labels in notifications, so a programmatic token must also carry the metrics data
+    # scope — otherwise `alert:write` alone becomes a metrics-read oracle bypassing the explicit
+    # product-scope gate on the query endpoints. Session auth (no token scopes) is exempt: those
+    # users are gated by team membership and insight viewer access instead.
+    if insight.alertable_query_kind != NodeKind.METRICS_QUERY:
+        return
+    key_scopes = get_authenticator_scopes(context["request"].successful_authenticator)
+    if key_scopes is None or "*" in key_scopes:
+        return
+    if not any(scope in key_scopes for scope in ("metrics:read", "metrics:write")):
+        raise PermissionDenied("API key missing required scope 'metrics:read'")
 
 
 class AlertConfigUnion(RootModel):
@@ -550,49 +598,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not value:
             return value
         _require_insight_viewer_access(self.context, value)
-        self._enforce_alert_feature_flags(value)
+        _enforce_alert_feature_flags(self.context, value)
         return value
-
-    def _enforce_alert_feature_flags(self, insight) -> None:
-        # Enforced from the object-level validate() so it runs on every create and update — including
-        # a PATCH that omits `insight` (which skips this field-level validator), so an alert can't be
-        # repointed at a flag-gated insight kind in an account where the flag is off. The model stays
-        # flag-agnostic so existing alerts keep working when the flag is off.
-        kind = insight.alertable_query_kind
-        if kind is None:
-            raise ValidationError("Alerts are not supported for this insight.")
-        if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
-            raise ValidationError("SQL insight alerts are not enabled for your account.")
-        if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
-            raise ValidationError("Funnel insight alerts are not enabled for your account.")
-        if kind == NodeKind.METRICS_QUERY and not self._metrics_alerts_enabled():
-            raise ValidationError("Metrics insight alerts are not enabled for your account.")
-
-    def _hogql_alerts_enabled(self) -> bool:
-        return self._insight_alert_flag_enabled("hogql-insight-alerts")
-
-    def _funnel_alerts_enabled(self) -> bool:
-        return self._insight_alert_flag_enabled("funnel-insight-alerts")
-
-    def _metrics_alerts_enabled(self) -> bool:
-        # Gated on the Metrics product flag itself: anyone who can see the product can alert on it.
-        return self._insight_alert_flag_enabled("metrics")
-
-    def _insight_alert_flag_enabled(self, flag: str) -> bool:
-        # Scope the flag to the alert's organization (via team scope), not the user's current
-        # organization — otherwise a user in multiple orgs could flip their current org to a
-        # flag-on org and create an alert in a team where the flag is disabled. get_organization is
-        # always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
-        # invariant can't silently degrade to an unscoped check.
-        user = self.context["request"].user
-        org = self.context["get_organization"]()
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag,
-                str(user.distinct_id),
-                groups={"organization": str(org.id)},
-            )
-        )
 
     def validate_subscribed_users(self, value):
         for user in value:
@@ -615,7 +622,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
-        self._enforce_alert_feature_flags(insight)
+        # Enforced from the object-level validate() so it runs on every create and update — including
+        # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
+        # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
+        # is off or the token lacks the data scope. The model stays flag-agnostic so existing alerts
+        # keep working when the flag is off.
+        _enforce_alert_feature_flags(self.context, insight)
+        _require_metrics_scope_for_programmatic_auth(self.context, insight)
         with upgrade_query(insight):
             query = insight.query
             if query is None:
@@ -772,6 +785,9 @@ class AlertSimulateSerializer(serializers.Serializer):
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
+        # Same feature gate as create/update: a flag-gated insight kind must get the gated
+        # rejection here too, not fall through to the unsupported-detector error.
+        _enforce_alert_feature_flags(self.context, value)
         return value
 
     def validate_detector_config(self, value):

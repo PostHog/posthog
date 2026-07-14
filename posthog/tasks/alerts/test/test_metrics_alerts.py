@@ -12,6 +12,8 @@ from posthog.schema import AlertCalculationInterval, AlertState
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -176,6 +178,82 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         insight = self.create_metrics_insight()
         response = self.create_alert(insight, lower=1.0, expected_status=400)
         assert "not enabled" in response["detail"].lower() or "not supported" in response["detail"].lower()
+
+    def test_simulate_rejected_when_metrics_flag_disabled(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The simulate endpoint must apply the same feature gate as create/update — otherwise a
+        # flag-off account gets the ungated unsupported-detector error instead of the gated one.
+        insight = self.create_metrics_insight()
+        mock_feature_enabled.side_effect = None
+        mock_feature_enabled.return_value = False
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            data={
+                "insight": insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 10},
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert "not enabled" in str(response.json()).lower()
+
+    def test_simulate_rejects_metrics_insight_with_flag_on(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Metrics has no detector extractor: simulation must 400 cleanly via the registry, not 500.
+        insight = self.create_metrics_insight()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            data={
+                "insight": insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 10},
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert "isn't supported for MetricsQuery" in str(response.json())
+
+    @parameterized.expand(
+        [
+            # An alert executes the metrics query as created_by and delivers values in
+            # notifications, so a programmatic token needs the metrics data scope too —
+            # without this, alert:write alone is a metrics-read oracle.
+            ("alert_write_only_rejected", ["alert:write"], 403),
+            ("alert_write_with_metrics_read_allowed", ["alert:write", "metrics:read"], 201),
+        ]
+    )
+    def test_api_key_metrics_scope_enforcement(
+        self,
+        mock_send_breaches: MagicMock,
+        mock_send_errors: MagicMock,
+        mock_feature_enabled: MagicMock,
+        _name: str,
+        scopes: list[str],
+        expected_status: int,
+    ) -> None:
+        insight = self.create_metrics_insight()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="metrics alerts test",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "metrics alert",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "config": {"type": "MetricsAlertConfig"},
+                "condition": {"type": "absolute_value"},
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 1.0, "upper": None}}},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "metrics:read" in str(response.json())
 
     @parameterized.expand(
         [
