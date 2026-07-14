@@ -7,10 +7,12 @@ that signal was deployed. Only teams that have opted in need a row: a missing ro
 column both read as disabled, which already matches every team that never opted in, so
 those teams are deliberately left untouched.
 
-To avoid clobbering a live disable with a stale snapshot, the candidate id list is only a
-starting point — each batch re-reads the teams that are *still* opted in right now and upserts
-only those. The final authority stays `Team`; the contract-phase read cutover re-derives the
-mirror from `Team` rather than trusting what this command accumulates.
+The candidate id list is only a starting point. To avoid clobbering a live disable with a
+stale snapshot, each batch re-reads the teams that are *still* opted in under a `Team` row
+lock (`select_for_update`) and upserts only those inside the same transaction. The lock
+serializes the batch against a concurrent disabling `Team.save()`: the disable either commits
+first (so the re-read skips the team) or blocks until the batch commits (so its own signal
+then corrects the row we just wrote). `Team` stays the single source of truth.
 
 Idempotent — re-running writes the same `True` and is a no-op on a clean dataset.
 
@@ -34,6 +36,7 @@ import time
 import logging
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 import structlog
 
@@ -122,22 +125,27 @@ class Command(BaseCommand):
         logger.info("backfill_complete", synced=synced, elapsed_s=round(elapsed, 2))
 
     def _sync_batch(self, team_ids: list[int]) -> int:
-        # Re-read live state: only mirror teams that are STILL opted in, so a disable that
-        # landed since the candidate snapshot doesn't get clobbered back to True. A team no
-        # longer opted in and still row-less is already correct (row-less == disabled).
-        still_opted_in = list(
-            Team.objects.filter(id__in=team_ids, autocapture_exceptions_opt_in=True).values_list("id", flat=True)
-        )
-        if not still_opted_in:
-            return 0
+        # Lock the Team rows while re-reading live state, then upsert in the same transaction. The
+        # lock serializes this batch against a concurrent disabling Team.save(): the disable either
+        # commits first (so we read False and skip the team) or blocks until we commit (so its signal
+        # then flips the row we wrote to False). A team no longer opted in and still row-less is
+        # already correct (row-less == disabled), so skipping it is right.
+        with transaction.atomic():
+            still_opted_in = list(
+                Team.objects.select_for_update()
+                .filter(id__in=team_ids, autocapture_exceptions_opt_in=True)
+                .values_list("id", flat=True)
+            )
+            if not still_opted_in:
+                return 0
 
-        ErrorTrackingSettings.objects.bulk_create(
-            [ErrorTrackingSettings(team_id=tid, autocapture_exceptions_opt_in=True) for tid in still_opted_in],
-            update_conflicts=True,
-            unique_fields=["team"],
-            update_fields=["autocapture_exceptions_opt_in"],
-        )
-        return len(still_opted_in)
+            ErrorTrackingSettings.objects.bulk_create(
+                [ErrorTrackingSettings(team_id=tid, autocapture_exceptions_opt_in=True) for tid in still_opted_in],
+                update_conflicts=True,
+                unique_fields=["team"],
+                update_fields=["autocapture_exceptions_opt_in"],
+            )
+            return len(still_opted_in)
 
     def _candidate_team_ids(
         self,
