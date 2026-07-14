@@ -357,6 +357,16 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_deep_links",
     ),
     path(
+        "api/agentic/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="agentic_provisioning_github_grants_create",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="agentic_provisioning_github_grant_repositories",
+    ),
+    path(
         "agentic/login",
         agentic_provisioning_views.agentic_login,
         name="agentic_login",
@@ -411,6 +421,16 @@ urlpatterns: list[Any] = [
         "api/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="provisioning_deep_links",
+    ),
+    path(
+        "api/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="provisioning_github_grants_create",
+    ),
+    path(
+        "api/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="provisioning_github_grant_repositories",
     ),
     *admin_urlpatterns,
 ]

@@ -1,5 +1,8 @@
+from django.test.client import Client as TestClient
+
 from posthog.api.test.test_organization import create_organization as create_organization_base
 from posthog.models import Organization, Team, User
+from posthog.models.integration import Integration
 
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
@@ -7,6 +10,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportRun,
 )
+from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 
 def create_organization(name: str) -> Organization:
@@ -62,6 +66,34 @@ def create_batch_export(team, destination) -> BatchExport:
         destination=destination,
         interval="hour",
     )
+
+
+def create_integration_backed_snowflake_export(client: TestClient, team: Team, user: User) -> tuple[Integration, dict]:
+    """Create a Snowflake integration and an integration-backed batch export using it.
+
+    Returns the integration and the created batch export (as returned by the API).
+    """
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.SNOWFLAKE,
+        integration_id="prod-snowflake",
+        config={"name": "prod-snowflake", "account": "my-account", "user": "svc", "authentication_type": "password"},
+        sensitive_config={"password": "secret"},
+        created_by=user,
+    )
+    export_data = {
+        "name": "my-export",
+        "interval": "hour",
+        "destination": {
+            "type": "Snowflake",
+            # No account/user/credentials inline — they come from the integration.
+            "config": {"database": "my-db", "warehouse": "COMPUTE_WH", "schema": "public"},
+            "integration": integration.pk,
+        },
+    }
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, export_data)
+    return integration, batch_export
 
 
 def create_backfill(team, batch_export, start_at, end_at, status, finished_at) -> BatchExportBackfill:

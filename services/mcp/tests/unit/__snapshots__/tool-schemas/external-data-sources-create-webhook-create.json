@@ -32,7 +32,7 @@
             ]
         },
         "direct_query_enabled": {
-            "description": "Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.",
+            "description": "Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.",
             "type": "boolean"
         },
         "id": {

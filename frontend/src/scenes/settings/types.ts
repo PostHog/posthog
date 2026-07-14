@@ -182,6 +182,7 @@ export type SettingId =
     | 'logs-json-parse'
     | 'logs-pii-scrub'
     | 'logs-retention'
+    | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
     | 'mcp-servers-manage'
