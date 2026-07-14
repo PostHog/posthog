@@ -877,7 +877,7 @@ class TestListAdvertisers:
     @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
     def test_http_error_status_is_raised(self):
         response = Mock()
-        response.raise_for_status.side_effect = HTTPError("502 Bad Gateway")
+        response.raise_for_status.side_effect = HTTPError("502 Bad Gateway", response=response)
         session = Mock()
         session.get.return_value = response
         with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
