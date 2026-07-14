@@ -164,11 +164,12 @@ def _get_windowed_rows(
 
             fresh = []
             for row in items:
-                row_id = row.get("id")
-                if row_id is not None:
-                    if row_id in seen_ids:
-                        continue
-                    seen_ids.add(row_id)
+                # `id` is the declared primary key — fail loudly on a missing one rather than
+                # silently yielding rows the dedupe (and later merges) can't identify.
+                row_id = row["id"]
+                if row_id in seen_ids:
+                    continue
+                seen_ids.add(row_id)
                 fresh.append(row)
             if fresh:
                 yield fresh
@@ -293,6 +294,11 @@ def validate_credentials(subdomain: str, api_key: str) -> tuple[bool, str | None
     status, message = check_access(subdomain, api_key)
     if status == 200:
         return True, None
-    if status in (401, 403):
+    if status == 401:
         return False, "Invalid Sage HR API key. Make sure API access is enabled under Settings → Integrations → API."
+    if status == 403:
+        return (
+            False,
+            "Your Sage HR API key does not have access to this data. Check that API access is enabled under Settings → Integrations → API.",
+        )
     return False, message or "Could not validate Sage HR credentials"

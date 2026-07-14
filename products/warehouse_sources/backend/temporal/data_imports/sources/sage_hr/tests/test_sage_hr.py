@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import date
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -134,7 +135,7 @@ class TestGetRows:
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[str, tuple[list[dict], int | None]],
+        pages: Mapping[str, tuple[list[dict], int | None]],
         endpoint: str,
         requested: list[str] | None = None,
     ) -> list[dict]:
@@ -213,7 +214,7 @@ class TestWindowedLeaveRequests:
         self,
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[str, tuple[list[dict], int | None]],
+        pages: Mapping[str, tuple[list[dict], int | None]],
         requested: list[str] | None = None,
     ) -> list[dict]:
         monkeypatch.setattr(sage_hr, "_leave_window_range", lambda: self.RANGE)
@@ -326,7 +327,7 @@ class TestCheckAccess:
             (
                 403,
                 False,
-                "Invalid Sage HR API key. Make sure API access is enabled under Settings → Integrations → API.",
+                "Your Sage HR API key does not have access to this data. Check that API access is enabled under Settings → Integrations → API.",
             ),
             (500, False, "Sage HR returned HTTP 500"),
         ],

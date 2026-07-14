@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -68,25 +70,23 @@ class TestSageHRSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://acme.sage.hr/api/employees?page=1",
-            "403 Client Error: Forbidden for url: https://other-co.sage.hr/api/teams?page=2",
-        ],
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://acme.sage.hr/api/employees?page=1"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://other-co.sage.hr/api/teams?page=2"),
+        ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://acme.sage.hr/api/employees",
-            "429 Client Error: Too Many Requests for url: https://acme.sage.hr/api/teams",
-        ],
+            ("server_error", "500 Server Error: Internal Server Error for url: https://acme.sage.hr/api/employees"),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://acme.sage.hr/api/teams"),
+        ]
     )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
