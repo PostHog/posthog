@@ -79,7 +79,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
-    Keeping `unreleasedSource=True` is the exception that needs a reason: only do it when the source is genuinely incomplete and must not be reachable yet (e.g. you're landing it across several PRs and it can't sync). The moment it syncs end-to-end and its tests pass, it's done — the flag comes out.
+    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
     So a newly finished, tested source ships with:
     - **no `unreleasedSource`** (visible and connectable),
@@ -627,9 +627,11 @@ Tooling & assets:
 - [ ] Run `pnpm run schema:build`
 - [ ] Django migrations run if enum value requires it
 
-Release status (default: a finished source has NO unreleasedSource flag — it hides the source from users):
-- [ ] No unreleasedSource on the finished source — delete the line the scaffolded stub ships with
-      (keep it ONLY as an exception, when the source is genuinely incomplete / landed across multiple PRs)
+Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
+- [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
+      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=ALPHA.
+      Keep it ONLY when the code genuinely can't sync yet (landed across multiple PRs).
+- [ ] No test asserts `unreleasedSource is True` (that anti-pattern locks the source hidden)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
 - [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
       (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)

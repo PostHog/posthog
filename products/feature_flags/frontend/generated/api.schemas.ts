@@ -238,6 +238,8 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created */
+    updated_existing: boolean
     /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
     flag_dependency_warnings?: string[]
     /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
@@ -249,6 +251,10 @@ export interface CopyFlagsResultApi {
     project_id?: number
     /** Error message (present on failure) */
     error_message?: string
+    /** True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved */
+    approval_pending?: boolean
+    /** ID of the pending change request created in the target project (present when approval_pending is true) */
+    change_request_id?: string
 }
 
 export interface CopyFlagsResponseApi {

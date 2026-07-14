@@ -727,6 +727,29 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            # schema, table_name, should_use_incremental_field, table_type, incremental_field,
+            # incremental_field_type, db_incremental_field_last_value
+            lambda: _build_query("public", "my_table", True, None, None, None, None),
+            # _build_count_query has no `table_type` parameter
+            lambda: _build_count_query("public", "my_table", True, None, None, None),
+        ],
+    )
+    def test_missing_incremental_field_is_non_retryable(self, source, builder):
+        # Drive the real raise sites so a message change that breaks the classifier key is caught.
+        with pytest.raises(ValueError) as exc_info:
+            builder()
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing incremental field error should be non-retryable: {error_msg}"
+
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing incremental field error should surface an actionable message"
+        assert "incremental field" in friendly[0]
+
     def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
         error_msg = str(_recovery_conflict_abort_error(10))
         non_retryable = source.get_non_retryable_errors()

@@ -93,7 +93,12 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
 
     const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
     const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+    const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled,
+        funnelAlertsEnabled,
+        metricsAlertsEnabled,
+    })
 
     return (
         <>
