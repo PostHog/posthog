@@ -134,24 +134,16 @@ export type CyclotronV2JanitorConfig = {
     maxTouchCount?: number
     cleanupGraceMs?: number
     // Master kill-switch. When false the janitor blind-deletes poison pills with
-    // no failed-result record and no fleet-health pause (the pre-recovery
-    // behavior). Defaults to true.
+    // no failed-result record (the pre-recovery behavior). Defaults to true.
     poisonRecoveryEnabled?: boolean
-    // Fleet-health gate: giving up on poison pills is paused while stalls look
-    // fleet-wide (an outage) rather than isolated (a genuinely bad job).
-    fleetStallRatioThreshold?: number
-    fleetHealthWindowMs?: number
-    fleetMinStalledCount?: number
 }
 
 export type CyclotronV2CleanupResult = {
     deleted: number
     stalled: number
     // Jobs the janitor gave up on this cycle (recorded as failed, replayable
-    // invocation results before deletion). Empty while poisoning is paused.
+    // invocation results before deletion).
     poisoned: number
     poisonedIds: string[]
-    // True when the give-up pass was skipped because the fleet looked unhealthy.
-    poisoningPaused: boolean
     depths: Map<string, number>
 }

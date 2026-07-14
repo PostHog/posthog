@@ -45,11 +45,6 @@ Responsibilities:
   deleted. Workers reset `janitor_touch_count = 0` on every deliberate release, so
   the budget counts CONSECUTIVE stalls — long-lived waits don't accrue touches for
   life.
-- **Fleet-health gating** — during a fleet-wide outage every in-flight job stalls
-  at once; giving up then would drop work a recovered fleet could still run. While
-  stalls dominate completions over a rolling window (and exceed an absolute floor)
-  the give-up is paused — the janitor only resets/retries — and resumes once stalls
-  return to baseline.
 - **Queue depth metrics** — Prometheus gauges per queue
 
 ## Integration

@@ -46,11 +46,6 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
-const poisoningPausedGauge = new Gauge({
-    name: 'cdp_cyclotron_v2_janitor_poisoning_paused',
-    help: 'Whether giving up on poison pills is paused because stalls look fleet-wide (1) or active (0)',
-})
-
 interface PoisonRow {
     id: string
     team_id: number
@@ -80,14 +75,6 @@ export class CyclotronV2Janitor {
     private readonly maxTouchCount: number
     private readonly cleanupGraceMs: number
     private readonly poisonRecoveryEnabled: boolean
-    private readonly fleetStallRatioThreshold: number
-    private readonly fleetHealthWindowMs: number
-    private readonly fleetMinStalledCount: number
-
-    // Rolling window of completion counts seen per run — the denominator for the
-    // fleet-health ratio. Steady-state completions are non-zero, so a healthy
-    // fleet with one bad job stays well below the stall-ratio bar.
-    private completionSamples: { ts: number; completed: number }[] = []
 
     constructor(
         config: CyclotronV2JanitorConfig,
@@ -108,9 +95,6 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
-        this.fleetStallRatioThreshold = config.fleetStallRatioThreshold ?? 0.5
-        this.fleetHealthWindowMs = config.fleetHealthWindowMs ?? 300000
-        this.fleetMinStalledCount = config.fleetMinStalledCount ?? 5
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -137,41 +121,19 @@ export class CyclotronV2Janitor {
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
-        this.recordCompletionSample(deletedCounts['completed'] ?? 0)
-
-        let poisonedIds: string[] = []
-        let poisoningPaused = false
-
-        if (!this.poisonRecoveryEnabled) {
-            // Kill-switch off: legacy behavior — blind-delete poison pills with
-            // no recovery record and no fleet-health pause.
-            poisoningPausedGauge.set(0)
-            poisonedIds = await this.blindDeletePoisonPills()
-        } else {
-            // Gate the give-up on fleet health: during a fleet-wide outage every
-            // in-flight job stalls at once, and giving up on them would drop work
-            // a recovered fleet could still run. In that state only reset/retry.
-            const stalledNow = await this.countStalledRunningJobs()
-            poisoningPaused = this.isFleetUnhealthy(stalledNow)
-            poisoningPausedGauge.set(poisoningPaused ? 1 : 0)
-
-            if (poisoningPaused) {
-                logger.warn('CyclotronV2Janitor poisoning paused, fleet unhealthy', {
-                    stalledNow,
-                    completedInWindow: this.completedInWindow(),
-                    fleetStallRatioThreshold: this.fleetStallRatioThreshold,
-                })
-            } else {
-                poisonedIds = await this.recordAndDeletePoisonPills()
-            }
-        }
+        // Give up on genuine poison pills. When recovery is enabled every give-up
+        // is recorded to hog_invocation_results before the row is deleted, so it
+        // is never silently dropped; the kill-switch reverts to a blind delete.
+        const poisonedIds = this.poisonRecoveryEnabled
+            ? await this.recordAndDeletePoisonPills()
+            : await this.blindDeletePoisonPills()
 
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
 
-        return { deleted, stalled, poisoned: poisonedIds.length, poisonedIds, poisoningPaused, depths }
+        return { deleted, stalled, poisoned: poisonedIds.length, poisonedIds, depths }
     }
 
     private async cleanupTerminalJobs(): Promise<Record<string, number>> {
@@ -212,53 +174,6 @@ export class CyclotronV2Janitor {
         return counts
     }
 
-    private recordCompletionSample(completed: number): void {
-        const now = Date.now()
-        this.completionSamples.push({ ts: now, completed })
-        this.completionSamples = this.completionSamples.filter((s) => s.ts > now - this.fleetHealthWindowMs)
-    }
-
-    private completedInWindow(): number {
-        return this.completionSamples.reduce((acc, s) => acc + s.completed, 0)
-    }
-
-    private async countStalledRunningJobs(): Promise<number> {
-        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
-        const result = await this.pool.query<{ count: string }>(
-            `SELECT COUNT(*) AS count FROM cyclotron_jobs
-             WHERE status = 'running' AND COALESCE(last_heartbeat, $1) <= $1`,
-            [heartbeatCutoff]
-        )
-        return parseInt(result.rows[0].count, 10)
-    }
-
-    // Stalls are fleet-wide when many jobs are stalled at once AND stalls
-    // dominate completions over the rolling window. Both bars must be cleared so
-    // an idle-but-healthy fleet (few completions, a couple of stalls) doesn't
-    // trip the gate. Note the asymmetry: `stalledNow` is instantaneous while the
-    // denominator sums completions over `fleetHealthWindowMs`, so pre-incident
-    // throughput keeps the ratio low until those samples age out. That means
-    // `fleetHealthWindowMs` is also the worst-case detection lag — but a job
-    // needs ~`maxTouchCount * cleanupIntervalMs` of sustained stalling to even
-    // become a poison pill, so by the time give-up is on the table the window
-    // has typically cleared its pre-incident completions.
-    private isFleetUnhealthy(stalledNow: number): boolean {
-        if (stalledNow < this.fleetMinStalledCount) {
-            return false
-        }
-        const completed = this.completedInWindow()
-        return stalledNow / (stalledNow + completed) > this.fleetStallRatioThreshold
-    }
-
-    /**
-     * Give up on poison pills: running jobs with a stale heartbeat that have
-     * been reset too many times. Each one is recorded as a `failed`, replayable
-     * invocation result (discoverable in the Invocations UI, re-runnable by the
-     * existing rerun tooling) and only then deleted — so there is never a window
-     * where the cyclotron row is gone but no recovery record exists. The
-     * original incident deleted these with no trace; here every give-up is
-     * logged with its id and recorded for replay.
-     */
     // Legacy pre-recovery behavior, used only when the kill-switch disables
     // poison-pill recovery: delete poison pills outright with no recovery record.
     // SKIP LOCKED still keeps us from racing a worker that just re-locked a row.
@@ -291,6 +206,15 @@ export class CyclotronV2Janitor {
         return deletedIds
     }
 
+    /**
+     * Give up on poison pills: running jobs with a stale heartbeat that have
+     * been reset too many times. Each one is recorded as a `failed`, replayable
+     * invocation result (discoverable in the Invocations UI, re-runnable by the
+     * existing rerun tooling) and only then deleted — so there is never a window
+     * where the cyclotron row is gone but no recovery record exists. The
+     * original incident deleted these with no trace; here every give-up is
+     * logged with its id and recorded for replay.
+     */
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
