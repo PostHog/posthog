@@ -15,11 +15,14 @@ import { KafkaConsumer } from './consumer-v1'
  * Integration tests for the KafkaConsumer (v1) partition-revoke wind-down, against a real
  * broker reachable at KAFKA_HOSTS (default: kafka:9092).
  *
- * These validate the contract the session replay consumer relies on for flush-on-revoke:
+ * These validate the contract the session replay consumer relies on for flush-on-revoke,
+ * across a matrix of flush durations (instant through multi-second, all below the 20s
+ * CONSUMER_REBALANCE_TIMEOUT_MS coordination ceiling):
  *  - the onPartitionsRevoked hook runs while the revoked partitions are still assigned,
- *    even when the hook is slow (the unassign waits for it),
+ *    no matter how slow the hook is (the unassign waits for it),
  *  - offsets stored inside the hook are committed as part of giving up the partitions,
- *    so the next owner resumes after them (no reprocessing, no loss),
+ *    and the group re-settles to exactly one owner that resumes after them
+ *    (no reprocessing, no loss),
  *  - a hook that throws still releases the partitions (the group is never stranded),
  *    leaving offsets uncommitted so the new owner reprocesses (at-least-once).
  *
@@ -164,90 +167,114 @@ describe('KafkaConsumer v1 revoke wind-down (integration)', () => {
         await producer.disconnect()
     })
 
-    it('offsets stored by a slow revoke hook are committed on unassign and the new owner does not reprocess', async () => {
-        const topic = `v1_int_revoke_commit_${randomUUID()}`
-        const groupId = `v1-int-revoke-commit-${randomUUID()}`
-        await createTopic(topic, 1)
+    // The revoke contract must hold regardless of how long the flush takes: instant,
+    // sub-second, and multi-second (all below the 20s coordination timeout that would
+    // force-resume the consume loop).
+    it.each([[0], [250], [1000], [3000]])(
+        'flush taking %dms: revoke hook runs while assigned, offsets commit on unassign, group re-settles, no reprocessing',
+        async (flushDurationMs) => {
+            const topic = `v1_int_revoke_commit_${randomUUID()}`
+            const groupId = `v1-int-revoke-commit-${randomUUID()}`
+            await createTopic(topic, 1)
 
-        const ledger: LedgerEntry[] = []
-        let trackedHighestOffset = -1
-        // Observations from the first hook invocation (later ones, e.g. at disconnect, are ignored).
-        const hook: {
-            invocations: number
-            assignedOnEntry: number
-            assignedAfterDelay: number
-            storeError: unknown
-            completedAt: number
-        } = { invocations: 0, assignedOnEntry: -1, assignedAfterDelay: -1, storeError: null, completedAt: 0 }
-
-        const record = (consumerId: string) => (messages: Message[]) => {
-            for (const m of messages) {
-                ledger.push({ consumerId, partition: m.partition, offset: m.offset, seenAt: Date.now() })
-                trackedHighestOffset = Math.max(trackedHighestOffset, m.offset)
+            const ledger: LedgerEntry[] = []
+            let trackedHighestOffset = -1
+            // Observations from the first hook invocation (later ones, e.g. at disconnect, are ignored).
+            const hook: {
+                invocations: number
+                revokedPartitions: { topic: string; partition: number }[]
+                assignedOnEntry: number
+                assignedAfterDelay: number
+                storeError: unknown
+                completedAt: number
+            } = {
+                invocations: 0,
+                revokedPartitions: [],
+                assignedOnEntry: -1,
+                assignedAfterDelay: -1,
+                storeError: null,
+                completedAt: 0,
             }
-            return Promise.resolve()
-        }
 
-        const consumerA = makeConsumer(groupId, topic, record('A'), async () => {
-            const invocation = ++hook.invocations
-            if (invocation > 1) {
-                return
+            const record = (consumerId: string) => (messages: Message[]) => {
+                for (const m of messages) {
+                    ledger.push({ consumerId, partition: m.partition, offset: m.offset, seenAt: Date.now() })
+                    trackedHighestOffset = Math.max(trackedHighestOffset, m.offset)
+                }
+                return Promise.resolve()
             }
-            hook.assignedOnEntry = consumerA.assignments().length
-            // A deliberately slow "flush": widens the revoke window so an unassign racing
-            // ahead of the hook (the regression this test exists for) reliably manifests —
-            // either as an empty assignment below or as a store error.
-            await delay(500)
-            hook.assignedAfterDelay = consumerA.assignments().length
+
+            const consumerA = makeConsumer(groupId, topic, record('A'), async (revoked) => {
+                const invocation = ++hook.invocations
+                if (invocation > 1) {
+                    return
+                }
+                hook.revokedPartitions = revoked.map((tp) => ({ topic: tp.topic, partition: tp.partition }))
+                hook.assignedOnEntry = consumerA.assignments().length
+                // The simulated flush: widens the revoke window so an unassign racing ahead
+                // of the hook (the regression this test exists for) reliably manifests —
+                // either as an empty assignment below or as a store error.
+                await delay(flushDurationMs)
+                hook.assignedAfterDelay = consumerA.assignments().length
+                try {
+                    consumerA.offsetsStore([{ topic, partition: 0, offset: trackedHighestOffset + 1 }])
+                } catch (e) {
+                    hook.storeError = e
+                }
+                hook.completedAt = Date.now()
+            })
+            let consumerB: KafkaConsumer | undefined
+
             try {
-                consumerA.offsetsStore([{ topic, partition: 0, offset: trackedHighestOffset + 1 }])
-            } catch (e) {
-                hook.storeError = e
+                await waitFor(() => consumerA.assignments().length > 0, 10_000)
+                await produceMessages(producer, topic, 10)
+                await waitFor(() => ledger.length >= 10, 8_000)
+
+                // Precondition: autoOffsetStore is off and nothing was stored, so nothing is committed.
+                // Without this the commit assertion below could pass via the auto-commit timer.
+                expect(await fetchCommittedOffset(groupId, topic, 0)).toBeNull()
+
+                // A second member joining forces an eager rebalance: everything is revoked from A.
+                consumerB = makeConsumer(groupId, topic, record('B'), () => Promise.resolve())
+
+                await waitFor(() => hook.completedAt > 0, 15_000)
+
+                // The hook was invoked for the partition being revoked, and the partitions were
+                // still assigned for the whole duration of the (slow) flush.
+                expect(hook.revokedPartitions).toEqual([{ topic, partition: 0 }])
+                expect(hook.assignedOnEntry).toBeGreaterThan(0)
+                expect(hook.assignedAfterDelay).toBeGreaterThan(0)
+                expect(hook.storeError).toBeNull()
+
+                // The rebalance actually completes: the group re-settles with exactly one member
+                // owning the partition, and A leaves its rebalancing state.
+                const b = consumerB
+                await waitFor(() => consumerA.assignments().length + b.assignments().length === 1, 15_000)
+                await waitFor(() => !consumerA.isRebalancing(), 10_000)
+
+                // The offsets stored during the hook are committed as part of the unassign,
+                // with the exact commit semantics (highest consumed offset + 1).
+                await waitForAsync(async () => (await fetchCommittedOffset(groupId, topic, 0)) === 10, 15_000)
+
+                // The settled owner resumes after the committed offset: the second wave is
+                // consumed, and none of the first wave is ever delivered again.
+                await produceMessages(producer, topic, 5)
+                await waitFor(() => new Set(ledger.map((e) => e.offset)).size >= 15, 15_000)
+
+                const countsByOffset = new Map<number, number>()
+                for (const e of ledger) {
+                    countsByOffset.set(e.offset, (countsByOffset.get(e.offset) ?? 0) + 1)
+                }
+                for (const [offset, count] of countsByOffset) {
+                    expect({ offset, count }).toEqual({ offset, count: 1 })
+                }
+            } finally {
+                await consumerA.disconnect()
+                await consumerB?.disconnect()
+                await deleteTopic(topic)
             }
-            hook.completedAt = Date.now()
-        })
-        let consumerB: KafkaConsumer | undefined
-
-        try {
-            await waitFor(() => consumerA.assignments().length > 0, 10_000)
-            await produceMessages(producer, topic, 10)
-            await waitFor(() => ledger.length >= 10, 8_000)
-
-            // Precondition: autoOffsetStore is off and nothing was stored, so nothing is committed.
-            // Without this the commit assertion below could pass via the auto-commit timer.
-            expect(await fetchCommittedOffset(groupId, topic, 0)).toBeNull()
-
-            // A second member joining forces an eager rebalance: everything is revoked from A.
-            consumerB = makeConsumer(groupId, topic, record('B'), () => Promise.resolve())
-
-            await waitFor(() => hook.completedAt > 0, 15_000)
-
-            // The partitions must still be assigned for the whole duration of the hook.
-            expect(hook.assignedOnEntry).toBeGreaterThan(0)
-            expect(hook.assignedAfterDelay).toBeGreaterThan(0)
-            expect(hook.storeError).toBeNull()
-
-            // The offsets stored during the hook are committed as part of the unassign.
-            await waitForAsync(async () => (await fetchCommittedOffset(groupId, topic, 0)) === 10, 15_000)
-
-            // Whoever owns the partition now resumes after the committed offset: the second
-            // wave is consumed, and none of the first wave is ever delivered again.
-            await produceMessages(producer, topic, 5)
-            await waitFor(() => new Set(ledger.map((e) => e.offset)).size >= 15, 15_000)
-
-            const countsByOffset = new Map<number, number>()
-            for (const e of ledger) {
-                countsByOffset.set(e.offset, (countsByOffset.get(e.offset) ?? 0) + 1)
-            }
-            for (const [offset, count] of countsByOffset) {
-                expect({ offset, count }).toEqual({ offset, count: 1 })
-            }
-        } finally {
-            await consumerA.disconnect()
-            await consumerB?.disconnect()
-            await deleteTopic(topic)
         }
-    })
+    )
 
     it('a throwing revoke hook still releases the partitions: the group rebalances and the new owner reprocesses', async () => {
         const topic = `v1_int_revoke_throw_${randomUUID()}`
