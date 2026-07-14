@@ -32,6 +32,27 @@ describe('SessionRateLimiter', () => {
             expect(limiter.getEventCount(...session)).toBe(3)
         })
 
+        it('counts pre-serialized events against the limit', () => {
+            // Pre-serialized messages have an empty eventsByWindowId; the count must come from the
+            // per-event metadata or rate limiting silently stops applying on the native path.
+            const limiter = new SessionRateLimiter(3)
+            const session: [number, string] = [123, 'session456']
+            const preSerialized = {
+                eventsByWindowId: {},
+                preSerialized: {
+                    lines: Buffer.from(''),
+                    events: [
+                        { ts: 1, flags: 0 },
+                        { ts: 2, flags: 0 },
+                    ],
+                },
+            } as any as ParsedMessageData
+
+            expect(limiter.handleMessage(...session, 1, preSerialized)).toBe(true)
+            expect(limiter.getEventCount(...session)).toBe(2)
+            expect(limiter.handleMessage(...session, 1, preSerialized)).toBe(false)
+        })
+
         it('should block messages after limit is exceeded', () => {
             const limiter = new SessionRateLimiter(2)
             const session: [number, string] = [123, 'session456']

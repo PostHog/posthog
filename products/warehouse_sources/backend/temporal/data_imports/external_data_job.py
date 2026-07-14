@@ -36,7 +36,10 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import EmitSignalsActivityInputs
-from products.warehouse_sources.backend.temporal.data_imports.metrics import get_data_import_finished_metric
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    get_data_import_finished_metric,
+    get_v3_lock_skipped_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
@@ -97,8 +100,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": None,
-    "The primary keys for this table are not unique": None,
+    "Primary key required for incremental syncs": (
+        "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+        "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+    ),
+    "The primary keys for this table are not unique": (
+        "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+        "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+        "table replication, then re-enable the sync."
+    ),
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
@@ -118,6 +128,9 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+    # Run id stamped on the job row by the create-job activity, so finalization can resolve this
+    # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
+    workflow_run_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -127,6 +140,7 @@ class UpdateExternalDataJobStatusInputs:
             "schema_id": self.schema_id,
             "source_id": self.source_id,
             "status": self.status,
+            "workflow_run_id": self.workflow_run_id,
         }
 
 
@@ -144,15 +158,34 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
-        job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: (
+
+        def _resolve_job() -> ExternalDataJob | None:
+            # Resolve this run's own job by run id; the finally-block update is the only finalizer for
+            # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            if inputs.workflow_run_id is not None:
+                job = (
+                    ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if job is not None:
+                    return job
+            # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
+            return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
                 .order_by("-created_at")
                 .first()
             )
-        )()
+
+        job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
-            logger.info("No job to update status on")
+            # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
+            # failed before a row was committed — nothing is stranded and that failure is already
+            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
+            if inputs.status != ExternalDataJob.Status.FAILED:
+                capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
         job_id = str(job.pk)
@@ -296,6 +329,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             schema_id=str(inputs.external_data_schema_id),
             source_id=str(inputs.external_data_source_id),
+            # Deterministic and available immediately, so the finalizer can resolve this run's job.
+            workflow_run_id=workflow.info().run_id,
         )
 
         source_type = None
@@ -345,6 +380,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "V3 pipeline lock not acquired, skipping",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+                get_v3_lock_skipped_metric().add(1)
                 return
 
             lock_token = lock_result.token

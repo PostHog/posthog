@@ -141,7 +141,9 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class ThreadMessagesAPITestCase(TestCase):
+class ChannelTaskAPITestCase(TestCase):
+    """Shared fixture: an org with two members, a public channel, and a task in it."""
+
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Growth Team")
@@ -171,6 +173,8 @@ class ThreadMessagesAPITestCase(TestCase):
         self.peer_client = APIClient()
         self.peer_client.force_authenticate(self.peer)
 
+
+class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
     def _thread_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/{self.task.id}/thread_messages/"
 
@@ -232,3 +236,96 @@ class ThreadMessagesAPITestCase(TestCase):
         url = f"/api/projects/{self.team.id}/tasks/{private_task.id}/thread_messages/"
         response = self.peer_client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
+    def _mentions_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_mentions/"
+
+    def _thread_url(self, task) -> str:
+        return f"/api/projects/{self.team.id}/tasks/{task.id}/thread_messages/"
+
+    def _post_message(self, client, content: str, task=None) -> dict:
+        response = client.post(self._thread_url(task or self.task), {"content": content})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()
+
+    def test_mention_appears_in_mentioned_users_feed(self):
+        message = self._post_message(self.author_client, "ping @[Bob](peer@example.com), thoughts?")
+
+        mentions = self.peer_client.get(self._mentions_url()).json()
+        self.assertEqual(len(mentions), 1)
+        self.assertEqual(mentions[0]["message_id"], message["id"])
+        self.assertEqual(mentions[0]["task_id"], str(self.task.id))
+        self.assertEqual(mentions[0]["task_title"], "A Task")
+        self.assertEqual(mentions[0]["channel_id"], str(self.channel.id))
+        self.assertEqual(mentions[0]["channel_name"], "growth")
+        self.assertEqual(mentions[0]["author"]["id"], self.author.id)
+        self.assertEqual(mentions[0]["content"], "ping @[Bob](peer@example.com), thoughts?")
+        # The author wasn't mentioned, so their own feed stays empty.
+        self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
+
+    def test_mentions_resolve_case_insensitively(self):
+        self._post_message(self.author_client, "cc @[Bob](Peer@Example.COM)")
+        self.assertEqual(len(self.peer_client.get(self._mentions_url()).json()), 1)
+
+    def test_self_mentions_and_non_members_are_not_indexed(self):
+        self._post_message(self.peer_client, "note to self @[Bob](peer@example.com)")
+        self._post_message(self.author_client, "ask @[Sam](sam@other-org.example.com)")
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+        self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
+
+    def test_since_filters_by_created_at(self):
+        self._post_message(self.author_client, "hey @[Bob](peer@example.com)")
+        created_at = self.peer_client.get(self._mentions_url()).json()[0]["created_at"]
+
+        after = self.peer_client.get(self._mentions_url(), {"since": created_at}).json()
+        self.assertEqual(after, [])
+        before = self.peer_client.get(self._mentions_url(), {"since": "2020-01-01T00:00:00Z"}).json()
+        self.assertEqual(len(before), 1)
+
+    def test_mentions_are_newest_first(self):
+        first = self._post_message(self.author_client, "one @[Bob](peer@example.com)")
+        second = self._post_message(self.author_client, "two @[Bob](peer@example.com)")
+        ids = [m["message_id"] for m in self.peer_client.get(self._mentions_url()).json()]
+        self.assertEqual(ids, [second["id"], first["id"]])
+
+        limited = self.peer_client.get(self._mentions_url(), {"limit": 1}).json()
+        self.assertEqual([m["message_id"] for m in limited], [second["id"]])
+
+    def test_unparseable_since_is_a_400(self):
+        response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_mention_on_invisible_task_is_hidden(self):
+        private_task = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            title="Private",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+
+    def test_mentions_are_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_channel = Channel(team=other_team, name="growth", created_by=self.author)
+        other_channel.save()
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.author,
+            channel=other_channel,
+            title="Elsewhere",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        response = self.author_client.post(
+            f"/api/projects/{other_team.id}/tasks/{other_task.id}/thread_messages/",
+            {"content": "over here @[Bob](peer@example.com)"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+        other_team_mentions = self.peer_client.get(f"/api/projects/{other_team.id}/task_mentions/").json()
+        self.assertEqual(len(other_team_mentions), 1)

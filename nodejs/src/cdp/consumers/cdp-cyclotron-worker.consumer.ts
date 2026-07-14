@@ -94,8 +94,15 @@ export class CdpCyclotronWorker<
                         ? this.personsManager
                               .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
                               .then((person) => {
-                                  if (person) {
-                                      hogFuncState.globals.person = person
+                                  // Stub when the lookup misses (cookieless events don't persist to
+                                  // posthog_persondistinctid; reruns may race with person deletes).
+                                  // Leaving undefined would halt any bytecode dereferencing
+                                  // person.properties.* with "Could not execute bytecode".
+                                  hogFuncState.globals.person = person ?? {
+                                      id: '',
+                                      name: '',
+                                      url: '',
+                                      properties: {},
                                   }
                               })
                         : undefined,

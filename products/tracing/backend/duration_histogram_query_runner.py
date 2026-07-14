@@ -9,7 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -29,8 +29,10 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
     bucket (the root is the row the list displays), grouped by service. Only non-empty buckets
     are returned; the frontend fills gaps along the series so the axis is continuous.
 
-    Root scoping is unconditional — `query.rootSpans` is deliberately ignored. The histogram is a
-    distribution of *traces*; counting child spans would mix units. The 1-2-5 bucketing below is
+    Root scoping is the default — a distribution of *traces* for the trace list, where counting
+    child spans would mix units. When `query.rootSpans` is explicitly False (the operation detail
+    page, which scopes by span name), every matching span is counted instead: same-named spans
+    are the same unit, so a span-level distribution is sound there. The 1-2-5 bucketing below is
     mirrored in `frontend/durationBuckets.ts` (snapDurationToBucket), which re-snaps client-side
     only to place the scroll highlight — change the series in BOTH places.
     """
@@ -80,7 +82,7 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
                 count() AS count
             FROM posthog.trace_spans
             WHERE {where}
-                AND is_root_span = 1
+                AND {root_scope}
                 AND timestamp >= {date_from} AND timestamp < {date_to}
             GROUP BY bucket_ns, service
             ORDER BY bucket_ns ASC, count DESC
@@ -90,6 +92,9 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 "where": self.where(),
+                "root_scope": parse_expr("is_root_span = 1")
+                if self.query.rootSpans is not False
+                else ast.Constant(value=True),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -103,6 +108,7 @@ def run_duration_histogram_query(
     service_names: list[str] | None = None,
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
+    root_spans: bool = True,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Facade-friendly entry point for running a duration histogram query."""
     query = TraceSpansQuery(
@@ -110,6 +116,7 @@ def run_duration_histogram_query(
         serviceNames=service_names,
         statusCodes=status_codes,
         filterGroup=filter_group,
+        rootSpans=root_spans,
     )
     runner = TraceSpansDurationHistogramQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

@@ -111,8 +111,8 @@ def _validate(inputs: ValidateVisionActionInputs) -> str | None:
         return "not_found"
     if not action.enabled:
         return "disabled"
-    if not action.delivery_config:
-        return "no_delivery"
+    # No delivery_config is fine: the persisted run is the in-app artifact (scanner digest, run
+    # history); _emit no-ops when there's nowhere to deliver.
     return None
 
 
@@ -139,6 +139,10 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
     run = VisionActionRun.objects.for_team(inputs.team_id).select_related("vision_action", "team").get(pk=inputs.run_id)
     action = run.vision_action
     team = run.team
+
+    if not action.delivery_config:
+        # Nothing to deliver to; the run row (synthesized_markdown) is the in-app artifact.
+        return
 
     action_url = f"{settings.SITE_URL}/project/{team.id}/replay/vision-actions/{action.id}"
     # Private internal event (cdp_internal_events topic), NOT the public capture pipeline — an

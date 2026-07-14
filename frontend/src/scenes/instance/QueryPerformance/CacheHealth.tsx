@@ -112,8 +112,11 @@ export function CacheHealth(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2">
-                <h2 className="mb-0">Cache health</h2>
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-muted text-sm mb-0">
+                    Physical footprint of the experiment preaggregation tables (active parts across all shards, from
+                    ClickHouse system.parts).
+                </p>
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -123,10 +126,6 @@ export function CacheHealth(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <p className="text-muted text-sm mt-1 mb-2">
-                Physical footprint of the experiment preaggregation tables — active parts across all shards, from
-                ClickHouse system.parts.
-            </p>
             <div className="flex flex-wrap gap-4 mb-4">
                 {!cacheHealth && cacheHealthLoading
                     ? [0, 1].map((i) => (

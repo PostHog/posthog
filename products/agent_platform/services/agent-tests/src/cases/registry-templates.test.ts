@@ -155,7 +155,7 @@ describe('registry-pinned templates: real e2e', () => {
                 `,
                 'tools/stripe_lookup/schema.json': JSON.stringify({
                     description: 'Look up a customer by email',
-                    args: {
+                    args_schema: {
                         type: 'object',
                         properties: { email: { type: 'string' } },
                         required: ['email'],

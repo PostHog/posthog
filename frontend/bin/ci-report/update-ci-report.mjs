@@ -22,6 +22,7 @@ export const SECTIONS = [
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
+    { id: 'backend-coverage', title: 'Backend coverage' },
     { id: 'mcp-snapshots', title: 'MCP snapshots' },
     { id: 'ai-evals', title: 'AI evals' },
     { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },
@@ -29,6 +30,7 @@ export const SECTIONS = [
     { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
     { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'hobby-deploy', title: 'Hobby deploy smoke test' },
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 

@@ -14,6 +14,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="Empty Dashboard",
             description="A dashboard with no insights",
             dashboard_id="123",
@@ -42,6 +43,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Test Dashboard",
             description="Dashboard description",
             dashboard_id="456",
@@ -77,6 +79,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Multi-Insight Dashboard",
             dashboard_id="789",
         )
@@ -113,6 +116,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Partially Failed Dashboard",
             dashboard_id="101",
         )
@@ -130,6 +134,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="Schema Dashboard",
             description="Dashboard for schema test",
             dashboard_id="202",
@@ -160,6 +165,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Schema Dashboard",
             dashboard_id="303",
         )
@@ -192,6 +198,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Error Dashboard",
             dashboard_id="404",
         )
@@ -206,6 +213,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="No ID Dashboard",
         )
 
@@ -220,6 +228,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             dashboard_id="606",
         )
 
@@ -233,6 +242,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="URL Test Dashboard",
             dashboard_id="12345",
         )
@@ -256,6 +266,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="URL Test Dashboard",
             dashboard_id="67890",
         )
@@ -281,6 +292,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Concurrent Dashboard",
             dashboard_id="707",
             max_concurrent_queries=5,
@@ -310,6 +322,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Custom Template Dashboard",
             dashboard_id="808",
         )
@@ -344,6 +357,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Mixed Dashboard",
             dashboard_id="789",
         )
@@ -377,6 +391,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Cancelled Dashboard",
             dashboard_id="790",
         )
@@ -409,6 +424,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Mixed Dashboard",
             dashboard_id="791",
         )

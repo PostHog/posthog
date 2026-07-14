@@ -3,7 +3,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import {
     SessionFeatureBlock,
     SessionFeatureStore,
@@ -11,7 +11,7 @@ import {
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -19,9 +19,7 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import { SessionFilter } from './session-filter'
 import { SessionRateLimiter } from './session-rate-limiter'
-import { SessionTracker } from './session-tracker'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /** Per-session recording state held in the batch, keyed by `(teamId, sessionId)`. */
@@ -94,9 +92,6 @@ export class SessionBatchRecorder {
         private readonly metadataStore: SessionMetadataSink,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly featureStore: SessionFeatureStore,
-        private readonly sessionTracker: SessionTracker,
-        private readonly sessionFilter: SessionFilter,
-        private readonly keyStore: KeyStore,
         private readonly encryptor: RecordingEncryptor,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
         private readonly featuresRolloutPercentage: number = 100
@@ -112,43 +107,18 @@ export class SessionBatchRecorder {
      * @param message - The message to record, including team context
      * @param retentionPeriod - The session's retention, resolved upstream; sets the key expiry and
      *   routes the flush to the matching per-retention storage.
+     * @param sessionKey - The session's encryption key, resolved upstream by the track-and-gate and
+     *   resolve-key steps (which also drop blocked/deleted sessions before they reach here).
      * @returns Number of raw bytes written (without compression)
      */
-    public async record(message: MessageWithTeam, retentionPeriod: RetentionPeriod): Promise<number> {
+    public async record(
+        message: MessageWithTeam,
+        retentionPeriod: RetentionPeriod,
+        sessionKey: SessionKey
+    ): Promise<number> {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
-
-        // Check if this is a new session and check if we're in breach of the rate limit
-        const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
-        if (isNewSession) {
-            await this.sessionFilter.handleNewSession(teamId, sessionId)
-        }
-
-        // Check if session is blocked
-        if (await this.sessionFilter.isBlocked(teamId, sessionId)) {
-            logger.debug('🔁', 'session_batch_recorder_session_blocked', {
-                partition,
-                sessionId,
-                teamId,
-                batchId: this.batchId,
-            })
-            return 0
-        }
-
-        const sessionKey = isNewSession
-            ? await this.keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[retentionPeriod])
-            : await this.keyStore.getKey(sessionId, teamId)
-
-        if (sessionKey.sessionState === 'deleted') {
-            logger.debug('🔁', 'session_batch_recorder_deleted_session_dropped', {
-                partition,
-                sessionId,
-                teamId,
-                batchId: this.batchId,
-            })
-            return 0
-        }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, partition, message.message)
 
@@ -224,17 +194,21 @@ export class SessionBatchRecorder {
         const { sessionBlockRecorder, consoleLogRecorder, featureRecorder } = this.sessions.get(teamId, sessionId)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
         await consoleLogRecorder.recordMessage(message)
-        try {
-            featureRecorder.recordMessage(message.message)
-        } catch (e) {
-            logger.warn('🔁', 'session_feature_recorder_error', {
-                error: String(e),
-                sessionId,
-                teamId,
-                partition,
-                batchId: this.batchId,
-            })
-            captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+        // Features derive from `eventsByWindowId`, which is empty on native-anonymizer messages —
+        // skip the recorder (which throws on pre-serialized input) rather than catch it per message.
+        if (!message.message.preSerialized) {
+            try {
+                featureRecorder.recordMessage(message.message)
+            } catch (e) {
+                logger.warn('🔁', 'session_feature_recorder_error', {
+                    error: String(e),
+                    sessionId,
+                    teamId,
+                    partition,
+                    batchId: this.batchId,
+                })
+                captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
+            }
         }
 
         const currentPartitionSize = this.partitionSizes.get(partition)!

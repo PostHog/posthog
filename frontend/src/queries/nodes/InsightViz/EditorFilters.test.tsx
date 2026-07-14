@@ -180,7 +180,7 @@ describe('EditorFilters', () => {
     it('expands advanced options section on click', async () => {
         setupAndRender(makeFunnelsQuery())
 
-        const advancedButton = screen.getByRole('button', { name: /Advanced options/ })
+        const advancedButton = screen.getByText('Advanced options').closest('button')!
         expect(advancedButton).toHaveAttribute('title', 'Show more')
 
         await userEvent.click(advancedButton)
@@ -191,7 +191,7 @@ describe('EditorFilters', () => {
     it('disables query-time person properties for data warehouse insights', async () => {
         setupAndRender(makeDataWarehouseTrendsQuery())
 
-        await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+        await userEvent.click(screen.getByText('Advanced options'))
 
         const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
         expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
@@ -207,7 +207,7 @@ describe('EditorFilters', () => {
     it('shows funnel settings collapsed by default and expandable', async () => {
         setupAndRender(makeFunnelsQuery())
 
-        const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
+        const settingsButton = screen.getByText('Funnel settings').closest('button')!
         expect(settingsButton).toBeInTheDocument()
         expect(settingsButton).toHaveAttribute('title', 'Show more')
 

@@ -7,6 +7,10 @@ import httpx
 
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+INTERNAL_ACTOR_HEADER = "X-Internal-Actor"
+# Ledger provenance tag (meta.source): admin-originated vs the billing path's
+# "billing". The acting human is audited in ActivityLog, not here.
+ADMIN_ACTOR = "posthog-admin"
 
 
 class AIGatewayInternalError(Exception):
@@ -109,7 +113,7 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
     try:
         response = httpx.post(
             f"{url}/internal/teams/{team_id}/credits",
-            headers=_auth_headers(token, {IDEMPOTENCY_KEY_HEADER: idempotency_key}),
+            headers=_auth_headers(token, {IDEMPOTENCY_KEY_HEADER: idempotency_key, INTERNAL_ACTOR_HEADER: ADMIN_ACTOR}),
             json={"amount_usd": amount_usd, "reason": reason},
             timeout=INTERNAL_API_TIMEOUT_SECONDS,
             trust_env=False,

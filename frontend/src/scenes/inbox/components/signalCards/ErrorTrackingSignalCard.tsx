@@ -7,9 +7,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import type { ErrorTrackingSignalExtra } from '~/queries/schema/schema-signals'
-
 import { ErrorTrackingIssueListRow } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList'
+import type { ErrorTrackingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
     inboxErrorTrackingIssueLogic,
@@ -20,9 +19,11 @@ import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** Narrows a signal's `extra` to the error tracking shape (a string `fingerprint`). */
-export function isErrorTrackingExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & ErrorTrackingSignalExtra {
+export function isErrorTrackingExtra(value: unknown): value is Record<string, unknown> & ErrorTrackingSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return typeof extra.fingerprint === 'string'
 }
 

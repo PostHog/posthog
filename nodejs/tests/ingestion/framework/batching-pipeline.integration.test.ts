@@ -23,8 +23,8 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
  * ## Principle
  *
  * Every piece of orchestration machinery under test is REAL production code:
- * BatchingPipeline, BufferingBatchPipeline, SequentialBatchPipeline,
- * ConcurrentlyGroupingBatchPipeline, ResultHandlingPipeline,
+ * BatchingPipeline, BufferingChunkPipeline, SequentialChunkPipeline,
+ * ConcurrentlyGroupingChunkPipeline, ResultHandlingPipeline,
  * SideEffectHandlingPipeline, the builder chain, PromiseScheduler, and the
  * production createFlushBatchStoresStep. Only the leaves are fakes: the
  * per-event step, the storage backend, and the Kafka outputs. A bug found
@@ -356,11 +356,10 @@ class Harness {
                             .filterMap(addTeamToContext, (fb) =>
                                 fb
                                     .teamAware((tb) =>
-                                        tb
-                                            .groupBy((event) => event.key)
-                                            .concurrently((group) =>
-                                                group.sequentially((s) => s.pipe(processEventStep))
-                                            )
+                                        tb.concurrentlyPerGroup(
+                                            (event) => event.key,
+                                            (group) => group.sequentially((s) => s.pipe(processEventStep))
+                                        )
                                     )
                                     .handleIngestionWarnings(this.outputs)
                             )

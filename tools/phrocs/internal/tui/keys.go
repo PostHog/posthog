@@ -87,6 +87,11 @@ func (m *Model) cyclePane(dir int) {
 	for i, p := range panes {
 		if p == m.focusedPane {
 			m.focusedPane = panes[(i+dir+len(panes))%len(panes)]
+			// Leaving the output pane drops explicit input mode.
+			if m.focusedPane != focusOutput {
+				m.inputMode = false
+				m.inputBuffer = ""
+			}
 			m.dbg("focus: → %d", m.focusedPane)
 			return
 		}
@@ -312,21 +317,17 @@ func (m *Model) updateProcKeys() {
 	if p.IsStandby() {
 		m.keys.Start.SetEnabled(true)
 		m.keys.Stop.SetEnabled(false)
-		m.keys.Restart.SetEnabled(false)
+		m.keys.Restart.SetEnabled(true)
 		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
-	// Snapshot status once so running/crashed are derived from the same
-	// observation — avoids a second trip through the proc mutex and any
-	// chance of inconsistency between the two reads.
-	st := p.Status()
-	running := st.IsRunning()
-	crashed := st == process.StatusCrashed
+	running := p.Status().IsRunning()
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
-	// `r` doubles as "restart a running proc" and "kick a crashed proc back to
-	// life" — both express the same user intent of "rerun this thing".
-	m.keys.Restart.SetEnabled(running || crashed)
+	// `r` always has work to do — restart a running proc, or (re)run one
+	// that crashed, finished, was stopped, or never started. One key, one
+	// intent: "run this thing", regardless of what state it's in.
+	m.keys.Restart.SetEnabled(true)
 	m.keys.ClearLogs.SetEnabled(running)
 }
 
@@ -365,11 +366,21 @@ func (m *Model) restartAllFailed() int {
 	return count
 }
 
+// isForwardingInput reports whether keystrokes should go to the active proc's
+// PTY rather than the TUI. True when the output pane is focused, the proc is
+// running, and either the user explicitly entered input mode or the proc looks
+// like it's waiting for input (HasPrompt heuristic).
+func (m Model) isForwardingInput() bool {
+	p := m.activeProc()
+	return p != nil && m.focusedPane == focusOutput && p.IsRunning() &&
+		(m.inputMode || p.HasPrompt())
+}
+
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
 	p := m.activeProc()
-	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
-	// Control keys are excluded so navigation still works.
+	// Control keys are excluded so navigation (pane switching, scrolling) still
+	// works even while keystrokes are being forwarded to the proc.
 	isControlKey := key.Matches(msg, m.keys.NextPane) ||
 		key.Matches(msg, m.keys.PrevPane) ||
 		key.Matches(msg, m.keys.GotoTop) ||
@@ -377,7 +388,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		key.Matches(msg, m.keys.ScrollDown) ||
 		key.Matches(msg, m.keys.ScrollUp)
 
-	if procHasPrompt && !isControlKey {
+	if m.isForwardingInput() && !isControlKey {
+		// esc always leaves explicit input mode without touching the proc.
+		if m.inputMode && msg.Code == tea.KeyEscape {
+			m.inputMode = false
+			m.inputBuffer = ""
+			m.dbg("input mode: exit")
+			return m, tea.Batch(cmds...)
+		}
+
 		var input []byte
 
 		switch msg.Code {
@@ -519,11 +538,18 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		if p := m.activeProc(); p != nil {
 			send := m.mgr.Send()
 			switch {
+			case p.IsStandby():
+				if real, ok := m.promoteStandby(); ok {
+					m.dbg("restart: promoted standby proc=%s", real.Name)
+					go func() { _ = real.Start(send) }()
+				}
 			case p.IsRunning():
 				m.dbg("restart: proc=%s", p.Name)
 				go p.Restart(send)
-			case p.Status() == process.StatusCrashed:
-				m.dbg("restart (from crashed): proc=%s", p.Name)
+			default:
+				// Crashed, finished, stopped, or never started — `r` means
+				// "run it (again)", so one-shot tasks rerun on a keypress.
+				m.dbg("restart (from %s): proc=%s", p.Status(), p.Name)
 				go func() { _ = p.Start(send) }()
 			}
 		}
@@ -582,6 +608,17 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
+
+	case key.Matches(msg, m.keys.InputMode):
+		// Enter explicit input mode so keystrokes reach a proc that's waiting on
+		// stdin even when the HasPrompt heuristic didn't catch it. Skipped while
+		// a committed search (query survives a proc switch) is pending, so the
+		// footer's "enter: navigate" hint doesn't get hijacked into input mode.
+		if p != nil && m.focusedPane == focusOutput && p.IsRunning() && m.searchQuery == "" {
+			m.inputMode = true
+			m.inputBuffer = ""
+			m.dbg("input mode: enter")
+		}
 
 	case key.Matches(msg, m.keys.SetupMode):
 		m = m.enterSetupMode()

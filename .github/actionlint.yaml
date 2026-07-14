@@ -7,3 +7,17 @@ self-hosted-runner:
         - depot-ubuntu-latest-4
         - depot-ubuntu-latest-8
         - depot-macos-latest
+
+# The vendored .github/actions/paths-filter emits one output per filter name at
+# runtime, but action.yml can only declare the static `changes` output, so
+# actionlint's strict output typing false-positives on every per-filter output
+# (e.g. steps.filter.outputs.backend). Upstream dorny/paths-filter avoided this
+# only because actionlint's popular-actions database special-cases it. The
+# `{changes: string}` anchor keeps this scoped to that action's output type.
+paths:
+    '.github/workflows/**/*.yml':
+        ignore:
+            - 'property ".+" is not defined in object type \{changes: string\}'
+    '.github/workflows/**/*.yaml':
+        ignore:
+            - 'property ".+" is not defined in object type \{changes: string\}'

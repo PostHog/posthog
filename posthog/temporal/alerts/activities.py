@@ -8,7 +8,7 @@ import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import AlertCalculationInterval, AlertState
+from posthog.schema import AlertState
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    CALCULATION_INTERVAL_ORDER,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -60,15 +61,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
 
-        # Hourly before daily before weekly/monthly so the cheaper, more
-        # time-sensitive checks get workers first when the due batch is large.
-        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.REAL_TIME.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(2)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(3)),
-            default=Value(4),
+            *(
+                When(calculation_interval=interval.value, then=Value(order))
+                for interval, order in CALCULATION_INTERVAL_ORDER.items()
+            ),
+            default=Value(max(CALCULATION_INTERVAL_ORDER.values())),
             output_field=IntegerField(),
         )
 
@@ -105,7 +103,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
+            )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
@@ -121,6 +121,16 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
+        # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        entitlement_error = AlertConfiguration.interval_entitlement_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        )
+        if entitlement_error:
+            disable_invalid_alert(alert, entitlement_error)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=entitlement_error)
 
         now = datetime.now(UTC)
 
@@ -204,7 +214,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
 
         # CH workload management keys off these tags to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id), product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
+        # calculation_interval / config_type also let query_log cost be grouped by alert cadence
+        # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        tag_queries(
+            alert_config_id=str(alert.id),
+            product=Product.PRODUCT_ANALYTICS,
+            feature=Feature.ALERTING,
+            alert_calculation_interval=alert.calculation_interval,
+            alert_config_type=(alert.config or {}).get("type"),
+        )
 
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.

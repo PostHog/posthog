@@ -118,3 +118,102 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
             {(row["value"], row["count"]) for row in rows},
             {("api2.amplitude.com", 4)},
         )
+
+    @parameterized.expand(
+        [
+            ("service_name", {("cdp", 9, 4), ("other", 1, 0)}),
+            # Int16 column: values come back stringified so the response shape stays uniform.
+            ("status_code", {("2", 4, 4), ("0", 6, 0)}),
+        ]
+    )
+    def test_span_column_breakdown(self, breakdown_key, expected):
+        rows = self._breakdown(breakdownKey=breakdown_key, breakdownType="span")
+        self.assertEqual(
+            {(row["value"], row["count"], row["error_count"]) for row in rows},
+            expected,
+        )
+
+    def test_span_column_breakdown_rejects_non_allowlisted_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/attribute-breakdown/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "breakdownKey": "timestamp",
+                    "breakdownType": "span",
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
+    @parameterized.expand(
+        [
+            # Each case selects one value of the facet's own dimension; with exclusion the facet
+            # must still list every value (not collapse to the selected one).
+            (
+                "service_names_filter",
+                {"breakdownKey": "service_name", "breakdownType": "span", "serviceNames": ["other"]},
+                {"cdp", "other"},
+            ),
+            (
+                "span_column_filter",
+                {
+                    "breakdownKey": "status_code",
+                    "breakdownType": "span",
+                    "filterGroup": [{"key": "status_code", "operator": "exact", "type": "span", "value": "Error"}],
+                },
+                {"0", "2"},
+            ),
+            (
+                "span_attribute_filter",
+                {
+                    "breakdownKey": "server.address",
+                    "breakdownType": "span_attribute",
+                    "filterGroup": [
+                        {
+                            "key": "server.address",
+                            "operator": "exact",
+                            "type": "span_attribute",
+                            "value": "api.mixpanel.com",
+                        }
+                    ],
+                },
+                {"api2.amplitude.com", "api.mixpanel.com", ""},
+            ),
+            (
+                "resource_attribute_filter",
+                {
+                    "breakdownKey": "k8s.pod.name",
+                    "breakdownType": "span_resource_attribute",
+                    "filterGroup": [
+                        {
+                            "key": "k8s.pod.name",
+                            "operator": "exact",
+                            "type": "span_resource_attribute",
+                            "value": "pod-a",
+                        }
+                    ],
+                },
+                {"pod-a", "pod-b", "pod-c"},
+            ),
+        ]
+    )
+    def test_exclude_breakdown_filter_keeps_facet_complete(self, _name, query_fields, expected_values):
+        rows = self._breakdown(excludeBreakdownFilter=True, **query_fields)
+        self.assertEqual({row["value"] for row in rows}, expected_values)
+
+    def test_exclude_breakdown_filter_keeps_other_filters(self):
+        # Exclusion only drops the facet's own filter — the serviceNames scope must still apply,
+        # so the amplitude span in the "other" service stays excluded (5, not 6).
+        rows = self._breakdown(
+            breakdownKey="server.address",
+            breakdownType="span_attribute",
+            serviceNames=["cdp"],
+            excludeBreakdownFilter=True,
+            filterGroup=[
+                {"key": "server.address", "operator": "exact", "type": "span_attribute", "value": "api.mixpanel.com"}
+            ],
+        )
+        by_value = {row["value"]: row["count"] for row in rows}
+        self.assertEqual(by_value["api2.amplitude.com"], 5)
