@@ -34,7 +34,6 @@ jobs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             js: ${{ steps.filter.outputs.js || 'true' }}
             products-frontend: ${{ steps.filter.outputs.products-frontend || 'true' }}
-            general: ${{ steps.filter.outputs.general || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -75,21 +74,6 @@ jobs:
                         - 'products/**'
                         - '.semgrep/rules/security/prefer-codegen-api.yaml'
                         - '.github/workflows/ci-security.yaml'
-                      # Keep these exclusions aligned with semgrep-general below.
-                      # .semgrep stays included so rule changes always trigger a scan.
-                      general:
-                        - '**'
-                        - '!cli/**'
-                        - '!common/**'
-                        - '!docs/**'
-                        - '!ee/**'
-                        - '!frontend/**'
-                        - '!livestream/**'
-                        - '!nodejs/**'
-                        - '!posthog/**'
-                        - '!products/**'
-                        - '!rust/**'
-                        - '!services/**'
 
     semgrep-python:
         needs: changes
@@ -291,8 +275,6 @@ jobs:
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
-        needs: changes
-        if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 
