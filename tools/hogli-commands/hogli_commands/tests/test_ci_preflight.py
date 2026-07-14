@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli_commands.ci_preflight import _staleness_risks
+from hogli_commands.ci_preflight import _emit_telemetry, _staleness_risks
 
 runner = CliRunner()
 
@@ -78,6 +78,57 @@ class TestStrictAndFixContracts:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
         assert "run `hogli build:openapi` and commit before pushing" in result.output
+
+
+class TestOutputTelemetry:
+    @pytest.mark.parametrize(
+        "args,env",
+        [
+            ([], {}),
+            (["--json"], {}),
+            ([], {"HOGLI_PREFLIGHT_DISABLED": "1"}),
+            (["--json"], {"HOGLI_PREFLIGHT_DISABLED": "1"}),
+        ],
+    )
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_output_props_match_agent_visible_stdout(
+        self,
+        mock_changed: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+        args: list[str],
+        env: dict[str, str],
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", *args], env=env)
+        summary = mock_emit.call_args[0][0]
+        assert summary["output_chars"] == len(result.output)
+        assert summary["output_lines"] == result.output.count("\n")
+        assert summary["json_output"] is ("--json" in args)
+        assert summary["run_id"] in result.output
+
+    @patch("hogli_commands.ci_preflight.telemetry_property_hooks", [])
+    @patch("hogli_commands.ci_preflight.telemetry")
+    def test_output_props_survive_the_emit_allow_list(self, mock_telemetry: MagicMock) -> None:
+        mock_telemetry.is_active.return_value = True
+        _emit_telemetry(
+            {
+                "mode": "advisory",
+                "results": [],
+                "run_id": "abc123def456",
+                "output_chars": 42,
+                "output_lines": 7,
+                "json_output": False,
+            }
+        )
+        props = mock_telemetry.track.call_args[0][1]
+        assert props["run_id"] == "abc123def456"
+        assert props["output_chars"] == 42
+        assert props["output_lines"] == 7
+        assert props["json_output"] is False
 
 
 class TestStalenessRisks:
