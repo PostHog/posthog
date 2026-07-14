@@ -69,7 +69,6 @@ You can create a token under [Developer Settings](https://savvycal.com/developer
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

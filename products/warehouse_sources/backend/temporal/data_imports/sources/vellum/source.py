@@ -51,7 +51,6 @@ You can create an API key in your Vellum [workspace settings](https://app.vellum
             iconPath="/static/services/vellum.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/vellum",
             keywords=["llm", "observability", "prompts", "workflows"],
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
