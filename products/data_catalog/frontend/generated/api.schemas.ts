@@ -425,6 +425,8 @@ export interface DataCatalogRelationshipProposalApi {
     configuration?: unknown
     /**
      * Discovery confidence in this join, 0-1.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     confidence?: number | null
@@ -435,7 +437,7 @@ export interface DataCatalogRelationshipProposalApi {
     /** proposed, accepted (promoted to a real join), or rejected (never re-proposed). */
     readonly status: string
     /** User who accepted or rejected the proposal. */
-    readonly reviewed_by: UserBasicApi
+    readonly reviewed_by: UserBasicApi | null
     /** @nullable */
     readonly reviewed_at: string | null
     /** Why the proposal was rejected. */

@@ -16075,6 +16075,8 @@ export namespace Schemas {
       configuration?: unknown;
       /**
          * Discovery confidence in this join, 0-1.
+         * @minimum 0
+         * @maximum 1
          * @nullable
          */
       confidence?: number | null;
@@ -16085,7 +16087,7 @@ export namespace Schemas {
       /** proposed, accepted (promoted to a real join), or rejected (never re-proposed). */
       readonly status: string;
       /** User who accepted or rejected the proposal. */
-      readonly reviewed_by: UserBasic;
+      readonly reviewed_by: UserBasic | null;
       /** @nullable */
       readonly reviewed_at: string | null;
       /** Why the proposal was rejected. */
