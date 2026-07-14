@@ -133,9 +133,8 @@ describe('verifiedDomainsLogic', () => {
             expect(verifiedDomains.length).toEqual(1)
         })
 
-        it('loads every assigned domain when editing a shared SAML config', async () => {
+        it('initializes the inline SAML form from the loaded configuration', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setConfigureSAMLModalId('saml-config-id')
             expect(logic.values.samlConfig).toMatchObject({
                 id: 'saml-config-id',
                 name: 'Shared Okta',
