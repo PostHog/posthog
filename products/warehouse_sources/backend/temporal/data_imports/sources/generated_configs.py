@@ -3983,7 +3983,7 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class VultrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
