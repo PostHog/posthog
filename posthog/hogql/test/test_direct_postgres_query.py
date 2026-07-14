@@ -10,7 +10,9 @@ from django.test import override_settings
 import psycopg
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
@@ -23,6 +25,7 @@ from posthog.hogql.direct_sql.postgres_adapter import (
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Team
@@ -56,6 +59,19 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
         self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
+
+    @parameterized.expand(
+        [
+            ("global_in", ast.CompareOperationOp.GlobalIn, "(x IN (SELECT session_id FROM sessions))"),
+            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(x NOT IN (SELECT session_id FROM sessions))"),
+        ]
+    )
+    def test_postgres_printer_maps_global_in_operators(self, _name: str, op: ast.CompareOperationOp, expected_sql: str):
+        # The resolver rewrites sessions/events IN subqueries to GlobalIn/GlobalNotIn; Postgres has no
+        # distributed GLOBAL concept, so the printer must emit a plain IN/NOT IN rather than crashing.
+        printer = PostgresPrinter(context=HogQLContext(team_id=self.team.pk))
+
+        self.assertEqual(printer._get_compare_op(op, "x", "(SELECT session_id FROM sessions)"), expected_sql)
 
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
