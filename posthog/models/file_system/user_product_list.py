@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -112,6 +112,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     Stores a user's custom list of products they care about.
     Products are identified by their path from the static products list.
     """
+
+    # django-stubs normally injects the default `objects` manager during mypy's semantic pass,
+    # but this module sits in an import cycle (it imports `user_access_control`/`organization`,
+    # which loop back through `posthog.models`). When the plugin analyzes the model mid-cycle it
+    # skips the injection, so every `UserProductList.objects` use trips `attr-defined`. Declaring
+    # the manager explicitly is order-independent and keeps the type stable regardless of the cycle.
+    objects: ClassVar[models.Manager["UserProductList"]]
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
