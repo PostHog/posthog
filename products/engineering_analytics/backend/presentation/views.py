@@ -46,6 +46,8 @@ from products.engineering_analytics.backend.presentation.serializers import (
     QuarantineRequestSerializer,
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
+    TeamCIActivitySerializer,
+    TeamCIHealthListSerializer,
     WorkflowCostSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobAggregateSerializer,
@@ -854,6 +856,132 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_ci_health",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days. An equal-length prior window is scanned for the *_prior twins.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="min_rerun_passes",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test counts as flaky once it passed on retry at least this many times in the "
+                "window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+            ),
+            OpenApiParameter(
+                name="min_failed_prs",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test counts as flaky once it failed on at least this many distinct pull "
+                "requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of teams to return (1-200). Defaults to 100.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamCIHealthListSerializer,
+            400: OpenApiResponse(
+                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and "
+            "pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. "
+            "Ownership is stamped on the spans at CI emission time from the repo's ownership map "
+            "(products/*/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team "
+            "'unowned'. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_ci_health(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_team_ci_health(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
+                min_failed_prs=_optional_int_param(request, "min_failed_prs"),
+                limit=_optional_int_param(request, "limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+        return Response(TeamCIHealthListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_ci_activity",
+        parameters=[
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Owning team slug to scope to (as returned by team_ci_health), e.g. 'team-replay', "
+                "or the literal 'unowned' for tests with no ownership stamp.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days. An equal-length prior window feeds the *_prior twins.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="test_limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of per-test signal rows to return (1-100). Defaults to 25.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamCIActivitySerializer,
+            400: OpenApiResponse(
+                description="Missing owner_team, invalid date, test_limit, or source_id, or a window longer "
+                "than 30 days."
+            ),
+        },
+        description=(
+            "One owning team's CI test activity: the daily signal series over the window plus per-test "
+            "current-vs-prior signal pairs (the before/after comparison behind a slope chart). Signal = "
+            "failed + error + pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_ci_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_team_ci_activity(
+                team=self.team,
+                owner_team=request.query_params.get("owner_team") or "",
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                test_limit=_optional_int_param(request, "test_limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, or source_id")
+        return Response(TeamCIActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_repo_overview",

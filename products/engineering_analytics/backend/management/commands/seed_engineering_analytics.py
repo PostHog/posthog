@@ -36,6 +36,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
@@ -320,6 +322,147 @@ def _demo_multi_push(
     return demo_pr, demo_runs
 
 
+# Synthetic per-test CI spans for the flaky-test and team CI health surfaces (they read
+# posthog.trace_spans, not the warehouse). Each team gets a distinct trend shape so the
+# roster deltas, daily trend, and before/after slope all have something honest to show.
+# Deterministic (index arithmetic, no random); trace ids are prefixed 'engseed-' so
+# re-seeding can delete exactly its own rows.
+_SPAN_TRACE_PREFIX = "engseed"
+_SPAN_DAYS = 28  # 14-day current window + its equal-length prior twin
+_SPAN_SERVICE = "ci-backend"
+
+# (owner_team, module_dir, [(TestClass, test_name, prior_daily, current_daily)]).
+# prior/current_daily are signal spans per day in each half of the window; 0 = quiet.
+_SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
+    (
+        "team-replay",  # worsening: signal doubles in the current window
+        "products/replay/backend/tests",
+        [
+            ("TestSessionRecordings", "test_snapshot_batching", 2, 5),
+            ("TestPlaylistSync", "test_playlist_counts_converge", 1, 3),
+            ("TestRetentionSweeper", "test_ttl_boundary_day", 0, 2),
+        ],
+    ),
+    (
+        "batch-exports",  # high and flat: the standing offender
+        "products/batch_exports/backend/tests",
+        [
+            ("TestSnowflakeExport", "test_incremental_primary_key_resume", 4, 4),
+            ("TestBigQueryExport", "test_backfill_window_overlap", 3, 3),
+            ("TestTemporalWorkflows", "test_teardown_cancellation", 2, 3),
+            ("TestS3Export", "test_multipart_retry", 2, 2),
+        ],
+    ),
+    (
+        "team-ingestion",  # improving: signal halves in the current window
+        "products/ingestion/backend/tests",
+        [
+            ("TestPersonMerges", "test_concurrent_merge_ordering", 4, 1),
+            ("TestKafkaConsumer", "test_rebalance_offset_commit", 3, 1),
+        ],
+    ),
+    (
+        "conversations",  # spiky: quiet prior, a current-window burst
+        "products/conversations/backend/tests",
+        [
+            ("TestTicketRouting", "test_assignment_race", 0, 4),
+        ],
+    ),
+    (
+        "team-devex",  # low and flat
+        "products/engineering_analytics/backend/tests",
+        [
+            ("TestCIViews", "test_workflow_health_window", 1, 1),
+        ],
+    ),
+    (
+        "team-experiments",  # recovered: prior signal only, lands at zero current
+        "products/experiments/backend/tests",
+        [
+            ("TestExperimentResults", "test_bayesian_interval_rounding", 3, 0),
+            ("TestFeatureFlagRollout", "test_variant_bucketing_stability", 2, 0),
+        ],
+    ),
+    (
+        "team-error-tracking",  # brand new flake: current window only
+        "products/error_tracking/backend/tests",
+        [
+            ("TestIssueGrouping", "test_fingerprint_collision", 0, 3),
+        ],
+    ),
+    (
+        "",  # unstamped spans: the honest 'unowned' bucket
+        "posthog/api/test",
+        [
+            ("TestSharedMiddleware", "test_csrf_exempt_paths", 2, 2),
+            ("TestLegacyEndpoints", "test_deprecated_capture_shim", 1, 1),
+        ],
+    ),
+]
+
+
+def _seed_trace_spans(team: Team) -> int:
+    anchor = timezone.now().replace(microsecond=0)
+    rows: list[str] = []
+    span_index = 0
+    for owner_team, module_dir, tests in _SPAN_TEAMS:
+        for test_index, (test_class, test_name, prior_daily, current_daily) in enumerate(tests):
+            module = f"test_{test_name.removeprefix('test_')}"
+            nodeid = f"{module_dir}/{module}/{test_class}::{test_name}"
+            selector = f"{module_dir}/{module}.py::{test_class}::{test_name}"
+            for day in range(_SPAN_DAYS):
+                is_current = day >= _SPAN_DAYS // 2
+                daily = current_daily if is_current else prior_daily
+                # ±1 wobble so trends read organic, never below zero.
+                daily = max(0, daily + ((day * 7 + test_index * 3) % 3) - 1)
+                for occurrence in range(daily):
+                    span_index += 1
+                    # Mix of outcomes: retries dominate, with failures (PR-attributed and
+                    # master) and the occasional quarantined-but-failing xfail.
+                    cycle = (day + occurrence + test_index) % 5
+                    if cycle < 2:
+                        outcome, pr, branch = "rerun_passed", f"{7000 + (day * 13 + occurrence * 7) % 400}", ""
+                    elif cycle < 4:
+                        outcome, pr, branch = "failed", f"{7000 + (day * 17 + occurrence * 11) % 400}", ""
+                    elif cycle == 4 and test_index % 2 == 0:
+                        outcome, pr, branch = "error", "", "master"
+                    else:
+                        outcome, pr, branch = "xfailed", "", "master"
+                    branch = branch or f"feat/{(module_dir.split('/')[1] if '/' in module_dir else 'core')}-{pr}"
+                    ts = (anchor - timedelta(days=_SPAN_DAYS - 1 - day, hours=(span_index * 5) % 23)).strftime(_TS_FMT)
+                    attr_pairs = [f"'test.outcome__str', '{outcome}'", f"'test.selector__str', '{selector}'"]
+                    if owner_team:
+                        attr_pairs.append(f"'test.owner_team__str', '{owner_team}'")
+                    resource_pairs = [f"'ci.repository', '{SEED_REPOSITORY}'", f"'ci.branch', '{branch}'"]
+                    if pr:
+                        resource_pairs.append(f"'ci.pr_number', '{pr}'")
+                    rows.append(
+                        f"('{_SPAN_TRACE_PREFIX}-{span_index:06d}', {team.pk}, "
+                        f"'{_SPAN_TRACE_PREFIX}-trace-{span_index}', 'span-{span_index}', 'parent', "
+                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{_SPAN_SERVICE}', "
+                        f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
+                    )
+
+    # Local dev has no traces provisioning (prod creates these on the LOGS cluster via HCL);
+    # both DDLs are CREATE TABLE IF NOT EXISTS, so this is a no-op on a stack that has them.
+    sync_execute(TRACE_SPANS_TABLE_SQL())
+    sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+
+    # Replace only this seed's spans; a real traces table on the same dev stack is untouched.
+    # ALTER DELETE (not lightweight DELETE): the table has projections, which reject the latter.
+    sync_execute(
+        f"ALTER TABLE trace_spans DELETE WHERE team_id = %(team_id)s AND trace_id LIKE '{_SPAN_TRACE_PREFIX}-%%' "
+        "SETTINGS mutations_sync = 1",
+        {"team_id": team.pk},
+    )
+    sync_execute(
+        "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+        "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
+        "resource_attributes) VALUES " + ",".join(rows)
+    )
+    return len(rows)
+
+
 def _warehouse_endpoint() -> str:
     # ClickHouse runs in docker, so a localhost object-storage endpoint must be
     # rewritten to the docker host (same approach as the demo data generator).
@@ -405,6 +548,14 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
             )
+
+        # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
+        # Best-effort: a dev stack without the traces table still gets the warehouse seed.
+        try:
+            span_count = _seed_trace_spans(team)
+            self.stdout.write(f"Seeded {span_count} per-test CI spans into trace_spans (flaky/team surfaces).")
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f"Skipped trace_spans seed (traces table unavailable?): {exc}"))
 
         self.stdout.write(
             self.style.SUCCESS(
