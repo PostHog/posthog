@@ -6,7 +6,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { initKeaTests } from '~/test/init'
+import { PreflightStatus, Region } from '~/types'
 
 import { AwsS3SetupModal } from './AwsS3SetupModal'
 
@@ -18,6 +21,11 @@ describe('AwsS3SetupModal', () => {
     afterEach(() => {
         cleanup()
     })
+
+    const setRegion = (region: Region | null): void => {
+        preflightLogic.mount()
+        preflightLogic.actions.loadPreflightSuccess({ region } as PreflightStatus)
+    }
 
     it('opens on the role tab with the trust policy requirements, including the external ID', async () => {
         render(
@@ -33,6 +41,22 @@ describe('AwsS3SetupModal', () => {
         await waitFor(() => {
             expect(screen.getByText(MOCK_ORGANIZATION_ID)).toBeInTheDocument()
         })
+    })
+
+    it.each<[string, Region | null, string]>([
+        ['US cloud', Region.US, 'arn:aws:iam::<US_ACCOUNT_ID>:role/<US_ROLE_NAME>'],
+        ['EU cloud', Region.EU, 'arn:aws:iam::<EU_ACCOUNT_ID>:role/<EU_ROLE_NAME>'],
+        ['dev', Region.DEV, 'Check with your instance administrator'],
+        ['self-hosted', null, 'Check with your instance administrator'],
+    ])('shows the right role to trust on %s', (_label, region, expectedText) => {
+        setRegion(region)
+        render(
+            <Provider>
+                <AwsS3SetupModal isOpen onComplete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(screen.getByText(expectedText, { exact: false })).toBeInTheDocument()
     })
 
     it('shows credential fields and the long-lived credentials warning on the access keys tab', async () => {

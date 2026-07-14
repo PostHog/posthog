@@ -5,14 +5,25 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTabs } from '@po
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { Region } from '~/types'
 
 import { AwsS3SetupModalLogicProps, awsS3SetupModalLogic } from './awsS3SetupModalLogic'
+
+const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
+    [Region.US]: 'arn:aws:iam::<US_ACCOUNT_ID>:role/<US_ROLE_NAME>',
+    [Region.EU]: 'arn:aws:iam::<EU_ACCOUNT_ID>:role/<EU_ROLE_NAME>',
+}
 
 export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element => {
     const logic = awsS3SetupModalLogic(props)
     const { currentOrganization } = useValues(organizationLogic)
+    const { preflight } = useValues(preflightLogic)
     const { authMode, isAwsS3IntegrationSubmitting } = useValues(logic)
     const { setAuthMode, submitAwsS3Integration } = useActions(logic)
+
+    const posthogRoleArn = preflight?.region ? POSTHOG_ROLE_ARN_BY_REGION[preflight.region] : undefined
 
     return (
         <LemonModal
@@ -68,10 +79,17 @@ export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element =
                                     1
                                 </span>
                                 <p className="m-0 text-secondary">
-                                    Create an IAM role with a trust policy that allows PostHog's role to assume it. Use{' '}
-                                    <code>arn:aws:iam::&lt;US_ACCOUNT_ID&gt;:role/&lt;US_ROLE_NAME&gt;</code> for US
-                                    Cloud, or <code>arn:aws:iam::&lt;EU_ACCOUNT_ID&gt;:role/&lt;EU_ROLE_NAME&gt;</code>{' '}
-                                    for EU Cloud.
+                                    {posthogRoleArn ? (
+                                        <>
+                                            Create an IAM role with a trust policy that allows PostHog's role{' '}
+                                            <code>{posthogRoleArn}</code> to assume it.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Create an IAM role with a trust policy that allows PostHog's role to assume
+                                            it. Check with your instance administrator to obtain the role to trust.
+                                        </>
+                                    )}
                                 </p>
                             </div>
                             <div className="flex gap-3 items-start">
