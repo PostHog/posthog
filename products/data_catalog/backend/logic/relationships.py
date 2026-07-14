@@ -26,7 +26,10 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -45,11 +48,18 @@ from .exceptions import CatalogConflict
 def _fingerprint(source_name: str, source_key: str, joining_name: str, joining_key: str) -> str:
     endpoints = sorted(
         [
-            [source_name, parse_expr(source_key).to_hogql()],
-            [joining_name, parse_expr(joining_key).to_hogql()],
+            [source_name, _canonicalize_join_key(source_key)],
+            [joining_name, _canonicalize_join_key(joining_key)],
         ]
     )
     return hashlib.sha256(json.dumps(endpoints, sort_keys=True).encode()).hexdigest()
+
+
+def _canonicalize_join_key(key: str) -> str:
+    try:
+        return parse_expr(key).to_hogql()
+    except HogQLSyntaxError as error:
+        raise ValidationError({"keys": f"Invalid HogQL join key: {error}"}) from error
 
 
 def _capture(user: Optional[User], team: Team, event: str, proposal: RelationshipProposal) -> None:

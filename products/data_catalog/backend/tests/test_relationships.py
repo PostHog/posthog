@@ -236,6 +236,10 @@ class TestRelationshipAPI(APIBaseTest):
         response = self.client.post(self.url, {**_JOIN, "confidence": 1.01}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_proposal_rejects_malformed_join_key(self) -> None:
+        response = self.client.post(self.url, {**_JOIN, "source_table_key": "("}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_accept_requires_approval_scope(self) -> None:
         proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
         raw = generate_random_token_personal()
