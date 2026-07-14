@@ -27,6 +27,18 @@ It measures the invariant at its end point: the worker's grouping stage processe
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from the consumer-side key checks: the producer deliberately spreads such a routing key across partitions, forfeiting per-key order, so offsets from different partitions are not comparable and there is no invariant to check. The worker-side check is unaffected — it scopes keys per partition, an invariant that holds for all traffic.
 
+## Debug API
+
+Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time debug API on the health server (default `:3301`), for dev and incident debugging; off by default.
+Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
+The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
+The ingestion control plane UI consumes these endpoints to render the consumer's live state.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, send retries/exhaustion, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
+
+- `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
+- `/debug/state` — the same plus the retained event backlog.
+- `/debug/events` — SSE stream: backlog replay, then live events (concurrent subscribers capped at 8; 429 beyond).
+
 ## Testing
 
 - `cargo test -p ingestion-consumer --lib` — unit tests.

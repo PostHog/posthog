@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, SubBatch};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
@@ -76,6 +77,8 @@ pub struct IngestionConsumerOptions {
     /// deferred groups before failing the batch. `new` takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 /// The main consumer loop: reads from Kafka, routes messages by distinct_id
@@ -95,6 +98,8 @@ pub struct IngestionConsumer {
     /// Validates commit contiguity/monotonicity per partition. Shared with the
     /// consumer's [`SentinelContext`], which resets baselines on rebalance.
     commit_sentinel: Arc<CommitSentinel>,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl IngestionConsumer {
@@ -113,6 +118,7 @@ impl IngestionConsumer {
         let commit_sentinel = consumer.context().commit_sentinel();
         Self {
             commit_sentinel,
+            debug_recorder: options.debug_recorder,
             consumer: Arc::new(consumer),
             dispatcher,
             transport,
@@ -131,6 +137,7 @@ impl IngestionConsumer {
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
         handle: Handle,
+        debug_recorder: Option<Arc<DebugRecorder>>,
     ) -> anyhow::Result<Self> {
         // In endpointslice mode the worker set comes from discovery, so there is
         // no static readiness list — main gates startup on the first discovered
@@ -164,6 +171,7 @@ impl IngestionConsumer {
         Ok(Self {
             consumer: Arc::new(consumer),
             commit_sentinel,
+            debug_recorder,
             dispatcher,
             transport,
             worker_urls,
@@ -196,6 +204,10 @@ impl IngestionConsumer {
         }
 
         info!("Consumer loop starting");
+        record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
+            group_id: self.group_id.clone(),
+            workers: self.worker_urls.clone(),
+        });
 
         // Verify async commits actually land: librdkafka drops the result of
         // manual async commits (see the note on SentinelContext), so poll the
@@ -262,6 +274,11 @@ impl IngestionConsumer {
     fn spawn_batch_processing(&self, collected: CollectedBatch) -> InFlightBatch {
         let batch_size = collected.messages.len();
         let batch_id = make_batch_id();
+        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
+            batch_id: batch_id.clone(),
+            messages: batch_size,
+            partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
+        });
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
@@ -319,6 +336,12 @@ impl IngestionConsumer {
         // delivery across worker or pipeline failures.
         self.commit_offsets(&processed.offsets)?;
         emit_latest_processed_timestamp_metrics(&processed.stats, &self.group_id);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
+            batch_id: batch_id.clone(),
+            accepted: processed.total_accepted,
+            duration_ms: processed.elapsed.as_millis() as u64,
+            partitions: debug_partition_offsets(&processed.offsets, &processed.stats.max_lag_ms),
+        });
 
         histogram!("ingestion_consumer_batch_processing_duration_seconds")
             .record(processed.elapsed.as_secs_f64());
@@ -397,6 +420,10 @@ impl IngestionConsumer {
     fn fail_batch_processing(&self, err: anyhow::Error) {
         error!(error = %err, "Batch processing failed");
         counter!("ingestion_consumer_batch_errors_total").increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchFailed {
+            batch_id: None,
+            error: format!("{err:#}"),
+        });
         self.handle
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
@@ -691,6 +718,25 @@ impl IngestionConsumer {
 
         Ok(())
     }
+}
+
+/// Per-partition max offset + observed lag for the debug UI's batch events.
+fn debug_partition_offsets(
+    offsets: &HashMap<(String, i32), OffsetSpan>,
+    max_lag_ms: &HashMap<(String, i32), i64>,
+) -> Vec<PartitionOffset> {
+    offsets
+        .iter()
+        .map(|((topic, partition), span)| PartitionOffset {
+            topic: topic.clone(),
+            partition: *partition,
+            offset: span.last,
+            lag_ms: max_lag_ms
+                .get(&(topic.clone(), *partition))
+                .copied()
+                .unwrap_or(0),
+        })
+        .collect()
 }
 
 /// Aborts the wrapped task when dropped, covering every `process()` exit path.
