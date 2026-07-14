@@ -624,6 +624,21 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_property_values_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_property_values_daily
+  (
+      `team_id` Int64,
+      `property_type` LowCardinality(String),
+      `property_key` String,
+      `property_value` String,
+      `property_count` UInt64
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values_daily', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
   '''
   
@@ -2600,6 +2615,21 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_property_values_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_property_values_daily
+  (
+      `team_id` Int64,
+      `property_type` LowCardinality(String),
+      `property_key` String,
+      `property_value` String,
+      `property_count` UInt64
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values_daily', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_session_replay_events]
   '''
   
@@ -4547,6 +4577,57 @@
   TTL last_seen + INTERVAL 30 DAY DELETE
   SETTINGS
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[property_values_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values_daily
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `day` Date DEFAULT toDate(now()),
+      INDEX idx_property_value lower(property_value) TYPE text(tokenizer = splitByNonAlpha)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values_daily', '{replica}-{shard}')
+  
+  PARTITION BY day
+  ORDER BY (team_id, property_type, property_key, property_value)
+  TTL day + INTERVAL 7 DAY DELETE
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[property_values_daily_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values_daily_distributed
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `day` Date DEFAULT toDate(now())
+  ) ENGINE = Distributed('aux', 'posthog_test', 'property_values_daily')
+  
+  '''
+# ---
+# name: test_create_table_query[property_values_daily_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS property_values_daily_mv
+  TO property_values_daily
+  AS SELECT
+      team_id,
+      property_type,
+      property_key,
+      property_value,
+      toDate(now()) as day
+  FROM posthog_test.kafka_property_values_daily
   
   '''
 # ---
@@ -10197,6 +10278,28 @@
   TTL last_seen + INTERVAL 30 DAY DELETE
   SETTINGS
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[property_values_daily]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values_daily
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `day` Date DEFAULT toDate(now()),
+      INDEX idx_property_value lower(property_value) TYPE text(tokenizer = splitByNonAlpha)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values_daily', '{replica}-{shard}')
+  
+  PARTITION BY day
+  ORDER BY (team_id, property_type, property_key, property_value)
+  TTL day + INTERVAL 7 DAY DELETE
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
   
   '''
 # ---
