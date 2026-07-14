@@ -625,7 +625,7 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunHandleDTO | None:
+def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | None:
     """The team's active onboarding wizard cloud run, for rehydrating the setup FAB.
 
     The drop flow starts the wizard cloud run server-side (``create_wizard_cloud_run``),
@@ -642,7 +642,18 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunHandleD
     # would let a newer onboarding task with no live run hide an older task's still-running one.
     # Both the task set and the run are scoped by team_id so a mismatched/legacy run row can't leak
     # another team's handle back to the requester.
-    runs = TaskRun.objects.filter(task_id__in=onboarding_task_ids, team_id=team_id).order_by("-created_at", "-id")
+    #
+    # ``origin_product == ONBOARDING`` is caller-settable, so it alone can't tell a genuine
+    # server-started wizard run from one a project member planted through the normal task APIs.
+    # Also require the immutable markers ``create_wizard_cloud_run`` stamps: a cloud environment
+    # and the ``wizard_config`` state key (a protected key callers cannot set, see the run PATCH
+    # allowlist), so we never hand a provisioned user someone else's attacker-controlled handle.
+    runs = TaskRun.objects.filter(
+        task_id__in=onboarding_task_ids,
+        team_id=team_id,
+        environment=TaskRun.Environment.CLOUD,
+        state__has_key="wizard_config",
+    ).order_by("-created_at", "-id")
     for run in runs:
         # Non-terminal runs always surface; terminal ones only while the result is still
         # fresh enough to be worth showing on first landing.
@@ -650,7 +661,7 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunHandleD
             anchor = run.updated_at or run.created_at
             if anchor is None or anchor < fresh_after:
                 continue
-        return contracts.WizardCloudRunHandleDTO(
+        return contracts.WizardCloudRunDTO(
             task_id=run.task_id,
             run_id=run.id,
             status=run.status,
