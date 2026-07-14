@@ -1,20 +1,53 @@
-//! URL scrub. Mirrors `anonymize/url.ts`. `None` means "unchanged".
+//! URL scrub. `None` means "unchanged".
 //!
 //! - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than
 //!   `#` so it doesn't clash with the fragment separator).
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
 //! - Query: a param survives only if its key or value is an allow-listed alphanumeric token.
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
-//! - With `scrub_authority` it strips userinfo/port and collapses the host to `example.com`
-//!   (keeping a leading allow-listed subdomain label).
+//! - Userinfo (`user:pass@`) is always stripped from the authority.
+//! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
+//! - With `collapse_host`, or when the host matches the context's first-party host patterns
+//!   (the team's recording domains), it additionally drops the port and collapses the host to
+//!   `example.com` (keeping a leading allow-listed subdomain label).
 
 use crate::allow_lists::AllowLists;
+use crate::context::Ctx;
 
-pub fn scrub_url(allow: &AllowLists, input: &str) -> Option<String> {
-    scrub_url_opts(allow, input, false)
+pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
+
+fn strip_port(host: &mut String) {
+    if let Some(ci) = host.rfind(':') {
+        let after = &host[ci + 1..];
+        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
+            host.truncate(ci);
+        }
+    }
 }
 
-pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) -> Option<String> {
+fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
+    if ctx.first_party_hosts.is_empty() {
+        return false;
+    }
+    let mut host = host_port.to_ascii_lowercase();
+    strip_port(&mut host);
+    ctx.first_party_hosts.iter().any(|pattern| {
+        host == *pattern
+            || (host.len() > pattern.len()
+                && host.ends_with(pattern.as_str())
+                && host.as_bytes()[host.len() - pattern.len() - 1] == b'.')
+    })
+}
+
+pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
+    scrub_url_opts(ctx, input, false)
+}
+
+pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
+    let allow = ctx.allow;
+    if URL_ALLOWLIST.contains(&input) {
+        return None;
+    }
     let tail_idx = input.find(['?', '#']);
     let (base, tail) = match tail_idx {
         Some(i) => (&input[..i], &input[i..]),
@@ -26,14 +59,26 @@ pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) ->
     let mut out = String::with_capacity(input.len());
     out.push_str(scheme);
     if !authority.is_empty() {
-        if scrub_authority {
-            let scrubbed = scrub_host(allow, authority);
-            if scrubbed != authority {
+        let host_port = match authority.rfind('@') {
+            Some(at) => {
+                changed = true;
+                &authority[at + 1..]
+            }
+            None => authority,
+        };
+        if !is_valid_host_port(host_port) {
+            // A structurally invalid "host" (e.g. an unencoded `?` in userinfo makes `user:pa`
+            // parse as the authority) must not pass through as if it were a hostname.
+            out.push_str("[redacted]");
+            changed = true;
+        } else if collapse_host || is_first_party_host(ctx, host_port) {
+            let collapsed = collapsed_host(allow, host_port);
+            if collapsed != host_port {
                 changed = true;
             }
-            out.push_str(&scrubbed);
+            out.push_str(&collapsed);
         } else {
-            out.push_str(authority);
+            out.push_str(host_port);
         }
     }
 
@@ -129,13 +174,10 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
     out
 }
 
-// Strip userinfo + port and rewrite the host to example.com. Keep a leading *subdomain* label
+// Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label
 // (only when there is one, i.e. >=3 labels) if it's url-allow-listed: `us.test.com` -> `us.example.com`.
-fn scrub_host(allow: &AllowLists, authority: &str) -> String {
-    let mut host = match authority.rfind('@') {
-        Some(at) => &authority[at + 1..],
-        None => authority,
-    };
+fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
+    let mut host = host_port;
     if let Some(ci) = host.rfind(':') {
         let after = &host[ci + 1..];
         if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
@@ -151,12 +193,123 @@ fn scrub_host(allow: &AllowLists, authority: &str) -> String {
     }
 }
 
+// Pinned by `tests/fixtures/url-scheme-allowlist.json` (see `tests/parity.rs`).
+pub const URL_SCHEME_ALLOWLIST: &[&str] = &[
+    // Web platform
+    "about",
+    "blob",
+    "data",
+    "file",
+    "ftp",
+    "geo",
+    "javascript",
+    "magnet",
+    "mailto",
+    "sms",
+    "tel",
+    "urn",
+    "ws",
+    "wss", // Microsoft
+    "ms-access",
+    "ms-excel",
+    "ms-outlook",
+    "ms-powerpoint",
+    "ms-project",
+    "ms-publisher",
+    "ms-visio",
+    "ms-word",
+    "msteams",
+    "onenote",
+    "sip",
+    "sips",
+    "skype", // Google
+    "comgooglemaps",
+    "googlechrome",
+    "googlegmail",
+    "googlemaps", // Apple
+    "facetime",
+    "facetime-audio",
+    "itms",
+    "itms-apps",
+    "maps",
+    "music",
+    "shortcuts",
+    // Chat and social
+    "bluesky",
+    "callto",
+    "discord",
+    "fb",
+    "fb-messenger",
+    "instagram",
+    "irc",
+    "line",
+    "linkedin",
+    "matrix",
+    "reddit",
+    "sgnl",
+    "slack",
+    "snapchat",
+    "telegram",
+    "tg",
+    "tiktok",
+    "twitter",
+    "viber",
+    "wechat",
+    "weixin",
+    "whatsapp",
+    "xmpp",
+    // Media, payments, and tools
+    "bitcoin",
+    "bittorrent",
+    "figma",
+    "notion",
+    "obsidian",
+    "spotify",
+    "steam",
+    "vscode",
+    "zoommtg",
+    "zoomus",
+];
+
+fn scheme_without_slashes(s: &str) -> Option<usize> {
+    let colon = s.find(':')?;
+    let prefix = &s[..colon];
+    if URL_SCHEME_ALLOWLIST
+        .iter()
+        .any(|scheme| prefix.eq_ignore_ascii_case(scheme))
+    {
+        Some(colon + 1)
+    } else {
+        None
+    }
+}
+
+fn is_valid_scheme(prefix: &str) -> bool {
+    let bytes = prefix.as_bytes();
+    match bytes.split_first() {
+        Some((&first, rest)) => {
+            first.is_ascii_alphabetic()
+                && rest
+                    .iter()
+                    .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        }
+        None => false,
+    }
+}
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 fn split_url(s: &str) -> (&str, &str, &str) {
-    let (scheme, rest) = if let Some(scheme_end) = s.find("://") {
+    let (scheme, rest) = if let Some(scheme_end) = s
+        .find("://")
+        .filter(|&scheme_end| is_valid_scheme(&s[..scheme_end]))
+    {
         (&s[..scheme_end + 3], &s[scheme_end + 3..])
     } else if let Some(rest) = s.strip_prefix("//") {
         (&s[..2], rest)
+    } else if let Some(end) = scheme_without_slashes(s) {
+        // Free text before a colon (or before an embedded `://`) must not pass through as a
+        // "scheme"; only allowlisted schemes survive, and only in the slashless form.
+        return (&s[..end], "", &s[end..]);
     } else {
         return ("", "", s); // relative URL: all path
     };
@@ -164,6 +317,36 @@ fn split_url(s: &str) -> (&str, &str, &str) {
         None => (scheme, rest, ""),
         Some(path_off) => (scheme, &rest[..path_off], &rest[path_off..]),
     }
+}
+
+// Host or `[ipv6]`, with an optional `:digits` port.
+fn is_valid_host_port(host_port: &str) -> bool {
+    let host = match host_port.split_once(':') {
+        None => host_port,
+        Some(_) if host_port.starts_with('[') => match host_port.rfind(']') {
+            Some(close) => {
+                let bracketed = &host_port[1..close];
+                let port = &host_port[close + 1..];
+                let port_ok = port.is_empty()
+                    || (port.starts_with(':')
+                        && port.len() > 1
+                        && port[1..].bytes().all(|b| b.is_ascii_digit()));
+                return port_ok
+                    && bracketed
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+            }
+            None => return false,
+        },
+        Some((host, port)) => {
+            if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+                return false;
+            }
+            host
+        }
+    };
+    host.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 fn is_safe_segment(seg: &str) -> bool {

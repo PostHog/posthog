@@ -140,7 +140,7 @@ describe('Sandbox approval input area', () => {
             fireEvent.click(screen.getByText("Explain what you'd like instead."))
             const input = screen.getByPlaceholderText('Type your answer...')
             fireEvent.change(input, { target: { value: 'Use a funnel instead' } })
-            fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+            fireEvent.click(screen.getByText('Send'))
 
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',

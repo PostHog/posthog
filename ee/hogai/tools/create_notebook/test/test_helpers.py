@@ -154,6 +154,60 @@ class TestSaveNotebookToDb(BaseTest):
         ph_queries = _find_ph_query_nodes(notebook.content)
         self.assertEqual(len(ph_queries), 0)
 
+    def test_save_notebook_creates_markdown_notebook_when_flag_enabled(self):
+        self._create_visualization_artifact(query={"kind": "TrendsQuery", "series": []}, short_id="vmkd")
+        parent = self._create_notebook_parent("nmkd")
+        blocks: list[StoredBlock] = [VisualizationRefBlock(artifact_id="vmkd", title="Chart")]
+
+        with patch("ee.hogai.tools.create_notebook.helpers.has_markdown_notebooks_feature_flag", return_value=True):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=blocks,
+                title="Test Notebook",
+                state_messages=[],
+            )
+
+        notebook = Notebook.objects.get(team=self.team, short_id=parent.short_id)
+        nodes = notebook.content["content"]
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0]["type"], "ph-markdown-notebook")
+        markdown = nodes[0]["attrs"]["markdown"]
+        self.assertIn("Test Notebook", markdown)
+        self.assertIn("<Query", markdown)
+        self.assertIn("InsightVizNode", markdown)
+        self.assertEqual(notebook.text_content, markdown)
+
+    def test_save_notebook_keeps_tiptap_format_for_existing_notebook_when_flag_enabled(self):
+        parent = self._create_notebook_parent("ntfm")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={"type": "doc", "content": [{"type": "paragraph"}]},
+        )
+
+        with (
+            patch("ee.hogai.tools.create_notebook.helpers.has_markdown_notebooks_feature_flag", return_value=True),
+            patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update"),
+        ):
+            async_to_sync(save_notebook_to_db)(
+                team=self.team,
+                user=self.user,
+                artifact=parent,
+                blocks=[],
+                title="Updated title",
+                state_messages=[],
+                markdown_content="# Updated",
+            )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Updated title")
+        self.assertNotEqual(notebook.content["content"][0]["type"], "ph-markdown-notebook")
+
     def test_save_notebook_preserves_existing_markdown_v2_wrapper(self):
         parent = self._create_notebook_parent("nv2m")
         notebook = Notebook.objects.create(

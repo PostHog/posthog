@@ -5,7 +5,7 @@ import { gzip } from 'zlib'
 import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
-import { SessionReplayHeaders } from './validate-headers-step'
+import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
 
@@ -14,13 +14,20 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null) =>
-        mockAnonymizeKafkaPayload(payload, contentEncoding),
+    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, firstPartyHosts?: string[] | null) =>
+        mockAnonymizeKafkaPayload(payload, contentEncoding, firstPartyHosts),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
     const step = createParseAndAnonymizeMessageStep()
     const now = Date.now()
+
+    const team = {
+        teamId: 1,
+        consoleLogIngestionEnabled: true,
+        aiTrainingOptedIn: true,
+        firstPartyHosts: ['customer-site.test'],
+    }
 
     const headers: SessionReplayHeaders = {
         token: 'token-1',
@@ -68,7 +75,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
 
     it('assembles a pre-serialized ParsedMessageData from the addon output', async () => {
         addonSuccess()
-        const result = await step({ message: kafkaMessage(), headers })
+        const result = await step({ message: kafkaMessage(), headers, team })
 
         expect(result.type).toBe(PipelineResultType.OK)
         const parsed = (result as any).value.parsedMessage
@@ -90,6 +97,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         const upper = '019539D9-6B23-7E26-B0E3-3C8D3E2AD068'
         addonSuccess({ sessionId: upper })
         const result = await step({
+            team,
             message: kafkaMessage(),
             headers: { ...headers, session_id: upper.toLowerCase() },
         })
@@ -101,15 +109,15 @@ describe('createParseAndAnonymizeMessageStep', () => {
         addonSuccess()
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
-        await step({ message: kafkaMessage(zipped), headers })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null)
+        await step({ message: kafkaMessage(zipped), headers, team })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, team.firstPartyHosts)
 
         mockAnonymizeKafkaPayload.mockClear()
         addonSuccess()
         const lz4Message = kafkaMessage(raw)
         lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
-        await step({ message: lz4Message, headers })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4')
+        await step({ message: lz4Message, headers, team })
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', team.firstPartyHosts)
     })
 
     test.each([
@@ -127,21 +135,21 @@ describe('createParseAndAnonymizeMessageStep', () => {
             lines: null,
             meta: null,
         })
-        const result = await step({ message: kafkaMessage(), headers })
+        const result = await step({ message: kafkaMessage(), headers, team })
         expect(result.type).toBe(expectedType)
         expect((result as any).reason).toBe(reason)
     })
 
     it('fails closed when the addon promise rejects', async () => {
         mockAnonymizeKafkaPayload.mockRejectedValue(new Error('native panic'))
-        const result = await step({ message: kafkaMessage(), headers })
+        const result = await step({ message: kafkaMessage(), headers, team })
         expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'anonymize_failed' })
     })
 
     it('drops messages whose timestamps are too far from now', async () => {
         const monthAgo = now - 30 * 24 * 60 * 60 * 1000
         addonSuccess({ startTs: monthAgo, endTs: monthAgo + 1000 })
-        const result = await step({ message: kafkaMessage(), headers })
+        const result = await step({ message: kafkaMessage(), headers, team })
         expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'message_timestamp_diff_too_large' })
     })
 
@@ -150,12 +158,12 @@ describe('createParseAndAnonymizeMessageStep', () => {
         ['distinct_id', { distinctId: 'other-user' }, 'distinct_id_header_body_mismatch'],
     ])('dlqs on a %s header/body mismatch', async (_field, metaOverrides, reason) => {
         addonSuccess(metaOverrides)
-        const result = await step({ message: kafkaMessage(), headers })
+        const result = await step({ message: kafkaMessage(), headers, team })
         expect(result).toMatchObject({ type: PipelineResultType.DLQ, reason })
     })
 
     it('dlqs when the message value is empty', async () => {
-        const result = await step({ message: kafkaMessage(null), headers })
+        const result = await step({ message: kafkaMessage(null), headers, team })
         expect(result).toMatchObject({ type: PipelineResultType.DLQ, reason: 'message_value_or_timestamp_is_empty' })
         expect(mockAnonymizeKafkaPayload).not.toHaveBeenCalled()
     })

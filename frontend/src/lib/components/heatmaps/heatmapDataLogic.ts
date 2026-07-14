@@ -7,6 +7,7 @@ import { windowValues } from 'kea-window-values'
 import {
     CommonFilters,
     HeatmapArea,
+    HeatmapBoundsFilter,
     HeatmapEventsResponse,
     HeatmapFilters,
     HeatmapFixedPositionMode,
@@ -81,6 +82,22 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
 
 export type HrefMatchType = 'exact' | 'pattern'
 
+export function isWithinBounds(
+    point: { x: number; y: number; targetFixed: boolean },
+    boundsFilter: HeatmapBoundsFilter | null
+): boolean {
+    if (!boundsFilter) {
+        return true
+    }
+    // points and areas live in different coordinate spaces depending on fixedness, so a
+    // point of the other kind can't be meaningfully tested against this area — exclude it
+    if (point.targetFixed !== boundsFilter.areaFixed) {
+        return false
+    }
+    const { bounds } = boundsFilter
+    return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom
+}
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
     props({ context: 'toolbar', exportToken: null } as HeatmapDataLogicProps),
@@ -92,9 +109,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (palette: string | null) => ({ palette }),
+        setHeatmapTooltipSuppressed: (suppressed: boolean) => ({ suppressed }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
+        setHeatmapBoundsFilter: (boundsFilter: HeatmapBoundsFilter | null) => ({ boundsFilter }),
         setIsReady: (isReady: boolean) => ({ isReady }),
         // Click-to-view-events actions
         setSelectedArea: (area: HeatmapArea | null) => ({ area }),
@@ -143,6 +162,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 setHeatmapColorPalette: (_, { palette }) => palette,
             },
         ],
+        // e.g. while the clickmap overlay shows its own element tooltip
+        heatmapTooltipSuppressed: [
+            false,
+            {
+                setHeatmapTooltipSuppressed: (_, { suppressed }) => suppressed,
+            },
+        ],
         href: [
             null as string | null,
             {
@@ -156,6 +182,14 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { persist: true },
             {
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
+            },
+        ],
+        // deliberately not persisted: the bounds describe an element on the page currently
+        // being viewed, so they'd be meaningless (and misleading) on the next page
+        heatmapBoundsFilter: [
+            null as HeatmapBoundsFilter | null,
+            {
+                setHeatmapBoundsFilter: (_, { boundsFilter }) => boundsFilter,
             },
         ],
         isReady: [
@@ -393,11 +427,33 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
-        heatmapJsData: [
-            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
-            (heatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+        // the one place the area bounds filter applies, so rendering (heatmapJsData) and
+        // click-to-view-events hit testing can't disagree about which points exist
+        filteredHeatmapElements: [
+            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapBoundsFilter],
+            (heatmapElements, windowWidth, windowWidthOverride, heatmapBoundsFilter): HeatmapElement[] => {
+                if (!heatmapBoundsFilter) {
+                    return heatmapElements
+                }
                 const width = windowWidthOverride ?? windowWidth
-                const data = heatmapElements.reduce((acc, element) => {
+                return heatmapElements.filter((element) =>
+                    isWithinBounds(
+                        {
+                            x: Math.round(element.xPercentage * width),
+                            y: Math.round(element.y),
+                            targetFixed: element.targetFixed,
+                        },
+                        heatmapBoundsFilter
+                    )
+                )
+            },
+        ],
+
+        heatmapJsData: [
+            (s) => [s.filteredHeatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
+            (filteredHeatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+                const width = windowWidthOverride ?? windowWidth
+                const data = filteredHeatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
                         return acc
                     }

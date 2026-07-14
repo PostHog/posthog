@@ -99,7 +99,7 @@ Environment variables consumed inside the sandbox:
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
 7. **wait_condition** — Workflow blocks with a 2-hour inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
-9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
+9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow. For wizard cloud runs, the GitHub merge webhook sends the same signal (status `completed`) when the run's PR merges, so the run ends at merge instead of riding out the sandbox TTL
 10. **cleanup_sandbox** — Sandbox destroyed
 
 ## Data model

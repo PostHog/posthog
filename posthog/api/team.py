@@ -1296,7 +1296,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
-        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
         if "slack_alert_channel_id" in value:
@@ -1627,6 +1627,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 name=str(instance.name),
                 changes=changes,
             ),
+        )
+
+        report_conversations_settings_changes(
+            cast(User, self.context["request"].user),
+            before_update.get("conversations_settings"),
+            updated_team,
         )
 
         return updated_team
@@ -2379,6 +2385,26 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         raise exceptions.PermissionDenied(
             "Multiple environments per project are no longer available. Please contact support if you need assistance."
         )
+
+
+def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
+    """Fire one "support setting changed" event per changed conversations_settings key.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    """
+    old_settings = before_settings or {}
+    new_settings = team.conversations_settings or {}
+    changed_keys = sorted(
+        k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
+    )
+    # One event per changed setting so insights can break down by `setting`.
+    for key in changed_keys:
+        new_value = new_settings.get(key)
+        properties: dict[str, Any] = {"setting": key}
+        # Only non-string values are safe to report — the dict holds free text and the widget token.
+        if isinstance(new_value, (bool, int, float, type(None))):
+            properties["value"] = new_value
+        report_user_action(user, "support setting changed", properties, team=team)
 
 
 def handle_conversations_token_on_update(

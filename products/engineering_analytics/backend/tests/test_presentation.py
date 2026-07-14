@@ -36,6 +36,15 @@ def _cards() -> contracts.CICardSummary:
     return contracts.CICardSummary(open_prs=5, repos=2, stuck=1, failing_ci=1)
 
 
+def _current_branch_health() -> contracts.CurrentBranchHealth:
+    return contracts.CurrentBranchHealth(
+        default_branch="main",
+        settled_workflows=101,
+        failing_workflows=1,
+        failing_workflow_names=["Low-volume failure"],
+    )
+
+
 def _pr_list_item() -> contracts.PullRequestListItem:
     return contracts.PullRequestListItem(
         number=10,
@@ -191,12 +200,28 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
-    def test_workflow_health_passes_branch_through(self) -> None:
+    def test_workflow_health_passes_filters_through(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
-            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+            response = self.client.get(
+                self._url("workflow_health"),
+                {"branch": "main", "run_scope": "pull_request"},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
+        assert list_health.call_args.kwargs["run_scope"] == "pull_request"
+
+    def test_current_branch_health_serializes(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_current_branch_health", return_value=_current_branch_health()):
+            response = self.client.get(self._url("current_branch_health"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "default_branch": "main",
+            "settled_workflows": 101,
+            "failing_workflows": 1,
+            "failing_workflow_names": ["Low-volume failure"],
+        }
 
     def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
         result = contracts.WorkflowRunActivity(
@@ -208,6 +233,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                     duration_seconds=180,
                     head_branch="main",
                     pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 )
             ],
             truncated=False,
@@ -386,9 +412,25 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "run_scope must be one of" in response.json()["detail"]
+
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_requires_rollout_feature_flag(self) -> None:
+        # The whole viewset is gated on the engineering-analytics rollout flag (which the
+        # conftest fixture enables); with the flag off, every endpoint must 403.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "engineering-analytics" in response.json()["detail"]

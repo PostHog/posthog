@@ -6,7 +6,8 @@ use std::time::Instant;
 
 use replay_anonymizer_node::allow_lists::AllowLists;
 use replay_anonymizer_node::{
-    anonymize_event_str, anonymize_message, text::scrub_text, url::scrub_url_opts,
+    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url_opts,
+    url::URL_SCHEME_ALLOWLIST,
 };
 use serde_json::Value;
 
@@ -50,11 +51,32 @@ fn url_fixtures() {
         let allow = allow_of(&case);
         let input = case["input"].as_str().unwrap();
         let expected = case["expected"].as_str().unwrap();
-        let scrub_authority = case["scrubAuthority"].as_bool().unwrap_or(false);
+        let collapse_host = case["collapseHost"].as_bool().unwrap_or(false);
+        let first_party_hosts: Vec<String> = case["firstPartyHosts"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let ctx = Ctx::with_first_party_hosts(&allow, first_party_hosts);
         let actual =
-            scrub_url_opts(&allow, input, scrub_authority).unwrap_or_else(|| input.to_string());
+            scrub_url_opts(&ctx, input, collapse_host).unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);
     }
+}
+
+#[test]
+fn url_scheme_allowlist_matches_fixture() {
+    // The TS constant is checked against the same fixture, so the two lists cannot drift.
+    let expected: Vec<String> = fixtures("url-scheme-allowlist.json")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let mut actual: Vec<String> = URL_SCHEME_ALLOWLIST.iter().map(|s| s.to_string()).collect();
+    actual.sort();
+    assert_eq!(actual, expected);
 }
 
 #[test]

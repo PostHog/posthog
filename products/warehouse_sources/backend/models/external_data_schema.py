@@ -423,6 +423,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return swap
         return None
 
+    @property
+    def repartition_claim(self) -> dict[str, Any] | None:
+        """The fencing claim of the newest repartition attempt: {"token", "job_id", "claimed_at"}.
+
+        S3 has no locking, so this row is the coordination point between concurrent repartition
+        attempts (a heartbeat-timed-out zombie and its Temporal retry). The newest claimant owns the
+        table; older attempts compare their token against this and stand down. Never cleared — it is
+        only ever compared against a live attempt's token, so a stale claim is inert.
+        """
+        if self.sync_type_config:
+            claim = self.sync_type_config.get("repartition_claim", None)
+            if isinstance(claim, dict):
+                return claim
+        return None
+
     def _save_sync_type_config(self) -> None:
         # Internal bookkeeping write — skip the activity-log SELECT (see save()) since these run
         # inside the sync/repartition activity where a dropped pooler connection would fail the run.
@@ -444,8 +459,29 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["repartition_swap"] = swap
         self._save_sync_type_config()
 
+    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
+        self.sync_type_config["repartition_claim"] = claim
+        self._save_sync_type_config()
+
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
+        self._save_sync_type_config()
+
+    @property
+    def delta_revive_required(self) -> dict[str, Any] | None:
+        """Set when the live Delta table is readable but hollow — its log references data files that
+        are gone from S3 (the terminal state an interrupted or interleaved repartition swap leaves).
+        `handle_corrupted_delta_log` honors this to reset + rebuild the table even though the log
+        itself opens fine. Shape: {"reason": str, "missing_path": str, "detected_at": iso8601 str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("delta_revive_required", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    def set_delta_revive_required(self, info: dict[str, Any]) -> None:
+        self.sync_type_config["delta_revive_required"] = info
         self._save_sync_type_config()
 
     def stamp_last_repartition_at(self) -> None:
@@ -591,7 +627,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
     def delete_table(self):

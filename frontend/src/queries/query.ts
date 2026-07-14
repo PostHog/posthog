@@ -135,9 +135,8 @@ export async function pollForResults(
             const parsed = parseErrorMessage(e.data?.query_status?.error_message)
             e.detail = parsed.message
 
-            if (parsed.code) {
-                e.code = parsed.code
-            }
+            // Prefer the structured code from QueryStatus over one parsed out of the message
+            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -252,6 +251,17 @@ export async function performQuery<N extends DataNode>(
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
+            }
+            if (response && typeof response === 'object') {
+                // Web analytics responses report which read path served them and whether
+                // a lazy-precompute read was served stale. Undefined elsewhere, so these
+                // props only land on events that carry them.
+                const { preComputeStrategy, preComputeStale } = response as {
+                    preComputeStrategy?: string
+                    preComputeStale?: boolean
+                }
+                logParams.precompute_strategy = preComputeStrategy
+                logParams.precompute_stale = preComputeStale
             }
         }
         posthog.capture('query completed', {

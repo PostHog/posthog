@@ -20,11 +20,7 @@ export function scoutDisplayName(skillName: string | null | undefined): string |
 }
 
 /** Human-readable "Product · Signal type" line for inbox / debug signal cards. */
-export function signalCardSourceLine(signal: {
-    source_product: string
-    source_type: string
-    extra?: Record<string, unknown>
-}): string {
+export function signalCardSourceLine(signal: { source_product: string; source_type: string; extra?: unknown }): string {
     const { source_product, source_type } = signal
 
     if (source_product === 'error_tracking') {
@@ -64,7 +60,8 @@ export function signalCardSourceLine(signal: {
         return 'Health checks · Instrumentation issue'
     }
     if (source_product === 'signals_scout') {
-        const skillName = typeof signal.extra?.skill_name === 'string' ? signal.extra.skill_name : undefined
+        const extra = signal.extra as { skill_name?: unknown } | undefined
+        const skillName = typeof extra?.skill_name === 'string' ? extra.skill_name : undefined
         const name = scoutDisplayName(skillName)
         return name ? `Scout · ${name}` : 'Scout · Cross-source finding'
     }
