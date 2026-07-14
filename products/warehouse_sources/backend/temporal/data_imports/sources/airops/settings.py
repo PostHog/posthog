@@ -25,6 +25,9 @@ AIROPS_ENDPOINTS: dict[str, AirOpsEndpointConfig] = {
     "executions": AirOpsEndpointConfig(
         name="executions",
         partition_key="createdAt",
+        # Execution ids are scoped per app, so the app id is part of the composite key to keep two
+        # apps' executions that share an id from colliding into one warehouse row.
+        primary_keys=["airops_app_id", "id"],
     ),
 }
 

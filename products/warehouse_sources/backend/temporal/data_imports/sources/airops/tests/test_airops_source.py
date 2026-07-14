@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.source import AirOpsSource
@@ -48,6 +48,7 @@ class TestAirOpsSource:
         field_names = {f.name for f in config.fields}
         assert field_names == {"api_key"}
         api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.secret is True
 
     def test_get_schemas_are_full_refresh_only(self) -> None:

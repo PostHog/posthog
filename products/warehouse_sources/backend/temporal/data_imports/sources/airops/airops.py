@@ -26,6 +26,17 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Session for all AirOps traffic. The bearer token is set once on the session (so its redaction
+    policy applies to every request and captured sample) and redirects are pinned off so a credentialed
+    request can't be replayed against another host."""
+    return make_tracked_session(
+        headers=_get_headers(api_key),
+        redact_values=(api_key,),
+        allow_redirects=False,
+    )
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -39,8 +50,8 @@ def _get_headers(api_key: str) -> dict[str, str]:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_json(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=60)
+def _fetch_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
+    response = session.get(url, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AirOpsRetryableError(f"AirOps API error (retryable): status={response.status_code}, url={url}")
@@ -52,9 +63,9 @@ def _fetch_json(session: requests.Session, url: str, headers: dict[str, str], lo
     return response.json()
 
 
-def _iter_apps(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[dict]:
+def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict]:
     """List every app. The apps endpoint returns a plain (unwrapped) JSON array with no pagination."""
-    data = _fetch_json(session, f"{AIROPS_BASE_URL}/public_api/airops_apps", headers, logger)
+    data = _fetch_json(session, f"{AIROPS_BASE_URL}/public_api/airops_apps", logger)
     if not isinstance(data, list):
         # Defensive: the docs describe a bare array, but tolerate a `{data: [...]}` envelope if the
         # beta API ever wraps it, rather than crashing the sync.
@@ -62,25 +73,23 @@ def _iter_apps(session: requests.Session, headers: dict[str, str], logger: Filte
     yield from data
 
 
-def _get_apps(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[list[dict]]:
-    apps = list(_iter_apps(session, headers, logger))
+def _get_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[list[dict]]:
+    apps = list(_iter_apps(session, logger))
     if apps:
         yield apps
 
 
-def _get_executions(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[list[dict]]:
+def _get_executions(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[list[dict]]:
     """Fan out over every app and page through its executions.
 
     Executions can only be listed per app, so we enumerate apps first and follow each app's
     cursor-paginated executions endpoint. Each row is stamped with `airops_app_id` so the flattened
     table can be joined back to its parent app (and so the primary key stays meaningful table-wide).
     """
-    for app in _iter_apps(session, headers, logger):
-        app_id = app.get("id")
-        if app_id is None:
-            continue
+    for app in _iter_apps(session, logger):
+        # The app id is required to reach the child endpoint; a missing id means we'd silently drop an
+        # app's executions, so fail loudly rather than sync partial data.
+        app_id = app["id"]
 
         cursor: str | None = None
         while True:
@@ -89,7 +98,7 @@ def _get_executions(
                 params["cursor"] = cursor
             url = f"{AIROPS_BASE_URL}/public_api/airops_apps/{app_id}/executions?{urlencode(params)}"
 
-            data = _fetch_json(session, url, headers, logger)
+            data = _fetch_json(session, url, logger)
             records = data.get("data", []) if isinstance(data, dict) else []
             for record in records:
                 record["airops_app_id"] = app_id
@@ -98,18 +107,19 @@ def _get_executions(
 
             meta = data.get("meta", {}) if isinstance(data, dict) else {}
             cursor = meta.get("cursor")
-            if not meta.get("has_more") or not cursor:
+            # Keep paging while a cursor is present. Only stop when the cursor runs out or `has_more`
+            # is explicitly false, so a response that returns a cursor without `has_more` isn't dropped.
+            if not cursor or meta.get("has_more") is False:
                 break
 
 
 def get_rows(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict]]:
-    session = make_tracked_session()
-    headers = _get_headers(api_key)
+    session = _make_session(api_key)
 
     if endpoint == "apps":
-        yield from _get_apps(session, headers, logger)
+        yield from _get_apps(session, logger)
     elif endpoint == "executions":
-        yield from _get_executions(session, headers, logger)
+        yield from _get_executions(session, logger)
     else:
         raise ValueError(f"Unknown AirOps endpoint: {endpoint}")
 
@@ -132,9 +142,7 @@ def airops_source(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> 
 def validate_credentials(api_key: str) -> bool:
     """Cheapest probe that confirms the workspace API key is genuine: list apps and check for a 200."""
     try:
-        response = make_tracked_session().get(
-            f"{AIROPS_BASE_URL}/public_api/airops_apps", headers=_get_headers(api_key), timeout=10
-        )
+        response = _make_session(api_key).get(f"{AIROPS_BASE_URL}/public_api/airops_apps", timeout=10)
         return response.status_code == 200
     except Exception:
         return False

@@ -86,15 +86,25 @@ class TestGetExecutions:
         assert [row for batch in batches for row in batch] == [{"id": "e1", "airops_app_id": 10}]
         assert session.get.call_count == 2
 
-    def test_skips_apps_without_an_id(self) -> None:
+    def test_fails_when_app_missing_id(self) -> None:
+        # A missing app id must fail loudly rather than silently dropping that app's executions.
+        responses = [_response([{"name": "no id"}])]
+        with pytest.raises(KeyError):
+            _run("executions", responses)
+
+    def test_paginates_when_cursor_present_without_has_more(self) -> None:
+        # A response with a cursor but no has_more flag must still page to the next cursor.
         responses = [
-            _response([{"name": "no id"}, {"id": 5}]),
-            _response({"data": [{"id": "e1"}], "meta": {"has_more": False}}),
+            _response([{"id": 10}]),
+            _response({"data": [{"id": "e1"}], "meta": {"cursor": "c1"}}),
+            _response({"data": [{"id": "e2"}], "meta": {"has_more": False}}),
         ]
         batches, session = _run("executions", responses)
-        assert [row for batch in batches for row in batch] == [{"id": "e1", "airops_app_id": 5}]
-        # Only the app with an id triggers an executions request.
-        assert session.get.call_count == 2
+        assert [row for batch in batches for row in batch] == [
+            {"id": "e1", "airops_app_id": 10},
+            {"id": "e2", "airops_app_id": 10},
+        ]
+        assert session.get.call_count == 3
 
 
 class TestGetRowsUnknownEndpoint:
@@ -110,7 +120,7 @@ class TestFetchJsonStatusHandling:
         session.get.return_value = _response({}, status=status)
         # Call the undecorated function so tenacity's retry/backoff doesn't sleep in the test.
         with pytest.raises(AirOpsRetryableError):
-            _fetch_json.__wrapped__(session, "https://api.airops.com/x", {}, MagicMock())
+            _fetch_json.__wrapped__(session, "https://api.airops.com/x", MagicMock())  # type: ignore[attr-defined]
 
     @pytest.mark.parametrize("status", [400, 401, 403, 404])
     def test_client_errors_propagate_as_httperror(self, status: int) -> None:
@@ -119,7 +129,7 @@ class TestFetchJsonStatusHandling:
         session = MagicMock()
         session.get.return_value = _response({"error": "nope"}, status=status)
         with pytest.raises(requests.HTTPError):
-            _fetch_json.__wrapped__(session, "https://api.airops.com/x", {}, MagicMock())
+            _fetch_json.__wrapped__(session, "https://api.airops.com/x", MagicMock())  # type: ignore[attr-defined]
 
 
 class TestValidateCredentials:
@@ -145,13 +155,17 @@ class TestValidateCredentials:
 
 class TestAirOpsSourceResponse:
     @pytest.mark.parametrize(
-        ("endpoint", "partition_key"),
-        [("apps", "created_at"), ("executions", "createdAt")],
+        ("endpoint", "partition_key", "primary_keys"),
+        [
+            ("apps", "created_at", ["id"]),
+            # Executions are keyed by (app id, id) because execution ids are scoped per app.
+            ("executions", "createdAt", ["airops_app_id", "id"]),
+        ],
     )
-    def test_partition_and_primary_keys(self, endpoint: str, partition_key: str) -> None:
+    def test_partition_and_primary_keys(self, endpoint: str, partition_key: str, primary_keys: list[str]) -> None:
         # Partition on a STABLE creation timestamp (never updated_at), which differs per endpoint.
         response = airops_source(api_key="k", endpoint=endpoint, logger=MagicMock())
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == primary_keys
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
