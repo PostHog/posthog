@@ -53,6 +53,7 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.hogql_queries import get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -548,7 +549,8 @@ class ExperimentService:
         When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
         ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
         baseline validation is skipped (the caller couldn't supply the keys).
-        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        Absence of ``baseline_variant_key`` is always valid (downstream defaults to
+        'control' when present, else the first variant — see get_baseline_variant_key).
         """
         if not stats_config:
             return
@@ -918,7 +920,7 @@ class ExperimentService:
         # mirroring the baseline check above. Resolving against the flag (not the request
         # payload) is what lets the excluded_variants path skip re-sending feature_flag_variants.
         if excluded_variants:
-            baseline_key = (stats_config or {}).get("baseline_variant_key", "control")
+            baseline_key = get_baseline_variant_key(stats_config, used_variant_keys)
             self._validate_excluded_variant_keys(excluded_variants, used_variant_keys, baseline_key)
 
         team_config = self._get_team_experiments_config()
@@ -2842,7 +2844,7 @@ class ExperimentService:
             if new_excluded:
                 variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
                 effective_stats_config = update_data.get("stats_config", experiment.stats_config)
-                baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
+                baseline_key = get_baseline_variant_key(effective_stats_config, variant_keys)
                 self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
 
         # Defense-in-depth: only validate the inline metric lists this update
