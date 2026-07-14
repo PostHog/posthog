@@ -34,6 +34,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_rows_exported_in_period,
@@ -85,6 +86,7 @@ class QuotaResource(Enum):
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
     SIGNALS_CREDITS = "signals_credits"
+    POSTHOG_CODE_CREDITS = "posthog_code_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
@@ -109,6 +111,7 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
     QuotaResource.SIGNALS_CREDITS: 0,
+    QuotaResource.POSTHOG_CODE_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
@@ -120,6 +123,7 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.AI_CREDITS,
     QuotaResource.SIGNALS_CREDITS,
     QuotaResource.REPLAY_VISION_CREDITS,
+    QuotaResource.POSTHOG_CODE_CREDITS,
 }
 
 
@@ -137,6 +141,7 @@ class UsageCounters(TypedDict):
     rows_exported: int
     ai_credits: int
     signals_credits: int
+    posthog_code_credits: int
     workflow_emails: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
@@ -913,6 +918,11 @@ def update_all_orgs_billing_quotas(
         "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period_start, period_end)
         ),
+        "teams_with_posthog_code_credits_used_in_period": convert_team_usage_rows_to_dict(
+            _timed_query(
+                "posthog_code_credits", get_teams_with_posthog_code_credits_used_in_period, period_start, period_end
+            )
+        ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
@@ -984,6 +994,7 @@ def update_all_orgs_billing_quotas(
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+            posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),

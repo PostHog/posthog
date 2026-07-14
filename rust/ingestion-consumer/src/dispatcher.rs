@@ -12,7 +12,9 @@ use crate::stash::{DeferredGroup, Stash};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
-/// The max offset a sub-batch carries for one routing key. Passed back via
+/// The max offset a sub-batch carries for one routing key, over keyed
+/// messages only (null-key offsets live on arbitrary partitions and carry no
+/// per-key order promise). Passed back via
 /// [`Dispatcher::on_sub_batch_acked`] when the worker ACKs, so the
 /// [`KeyOrderSentinel`] can advance the key's ACK high-water mark.
 #[derive(Clone)]
@@ -108,7 +110,16 @@ impl WorkerAssignments {
                 key_offsets: Vec::new(),
             });
 
-        if let Some(max_offset) = group.messages.iter().map(|m| m.offset).max() {
+        // Only keyed messages participate in the key-order sentinel: a
+        // null-key message lives on an arbitrary partition, so its offset
+        // must not advance the key's ACK watermark.
+        if let Some(max_offset) = group
+            .messages
+            .iter()
+            .filter(|m| m.key.is_some())
+            .map(|m| m.offset)
+            .max()
+        {
             builder.key_offsets.push(KeyOffset {
                 routing_key: group.routing_key.clone(),
                 max_offset,
@@ -777,7 +788,7 @@ mod tests {
             partition: 0,
             offset: 0,
             timestamp: 0,
-            key: None,
+            key: Some(format!("{token}:{distinct_id}")),
             value: None,
             headers,
         }
@@ -911,6 +922,47 @@ mod tests {
             sub_batches[0].routing_keys,
             vec!["tok:user-1".to_string(), "tok:user-2".to_string()]
         );
+    }
+
+    #[test]
+    fn test_key_offsets_only_track_keyed_messages() {
+        // A null-key (overflow) message lands on an arbitrary partition; its
+        // offset advancing the ACK watermark would make the next keyed send
+        // look like a resend_after_ack.
+        let keyed = SerializedKafkaMessage {
+            offset: 100,
+            ..make_msg("tok", "user-1")
+        };
+        let unkeyed = SerializedKafkaMessage {
+            key: None,
+            partition: 1,
+            offset: 5000,
+            ..make_msg("tok", "user-1")
+        };
+
+        let mut assignments = WorkerAssignments::new();
+        assignments.add_group(
+            wid(1),
+            MessageGroup {
+                routing_key: "tok:user-1".to_string(),
+                messages: vec![keyed, unkeyed.clone()],
+            },
+        );
+        let sub_batches = assignments.into_sub_batches();
+        assert_eq!(sub_batches[0].key_offsets.len(), 1);
+        assert_eq!(sub_batches[0].key_offsets[0].routing_key, "tok:user-1");
+        assert_eq!(sub_batches[0].key_offsets[0].max_offset, 100);
+
+        // An all-unkeyed group produces no ACK watermark at all.
+        let mut assignments = WorkerAssignments::new();
+        assignments.add_group(
+            wid(1),
+            MessageGroup {
+                routing_key: "tok:user-1".to_string(),
+                messages: vec![unkeyed],
+            },
+        );
+        assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
 
     // ---- basic assignment ----

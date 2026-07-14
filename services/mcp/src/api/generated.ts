@@ -3028,7 +3028,7 @@ export namespace Schemas {
       /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | FunnelsDataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -5490,6 +5490,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Apns: 'apns',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
@@ -10774,15 +10775,46 @@ export namespace Schemas {
       type: S3CompatibleDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig;
+    export type SnowflakeDestinationConfigType = typeof SnowflakeDestinationConfigType[keyof typeof SnowflakeDestinationConfigType];
+
+
+    export const SnowflakeDestinationConfigType = {
+      Snowflake: 'Snowflake',
+    } as const;
+
+    /**
+     * Typed configuration for a Snowflake batch-export destination.
+     *
+     * Account, user, authentication type and credentials may live in a linked Integration (when one is
+     * provided) or inline in this config (legacy). Mirrors the non-credential fields of
+     * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface SnowflakeDestinationConfig {
+      /** Snowflake database to write to. */
+      database: string;
+      /** Snowflake compute warehouse to use. */
+      warehouse: string;
+      /** Schema inside the database containing the destination table. */
+      schema: string;
+      /** Destination table name. */
+      table_name?: string;
+      /**
+         * Optional Snowflake role to assume for the session.
+         * @nullable
+         */
+      role?: string | null;
+      type: SnowflakeDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
      * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-     * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
-     * OpenAPI schema. Secret fields are stripped from `config` on read.
+     * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
+     * typed OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -10801,7 +10833,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10809,7 +10841,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11777,7 +11809,24 @@ export namespace Schemas {
       config: S3CompatibleDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest;
+    export type SnowflakeDestinationRequestType = typeof SnowflakeDestinationRequestType[keyof typeof SnowflakeDestinationRequestType];
+
+
+    export const SnowflakeDestinationRequestType = {
+      Snowflake: 'Snowflake',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Snowflake batch-export destination.
+     */
+    export interface SnowflakeDestinationRequest {
+      type: SnowflakeDestinationRequestType;
+      /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: SnowflakeDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -12787,6 +12836,22 @@ export namespace Schemas {
       Both: 'both',
     } as const;
 
+    /**
+     * Input for proposing a certification: address the target by id or (convenience) by name.
+     */
+    export interface CertificationCreate {
+      /** Warehouse table id to certify (XOR the other targets). */
+      table_id?: string;
+      /** Warehouse view (saved query) id to certify. */
+      saved_query_id?: string;
+      /** Table name; 409 with candidates if ambiguous. */
+      table_name?: string;
+      /** View name; 409 with candidates if ambiguous. */
+      view_name?: string;
+      /** Why this mark exists. */
+      notes?: string;
+    }
+
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
@@ -12918,6 +12983,49 @@ export namespace Schemas {
       WidgetApi: 'widget_api',
       GithubIssue: 'github_issue',
     } as const;
+
+    export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
+
+    /**
+     * Response shape for one system announcement in a channel's feed.
+     */
+    export interface ChannelFeedMessageDTO {
+      id: string;
+      channel: string;
+      author?: TaskUserBasicInfo | null;
+      author_kind: string;
+      event: string;
+      payload: ChannelFeedMessageDTOPayload;
+      content: string;
+      created_at: string;
+    }
+
+    /**
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building
+     */
+    export type EventEnum = typeof EventEnum[keyof typeof EventEnum];
+
+
+    export const EventEnum = {
+      ContextCreated: 'context_created',
+      ContextMdBuilding: 'context_md_building',
+    } as const;
+
+    /**
+     * Request body for posting a system announcement into a channel's feed.
+     */
+    export interface ChannelFeedMessageWrite {
+      /** Lifecycle event key.
+       *
+       * * `context_created` - context_created
+       * * `context_md_building` - context_md_building */
+      event: EventEnum;
+      /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+      payload?: unknown;
+      /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+      created_at?: string;
+    }
 
     /**
      * * `widget` - Widget
@@ -14854,6 +14962,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `account` - account
+     * * `person` - person
+     */
+    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+
+
+    export const CustomPropertyDefinitionTargetType = {
+      Account: 'account',
+      Person: 'person',
+    } as const;
+
+    /**
      * * `preset-1` - preset-1
      * * `preset-2` - preset-2
      * * `preset-3` - preset-3
@@ -14918,15 +15038,26 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the custom property definition this source feeds. One source per definition. */
       definition: string;
-      /** UUID of the data-warehouse saved query (materialized view) to read values from. */
-      saved_query: string;
       /**
-         * Column in the view whose value is written to the property.
-         * @maxLength 400
+         * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+         * @nullable
          */
-      source_column: string;
+      saved_query?: string | null;
       /**
-         * Column in the view whose value matches an account's external_id.
+         * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * @nullable
+         */
+      external_data_schema?: string | null;
+      /**
+         * Account sources only: column in the view whose value is written to the property.
+         * @maxLength 400
+         * @nullable
+         */
+      source_column?: string | null;
+      /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+      column_property_map?: unknown;
+      /**
+         * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
          * @maxLength 400
          */
       key_column: string;
@@ -14994,6 +15125,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -15499,6 +15635,35 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    export interface DataCatalogCertification {
+      readonly id: string;
+      /**
+         * The warehouse table this mark applies to (XOR saved_query).
+         * @nullable
+         */
+      readonly table: string | null;
+      /**
+         * The warehouse view this mark applies to (XOR table).
+         * @nullable
+         */
+      readonly saved_query: string | null;
+      /** Whether the marked target is a 'table' or a 'view'. */
+      readonly target_type: string;
+      /** Name of the marked table or view. */
+      readonly target_name: string;
+      /** proposed, certified (prefer this source), or deprecated (avoid this source). */
+      readonly status: string;
+      /** Why this mark exists, e.g. 'canonical MRR source'. */
+      notes?: string;
+      /** User who last set certified/deprecated, or null. */
+      readonly certified_by: UserBasic | null;
+      /** @nullable */
+      readonly certified_at: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
     }
 
     /**
@@ -25965,7 +26130,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -26014,6 +26179,7 @@ export namespace Schemas {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard
+     * * `self_driving` - self_driving
      */
     export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
 
@@ -26023,6 +26189,7 @@ export namespace Schemas {
       Api: 'api',
       Mcp: 'mcp',
       Wizard: 'wizard',
+      SelfDriving: 'self_driving',
     } as const;
 
     /**
@@ -26033,12 +26200,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
@@ -28260,6 +28428,7 @@ export namespace Schemas {
      * * `choice` - choice
      * * `json` - json
      * * `integration` - integration
+     * * `integration_multi` - integration_multi
      * * `integration_field` - integration_field
      * * `email` - email
      * * `native_email` - native_email
@@ -28281,6 +28450,7 @@ export namespace Schemas {
       Choice: 'choice',
       Json: 'json',
       Integration: 'integration',
+      IntegrationMulti: 'integration_multi',
       IntegrationField: 'integration_field',
       Email: 'email',
       NativeEmail: 'native_email',
@@ -33987,6 +34157,7 @@ export namespace Schemas {
      * * `delegated` - Delegated to teammate
      * * `later` - Skipped for later
      * * `other` - Other
+     * * `provisioned` - Account provisioned by a partner
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -33995,6 +34166,7 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+      Provisioned: 'provisioned',
     } as const;
 
     /**
@@ -34827,6 +34999,15 @@ export namespace Schemas {
       results: ChannelDTO[];
     }
 
+    export interface PaginatedChannelFeedMessageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelFeedMessageDTO[];
+    }
+
     export interface PaginatedClickhouseEventList {
       /** @nullable */
       next?: string | null;
@@ -34947,6 +35128,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
+    }
+
+    export interface PaginatedDataCatalogCertificationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogCertification[];
     }
 
     export interface PaginatedDataCatalogMetricList {
@@ -38318,12 +38508,17 @@ export namespace Schemas {
       results: TaskSummaryDTO[];
     }
 
+    export type TaskThreadMessageDTOPayload = { [key: string]: unknown };
+
     /**
      * Response shape for one message in a task's thread.
      */
     export interface TaskThreadMessageDTO {
       id: string;
       task: string;
+      author_kind: string;
+      event: string;
+      payload: TaskThreadMessageDTOPayload;
       content: string;
       created_at: string;
       author?: TaskUserBasicInfo | null;
@@ -38980,6 +39175,11 @@ export namespace Schemas {
       readonly is_impersonated_until: string | null;
       /** @nullable */
       readonly is_impersonated_read_only: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
       readonly team: TeamBasic;
@@ -40248,6 +40448,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -41620,12 +41825,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
@@ -46346,6 +46552,11 @@ export namespace Schemas {
       readonly is_impersonated_until?: string | null;
       /** @nullable */
       readonly is_impersonated_read_only?: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
       readonly team?: TeamBasic;
@@ -50413,49 +50624,6 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
-
-    export type QueryResponseAlternative62InsightItemItem = { [key: string]: unknown };
-
-    export type QueryResponseAlternative62Probability = {[key: string]: number};
-
-    export interface QueryResponseAlternative62 {
-      credible_intervals: QueryResponseAlternative62CredibleIntervals;
-      expected_loss: number;
-      funnels_query?: FunnelsQuery | null;
-      insight: QueryResponseAlternative62InsightItemItem[][];
-      kind?: 'ExperimentFunnelsQuery';
-      probability: QueryResponseAlternative62Probability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantFunnelsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export type QueryResponseAlternative63CredibleIntervals = {[key: string]: number[]};
-
-    export type QueryResponseAlternative63InsightItem = { [key: string]: unknown };
-
-    export type QueryResponseAlternative63Probability = {[key: string]: number};
-
-    export interface QueryResponseAlternative63 {
-      count_query?: TrendsQuery | null;
-      credible_intervals: QueryResponseAlternative63CredibleIntervals;
-      exposure_query?: TrendsQuery | null;
-      insight: QueryResponseAlternative63InsightItem[];
-      kind?: 'ExperimentTrendsQuery';
-      p_value: number;
-      probability: QueryResponseAlternative63Probability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      stats_version?: number | null;
-      variants: ExperimentVariantTrendsBaseStats[];
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
     export interface QueryResponseAlternative64 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -51302,7 +51470,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
@@ -51478,13 +51646,13 @@ export namespace Schemas {
     }
 
     export interface RepoOverview {
-      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
-      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
@@ -51504,6 +51672,10 @@ export namespace Schemas {
       rerun_cycles: number;
       /** Re-run cycles over the previous window. */
       rerun_cycles_prev: number;
+      /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+      merged_pr_count: number;
+      /** Merged-PR count over the previous window. */
+      merged_pr_count_prev: number;
       /**
          * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
          * @nullable
@@ -53916,6 +54088,16 @@ export namespace Schemas {
       /** All runs on the task, oldest first. Empty when no mapping was found. */
       runs: SlackThreadContextRun[];
     }
+
+    /**
+     * * `Snowflake` - Snowflake
+     */
+    export type SnowflakeDestinationRequestTypeEnum = typeof SnowflakeDestinationRequestTypeEnum[keyof typeof SnowflakeDestinationRequestTypeEnum];
+
+
+    export const SnowflakeDestinationRequestTypeEnum = {
+      Snowflake: 'Snowflake',
+    } as const;
 
     export interface SourceConnectLink {
       /** The source type the link is for. */
@@ -57806,6 +57988,15 @@ export namespace Schemas {
          * @maxLength 120
          */
       home_quick_action?: string;
+    }
+
+    export interface TaskRunCancelRequest {
+      /**
+         * Optional reason for the cancellation, recorded on the run and shown to run watchers.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**
@@ -62832,6 +63023,10 @@ export namespace Schemas {
      */
     integration_id: number;
     /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
+    /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
     source_type: string;
@@ -67052,6 +67247,7 @@ export namespace Schemas {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -67138,6 +67334,7 @@ export namespace Schemas {
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
+      TableCertification: 'TableCertification',
     } as const;
 
     /**
@@ -67210,6 +67407,7 @@ export namespace Schemas {
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -67284,6 +67482,7 @@ export namespace Schemas {
       SignalScoutConfig: 'SignalScoutConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
+      TableCertification: 'TableCertification',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -68532,6 +68731,17 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DataCatalogCertificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataCatalogMetricsListParams = {
     /**
      * Number of results to return per page.
@@ -69063,6 +69273,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -69882,6 +70096,10 @@ export namespace Schemas {
      * The OAuth integration id whose accounts should be listed.
      */
     integration_id: number;
+    /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
     /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
@@ -73986,6 +74204,17 @@ export namespace Schemas {
     };
 
     export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskChannelsFeedListParams = {
     /**
      * Number of results to return per page.
      */
