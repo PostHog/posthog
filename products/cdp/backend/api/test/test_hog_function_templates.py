@@ -178,6 +178,15 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
 
+    @parameterized.expand(["offset", "limit"])
+    def test_public_list_rejects_pagination_value_past_bigint(self, param: str):
+        # Anonymous endpoint: an out-of-range offset/limit used to overflow Postgres
+        # bigint and 500. The default paginator now rejects it with a 400 instead.
+        self.client.logout()
+        response = self.client.get(f"/api/public_hog_function_templates/?{param}=99999999999999999999")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_hidden_templates_are_hidden(self):
         self.client.logout()
         response = self.client.get("/api/public_hog_function_templates/")
