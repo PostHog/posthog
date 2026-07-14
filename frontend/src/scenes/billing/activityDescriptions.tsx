@@ -17,17 +17,34 @@ const BILLING_ACTIONS: Record<string, string> = {
     'Billing plan switched': 'switched plan',
     'Billing trial activated': 'started a trial',
     'Billing trial extended': 'extended a trial',
-    'Billing trial cancelled': 'cancelled a trial',
+    'Billing trial canceled': 'canceled a trial',
+    // Alias kept so rows written before the billing service adopted American spelling still render.
+    'Billing trial cancelled': 'canceled a trial',
     'Billing credits purchased': 'purchased credits',
 }
 
 const formatValue = (value: ActivityChange['before']): string =>
     value === null || value === undefined ? 'none' : `${value}`
 
+const describeChange = (change: ActivityChange): string | null => {
+    if (!change.field) {
+        return null
+    }
+    switch (change.action) {
+        case 'changed':
+            return `${change.field} from ${formatValue(change.before)} to ${formatValue(change.after)}`
+        case 'created':
+            return `${change.field}: ${formatValue(change.after)}`
+        case 'deleted':
+            return `${change.field}: ${formatValue(change.before)}`
+        default:
+            return change.field
+    }
+}
+
 const describeChanges = (changes: ActivityChange[]): string | null => {
-    if (changes.length === 1 && changes[0].action === 'changed' && changes[0].field) {
-        const change = changes[0]
-        return `${change.field} from ${formatValue(change.before)} to ${formatValue(change.after)}`
+    if (changes.length === 1) {
+        return describeChange(changes[0])
     }
     const fields = changes.map((change) => change.field).filter((field): field is string => !!field)
     return fields.length ? fields.join(', ') : null
