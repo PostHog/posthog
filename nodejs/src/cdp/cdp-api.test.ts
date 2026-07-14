@@ -1168,6 +1168,67 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow in-flight count', () => {
+        let countHogFlow: HogFlow
+        let mockCountInFlightJobs: jest.Mock
+
+        beforeEach(async () => {
+            mockCountInFlightJobs = jest.fn().mockResolvedValue(3)
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: mockCountInFlightJobs,
+            }
+
+            countHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test in-flight count hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('returns the in-flight job count for a workflow', async () => {
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ count: 3 })
+            expect(mockCountInFlightJobs).toHaveBeenCalledWith(countHogFlow.team_id, countHogFlow.id)
+        })
+
+        it('errors if missing hog flow', async () => {
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${new UUIDT().toString()}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it('errors if the cyclotron producer is not configured', async () => {
+            api['batchResolverProducer'] = null
+
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(503)
+        })
+    })
+
     // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
     // it never enqueues into cyclotron. If the executor routes an email action onto the
     // dedicated email queue, nothing services that job and the workflow stalls on a
