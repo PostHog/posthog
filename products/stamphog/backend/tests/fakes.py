@@ -116,6 +116,7 @@ class GitHubRecorder:
     def __init__(self) -> None:
         self.prs: dict[tuple[str, int], dict] = {}
         self.pr_files: dict[tuple[str, int], list[dict]] = {}
+        self.pr_reviews: dict[tuple[str, int], list[dict]] = {}
         self.author_merged: dict[tuple[str, str], list[int]] = {}
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
@@ -148,6 +149,8 @@ class GitHubRecorder:
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
+        if method == "GET" and (m := _REVIEWS_RE.match(path)):
+            return FakeResponse(200, json_data=self.pr_reviews.get((m.group("repo"), int(m.group("number"))), []))
         if method == "POST" and (m := _REVIEWS_RE.match(path)):
             return self._record_write("approve_review", m.group("repo"), int(m.group("number")), json_body)
         if method == "GET" and _ISSUE_COMMENTS_RE.match(path):

@@ -124,6 +124,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     client = StamphogGitHubClient(repo_config.installation_id)
     pr = client.get_pr(repo, pull_request.pr_number)
     files = client.get_pr_files(repo, pull_request.pr_number)
+    # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
+    reviews = client.get_pr_reviews(repo, pull_request.pr_number)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
@@ -138,6 +140,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         **(run.output or {}),
         "pr": pr,
         "files": files,
+        "reviews": reviews,
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
     }
@@ -166,6 +169,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     output = run.output or {}
     pr = output.get("pr", {})
     files = output.get("files", [])
+    reviews = output.get("reviews", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
@@ -192,6 +196,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     invocation = build_reviewer_invocation(
         pr=pr,
         files=files,
+        reviews=reviews,
         author_pr_numbers=author_pr_numbers,
         base_sha=base_sha,
         head_sha=run.head_sha,

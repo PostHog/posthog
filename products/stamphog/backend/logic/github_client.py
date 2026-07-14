@@ -361,6 +361,35 @@ class StamphogGitHubClient:
                 break
         return files
 
+    def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
+        """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.
+
+        Returns the raw GitHub review objects (``user``, ``state``, ``commit_id``, ``body``,
+        ``author_association``, ...). The reviewer engine needs these to honor an active
+        ``CHANGES_REQUESTED`` review — without them the hosted path would run review-blind and could
+        approve over a maintainer's block. Stops at ``_MAX_PAGES`` for the same bound as the other lists.
+        """
+        reviews: list[dict] = []
+        for page in range(1, _MAX_PAGES + 1):
+            response = self._request(
+                "GET",
+                f"/repos/{repo}/pulls/{number}/reviews",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch PR reviews {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            page_reviews = self._json(response, f"/repos/{repo}/pulls/{number}/reviews")
+            if not isinstance(page_reviews, list):
+                raise StamphogGitHubError(f"Unexpected PR reviews payload for {repo}#{number}")
+            reviews.extend(review for review in page_reviews if isinstance(review, dict))
+            if len(page_reviews) < _PER_PAGE:
+                break
+        return reviews
+
     def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
         """Return the author's merged-PR numbers in this repo (best-effort).
 

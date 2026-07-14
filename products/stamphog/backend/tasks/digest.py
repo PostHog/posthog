@@ -88,6 +88,11 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=None)
         return
 
+    # Proof-of-post, written immediately after Slack accepted the message and before the fuller COMPLETED
+    # write below. If the worker dies in between, the reclaim sweeper sees a non-empty slack_message_ts,
+    # knows this run already posted, and finalizes it instead of unlinking + re-sending its PRs to Slack.
+    DigestRun.objects.for_team(team_id).filter(id=run.id).update(slack_message_ts=message_ts or "posted")
+
     now = timezone.now()
     with transaction.atomic():
         DigestRun.objects.for_team(team_id).filter(id=run.id).update(
@@ -127,16 +132,25 @@ def _reclaim_stale_pending_runs() -> None:
     """
     cutoff = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES)
     stale = DigestRun.objects.unscoped().filter(status=DigestRunStatus.PENDING, created_at__lt=cutoff)
-    reclaimed = 0
-    for run_id, team_id in stale.values_list("id", "team_id").iterator():
+    reclaimed = finalized = 0
+    for run_id, team_id, slack_ts in stale.values_list("id", "team_id", "slack_message_ts").iterator():
         with transaction.atomic():
-            PullRequest.objects.for_team(team_id).filter(digest_run_id=run_id).update(digest_run=None)
-            DigestRun.objects.for_team(team_id).filter(id=run_id).update(
-                status=DigestRunStatus.FAILED, error="Reclaimed: worker lost before the digest posted."
-            )
-        reclaimed += 1
-    if reclaimed:
-        logger.info("stamphog_digest_reclaimed_stale_pending_runs", count=reclaimed)
+            if slack_ts:
+                # It already posted to Slack (the COMPLETED write just never landed). Finalize the run and
+                # KEEP its PRs linked, so the next digest doesn't re-send PRs Slack already received.
+                DigestRun.objects.for_team(team_id).filter(id=run_id).update(
+                    status=DigestRunStatus.COMPLETED, posted_at=timezone.now()
+                )
+                finalized += 1
+            else:
+                # Never posted — unlink the PRs so the next run retries them.
+                PullRequest.objects.for_team(team_id).filter(digest_run_id=run_id).update(digest_run=None)
+                DigestRun.objects.for_team(team_id).filter(id=run_id).update(
+                    status=DigestRunStatus.FAILED, error="Reclaimed: worker lost before the digest posted."
+                )
+                reclaimed += 1
+    if reclaimed or finalized:
+        logger.info("stamphog_digest_reclaimed_stale_pending_runs", reclaimed=reclaimed, finalized=finalized)
 
 
 @shared_task(ignore_result=True)

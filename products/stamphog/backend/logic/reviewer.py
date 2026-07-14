@@ -86,6 +86,7 @@ def build_reviewer_invocation(
     *,
     pr: dict,
     files: list[dict],
+    reviews: list[dict],
     author_pr_numbers: list[int],
     base_sha: str,
     head_sha: str,
@@ -107,6 +108,7 @@ def build_reviewer_invocation(
         "head_sha": head_sha,
         "pr": pr,
         "files": files,
+        "reviews": reviews,
         "author_pr_numbers": list(author_pr_numbers),
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]

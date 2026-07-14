@@ -1,16 +1,23 @@
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.digest import DigestSummary, summarize_merged_prs
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, StamphogRepoConfig
-from products.stamphog.backend.tasks.digest import send_digest_for_channel
+from products.stamphog.backend.tasks.digest import (
+    STALE_PENDING_RUN_MINUTES,
+    _reclaim_stale_pending_runs,
+    send_digest_for_channel,
+)
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
 
 REPO = "acme/widgets"
@@ -34,6 +41,37 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
             team_id=team_id, repo_config=repo_config, pr_number=number, audience_key=AUDIENCE
         )
     return str(channel.id)
+
+
+@pytest.mark.parametrize(
+    "slack_ts,expect_status,expect_prs_linked",
+    [("1234.5", DigestRunStatus.COMPLETED, True), ("", DigestRunStatus.FAILED, False)],
+    ids=["posted_run_finalized_keeps_prs", "unposted_run_reclaimed_unlinks_prs"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_linked) -> None:
+    # A worker that dies mid-run leaves a PENDING run with its PRs claimed. If it already posted to Slack
+    # (slack_message_ts set), reclaim must finalize it as COMPLETED and KEEP its PRs linked so the next
+    # digest doesn't re-send them. If it never posted, reclaim unlinks the PRs so they're retried.
+    with team_scope(team.id):
+        channel_id = _seed_channel_and_prs(team.id, pr_count=2)
+        run = DigestRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            digest_channel_id=channel_id,
+            status=DigestRunStatus.PENDING,
+            slack_message_ts=slack_ts,
+        )
+        PullRequest.objects.for_team(team.id).filter(audience_key=AUDIENCE).update(digest_run=run)
+        stale = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
+        DigestRun.objects.for_team(team.id).filter(id=run.id).update(created_at=stale)
+
+    _reclaim_stale_pending_runs()
+
+    with team_scope(team.id):
+        run.refresh_from_db()
+        linked = PullRequest.objects.for_team(team.id).filter(digest_run_id=run.id).count()
+    assert run.status == expect_status
+    assert (linked == 2) is expect_prs_linked
 
 
 # ---- Finding 2: a channel's digest must never post to Slack twice ------------------------------

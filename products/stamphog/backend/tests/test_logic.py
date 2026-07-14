@@ -1,7 +1,9 @@
+import json
+
 from django.test import SimpleTestCase
 
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
-from products.stamphog.backend.logic.reviewer import parse_reviewer_output
+from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 
 # The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
@@ -75,6 +77,27 @@ class ParseReviewerOutputTests(SimpleTestCase):
 
         assert verdict.verdict == "escalate"
         assert any("MAYBE" in note for note in verdict.showstoppers)
+
+
+class BuildReviewerInvocationTests(SimpleTestCase):
+    def test_reviews_are_threaded_into_the_context(self) -> None:
+        # The hosted reviewer must receive prior PR reviews so the engine's prerequisite gate can block
+        # on an active CHANGES_REQUESTED. If reviews were dropped from the context the reviewer would run
+        # review-blind and could approve over a maintainer's block.
+        reviews = [{"user": {"login": "maintainer"}, "state": "CHANGES_REQUESTED"}]
+        invocation = build_reviewer_invocation(
+            pr={"number": 1},
+            files=[],
+            reviews=reviews,
+            author_pr_numbers=[],
+            base_sha="base",
+            head_sha="head",
+            repo="owner/repo",
+            engine_dir="/engine",
+            context_path="/ctx.json",
+        )
+        context = json.loads(invocation.context_json)
+        assert context["reviews"] == reviews
 
 
 class SlackDigestEscapingTests(SimpleTestCase):
