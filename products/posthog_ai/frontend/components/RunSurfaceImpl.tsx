@@ -7,6 +7,7 @@ import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { OriginProduct } from '../types/taskTypes'
 import { ContextUsageBar } from './ContextUsageBar'
+import { RunFeedbackFooter } from './feedback/RunFeedbackFooter'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { ResourcesBar } from './ResourcesBar'
@@ -52,6 +53,8 @@ interface RunSurfaceContextValue {
     interaction: 'live' | 'read-only'
     /** Run created by a Signals scout — the context-usage line is suppressed for these. */
     isScout: boolean
+    /** Telemetry tag — the conversation id when there is one; feedback falls back to the run id. */
+    conversationId?: string
 }
 
 const RunSurfaceContext = createContext<RunSurfaceContextValue | null>(null)
@@ -108,6 +111,7 @@ function RunSurfaceRoot({
                     runId: logicKey,
                     interaction,
                     isScout,
+                    conversationId,
                 }}
             >
                 <RunSurfaceBootstrap taskId={taskId} />
@@ -232,6 +236,19 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
 }
 
 /**
+ * Feedback slot: the per-run thumbs + progressive good/okay/bad prompt. Live-only — a read-only replay
+ * has nothing to rate in place. The telemetry session id is the conversation id when there is one, else the
+ * run id (task runs have no conversation).
+ */
+function RunSurfaceFeedback(): JSX.Element | null {
+    const { interaction, runId, rawRunId, conversationId } = useRunSurfaceContext()
+    if (interaction !== 'live') {
+        return null
+    }
+    return <RunFeedbackFooter streamKey={runId} sessionId={conversationId ?? rawRunId} />
+}
+
+/**
  * Compound run surface. `RunSurface.Root` binds the stream logic, bootstraps the run, and provides context;
  * the slots (`RunSurface.Thread/.Composer/.Resources/.ContextUsage`) compose into a custom layout — there is
  * no default layout. `RunSurface.Composer` owns the prompt-vs-composer precedence and takes the composer UI
@@ -242,6 +259,7 @@ export const RunSurface = Object.assign(RunSurfaceRoot, {
     Root: RunSurfaceRoot,
     Thread: RunSurfaceThread,
     Composer: RunSurfaceComposer,
+    Feedback: RunSurfaceFeedback,
     Resources: ResourcesBar,
     ContextUsage: ContextUsageBar,
 })

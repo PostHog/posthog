@@ -56,10 +56,15 @@ directory's `README.md` for the tier decision table + recipes and its `AGENTS.md
 and the hard rule that it must never import `scenes/max`.
 
 What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLogic`, `maxGlobalLogic`), the
-Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, the frozen LangGraph path,
-and Max's **product-specific tool renderers** (`messages/adapters/*`), which register themselves into the
-shared `toolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
+Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, the LangGraph path's own feedback/ratings, the
+frozen LangGraph path, and Max's **product-specific tool renderers** (`messages/adapters/*`), which register
+themselves into the shared `toolRegistry` via `messages/adapters/registerMaxToolRenderers` (imported once from
 `Thread.tsx`). Add a new product tool renderer there, not in `products/posthog_ai/frontend`.
+
+> Feedback is intentionally **duplicated**, not shared: the sandbox run surface has its own generic,
+> `runStreamLogic`-driven copy (thumbs + progressive good/okay/bad prompt) under
+> `products/posthog_ai/frontend/components/feedback/`. Max keeps this separate LangGraph copy. Changing one
+> does not change the other.
 
 ## 5. Where do I add X?
 
