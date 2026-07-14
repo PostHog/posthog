@@ -3,9 +3,10 @@ from __future__ import annotations
 import inspect
 import logging
 import importlib
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from .requirements import SuiteKind
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 SANDBOXED_PACKAGE = "ee.hogai.eval.sandboxed"
 SANDBOXED_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = SANDBOXED_ROOT.parents[3]
+PRODUCTS_ROOT = REPO_ROOT / "products"
 
 EvalSuiteFn = Callable[["EvalContext"], Coroutine[Any, Any, None]]
 
@@ -28,7 +31,8 @@ class SuiteDiscoveryError(RuntimeError):
 @dataclass(frozen=True)
 class EvalSuite:
     domain: str
-    """Directory the suite lives in, e.g. ``experiments``. ``root`` for top-level files."""
+    """Directory the suite lives in, e.g. ``experiments`` for a sandboxed suite or
+    ``<product>`` for a product-owned suite. ``root`` for top-level sandboxed files."""
 
     module_name: str
     fn_name: str
@@ -42,54 +46,99 @@ class EvalSuite:
         return f"{self.domain}/{self.module_name}::{self.fn_name}"
 
 
-def _module_path(path: Path) -> tuple[str, str, str]:
-    relative = path.relative_to(SANDBOXED_ROOT)
-    domain = relative.parent.as_posix().replace("/", ".") if relative.parent != Path(".") else "root"
-    dotted_parent = "" if domain == "root" else f".{domain}"
-    return domain, path.stem, f"{SANDBOXED_PACKAGE}{dotted_parent}.{path.stem}"
+def _sandboxed_modules(root: Path) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(domain, module_name, dotted)`` for every ``eval_*.py`` in the
+    sandboxed tree. The domain falls out of the directory the file lives in."""
+    harness_dir = Path(__file__).resolve().parent
+    for path in sorted(root.rglob("eval_*.py")):
+        # ``discovery.py`` and its harness siblings live under the tree too; never
+        # import one of them as a suite module.
+        if path.is_relative_to(harness_dir):
+            continue
+        relative = path.relative_to(root)
+        domain = relative.parent.as_posix().replace("/", ".") if relative.parent != Path(".") else "root"
+        dotted_parent = "" if domain == "root" else f".{domain}"
+        yield domain, path.stem, f"{SANDBOXED_PACKAGE}{dotted_parent}.{path.stem}"
 
 
-def discover_suites(selectors: Sequence[str] = ()) -> list[EvalSuite]:
-    """Import every ``eval_*.py`` under the sandboxed tree and collect its ``eval_*`` coroutines.
+def _product_modules(root: Path) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(domain, module_name, dotted)`` for every ``eval_*.py`` under a
+    ``products/<product>/evals/`` tree (plural ``evals`` — the singular
+    ``products/signals/eval/`` pytest tree is deliberately not matched).
+
+    The import anchor is ``root.parent`` (the repo root for the real
+    ``products/`` dir), so the dotted path is ``<root name>.<product>.evals.…`` —
+    ``products.<product>.evals.<module>`` in production."""
+    for path in sorted(root.glob("*/evals/**/eval_*.py")):
+        relative = path.relative_to(root)
+        product = relative.parts[0]
+        dotted = ".".join([root.name, *relative.with_suffix("").parts])
+        yield product, path.stem, dotted
+
+
+def _import_suite_module(dotted: str, module_target: str, selectors: Sequence[str]) -> ModuleType | None:
+    """Import a discovered module, applying the shared import-failure policy.
+
+    A selected run only cares about the modules its selectors target, so a broken
+    *unrelated* module is skipped. A no-selector run (full run or ``--list``) is
+    the repo's import smoke check, so there a failure stays fatal.
+
+    Selectors are matched against ``<domain>/<module>`` (not the full
+    ``<domain>/<module>::<fn>`` suite id): a module that failed to import has no
+    function names to build ids from, so a ``::fn``-style selector can't match here
+    and the module is treated as unrelated — acceptable, since such a selector
+    still fails the run loudly via the "No eval suites matched" check.
+    """
+    try:
+        return importlib.import_module(dotted)
+    except Exception as e:
+        if selectors and not any(selector in module_target for selector in selectors):
+            logger.warning("Skipping unselected eval module %s that failed to import: %s", dotted, e)
+            return None
+        raise SuiteDiscoveryError(f"Failed to import eval module {dotted}: {e}") from e
+
+
+def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: str) -> list[EvalSuite]:
+    kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
+    if not isinstance(kind, SuiteKind):
+        raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
+    collected: list[EvalSuite] = []
+    for fn_name, fn in vars(module).items():
+        if not fn_name.startswith("eval_") or not inspect.iscoroutinefunction(fn):
+            continue
+        # Only functions defined here — an `eval_*` imported from a sibling
+        # module would otherwise be collected twice.
+        if fn.__module__ != dotted:
+            continue
+        collected.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
+    return collected
+
+
+def discover_suites(
+    selectors: Sequence[str] = (),
+    *,
+    sandboxed_root: Path = SANDBOXED_ROOT,
+    products_root: Path = PRODUCTS_ROOT,
+) -> list[EvalSuite]:
+    """Import every ``eval_*.py`` under the sandboxed tree and the
+    ``products/*/evals/`` trees, and collect their ``eval_*`` coroutines.
 
     Convention over registry: a new eval file is picked up with no boilerplate,
-    and its domain falls out of the directory it lives in.
+    and its domain falls out of the directory it lives in. Roots are injectable so
+    discovery can be exercised against a fixture tree in tests.
     """
+    modules: list[tuple[str, str, str]] = [
+        *_sandboxed_modules(sandboxed_root),
+        *_product_modules(products_root),
+    ]
+
     suites: list[EvalSuite] = []
-    for path in sorted(SANDBOXED_ROOT.rglob("eval_*.py")):
-        if path.is_relative_to(Path(__file__).resolve().parent):
+    for domain, module_name, dotted in modules:
+        module_target = f"{domain}/{module_name}"
+        module = _import_suite_module(dotted, module_target, selectors)
+        if module is None:
             continue
-        domain, module_name, dotted = _module_path(path)
-        try:
-            module = importlib.import_module(dotted)
-        except Exception as e:
-            # A selected run only cares about the modules its selectors target.
-            # A broken *unrelated* module shouldn't take the whole run down — but a
-            # no-selector run (full run or --list) is the repo's import smoke check,
-            # so there it stays fatal.
-            #
-            # We match selectors against ``<domain>/<module>`` (not the full
-            # ``<domain>/<module>::<fn>`` suite id): a module that failed to import
-            # has no function names to build ids from. A ``::fn``-style selector
-            # therefore can't match here and the module is treated as unrelated —
-            # acceptable, since such a selector still fails the run loudly via the
-            # "No eval suites matched" check below.
-            module_target = f"{domain}/{module_name}"
-            if selectors and not any(selector in module_target for selector in selectors):
-                logger.warning("Skipping unselected eval module %s that failed to import: %s", dotted, e)
-                continue
-            raise SuiteDiscoveryError(f"Failed to import eval module {dotted}: {e}") from e
-        kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
-        if not isinstance(kind, SuiteKind):
-            raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
-        for fn_name, fn in vars(module).items():
-            if not fn_name.startswith("eval_") or not inspect.iscoroutinefunction(fn):
-                continue
-            # Only functions defined here — an `eval_*` imported from a sibling
-            # module would otherwise be collected twice.
-            if fn.__module__ != dotted:
-                continue
-            suites.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
+        suites.extend(_collect_suites(module, domain, module_name, dotted))
 
     if not selectors:
         return suites

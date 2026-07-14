@@ -22,8 +22,14 @@ Field-level API detail (case fields, the `output` dict, `LogParser`, seeder inve
 
 ## Writing a suite
 
-Suites are discovered by convention, not registered: any coroutine named `eval_*` in a file named `eval_*.py` under `ee/hogai/eval/sandboxed/<domain>/`, taking a single `ctx: EvalContext` and returning `None`.
-The directory is the domain; the suite id is `<domain>/<module>::<fn>`.
+Suites are discovered by convention, not registered: any coroutine named `eval_*` in a file named `eval_*.py`, taking a single `ctx: EvalContext` and returning `None`.
+The harness discovers suites from two root sets:
+
+- `ee/hogai/eval/sandboxed/<domain>/` — reserved for Max and other agent suites. The directory is the domain; the suite id is `<domain>/<module>::<fn>`.
+- `products/<product>/evals/` — where a product ships eval suites next to its own code. Note the **plural** `evals/`: the singular `products/signals/eval/` is an existing pytest tree and is not collected by the harness. The product is the domain; the suite id is `<product>/<module>::<fn>` (import path `products.<product>.evals.<module>`).
+
+New product-owned evals belong under `products/<product>/evals/`. Both root sets use the same conventions (the `eval_*`-coroutine-in-`eval_*.py` rule, the `SUITE_KIND` marker, and substring selectors).
+`products/<product>/evals/` needs no pytest-collection exclusion: pytest's default `python_files` matches `test_*.py`, so `eval_*.py` files there are never collected as tests (the sandboxed tree, by contrast, is excluded via `collect_ignore` in `ee/hogai/eval/conftest.py`). Do not add a `conftest.py` under `products/<product>/evals/`.
 
 ```python
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval

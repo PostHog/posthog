@@ -145,9 +145,14 @@ The harness boots the union of what the selected suites require, and a suite tha
 The `/writing-evals` skill ([.agents/skills/writing-evals](../../../../.agents/skills/writing-evals/SKILL.md)) covers the full authoring workflow — cases, seeders, synthesizers, scorer patterns, and verification.
 The short version:
 
-There is no registry. Suites are discovered by convention:
+There is no registry. Suites are discovered by convention from two root sets:
 
-1. Create `ee/hogai/eval/sandboxed/<domain>/eval_<name>.py`. The directory becomes the suite's domain.
+- `ee/hogai/eval/sandboxed/<domain>/` — reserved for Max and other agent suites.
+- `products/<product>/evals/` — where a product owns its eval suites (plural `evals/`; the singular `products/signals/eval/` is an unrelated pytest tree the harness ignores). Suite id is `<product>/<module>::<fn>`, import path `products.<product>.evals.<module>`.
+
+New product-owned evals belong under `products/<product>/evals/`; that directory needs no pytest-collection exclusion, since pytest's default `python_files` matches `test_*.py` and never collects `eval_*.py` there.
+
+1. Create `ee/hogai/eval/sandboxed/<domain>/eval_<name>.py` (or `products/<product>/evals/eval_<name>.py`). The directory becomes the suite's domain.
 2. Write one or more coroutines named `eval_*` taking a single `ctx: EvalContext`.
 3. Build a list of `SandboxedEvalCase` and hand it to `SandboxedPrivateEval` or `SandboxedPublicEval` along with your scorers and `ctx=ctx`.
 
