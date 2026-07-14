@@ -1,15 +1,20 @@
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { Fragment } from 'react'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
-import { FeatureFlagGroupType } from '~/types'
+// Matches the shape produced by featureFlagReleaseConditionsLogic's `propertySelectErrors`
+// selector, one entry per condition set.
+export type PropertySelectError = {
+    properties?: { value?: string }[]
+    rollout_percentage?: string
+    variant: null
+}
 
 // Renders a condition set's property errors (from featureFlagReleaseConditionsLogic's
 // `propertySelectErrors` selector) as the JSX.Element[] the PropertyFilters `errorMessages`
 // prop expects, one entry per property (empty entries render nothing).
 export function getPropertySelectErrorMessages(
-    propertySelectErrors: DeepPartialMap<FeatureFlagGroupType, ValidationErrorType>[] | null,
+    propertySelectErrors: PropertySelectError[] | null | undefined,
     index: number
 ): JSX.Element[] | null {
     const properties = propertySelectErrors?.[index]?.properties

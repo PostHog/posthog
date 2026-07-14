@@ -12,7 +12,6 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -86,7 +85,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
-import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
+import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -351,7 +350,7 @@ interface ConditionProps {
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
-    propertySelectErrors: DeepPartialMap<FeatureFlagGroupType, ValidationErrorType>[] | null
+    propertySelectErrors: PropertySelectError[] | null | undefined
     openConditions: string[]
     handleOpenConditionsChange: (newKeys: string[]) => void
     flagId?: FeatureFlagLogicProps['id']
