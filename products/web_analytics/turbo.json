@@ -5,23 +5,14 @@
             "inputs": [
                 "backend/**/*.py",
                 "!backend/**/__pycache__/**",
-                "stats/**/*.py",
                 "../../pyproject.toml",
                 "../../uv.lock",
                 "../../common/**/*.py",
                 "../../products/actions/**/*.py",
-                "../../products/ai_observability/**/*.py",
                 "../../products/analytics_platform/**/*.py",
-                "../../products/approvals/**/*.py",
                 "../../products/cohorts/**/*.py",
-                "../../products/data_tools/**/*.py",
-                "../../products/event_definitions/**/*.py",
-                "../../products/feature_flags/**/*.py",
                 "../../products/notifications/**/*.py",
-                "../../products/product_tours/**/*.py",
-                "../../products/surveys/**/*.py",
-                "../../products/tasks/**/*.py",
-                "../../products/warehouse_sources/**/*.py"
+                "../../products/replay_vision/**/*.py"
             ]
         }
     }

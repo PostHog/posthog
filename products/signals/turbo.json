@@ -1,0 +1,32 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            "inputs": [
+                "backend/**/*.py",
+                "!backend/**/__pycache__/**",
+                "../../pyproject.toml",
+                "../../uv.lock",
+                "../../common/**/*.py",
+                "../../products/actions/**/*.py",
+                "../../products/alerts/**/*.py",
+                "../../products/business_knowledge/**/*.py",
+                "../../products/cdp/**/*.py",
+                "../../products/cohorts/**/*.py",
+                "../../products/conversations/**/*.py",
+                "../../products/dashboards/**/*.py",
+                "../../products/data_warehouse/**/*.py",
+                "../../products/error_tracking/**/*.py",
+                "../../products/experiments/**/*.py",
+                "../../products/feature_flags/**/*.py",
+                "../../products/notebooks/**/*.py",
+                "../../products/product_analytics/**/*.py",
+                "../../products/skills/**/*.py",
+                "../../products/surveys/**/*.py",
+                "../../products/tasks/**/*.py",
+                "../../products/warehouse_sources/**/*.py",
+                "../../products/workflows/**/*.py"
+            ]
+        }
+    }
+}

@@ -9,15 +9,9 @@
                 "../../uv.lock",
                 "../../common/**/*.py",
                 "../../products/data_modeling/**/*.py",
-                "../../products/data_warehouse/**/*.py",
-                "../../products/product_analytics/**/*.py",
+                "../../products/data_tools/**/*.py",
                 "../../products/warehouse_sources/**/*.py"
             ]
-        },
-        "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
-            "outputs": [],
-            "cache": true
         }
     }
 }

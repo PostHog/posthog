@@ -8,16 +8,14 @@
                 "../../pyproject.toml",
                 "../../uv.lock",
                 "../../common/**/*.py",
-                "../../products/data_modeling/**/*.py",
-                "../../products/data_warehouse/**/*.py",
-                "../../products/product_analytics/**/*.py",
+                "../../products/actions/**/*.py",
+                "../../products/alerts/**/*.py",
+                "../../products/annotations/**/*.py",
+                "../../products/cohorts/**/*.py",
+                "../../products/dashboards/**/*.py",
+                "../../products/event_definitions/**/*.py",
                 "../../products/warehouse_sources/**/*.py"
             ]
-        },
-        "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
-            "outputs": [],
-            "cache": true
         }
     }
 }

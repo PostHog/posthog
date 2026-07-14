@@ -10,6 +10,7 @@ const os = require('os')
 const path = require('path')
 
 const {
+    changedPathToProduct,
     collectTestFiles,
     checkProductStaleness,
     includeDependencyScopedProducts,
@@ -18,11 +19,24 @@ const {
     STALENESS_FALLBACK_SECONDS_PER_FILE,
 } = require('./turbo-discover')
 
+test('changedPathToProduct only maps known product paths', () => {
+    const products = new Set(['warehouse-sources', 'signals'])
+
+    assert.equal(changedPathToProduct('products/warehouse_sources/backend/models.py', products), 'warehouse-sources')
+    assert.equal(changedPathToProduct('products/signals/package.json', products), 'signals')
+    assert.equal(changedPathToProduct('products/unknown/backend/test.py', products), null)
+    assert.equal(changedPathToProduct('posthog/models/team.py', products), null)
+})
+
 test('dependency-scoped products only join full sweeps when affected', () => {
-    const allProducts = ['experiments', 'signals', 'surveys']
+    const allProducts = ['experiments', 'signals', 'surveys', 'warehouse-sources', 'web-analytics']
 
     assert.deepEqual(includeDependencyScopedProducts(allProducts, ['signals']), ['signals', 'surveys'])
-    assert.deepEqual(includeDependencyScopedProducts(allProducts, ['experiments']), allProducts)
+    assert.deepEqual(includeDependencyScopedProducts(allProducts, ['experiments', 'warehouse-sources']), [
+        'experiments',
+        'surveys',
+        'warehouse-sources',
+    ])
 })
 
 test('productPrefix converts dashes to underscores', () => {

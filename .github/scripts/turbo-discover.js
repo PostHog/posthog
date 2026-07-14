@@ -58,7 +58,17 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
 // inputs, so they do not need to join a full product sweep unless Turbo marks
 // them affected. Keep this list deliberately small: missing an input would skip
 // a product test that should have run.
-const DEPENDENCY_SCOPED_PRODUCTS = new Set(['experiments'])
+const DEPENDENCY_SCOPED_PRODUCTS = new Set([
+    'endpoints',
+    'experiments',
+    'logs',
+    'product-analytics',
+    'revenue-analytics',
+    'signals',
+    'tasks',
+    'warehouse-sources',
+    'web-analytics',
+])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -138,6 +148,25 @@ function getIsolatedProducts(contractTasks) {
 
 function getAffectedTaskProducts(tasks) {
     return [...new Set(tasks.map((t) => packageToProduct(t.package.name)))].sort()
+}
+
+function changedPathToProduct(file, allProductSet) {
+    const match = file.match(/^products\/([^/]+)\//)
+    if (!match) {return null}
+    const product = match[1].replace(/_/g, '-')
+    return allProductSet.has(product) ? product : null
+}
+
+function getDirectlyChangedProducts(allProducts) {
+    if (!process.env.TURBO_SCM_BASE) {return []}
+    const args = ['diff', '--name-only', process.env.TURBO_SCM_BASE]
+    if (process.env.TURBO_SCM_HEAD) {
+        args.push(process.env.TURBO_SCM_HEAD)
+    }
+    args.push('--', 'products/')
+    const files = execFileSync('git', args, { encoding: 'utf8' }).trim().split('\n').filter(Boolean)
+    const allProductSet = new Set(allProducts)
+    return [...new Set(files.map((file) => changedPathToProduct(file, allProductSet)).filter(Boolean))].sort()
 }
 
 function includeDependencyScopedProducts(allProducts, affectedProducts) {
@@ -515,6 +544,7 @@ function buildMatrix(products, durations) {
 // Exported for unit tests only — not part of the public API.
 module.exports = {
     collectTestFiles,
+    changedPathToProduct,
     checkProductStaleness,
     includeDependencyScopedProducts,
     productPrefix,
@@ -553,24 +583,24 @@ let products
 let runLegacy
 
 if (legacyChanged) {
-    console.error(`Legacy code changed — testing all products except unaffected dependency-scoped products`)
-    console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
-    logAffectedReasons('backend:test', affectedTestTasks)
-    products = includeDependencyScopedProducts(allProducts, affectedProducts)
+    console.error('Legacy code changed — testing all products')
+    products = allProducts
     runLegacy = true
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
-    const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
+    const directlyChangedProducts = getDirectlyChangedProducts(allProducts)
+    const nonIsolatedChangedProducts = directlyChangedProducts.filter((p) => !isolatedProducts.has(p))
 
     console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
+    console.error(`Directly changed products: ${JSON.stringify(directlyChangedProducts)}`)
     console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
     logAffectedReasons('backend:test', affectedTestTasks)
 
-    if (nonIsolatedAffectedProducts.length > 0) {
+    if (nonIsolatedChangedProducts.length > 0) {
         // Non-isolated product changed — test every product except dependency-scoped
         // products whose declared inputs were unaffected.
         console.error(
-            `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing affected dependency-scoped products, all other products, and Django`
+            `Non-isolated products changed: ${JSON.stringify(nonIsolatedChangedProducts)} — testing affected dependency-scoped products, all other products, and Django`
         )
         products = includeDependencyScopedProducts(allProducts, affectedProducts)
         runLegacy = true
