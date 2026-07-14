@@ -56,6 +56,7 @@ export function DashboardSubscribeButton(): JSX.Element | null {
             onClick={() => {
                 posthog.capture('dashboard subscribe clicked', {
                     dashboard_id: dashboardId,
+                    variant: 'button',
                     surface: 'button',
                 })
                 push(urlForSubscriptions({ dashboardId }))
