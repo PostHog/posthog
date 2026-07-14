@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from django.conf import settings
@@ -93,6 +93,19 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+
+    def with_state(self, state: dict | None) -> "TaskProcessingContext":
+        """Copy of this context rebased onto the given (typically live) run state.
+
+        The context is captured at workflow start, so its ``state`` is a
+        boot-time snapshot while the run's actual state moves on (multiplayer
+        follow-ups update the actor mid-run). Anything resolving the *current*
+        actor must go through a rebased copy. The other fields intentionally
+        stay boot-time: they are either immutable for the run (ids, repository)
+        or last-resort fallbacks (``github_user_integration_id``,
+        ``distinct_id``) that actor-aware resolution overrides via state.
+        """
+        return replace(self, state=state)
 
     @property
     def mode(self) -> str:

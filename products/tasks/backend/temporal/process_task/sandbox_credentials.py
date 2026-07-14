@@ -13,10 +13,12 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.redis import get_client
 
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.agent_command import CommandResult, send_refresh_session
 from products.tasks.backend.logic.services.agentsh import ENV_FILE
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
+    get_git_identity_env_vars,
     get_github_token,
     get_pr_authorship_mode,
     get_sandbox_github_token,
@@ -247,6 +249,19 @@ class GitHubSandboxCredential:
 
     kind: str = "github"
 
+    def _apply(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task, token: str) -> None:
+        """Write the token and the matching git author into the sandbox.
+
+        The author must track the same actor the token was resolved for, so
+        every credential write re-derives it from the same state — otherwise
+        an actor transition would switch pushes but keep attributing commits
+        to the previous speaker.
+        """
+        apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+        git_identity = get_git_identity_env_vars(task, ctx.state)
+        if git_identity:
+            update_sandbox_env_file(sandbox, git_identity)
+
     def refresh(self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task) -> CredentialRefreshOutcome:
         if not ctx.has_github_credentials:
             return CredentialRefreshOutcome(
@@ -312,7 +327,7 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+        self._apply(sandbox, ctx, task, token)
         return CredentialRefreshOutcome(
             self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
@@ -328,12 +343,12 @@ class GitHubSandboxCredential:
                 return CredentialRefreshOutcome(
                     self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
                 )
-            apply_github_credentials_to_sandbox(sandbox, ctx.repository, fallback)
+            self._apply(sandbox, ctx, task, fallback)
             return CredentialRefreshOutcome(
                 self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
         if token:
-            apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+            self._apply(sandbox, ctx, task, token)
         return CredentialRefreshOutcome(
             self.kind, refreshed=bool(token), next_refresh_seconds=USER_TOKEN_REFRESH_INTERVAL_SECONDS
         )
@@ -353,6 +368,22 @@ class GitHubSandboxCredential:
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
                 cause=e,
             )
+
+
+def notify_sandbox_credentials_refreshed(
+    task_run: TaskRun, refreshed_kinds: list[str], *, auth_token: str | None
+) -> CommandResult:
+    """Tell the running agent-server which credentials were just re-injected.
+
+    Credentials-only ``refresh_session`` payload (empty ``mcpServers``): the
+    agent-server logs it and returns without rebuilding the session, so it is
+    safe to send mid-turn. ``authorship`` rides along so the agent-server
+    tracks the effective PR authorship for the run.
+    """
+    authorship = (task_run.state or {}).get("pr_authorship_mode")
+    return send_refresh_session(
+        task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
+    )
 
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:

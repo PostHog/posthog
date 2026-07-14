@@ -28,7 +28,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
-    mark_mcp_token_issued,
+    mark_mcp_session,
     mark_sandbox_identity,
 )
 
@@ -328,8 +328,7 @@ def _invoke_start_agent_server(
         # Keyed on the sandbox id: a replacement sandbox starts unmarked.
         if params.actor_user_id is not None:
             if params.mcp_configs:
-                mark_mcp_token_issued(sandbox.id, params.actor_user_id)
-                mark_sandbox_identity(sandbox.id, "mcp", params.actor_user_id)
+                mark_mcp_session(sandbox.id, params.actor_user_id)
             if ctx.has_github_credentials:
                 mark_sandbox_identity(sandbox.id, "github", params.actor_user_id)
 

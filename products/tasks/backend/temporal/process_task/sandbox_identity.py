@@ -15,32 +15,26 @@ transitions.
 """
 
 import time
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import structlog
 
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.logic.services.agent_command import (
-    REFRESH_TIMEOUT_SECONDS,
-    CommandResult,
-    send_refresh_session,
-)
+from products.tasks.backend.logic.services.agent_command import REFRESH_TIMEOUT_SECONDS, send_refresh_session
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     GitHubSandboxCredential,
-    update_sandbox_env_file,
+    notify_sandbox_credentials_refreshed,
 )
 from products.tasks.backend.temporal.process_task.utils import (
-    get_git_identity_env_vars,
+    SandboxIdentityKind,
     get_last_sandbox_identity,
     get_sandbox_ph_mcp_configs,
-    get_task_run_credential_user,
     get_user_mcp_server_configs,
-    mark_mcp_token_issued,
+    mark_mcp_session,
     mark_sandbox_identity,
     sandbox_identity_scope,
     should_refresh_mcp_token,
@@ -60,12 +54,17 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 
 def ensure_sandbox_identity(
     task_run: TaskRun,
+    actor_user: "User | None",
     *,
     posthog_mcp_scopes: PosthogMcpScopes,
     auth_token: str | None,
     processing_context: "TaskProcessingContext | None" = None,
 ) -> None:
     """Rebind the sandbox's live session to the run's current actor.
+
+    ``actor_user`` is the caller's already-resolved credential user
+    (``get_task_run_credential_user``); None means no valid actor (Slack
+    fail-closed), which the MCP mint surfaces as its standard warning.
 
     Best-effort and never raises: a failed rebind must not block an
     otherwise-valid follow-up, and an unmarked failure is retried on the next
@@ -75,12 +74,6 @@ def ensure_sandbox_identity(
     run_id = str(task_run.id)
     scope = sandbox_identity_scope(run_id, task_run.state)
     try:
-        actor_user = get_task_run_credential_user(task_run.task, task_run.state)
-    except Exception as e:
-        logger.warning("sandbox_identity_actor_resolution_failed", run_id=run_id, error=str(e))
-        return
-
-    try:
         _ensure_mcp_identity(task_run, actor_user, scope, posthog_mcp_scopes, auth_token)
     except Exception:
         logger.warning("sandbox_identity_reconcile_failed", kind="mcp", run_id=run_id, exc_info=True)
@@ -89,6 +82,16 @@ def ensure_sandbox_identity(
             _ensure_github_identity(task_run, actor_user, scope, processing_context, auth_token)
         except Exception:
             logger.warning("sandbox_identity_reconcile_failed", kind="github", run_id=run_id, exc_info=True)
+
+
+def _last_bound_identity(task_run: TaskRun, scope: str, kind: SandboxIdentityKind) -> int | str | None:
+    """The identity the sandbox's session currently holds for a surface.
+
+    Until a rebind records otherwise, the sandbox holds its boot-time
+    credentials, which were minted for the task creator — so an absent mark
+    (never written, evicted, or pre-rollout sandbox) defaults to the creator.
+    """
+    return get_last_sandbox_identity(scope, kind) or task_run.task.created_by_id
 
 
 def _ensure_mcp_identity(
@@ -104,9 +107,7 @@ def _ensure_mcp_identity(
     through to the mint, which surfaces the standard warning."""
     run_id = str(task_run.id)
     if actor_user is not None:
-        # Until a refresh records otherwise, the sandbox holds the boot-time
-        # token, which was minted for the task creator.
-        last_identity = get_last_sandbox_identity(scope, "mcp") or task_run.task.created_by_id
+        last_identity = _last_bound_identity(task_run, scope, "mcp")
         identity_changed = actor_user.id != last_identity
         if not identity_changed and not should_refresh_mcp_token(scope, actor_user.id):
             logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
@@ -119,13 +120,6 @@ def _ensure_mcp_identity(
                 user_id=actor_user.id,
             )
     _rebind_mcp(task_run, actor_user, scope, scopes, auth_token)
-
-
-def _mark_mcp_session(scope: str, user_id: int) -> None:
-    """Record whose token the MCP session now holds and start that user's
-    freshness window."""
-    mark_mcp_token_issued(scope, user_id)
-    mark_sandbox_identity(scope, "mcp", user_id)
 
 
 def _rebind_mcp(
@@ -166,49 +160,39 @@ def _rebind_mcp(
         # Nothing to push means there is no MCP session to rebind — mark the
         # window anyway so we don't re-mint a token on every message.
         if actor_user is not None:
-            _mark_mcp_session(scope, actor_user.id)
+            mark_mcp_session(scope, actor_user.id)
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
         return
 
     mcp_servers = [config.to_dict() for config in mcp_configs]
 
-    result = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if result.success:
-        if actor_user is not None:
-            _mark_mcp_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return
-
-    logger.info(
-        "refresh_mcp_retrying",
-        run_id=run_id,
-        error=result.error,
-        status_code=result.status_code,
-    )
-    time.sleep(REFRESH_RETRY_DELAY_SECONDS)
-    retry: CommandResult = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if retry.success:
-        if actor_user is not None:
-            _mark_mcp_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return
-
-    logger.warning(
-        "refresh_mcp_failed",
-        run_id=run_id,
-        error=retry.error,
-        status_code=retry.status_code,
-    )
+    for attempt in (1, 2):
+        result = send_refresh_session(
+            task_run,
+            mcp_servers,
+            auth_token=auth_token,
+            timeout=REFRESH_TIMEOUT_SECONDS,
+        )
+        if result.success:
+            if actor_user is not None:
+                mark_mcp_session(scope, actor_user.id)
+            logger.info("refresh_mcp_delivered", run_id=run_id, attempts=attempt)
+            return
+        if attempt == 1:
+            logger.info(
+                "refresh_mcp_retrying",
+                run_id=run_id,
+                error=result.error,
+                status_code=result.status_code,
+            )
+            time.sleep(REFRESH_RETRY_DELAY_SECONDS)
+        else:
+            logger.warning(
+                "refresh_mcp_failed",
+                run_id=run_id,
+                error=result.error,
+                status_code=result.status_code,
+            )
 
 
 def _ensure_github_identity(
@@ -223,7 +207,11 @@ def _ensure_github_identity(
     run_id = str(task_run.id)
     if not processing_context.has_github_credentials:
         return
-    last_identity = get_last_sandbox_identity(scope, "github") or task_run.task.created_by_id
+    sandbox_id = (task_run.state or {}).get("sandbox_id")
+    if not sandbox_id:
+        # Nowhere to push yet; the boot path binds the identity itself.
+        return
+    last_identity = _last_bound_identity(task_run, scope, "github")
     if actor_user.id == last_identity:
         return
     logger.info(
@@ -232,34 +220,25 @@ def _ensure_github_identity(
         previous_user_id=last_identity,
         user_id=actor_user.id,
     )
-    if _rebind_github(task_run, processing_context, auth_token):
+    if _rebind_github(task_run, sandbox_id, processing_context, auth_token):
         mark_sandbox_identity(scope, "github", actor_user.id)
 
 
 def _rebind_github(
     task_run: TaskRun,
+    sandbox_id: str,
     processing_context: "TaskProcessingContext",
     auth_token: str | None,
 ) -> bool:
-    """Re-inject the actor's GitHub credentials and git author into the live
-    sandbox. Returns True when the sandbox now reflects the actor (or there is
-    nothing to rebind), False when the rebind should be retried next message."""
+    """Re-inject the actor's GitHub credentials (token + git author) into the
+    live sandbox. Returns True when the sandbox now reflects the actor (or
+    there is nothing to rebind), False when the rebind should be retried on
+    the next message."""
     run_id = str(task_run.id)
-    task = task_run.task
-    sandbox_id = (task_run.state or {}).get("sandbox_id")
-    if not sandbox_id:
-        return False
-
-    # The workflow-start context carries a boot-time snapshot of the run
-    # state; credential resolution must see the current actor.
-    live_context = replace(processing_context, state=task_run.state)
+    live_context = processing_context.with_state(task_run.state)
     try:
         sandbox = Sandbox.get_by_id(sandbox_id)
-        outcome = GitHubSandboxCredential().refresh(sandbox, live_context, task)
-        if outcome.refreshed:
-            git_identity = get_git_identity_env_vars(task, task_run.state)
-            if git_identity:
-                update_sandbox_env_file(sandbox, git_identity)
+        outcome = GitHubSandboxCredential().refresh(sandbox, live_context, task_run.task)
     except Exception:
         logger.warning("refresh_github_identity_failed", run_id=run_id, exc_info=True)
         return False
@@ -269,14 +248,7 @@ def _rebind_github(
         # nothing to diverge on; mark so we don't retry every message.
         return True
 
-    authorship = (task_run.state or {}).get("pr_authorship_mode")
-    notify = send_refresh_session(
-        task_run,
-        [],
-        auth_token=auth_token,
-        refreshed_credentials=["github"],
-        authorship=authorship,
-    )
+    notify = notify_sandbox_credentials_refreshed(task_run, ["github"], auth_token=auth_token)
     if not notify.success:
         # Credentials already landed in the sandbox; the notification only
         # feeds the agent-server's debug log.

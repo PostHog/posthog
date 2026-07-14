@@ -389,6 +389,14 @@ def should_refresh_mcp_token(scope: str, user_id: int) -> bool:
     return get_tasks_cache().get(_mcp_token_issued_cache_key(scope, user_id)) is None
 
 
+def mark_mcp_session(scope: str, user_id: int) -> None:
+    """Record whose token the sandbox's MCP session now holds and start that
+    user's freshness window. Issuing a token and recording the session identity
+    must always happen together, or the identity-transition gate mis-fires."""
+    mark_mcp_token_issued(scope, user_id)
+    mark_sandbox_identity(scope, "mcp", user_id)
+
+
 # How long the sandbox's session identity is remembered — comfortably past any
 # plausible sandbox lifetime. On eviction the identity is assumed to be the
 # boot-time one (the task creator).

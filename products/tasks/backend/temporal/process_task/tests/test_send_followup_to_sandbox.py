@@ -9,27 +9,9 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
+from products.tasks.backend.temporal.process_task.tests.helpers import make_task_run_mock
 
 pytestmark = pytest.mark.django_db
-
-
-def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state: dict | None = None) -> MagicMock:
-    task = MagicMock()
-    task.created_by_id = created_by_id
-    if created_by_id is not None:
-        task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
-    else:
-        task.created_by = None
-    task_run = MagicMock()
-    task_run.id = "run-1"
-    task_run.team_id = team_id
-    task_run.task = task
-    task_run.task_id = "task-1"
-    # Default to None so `(task_run.state or {}).get(...)` returns None cleanly.
-    # MagicMock auto-attributes would otherwise return further MagicMock objects
-    # and leak into kwargs passed to `get_sandbox_ph_mcp_configs`.
-    task_run.state = state
-    return task_run
 
 
 class TestSendFollowupActivityRefreshOrdering:
@@ -59,7 +41,7 @@ class TestSendFollowupActivityRefreshOrdering:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
             ),
         ):
-            task_run = _make_task_run_mock()
+            task_run = make_task_run_mock()
             task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
             mock_task_run_cls.objects.select_related.return_value.get.return_value = task_run
             mock_conn_token.return_value = "jwt"
@@ -136,7 +118,7 @@ class TestSendFollowupTurnTimeout:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
             ) as mock_error,
         ):
-            task_run = _make_task_run_mock()
+            task_run = make_task_run_mock()
             task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
             mock_task_run_cls.objects.select_related.return_value.get.return_value = task_run
             mock_conn_token.return_value = "jwt"

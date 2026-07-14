@@ -236,6 +236,26 @@ class TestSharedUserIntegrationRefresh:
             resolve.assert_called_once()
             apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_fresh")
 
+    def test_refresh_applies_git_author_alongside_token(self):
+        # The author must track the same actor as the token: a credential
+        # write that switched identity but kept the old author would keep
+        # attributing commits to the previous speaker.
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(patch(f"{MODULE}.resolve_coordinated_user_token", return_value="ghu_fresh"))
+            stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            git_env = {"GIT_AUTHOR_NAME": "New Actor", "GIT_AUTHOR_EMAIL": "actor@example.com"}
+            stack.enter_context(patch(f"{MODULE}.get_git_identity_env_vars", return_value=git_env))
+            env_write = stack.enter_context(patch(f"{MODULE}.update_sandbox_env_file"))
+
+            sandbox = MagicMock()
+            GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
+
+            env_write.assert_called_once_with(sandbox, git_env)
+
     def test_refresh_reports_not_refreshed_when_no_token(self):
         import contextlib
 

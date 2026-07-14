@@ -126,6 +126,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # still deliver the follow-up with the existing (possibly stale) creds.
     ensure_sandbox_identity(
         task_run,
+        actor_user,
         posthog_mcp_scopes=input.posthog_mcp_scopes,
         auth_token=auth_token,
         processing_context=input.context,

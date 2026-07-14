@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from temporalio import activity
 
@@ -11,7 +11,6 @@ from products.tasks.backend.exceptions import (
     SandboxNotRunningError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.agent_command import send_refresh_session
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import Task, TaskRun
@@ -20,6 +19,7 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
+    notify_sandbox_credentials_refreshed,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
@@ -32,12 +32,13 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 
-def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
+def _notify_agent_server_of_refresh(
+    ctx: TaskProcessingContext, task: Task, task_run: TaskRun, refreshed_kinds: list[str]
+) -> None:
     """Tell the running agent-server which credentials were re-injected so it logs them.
     This is best-effort since the sandbox may be unreachable, so a failure here never fails the refresh itself.
     """
     try:
-        task_run = TaskRun.objects.get(id=ctx.run_id)
         auth_token = None
         actor_user = get_task_run_credential_user(task, ctx.state)
         if is_slack_interaction_state(ctx.state) and actor_user is None:
@@ -47,10 +48,7 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
             auth_token = create_sandbox_connection_token(
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
-        authorship = (ctx.state or {}).get("pr_authorship_mode")
-        send_refresh_session(
-            task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
-        )
+        notify_sandbox_credentials_refreshed(task_run, refreshed_kinds, auth_token=auth_token)
     except Exception:
         logger.warning("sandbox_credentials_refresh_notify_failed", run_id=ctx.run_id, exc_info=True)
 
@@ -98,12 +96,13 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        # The workflow-start context carries a boot-time snapshot of the run
-        # state, but credential resolution must follow the *current* actor
-        # (multiplayer follow-ups update it mid-run) — re-read it live.
+        # Credential resolution must follow the *current* actor (multiplayer
+        # follow-ups update it mid-run), so rebase the boot-time context onto
+        # the live run state.
+        task_run = None
         try:
-            live_state = TaskRun.objects.values_list("state", flat=True).get(id=ctx.run_id)
-            ctx = replace(ctx, state=live_state)
+            task_run = TaskRun.objects.get(id=ctx.run_id)
+            ctx = ctx.with_state(task_run.state)
         except TaskRun.DoesNotExist:
             logger.warning("sandbox_credentials_refresh_run_missing", run_id=ctx.run_id)
 
@@ -194,8 +193,8 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         if intervals:
             next_refresh = min(intervals)
 
-        if refreshed_kinds:
-            _notify_agent_server_of_refresh(ctx, task, refreshed_kinds)
+        if refreshed_kinds and task_run is not None:
+            _notify_agent_server_of_refresh(ctx, task, task_run, refreshed_kinds)
 
         track_event(
             "sandbox_credentials_refreshed",
