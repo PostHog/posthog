@@ -476,9 +476,8 @@ export interface HealthCheckSignalExtraApi {
 }
 
 /**
- * One immutable flaky observation: a job that failed then passed on a later attempt of the
- * same run (same commit), so only non-determinism can explain the flip. The concrete run/attempt
- * pair is the evidence the research agent starts from; grouping aggregates repeat observations.
+ * One immutable flaky observation: failed then passed on a later attempt of the same run,
+ * so only non-determinism can explain the flip.
  */
 export interface EngineeringAnalyticsCIFlakyCheckSignalExtraApi {
     repo_owner: string
