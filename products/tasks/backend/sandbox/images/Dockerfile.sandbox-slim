@@ -1,6 +1,7 @@
 # Minimal sandbox image for review/exec workloads that don't run the agent server —
-# e.g. stamphog's PR review sandbox. Ships only git, ca-certificates, node (Claude Code
-# CLI runtime), and uv/uvx. No @posthog/agent, no gh CLI, no ruff/ty, no skills.
+# e.g. stamphog's PR review sandbox. Ships only git, ca-certificates, python3 (DockerSandbox.write_file
+# shells out to it), node (Claude Code CLI runtime), and uv/uvx. No @posthog/agent, no gh CLI, no
+# ruff/ty, no skills.
 #
 # Anything that needs the agent server (task execution, skills, MCP) must use
 # SandboxTemplate.DEFAULT_BASE (Dockerfile.sandbox-base) instead — don't add packages
@@ -22,6 +23,7 @@ RUN apt-get update && \
     git \
     ca-certificates \
     curl \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \

@@ -240,7 +240,13 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # which discards "closed" entirely. An unmerged close is a no-op.
     if action == "closed":
         if (payload.get("pull_request") or {}).get("merged"):
-            _record_merged_pull_request(payload, delivery_id)
+            # Retry on failure like the review path below: the webhook is already ACKed, so a transient
+            # product-DB blip during the upsert/save must not silently drop the merge from the digest.
+            try:
+                _record_merged_pull_request(payload, delivery_id)
+            except Exception as e:
+                logger.exception("stamphog_merged_pr_record_failed", delivery_id=delivery_id, error=str(e))
+                raise cast(Any, process_pull_request_event).retry(exc=e)
         else:
             logger.info("stamphog_pr_event_closed_unmerged_ignored")
         return

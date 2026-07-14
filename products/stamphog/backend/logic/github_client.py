@@ -162,6 +162,48 @@ def user_can_access_installation(installation_id: str, user_access_token: str) -
     return False
 
 
+def list_user_accessible_repositories(installation_id: str, user_access_token: str) -> list[str]:
+    """Repos in the installation that the OAuth'd *user* can access, as sorted ``owner/name`` names.
+
+    Reads ``GET /user/installations/{id}/repositories`` with the USER token — deliberately not the app
+    installation token. The installation covers every repo the installer selected, but a given user may
+    only be able to reach a subset; binding the full installation set would let a user who can see one
+    repo attach repos they can't access. This endpoint returns only the user-visible subset. Raises
+    :class:`StamphogGitHubError` on an unexpected status so the caller fails closed.
+    """
+    full_names: list[str] = []
+    for page in range(1, _MAX_PAGES + 1):
+        response = github_request(
+            "GET",
+            f"https://api.github.com/user/installations/{installation_id}/repositories",
+            source=_SOURCE,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            endpoint="/user/installations/{installation_id}/repositories",
+            params={"per_page": _PER_PAGE, "page": page},
+            timeout=10,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to list user-accessible installation repositories: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise StamphogGitHubError("Non-JSON response listing user installation repositories") from exc
+        repositories = data.get("repositories") if isinstance(data, dict) else None
+        if not isinstance(repositories, list):
+            raise StamphogGitHubError("Unexpected user installation repositories payload")
+        for repo in repositories:
+            full_name = repo.get("full_name") if isinstance(repo, dict) else None
+            if isinstance(full_name, str) and full_name:
+                full_names.append(full_name)
+        if len(repositories) < _PER_PAGE:
+            break
+    return sorted(set(full_names))
+
+
 class StamphogGitHubClient:
     """Installation-scoped GitHub client for one Stamphog App installation.
 

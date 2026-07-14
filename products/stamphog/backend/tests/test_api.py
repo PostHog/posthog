@@ -209,7 +209,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
         self.state = _install_state(self.team.id, self.user.id)
 
-    @patch(f"{_CLIENT}.list_installation_repositories", return_value=["PostHog/posthog", "PostHog/other"])
+    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_verified_installation_binds_repos(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -227,7 +227,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
         assert all(not config.enabled for config in bound)
 
-    @patch(f"{_CLIENT}.list_installation_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_sync_adopts_preexisting_manual_config(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -247,7 +247,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         manual.refresh_from_db()
         assert manual.installation_id == "42"
 
-    @patch(f"{_CLIENT}.list_installation_repositories")
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_installation_not_owned_by_caller_is_rejected(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -262,7 +262,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="999").exists()
 
-    @patch(f"{_CLIENT}.list_installation_repositories")
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value=None)
     def test_unexchangeable_code_fails_closed(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -277,7 +277,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
 
-    @patch(f"{_CLIENT}.list_installation_repositories")
+    @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token")
     def test_state_for_another_team_is_rejected(self, mock_exchange, mock_list) -> None:
         # CSRF guard: the callback binds an installation to the team named in the signed state, not the

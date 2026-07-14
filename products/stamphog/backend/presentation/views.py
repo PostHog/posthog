@@ -26,9 +26,9 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..logic.github_client import (
-    StamphogGitHubClient,
     StamphogGitHubError,
     exchange_oauth_code_for_user_token,
+    list_user_accessible_repositories,
     user_can_access_installation,
 )
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
@@ -190,8 +190,18 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             raise PermissionDenied("You do not have access to this GitHub App installation.")
 
-        client = StamphogGitHubClient(installation_id)
-        repositories = client.list_installation_repositories()
+        # Enumerate with the USER token, not the app installation token: bind only the repos this user can
+        # actually reach in the installation, so proving access to one repo can't attach repos they can't
+        # see. The app-token list would return every repo the installer selected regardless of this user.
+        try:
+            repositories = list_user_accessible_repositories(installation_id, user_token)
+        except StamphogGitHubError:
+            logger.warning(
+                "stamphog sync_installation: listing user-accessible repositories failed",
+                installation_id=installation_id,
+                team_id=self.team_id,
+            )
+            raise ValidationError({"installation_id": "Failed to list accessible repositories. Try again."})
 
         synced: list[StamphogRepoConfig] = []
         skipped: list[str] = []
