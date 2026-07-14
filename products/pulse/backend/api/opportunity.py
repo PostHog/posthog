@@ -29,6 +29,23 @@ class ResourceLinkSerializer(serializers.Serializer):
     url = serializers.CharField(allow_blank=True, help_text="Deep link into the app, or empty when there is none.")
 
 
+class ProposedExperimentTargetMetricSerializer(serializers.Serializer):
+    insight_short_id = serializers.CharField(help_text="Short ID of the insight the experiment should move.")
+
+
+class ProposedExperimentSerializer(serializers.Serializer):
+    hypothesis = serializers.CharField(help_text="The testable hypothesis grounded in the opportunity's evidence.")
+    flag_key_suggestion = serializers.CharField(help_text="Suggested feature flag key for the experiment.")
+    target_metric = ProposedExperimentTargetMetricSerializer(
+        allow_null=True,
+        help_text=(
+            "The goal metric the experiment should move, as an insight reference. Null when the proposal's "
+            "metric did not validate against the opportunity's cited insight refs."
+        ),
+    )
+    variant_sketch = serializers.CharField(help_text="Short sketch of the control and test variants.")
+
+
 class OpportunitySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the opportunity.")
     suggested_action = serializers.SerializerMethodField(help_text="The concrete next step suggested for the team.")
@@ -37,6 +54,14 @@ class OpportunitySerializer(serializers.ModelSerializer):
         many=True,
         read_only=True,
         help_text="Evidence links backing the opportunity: type, ref, label, and url per entry.",
+    )
+    proposed_experiment = ProposedExperimentSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Experiment proposed by goal-conditioned synthesis: hypothesis, flag key suggestion, target "
+            "metric, and variant sketch. Only ever set on goal-relevant opportunities; null otherwise."
+        ),
     )
 
     class Meta:
@@ -50,6 +75,7 @@ class OpportunitySerializer(serializers.ModelSerializer):
             "suggested_action",
             "evidence",
             "goal_relevant",
+            "proposed_experiment",
             "first_seen_brief",
             "created_at",
             "created_by",

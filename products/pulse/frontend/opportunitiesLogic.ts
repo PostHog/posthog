@@ -1,10 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import {
     pulseOpportunitiesActedCreate,
@@ -18,6 +22,10 @@ import type { opportunitiesLogicType } from './opportunitiesLogicType'
 import { currentProjectId, LIST_PAGE_SIZE } from './utils'
 
 export type OpportunityTransition = 'dismiss' | 'acted' | 'reopen'
+
+/** What a row can have in flight: a plain lifecycle transition, or the create-experiment flow
+ * (an acted transition followed by a navigation) — distinct so only its own button spinners. */
+export type OpportunityRowAction = OpportunityTransition | 'create_experiment'
 
 /** The lifecycle transitions in one table so endpoint, allowed source status, and button label can't drift. */
 export const OPPORTUNITY_TRANSITIONS: Record<
@@ -51,7 +59,8 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
             opportunityId,
             transition,
         }),
-        opportunityTransitionStarted: (opportunityId: string, transition: OpportunityTransition) => ({
+        createExperimentFromOpportunity: (opportunityId: string) => ({ opportunityId }),
+        opportunityTransitionStarted: (opportunityId: string, transition: OpportunityRowAction) => ({
             opportunityId,
             transition,
         }),
@@ -77,7 +86,7 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
         },
         // Keyed by opportunity id so each row's buttons can spinner/disable independently.
         transitionsInFlight: [
-            {} as Record<string, OpportunityTransition>,
+            {} as Record<string, OpportunityRowAction>,
             {
                 opportunityTransitionStarted: (state, { opportunityId, transition }) => ({
                     ...state,
@@ -103,26 +112,84 @@ export const opportunitiesLogic = kea<opportunitiesLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        transitionOpportunity: async ({ opportunityId, transition }) => {
+    listeners(({ actions, values }) => {
+        /** One transition round-trip: in-flight guard, server call, row swap on success, toast on
+         * failure. Returns the updated row, or null when skipped or failed. */
+        const runTransition = async (
+            opportunityId: string,
+            action: OpportunityRowAction,
+            call: (projectId: string, id: string) => Promise<OpportunityApi>
+        ): Promise<OpportunityApi | null> => {
             if (opportunityId in values.transitionsInFlight) {
-                return // state-level double-submission guard; the row's buttons are also disabled
+                return null // state-level double-submission guard; the row's buttons are also disabled
             }
-            actions.opportunityTransitionStarted(opportunityId, transition)
+            actions.opportunityTransitionStarted(opportunityId, action)
             try {
-                const updated = await OPPORTUNITY_TRANSITIONS[transition].call(currentProjectId(), opportunityId)
+                const updated = await call(currentProjectId(), opportunityId)
                 actions.opportunityTransitionSucceeded(updated)
+                return updated
             } catch (error) {
                 actions.opportunityTransitionFailed(opportunityId)
                 lemonToast.error(
                     error instanceof ApiError && error.detail ? error.detail : 'Updating the opportunity failed'
                 )
+                return null
             }
-        },
-        loadOpportunitiesFailure: () => {
-            lemonToast.error('Loading opportunities failed')
-        },
-    })),
+        }
+        return {
+            transitionOpportunity: async ({ opportunityId, transition }) => {
+                await runTransition(opportunityId, transition, OPPORTUNITY_TRANSITIONS[transition].call)
+            },
+            createExperimentFromOpportunity: async ({ opportunityId }) => {
+                const proposal = values.opportunities.find((o) => o.id === opportunityId)?.proposed_experiment
+                if (!proposal) {
+                    return // the button only renders with a proposal; a stale click is a no-op
+                }
+                // The acted transition lands FIRST so accountability re-scores this opportunity even
+                // if the user abandons the experiment form after navigation. A skipped or failed
+                // transition never leaves the scene.
+                const updated = await runTransition(
+                    opportunityId,
+                    'create_experiment',
+                    OPPORTUNITY_TRANSITIONS.acted.call
+                )
+                if (!updated) {
+                    return
+                }
+                // The experiments creation URL prefills nothing usable today (name is gated behind a
+                // metric param; hypothesis and flag key have no params), so the proposal travels via
+                // clipboard for the blank form. One predicate for clipboard, telemetry, and the row
+                // summary, so an empty short_id (type-permitted, backend never emits it) can't diverge.
+                const hasTargetMetric = !!proposal.target_metric?.insight_short_id
+                const copied = await copyToClipboard(
+                    [
+                        `Hypothesis: ${proposal.hypothesis}`,
+                        `Feature flag key: ${proposal.flag_key_suggestion}`,
+                        ...(hasTargetMetric
+                            ? [`Target metric insight: ${proposal.target_metric!.insight_short_id}`]
+                            : []),
+                        `Variants: ${proposal.variant_sketch}`,
+                    ].join('\n'),
+                    'experiment proposal'
+                )
+                if (!copied) {
+                    // Still navigate — the proposal stays visible on the opportunity row.
+                    lemonToast.warning('Could not copy the proposal — find it on the opportunity row')
+                }
+                // Measures the proposal→experiment funnel: which proposals get acted on, and whether
+                // the clipboard handoff (the only bridge to the blank form) actually landed.
+                posthog.capture('pulse_opportunity_experiment_created', {
+                    opportunity_id: opportunityId,
+                    has_target_metric: hasTargetMetric,
+                    proposal_copied: copied,
+                })
+                router.actions.push(urls.experiment('new'))
+            },
+            loadOpportunitiesFailure: () => {
+                lemonToast.error('Loading opportunities failed')
+            },
+        }
+    }),
     afterMount(({ actions, values }) => {
         // The scene renders NotFound without the flag — don't fire the pulse API calls either.
         if (!values.featureFlags[FEATURE_FLAGS.PULSE]) {
