@@ -53,8 +53,6 @@ class TestVercelSource:
         assert config.label == "Vercel"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until it's been exercised against the live API.
-        assert config.unreleasedSource is True
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}

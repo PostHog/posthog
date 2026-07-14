@@ -68,7 +68,6 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
