@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
-type MessageFunctionActionType = 'function_email' | 'function_sms'
+type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
@@ -29,7 +29,7 @@ export class RecipientPreferencesService {
     }
 
     private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
-        return ['function_email', 'function_sms'].includes(action.type)
+        return ['function_email', 'function_sms', 'function_push'].includes(action.type)
     }
 
     private async isRecipientOptedOutOfAction(
@@ -42,6 +42,10 @@ export class RecipientPreferencesService {
             identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
+        } else if (action.type === 'function_push') {
+            // Push has no email/phone "to" field — the recipient is addressed by distinct_id (the same id
+            // the device token was registered under), so opt-out preferences are keyed by distinct_id.
+            identifier = invocation.state.globals.event?.distinct_id
         }
 
         if (!identifier) {
