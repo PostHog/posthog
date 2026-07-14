@@ -81,8 +81,7 @@ export function QuillDateFilter({
             />
             {calendarOpen && (
                 <DateTimePicker
-                    // The stock picker stages from `value` at mount; remount to reseed when the
-                    // selection changes via chips or the time toggle flips
+                    // The picker stages from `value` at mount only — remount to reseed
                     key={`${selectionKey}-${includeTime ? 'time' : 'day'}`}
                     ranges={[]}
                     showHeader={false}
@@ -94,8 +93,7 @@ export function QuillDateFilter({
                         setCalendarOpen(false)
                     }}
                     onCancel={() => setCalendarOpen(false)}
-                    // flex-col + separator mt-auto pin the Cancel/Apply band to the surface bottom
-                    // when the panel column is the taller of the two
+                    // flex-col + separator mt-auto pin Cancel/Apply to the bottom when the panel is taller
                     className="flex shrink-0 flex-col rounded-none border-l border-border shadow-none ring-0 lg:w-auto [&>[data-slot=separator]]:mt-auto"
                 />
             )}

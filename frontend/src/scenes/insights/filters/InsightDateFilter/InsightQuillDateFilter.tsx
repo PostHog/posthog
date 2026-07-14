@@ -53,9 +53,8 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const [open, setOpen] = useState(false)
 
     const storeSelection = selectionForDateRange(dateRange?.date_from ?? '-7d', dateRange?.date_to)
-    // Rolling changes debounce 300ms in the logic before the query source updates; reflect
-    // clicks immediately so rapid stepper presses accumulate instead of re-deriving from a
-    // stale store value.
+    // The store updates only after the logic's 300ms debounce — reflect picks immediately
+    // so rapid stepper presses accumulate instead of re-deriving from a stale value.
     const [pendingSelection, setPendingSelection] = useState<DateRangeSelection | null>(null)
     const storeSelectionKey = selectionKeyOf(storeSelection)
     useEffect(() => {
