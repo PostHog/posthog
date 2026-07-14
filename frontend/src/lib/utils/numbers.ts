@@ -34,17 +34,20 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
 
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
-    division: number,
+    division: number | null | undefined,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     fixedPrecision: boolean = false
 ): string {
-    if (division === Infinity) {
+    // A missing value renders as 0% rather than crashing on `.toLocaleString()`.
+    const value = division ?? 0
+
+    if (value === Infinity) {
         return '∞%'
     }
 
     const maxDigits = validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES)
 
-    return division.toLocaleString('en-US', {
+    return value.toLocaleString('en-US', {
         style: 'percent',
         maximumFractionDigits: maxDigits,
         minimumFractionDigits: fixedPrecision ? maxDigits : undefined,
@@ -67,11 +70,12 @@ export function formatPercentageDiff(current: number, previous: number): string 
 
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(
-    d: number,
+    d: number | null | undefined,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
-    return d.toLocaleString('en-US', {
+    // A missing value renders as 0 rather than crashing on `.toLocaleString()`.
+    return (d ?? 0).toLocaleString('en-US', {
         maximumFractionDigits: validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES),
         minimumFractionDigits: validateFractionDigits(minimumFractionDigits, 0),
     })
