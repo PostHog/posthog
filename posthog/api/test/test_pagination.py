@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -12,7 +14,7 @@ factory = APIRequestFactory()
 
 class TestBoundedLimitOffsetPagination(SimpleTestCase):
     def _request(self, query: dict) -> Request:
-        return Request(factory.get("/", query))
+        return cast(Request, Request(factory.get("/", query)))
 
     @parameterized.expand(["limit", "offset"])
     def test_value_past_bigint_is_rejected(self, param: str):
