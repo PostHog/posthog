@@ -26,6 +26,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -74,7 +76,7 @@ def normalize_host(host: Optional[str]) -> str:
 
     Blank → Langfuse Cloud (EU). Accepts bare hosts (``us.cloud.langfuse.com``) and full
     URLs with or without a scheme; trailing slashes and pasted ``/api/public`` suffixes are
-    stripped.
+    stripped. Raises ``ValueError`` on a host that fails validation.
     """
     raw = (host or "").strip()
     if not raw:
@@ -82,7 +84,24 @@ def normalize_host(host: Optional[str]) -> str:
     if not re.match(r"^https?://", raw, flags=re.IGNORECASE):
         raw = f"https://{raw}"
     raw = raw.rstrip("/")
-    return re.sub(r"/api(/public)?$", "", raw)
+    raw = re.sub(r"/api(/public)?$", "", raw)
+
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Invalid Langfuse host")
+    # SSRF guard: urlparse treats a backslash as userinfo and "@" as a userinfo separator, but
+    # urllib3/requests treat the backslash as an authority separator, so
+    # `https://169.254.169.254\@cloud.langfuse.com` validates as cloud.langfuse.com yet the
+    # request reaches 169.254.169.254. A legitimate host has no userinfo, so reject either.
+    if "\\" in raw or "%5c" in raw.lower() or "@" in parsed.netloc:
+        raise ValueError("Invalid Langfuse host")
+    # Credentials ride as HTTP Basic auth on every request, so plaintext http would leak the
+    # secret key to any network observer. On PostHog Cloud the request egresses over the public
+    # internet, so require https; self-hosted operators control their own network path (an
+    # internal Langfuse reachable only over http), mirroring how host IP safety is cloud-only.
+    if parsed.scheme == "http" and is_cloud():
+        raise ValueError("Langfuse host must use https")
+    return raw
 
 
 def _host_of(base_url: str) -> str:
@@ -112,7 +131,10 @@ def validate_credentials(
     lack permission for this particular probe. A scoped probe (``schema_name`` set) treats
     403 as a hard failure.
     """
-    base_url = normalize_host(host)
+    try:
+        base_url = normalize_host(host)
+    except ValueError as e:
+        return False, str(e)
     hostname = _host_of(base_url)
 
     if not hostname:
@@ -187,7 +209,10 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config: LangfuseEndpointConfig = LANGFUSE_ENDPOINTS[endpoint]
-    base_url = normalize_host(host)
+    try:
+        base_url = normalize_host(host)
+    except ValueError as e:
+        raise LangfuseHostNotAllowedError(str(e)) from e
     hostname = _host_of(base_url)
 
     # Re-check at run time (not just at source-create) in case the host was edited or now

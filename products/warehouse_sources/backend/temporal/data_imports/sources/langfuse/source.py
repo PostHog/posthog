@@ -73,13 +73,13 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=bool(incremental_fields := INCREMENTAL_FIELDS.get(endpoint, [])),
+                supports_append=bool(incremental_fields),
+                incremental_fields=incremental_fields,
                 # Langfuse's incremental filters are creation/start-time based, so re-read a
                 # trailing window each run to pick up late-arriving updates (see settings.py).
                 default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS
-                if INCREMENTAL_FIELDS.get(endpoint)
+                if incremental_fields
                 else None,
             )
             for endpoint in ENDPOINTS

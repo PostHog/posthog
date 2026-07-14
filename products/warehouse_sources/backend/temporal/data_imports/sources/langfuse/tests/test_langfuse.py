@@ -58,6 +58,30 @@ class TestNormalizeHost:
     def test_normalize(self, raw, expected):
         assert normalize_host(raw) == expected
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            # urlparse reads the host as cloud.langfuse.com, but requests connects to the
+            # userinfo host — reject the backslash/userinfo SSRF bypass outright.
+            "https://169.254.169.254\\@cloud.langfuse.com",
+            "https://169.254.169.254%5c@cloud.langfuse.com",
+            "https://user@cloud.langfuse.com",
+        ],
+    )
+    def test_rejects_userinfo_ssrf_bypass(self, raw):
+        with pytest.raises(ValueError):
+            normalize_host(raw)
+
+    def test_rejects_http_on_cloud(self):
+        # Credentials ride as HTTP Basic auth, so plaintext http must be refused on cloud.
+        with mock.patch.object(langfuse_module, "is_cloud", return_value=True):
+            with pytest.raises(ValueError):
+                normalize_host("http://langfuse.example.com")
+
+    def test_allows_http_when_self_hosted(self):
+        with mock.patch.object(langfuse_module, "is_cloud", return_value=False):
+            assert normalize_host("http://langfuse.internal.example.com") == "http://langfuse.internal.example.com"
+
 
 class TestValidateCredentials:
     def _patch_session(self, response=None, raises=None):
@@ -316,6 +340,6 @@ class TestGetRows:
     def test_non_retryable_client_error_raises(self):
         manager = self._manager()
         error_response = _response(status_code=401, text="unauthorized")
-        error_response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        error_response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
         with pytest.raises(requests.HTTPError):
             self._run(manager, [error_response])
