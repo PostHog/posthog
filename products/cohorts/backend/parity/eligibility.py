@@ -2,7 +2,8 @@
 
 Predicts, per cohort, the `class` label the processor reports in
 `cohort_eligibility_total` (single_leaf / stage2_composable / stage2_composable_ref /
-excluded_*), plus the max behavioral window in days (used by the R-WARMUP rule).
+excluded_*), plus the max behavioral window in days (used by the classifier's soundness
+check and missed-emission probe cutoff).
 Mirrors `rust/cohort-stream-processor/src/filters/{leaf_classifier,tree,cohort_graph}.rs`
 and `src/stage1/pick_state.rs` + `src/stage2/eligibility.rs` — including known quirks
 (e.g. a string `time_value` reads as absent), because the screen must predict what the
@@ -114,7 +115,7 @@ def _is_absolute_datetime(raw: str) -> bool:
 
 # A resolved eviction window: kind is "days" (whole-day sliding), "seconds" (sub-day
 # sliding), or "explicit" (absolute calendar range, permanent membership). `days` is the
-# window length in days for R-WARMUP (fractional for "seconds", inf for "explicit").
+# window length in days for the soundness check (fractional for "seconds", inf for "explicit").
 @dataclass(frozen=True)
 class _Window:
     kind: str

@@ -959,6 +959,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -995,6 +996,8 @@ export type ActivityLogListParams = {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `StreamlitApp` - StreamlitApp
+     * * `Metric` - Metric
+     * * `TableCertification` - TableCertification
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1042,6 +1045,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1078,6 +1082,8 @@ export const ActivityLogListScope = {
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
 } as const
 
 /**
@@ -1112,6 +1118,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
  * * `UserGroup` - UserGroup
@@ -1148,6 +1155,8 @@ export const ActivityLogListScope = {
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
  * * `StreamlitApp` - StreamlitApp
+ * * `Metric` - Metric
+ * * `TableCertification` - TableCertification
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1183,6 +1192,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1219,6 +1229,8 @@ export const ActivityLogListScopesItem = {
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
     StreamlitApp: 'StreamlitApp',
+    Metric: 'Metric',
+    TableCertification: 'TableCertification',
 } as const
 
 export type AdvancedActivityLogsListParams = {

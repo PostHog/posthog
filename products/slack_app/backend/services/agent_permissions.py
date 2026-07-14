@@ -94,11 +94,11 @@ def _build_card_body(tool_label: str, tool_detail: str | None) -> str:
 def _permission_option_label(option: dict[str, Any]) -> str:
     kind = option.get("kind")
     if kind == "allow_once":
-        return "Allow once"
+        return "Allow"
     if kind == "allow_always":
         return "Always allow this command"
     if kind == "reject_once":
-        return "Deny once"
+        return "Deny"
     name = option.get("name")
     return _truncate_slack_text(name, 75) if isinstance(name, str) and name.strip() else "Use this permission"
 
@@ -228,15 +228,13 @@ def post_slack_permission_request_for_task_run(
         )
 
         text = f"<@{target_slack_user_id}> the agent needs permission to continue: *{tool_label}*"
-        current_permission_mode = _current_permission_mode(task_run, SlackPermissionMode.ASK_BEFORE_WRITE)
+        current_permission_mode = _current_permission_mode(task_run, SlackPermissionMode.FULL_AUTO)
         permission_mode_options = [
             _build_permission_mode_option(value, label) for value, label in SlackPermissionMode.choices
         ]
         initial_mode_option = next(
             (option for option in permission_mode_options if option["value"] == current_permission_mode),
-            _build_permission_mode_option(
-                SlackPermissionMode.ASK_BEFORE_WRITE, SlackPermissionMode.ASK_BEFORE_WRITE.label
-            ),
+            _build_permission_mode_option(SlackPermissionMode.FULL_AUTO, SlackPermissionMode.FULL_AUTO.label),
         )
         card_body = _build_card_body(tool_label, tool_detail)
 

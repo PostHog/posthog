@@ -24,7 +24,12 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import {
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    getDefaultIngestionConsumerConfig,
+    getDefaultIngestionOutputsConfig,
+} from '~/ingestion/config'
 import {
     ErrorTrackingConsumerConfig,
     getDefaultErrorTrackingConsumerConfig,
@@ -333,6 +338,7 @@ export interface IngesterLike {
 /** The full config an ingestion test sees — PluginsServerConfig plus every ingestion domain's config. */
 export type IngestionTestConfig = PluginsServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     ErrorTrackingConsumerConfig &
     MetricsIngestionConsumerConfig &
     SessionRecordingConfig &
@@ -388,6 +394,7 @@ export async function createIngestionTestInfra(
     const serverConfig: IngestionTestConfig = {
         ...defaultConfig,
         ...getDefaultIngestionConsumerConfig(),
+        ...getDefaultIngestionOutputsConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),

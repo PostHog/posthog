@@ -36,9 +36,10 @@ from posthog.renderers import ServerSentEventRenderer
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
+    cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import cloud_usage_limit_response
+from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -85,6 +86,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunBootstrapCreateRequestSerializer,
+    TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
@@ -581,6 +583,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not self._warm_enabled():
             return Response(status=status.HTTP_200_OK)
 
+        if access_response := code_access_required_response(request.user):
+            return access_response
+
         user_id = self._user_id()
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
@@ -697,6 +702,8 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
     def create(self, request, **kwargs):
+        if access_response := code_access_required_response(request.user):
+            return access_response
         serializer = self._write_serializer(request.data)
         automation = tasks_facade.create_task_automation(
             self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
@@ -706,6 +713,9 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = self._write_serializer(request.data, partial=True)
+        if serializer.validated_data.get("enabled") is True:
+            if access_response := code_access_required_response(request.user):
+                return access_response
         automation = tasks_facade.update_task_automation(
             pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
         )
@@ -722,6 +732,8 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        if access_response := code_access_required_response(request.user):
+            return access_response
         automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
         if automation is None:
             raise NotFound()
@@ -944,6 +956,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskSerializer(task_dto).data)
 
     @validated_request(
+        request_serializer=TaskRunCancelRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunDetailSerializer, description="Run already finished; returned unchanged"
+            ),
+            202: OpenApiResponse(response=TaskRunDetailSerializer, description="Cancellation accepted"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run is not a cloud run"),
+            404: OpenApiResponse(description="Task run not found"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Cancellation could not be delivered; safe to retry",
+            ),
+        },
+        summary="Cancel task run",
+        description="Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for "
+        "later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a "
+        "finished run returns it unchanged.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="cancel", required_scopes=["task:write"])
+    def cancel(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome, run = tasks_cancellation.cancel_task_run(
+            pk,
+            task_id,
+            self.team_id,
+            reason=request.validated_data.get("reason"),
+            source="api",
+            requested_by_user_id=request.user.id,
+            requested_by_distinct_id=request.user.distinct_id,
+        )
+        if outcome == "not_found" or run is None:
+            raise NotFound()
+        if outcome == "already_terminal":
+            return Response(TaskRunDetailSerializer(run).data)
+        if outcome == "not_cloud":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be cancelled via this endpoint"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "unavailable":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Could not reach the run's workflow; try again"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(TaskRunDetailSerializer(run).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
         request_serializer=TaskRunUpdateSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
@@ -1098,11 +1158,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        manifest = tasks_facade.upload_task_run_artifacts(
+        result = tasks_facade.upload_task_run_artifacts(
             pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
         )
-        if manifest is None:
+        if result is None:
             raise NotFound()
+        _uploaded, manifest = result
         serializer = TaskRunArtifactsUploadResponseSerializer({"artifacts": manifest})
         return Response(serializer.data)
 
@@ -1394,6 +1455,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
+            if access_response := code_access_required_response(request.user):
+                return access_response
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:

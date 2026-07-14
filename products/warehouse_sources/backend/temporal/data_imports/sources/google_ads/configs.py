@@ -41,9 +41,7 @@ def clean_customer_id(s: str | None) -> str | None:
 
 
 def format_customer_id(s: str) -> str:
-    """Render a bare 10-digit customer ID the way the Google Ads UI shows it (``123-456-7890``),
-    so a picked account matches what the user sees there. Anything else is returned untouched;
-    `clean_customer_id` strips the dashes again before the value reaches the API."""
+    """Render a bare 10-digit customer ID the way the Google Ads UI shows it (``123-456-7890``); anything else is returned untouched."""
     digits = re.sub(r"\D", "", s)
     if len(digits) != 10:
         return s

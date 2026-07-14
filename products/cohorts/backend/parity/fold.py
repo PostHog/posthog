@@ -94,3 +94,13 @@ def fold_membership_changes(
 def members(state: dict[str, MembershipRecord]) -> set[str]:
     """The currently-entered persons of one cohort's folded state."""
     return {person_id for person_id, record in state.items() if record.status == "entered"}
+
+
+def observed(state: dict[str, MembershipRecord]) -> set[str]:
+    """Every person the new pipeline emitted a decision for in this cohort.
+
+    Emission is flip-only (see the Rust processor's stage1/transition + stage2/evaluator),
+    so a first emission is always `entered`: the presence of a key means both pipelines
+    have weighed in on that person, which is the universe the membership diff is bounded to.
+    """
+    return set(state.keys())

@@ -1,7 +1,9 @@
 import time
 import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import parse_qs
 
 import pytest
 from freezegun import freeze_time
@@ -48,6 +50,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    SnowflakeIntegration,
+    SnowflakeIntegrationError,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.organization import Organization
@@ -212,10 +216,35 @@ class TestOauthIntegrationModel(BaseTest):
     def test_authorize_url(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
-            assert (
-                url
-                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token"
+            base, _, query = url.partition("?")
+            params = {k: v[0] for k, v in parse_qs(query).items()}
+            assert base == "https://login.salesforce.com/services/oauth2/authorize"
+            assert params == {
+                "client_id": "salesforce-client-id",
+                "scope": "full refresh_token",
+                "redirect_uri": "https://localhost:8010/integrations/salesforce/callback",
+                "response_type": "code",
+                "state": "next=%2Fprojects%2Ftest&token=state_token",
+                "code_challenge": params["code_challenge"],
+                "code_challenge_method": "S256",
+            }
+
+    def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="pkce_state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            verifier = cache.get("oauth_pkce_verifier/pkce_state_token")
+            assert verifier
+            expected_challenge = (
+                base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
             )
+            assert params["code_challenge"] == expected_challenge
+
+    def test_authorize_url_without_pkce_has_no_challenge(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="no_pkce_state_token", next="/projects/test")
+            assert "code_challenge" not in url
+            assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
@@ -260,6 +289,36 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
             }
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_sends_pkce_verifier(self, mock_post):
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                "expires_in": 3600,
+            }
+
+            # authorize_url caches the verifier; the exchange must send that exact value and consume it
+            url = OauthIntegration.authorize_url("salesforce", token="exchange_state_token", next="/projects/test")
+            challenge = parse_qs(url.partition("?")[2])["code_challenge"][0]
+            verifier = cache.get("oauth_pkce_verifier/exchange_state_token")
+
+            OauthIntegration.integration_from_oauth_response(
+                "salesforce",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "next=%2Fprojects%2Ftest&token=exchange_state_token"},
+            )
+
+            sent = mock_post.call_args.kwargs["data"]
+            assert sent["code_verifier"] == verifier
+            assert (
+                base64.urlsafe_b64encode(hashlib.sha256(sent["code_verifier"].encode()).digest()).rstrip(b"=").decode()
+                == challenge
+            )
+            assert cache.get("oauth_pkce_verifier/exchange_state_token") is None
 
     @parameterized.expand(
         [
@@ -2252,6 +2311,84 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
             GitHubIntegration(integration)._gh_api_get("repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
 
 
+class TestGitHubIntegrationGraphQL(BaseTest):
+    def _create_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+    @staticmethod
+    def _graphql_response(body: dict) -> MagicMock:
+        # GitHub returns transient GraphQL server errors as an HTTP 200 with an ``errors`` body,
+        # so the retry decision hinges on the body, not the status code.
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = body
+        return resp
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_retries_transient_server_error_and_returns_data(self, _mock_expired, mock_request):
+        # A 200-with-`errors` "Something went wrong" server error must be retried, not raised —
+        # otherwise a transient GitHub blip permanently kills the in-flight follow-up run.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"message": "Something went wrong while executing your query. (abc123)"}]}
+        )
+        ok = self._graphql_response({"data": {"repository": {"name": "posthog"}}})
+        mock_request.side_effect = [transient, ok]
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 2
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_gives_up_after_exhausting_transient_retries(self, _mock_expired, mock_request):
+        # Guards against both a run-killing single attempt and an unbounded retry loop.
+        transient = self._graphql_response(
+            {"data": None, "errors": [{"type": "SERVICE_UNAVAILABLE", "message": "unavailable"}]}
+        )
+        mock_request.return_value = transient
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == GitHubIntegration._GRAPHQL_TRANSIENT_ATTEMPTS
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_does_not_retry_deterministic_error(self, _mock_expired, mock_request):
+        # A deterministic error (bad query, missing field, permission) will never succeed on
+        # retry, so it must raise on the first attempt rather than burn the retry budget.
+        mock_request.return_value = self._graphql_response(
+            {"data": None, "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        with pytest.raises(GitHubIntegrationError):
+            github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert mock_request.call_count == 1
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_returns_partial_data_with_field_errors(self, _mock_expired, mock_request):
+        # When GitHub returns usable data alongside field-level errors, keep the data rather
+        # than treating the response as a failure.
+        mock_request.return_value = self._graphql_response(
+            {"data": {"repository": {"name": "posthog"}}, "errors": [{"message": "field-level error"}]}
+        )
+
+        github = GitHubIntegration(self._create_integration())
+        data = github._gh_graphql("query {}", {}, endpoint="/graphql:test")
+        assert data == {"repository": {"name": "posthog"}}
+        assert mock_request.call_count == 1
+
+
 class TestDatabricksIntegrationModel(BaseTest):
     @patch("posthog.models.integration.is_url_allowed", return_value=(True, None))
     def test_integration_from_config_with_valid_config(self, mock_is_url_allowed):
@@ -2302,8 +2439,8 @@ class TestAwsS3IntegrationModel(BaseTest):
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
         }
-        # display_name surfaces auth type and AWS account so users can tell integrations apart.
-        assert integration.display_name == "prod-aws (access key, AWS account 123456789012)"
+        # display_name surfaces AWS account so users can tell integrations apart.
+        assert integration.display_name == "prod-aws (AWS account 123456789012)"
         assert AwsS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
@@ -2475,6 +2612,195 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         assert [account["id"] for account in accounts] == ["6501924158", "1234567890"]
         assert accounts[0]["manager"] is True
         assert accounts[1]["parent_id"] == "6501924158"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_dedupes_an_account_reachable_from_two_roots(self, mock_request):
+        # A user with direct access to both a manager and one of its clients gets both in
+        # `resourceNames`, so the client is walked twice: once as a root (level absent, i.e. 0) and once
+        # under the manager (level "1"). Those two levels must be compared as numbers — comparing the raw
+        # values raises TypeError (None vs "1") and 500s the picker.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/1234567890", "customers/6501924158"]}
+        client_walk = MagicMock(status_code=200)
+        client_walk.json.return_value = [{"results": [self._customer_client("1234567890", "Client One")]}]
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        mock_request.side_effect = [accessible, client_walk, manager_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        # The client is kept once, at its shallowest sighting: reachable directly, so it needs no manager
+        # to log in as.
+        assert [account["id"] for account in accounts] == ["1234567890", "6501924158"]
+        assert accounts[0]["level"] is None
+        assert accounts[0]["parent_id"] == "1234567890"
+
+
+class TestSnowflakeIntegrationModel(BaseTest):
+    def test_integration_from_config_with_password_auth(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="password",
+            password="secret",
+            created_by=self.user,
+        )
+        assert integration.kind == Integration.IntegrationKind.SNOWFLAKE
+        # The identifier is the user-supplied name, never a credential.
+        assert integration.integration_id == "prod-snowflake"
+        # account, user and authentication_type are non-sensitive and live in config.
+        assert integration.config == {
+            "name": "prod-snowflake",
+            "account": "myorg-myaccount",
+            "user": "posthog_svc",
+            "authentication_type": "password",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        wrapped = SnowflakeIntegration(integration)
+        assert wrapped.password == "secret"
+        assert wrapped.private_key is None
+        # display_name surfaces auth type and account so users can tell integrations apart.
+        assert integration.display_name == "prod-snowflake (account: myorg-myaccount, password auth)"
+
+    def test_integration_from_config_with_keypair_auth(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="keypair",
+            private_key="-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            private_key_passphrase="phrase",
+            created_by=self.user,
+        )
+        assert integration.config["authentication_type"] == "keypair"
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            "private_key_passphrase": "phrase",
+        }
+        # A password from a switched auth mode must never linger alongside the key-pair material.
+        assert "password" not in integration.sensitive_config
+        wrapped = SnowflakeIntegration(integration)
+        assert wrapped.private_key == "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----"
+        assert wrapped.private_key_passphrase == "phrase"
+
+    def test_integration_from_config_keypair_without_passphrase(self):
+        integration = SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="keypair",
+            private_key="-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+        )
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----"
+        }
+
+    @parameterized.expand(
+        [
+            ("missing_name", "", "myorg-myaccount", "posthog_svc"),
+            ("missing_account", "prod-snowflake", "", "posthog_svc"),
+            ("missing_user", "prod-snowflake", "myorg-myaccount", ""),
+        ]
+    )
+    def test_integration_from_config_requires_name_account_user(self, _name, name, account, user):
+        with pytest.raises(SnowflakeIntegrationError, match="Name, account, and user must be provided"):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name=name,
+                account=account,
+                user=user,
+                authentication_type="password",
+                password="secret",
+            )
+
+    @parameterized.expand(
+        [
+            ("password_missing_password", "password", {}, "Password is required"),
+            ("keypair_missing_private_key", "keypair", {}, "Private key is required"),
+            ("invalid_auth_type", "oauth", {"password": "secret"}, "Invalid authentication type: oauth"),
+        ]
+    )
+    def test_integration_from_config_rejects_invalid_auth(self, _name, authentication_type, credentials, expected):
+        with pytest.raises(SnowflakeIntegrationError, match=expected):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-snowflake",
+                account="myorg-myaccount",
+                user="posthog_svc",
+                authentication_type=authentication_type,
+                **credentials,
+            )
+
+    def test_integration_from_config_rejects_duplicate_name(self):
+        SnowflakeIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-snowflake",
+            account="myorg-myaccount",
+            user="posthog_svc",
+            authentication_type="password",
+            password="secret",
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="An integration named 'prod-snowflake' already exists"):
+            SnowflakeIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-snowflake",
+                account="other-account",
+                user="other_user",
+                authentication_type="password",
+                password="other-secret",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="prod-snowflake").count() == 1
+
+    @parameterized.expand(
+        [
+            ("simple", "myaccount"),
+            ("org_account", "myorg-myaccount"),
+            ("legacy_locator", "xy12345.us-east-1.aws"),
+        ]
+    )
+    def test_validate_account_accepts_valid_identifiers(self, _name, account):
+        SnowflakeIntegration.validate_account(account)  # must not raise
+
+    @parameterized.expand(
+        [
+            ("full_url", "https://myaccount.snowflakecomputing.com"),
+            ("with_path", "myaccount/foo"),
+            ("with_at", "user@myaccount"),
+            ("with_colon", "myaccount:443"),
+            ("with_fragment", "myaccount#"),
+            ("with_whitespace", "my account"),
+            ("empty", ""),
+        ]
+    )
+    def test_validate_account_rejects_malformed_identifiers(self, _name, account):
+        with pytest.raises(SnowflakeIntegrationError, match="invalid account identifier"):
+            SnowflakeIntegration.validate_account(account)
+
+    def test_wrapping_wrong_kind_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x"
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="is not a Snowflake integration"):
+            SnowflakeIntegration(integration)
+
+    def test_wrapping_missing_config_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="x", config={}
+        )
+        with pytest.raises(SnowflakeIntegrationError, match="missing"):
+            SnowflakeIntegration(integration)
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):

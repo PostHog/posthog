@@ -6,10 +6,9 @@ import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { Tooltip } from '../Tooltip'
 
@@ -104,42 +103,43 @@ export function LemonModal({
 
     const modalContent = (
         <div ref={nodeRef} className="LemonModal__container" data-attr={dataAttr}>
-            {closable && !hideCloseButton && (
-                // The key causes the div to be re-rendered, which restarts the animation,
-                // providing immediate visual feedback on click
-                <div
-                    key={ignoredOverlayClickCount}
-                    className={clsx(
-                        'LemonModal__close',
-                        ignoredOverlayClickCount > 0 && 'LemonModal__close--highlighted'
-                    )}
-                >
-                    <Tooltip
-                        visible={!!ignoredOverlayClickCount || undefined}
-                        title={
-                            ignoredOverlayClickCount ? (
-                                <>
-                                    You have unsaved input that will be discarded.
-                                    <br />
-                                    Use the <IconX /> button to close explicitly.
-                                </>
-                            ) : (
-                                <>
-                                    Close <KeyboardShortcut escape />
-                                </>
-                            )
-                        }
+            {closable &&
+                !hideCloseButton && (
+                    // The key causes the div to be re-rendered, which restarts the animation,
+                    // providing immediate visual feedback on click
+                    <div
+                        key={ignoredOverlayClickCount}
+                        className={clsx(
+                            'LemonModal__close',
+                            ignoredOverlayClickCount > 0 && 'LemonModal__close--highlighted'
+                        )}
                     >
-                        <LemonButton
-                            icon={<IconX />}
-                            size="small"
-                            onClick={onClose}
-                            aria-label="close"
-                            onMouseEnter={() => setIgnoredOverlayClickCount(0)}
-                        />
-                    </Tooltip>
-                </div>
-            )}
+                        <Tooltip
+                            visible={!!ignoredOverlayClickCount || undefined}
+                            title={
+                                ignoredOverlayClickCount ? (
+                                    <>
+                                        You have unsaved input that will be discarded.
+                                        <br />
+                                        Use the <IconX /> button to close explicitly.
+                                    </>
+                                ) : (
+                                    <>
+                                        Close <KeyboardShortcut escape />
+                                    </>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                icon={<IconX />}
+                                size="small"
+                                onClick={onClose}
+                                aria-label="close"
+                                onMouseEnter={() => setIgnoredOverlayClickCount(0)}
+                            />
+                        </Tooltip>
+                    </div>
+                )}
 
             <div className="LemonModal__layout">
                 {simple ? (

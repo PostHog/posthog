@@ -16,7 +16,13 @@ from posthog.schema import (
     SuggestedTable,
 )
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GoogleAdsIntegration, Integration, OauthIntegration
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GoogleAdsIntegration,
+    Integration,
+    OauthIntegration,
+    google_ads_hierarchy_level,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -58,13 +64,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
 # enforced at the creation/update endpoints.
 GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
-
-
-def _hierarchy_level(account: dict) -> int:
-    """Depth of an account below the manager the walk started from. Google's REST responses omit
-    proto3 default values, so the level-0 account (the queried one) carries no `level` at all, and
-    the rest arrive as strings."""
-    return int(account.get("level") or 0)
 
 
 @SourceRegistry.register
@@ -255,7 +254,11 @@ class GoogleAdsSource(
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Google returns the whole hierarchy in one walk, so `search` is ignored here and the endpoint
+        # filters the returned list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
@@ -275,7 +278,7 @@ class GoogleAdsSource(
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
-            # lost access. Any other failure stays an unhandled 500.
+            # lost access.
             raise IntegrationAccountListingError(
                 "Google rejected the credentials for this integration. Please reconnect your Google Ads "
                 "integration and make sure the connected account can access your Google Ads accounts."
@@ -284,11 +287,17 @@ class GoogleAdsSource(
         names_by_id = {account["id"]: account["name"] for account in accounts}
         return [
             IntegrationAccount(
-                value=format_customer_id(account["id"]),
+                # The bare digits are what the API and every pipeline read site use, and what existing
+                # sources already have stored; the dashed form the Google Ads UI shows is display-only.
+                value=account["id"],
                 display_name=account["name"],
-                is_primary=_hierarchy_level(account) == 0,
+                secondary_text=format_customer_id(account["id"]),
+                is_primary=google_ads_hierarchy_level(account) == 0,
                 badges=("Manager",) if account.get("manager") else (),
-                group=names_by_id.get(account["parent_id"]) if _hierarchy_level(account) else None,
+                # `parent_id` is the accessible account the walk started from, not the direct manager, so
+                # it only names the true parent one level down. Deeper accounts get no group rather than a
+                # wrong one (the client renders this as "under <group>").
+                group=names_by_id.get(account["parent_id"]) if google_ads_hierarchy_level(account) == 1 else None,
             )
             for account in accounts
         ]

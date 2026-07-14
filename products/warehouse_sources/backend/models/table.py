@@ -18,6 +18,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    reconstruct_ordered_columns,
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -162,6 +164,93 @@ class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
         return self.get_queryset().queryable()
 
 
+def get_hogql_field_for_column(
+    column_name: str,
+    column_definition: dict[str, Any] | str,
+    clickhouse_type: str,
+    is_nullable: bool,
+) -> DatabaseField:
+    if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
+        child_fields: dict[str, DatabaseField] = {}
+        nested_definitions = column_definition.get("fields")
+        if isinstance(nested_definitions, dict):
+            for nested_name, nested_definition in nested_definitions.items():
+                if not isinstance(nested_definition, dict):
+                    continue
+
+                nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
+                nested_is_nullable = False
+                if nested_clickhouse_type.startswith("Nullable("):
+                    nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
+                    nested_is_nullable = True
+
+                child_fields[nested_name] = get_hogql_field_for_column(
+                    nested_name,
+                    nested_definition,
+                    nested_clickhouse_type,
+                    nested_is_nullable,
+                )
+
+        return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
+
+    # Support for 'old' style columns
+    if isinstance(column_definition, str):
+        hogql_type_str = clickhouse_type.partition("(")[0]
+        return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+
+    return STR_TO_HOGQL_MAPPING.get(
+        str(column_definition.get("hogql", "UnknownDatabaseField")),
+        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+    )(name=column_name, nullable=is_nullable)
+
+
+def hogql_fields_and_structure_for_columns(
+    columns: dict[str, Any],
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+    column_order: list[str] | None = None,
+) -> tuple[dict[str, FieldOrTable], list[str]]:
+    """Shared columns → HogQL fields mapping for warehouse and direct virtual tables.
+
+    Structure entries (the S3 table-function column spec) are only meaningful for S3-backed
+    tables; direct virtual tables ignore them. ``column_order`` restores the SELECT order the
+    jsonb column store drops (see ``reconstruct_ordered_columns``); omit it for column dicts
+    whose insertion order is already meaningful.
+    """
+    fields: dict[str, FieldOrTable] = {}
+    structure = []
+    for column, type in reconstruct_ordered_columns(columns, column_order):
+        # Support for 'old' style columns
+        if isinstance(type, str):
+            clickhouse_type = type
+        else:
+            clickhouse_type = type["clickhouse"]
+
+        is_nullable = False
+
+        if clickhouse_type.startswith("Nullable("):
+            clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+            is_nullable = True
+
+        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
+        if clickhouse_type.startswith("Array("):
+            clickhouse_type = remove_named_tuples(clickhouse_type)
+
+        if isinstance(type, dict):
+            column_invalid = not type.get("valid", True)
+        else:
+            column_invalid = False
+
+        if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if is_nullable:
+                structure.append(f"`{column}` Nullable({clickhouse_type})")
+            else:
+                structure.append(f"`{column}` {clickhouse_type}")
+
+        fields[column] = get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+
+    return fields, structure
+
+
 class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
@@ -194,6 +283,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         null=True,
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
+    )
+    # Postgres jsonb does not preserve `columns` key order, so this records the physical column
+    # order captured at write time (for materialized-view backing tables, the view's SELECT order).
+    # Null on rows saved before this field existed and on non-materialized tables (they fall back
+    # to jsonb key order). Internal only, not exposed through the API.
+    column_order = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Ordered column names capturing physical/SELECT order (columns jsonb loses key order). Not user-facing.",
     )
 
     options = models.JSONField(default=dict, blank=True)
@@ -302,6 +401,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
+
+    def set_columns(self, columns: dict[str, Any]) -> None:
+        """Assign ``columns`` and record its order together.
+
+        The single chokepoint for persisting columns: the caller passes an ordered dict (DESCRIBE /
+        SELECT order), and both the jsonb payload and the ordered names are set here so they can
+        never drift. Never assign ``self.columns`` directly at a persist site.
+        """
+        self.columns = columns
+        self.column_order = list(columns.keys())
 
     def get_columns(
         self,
@@ -500,49 +609,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def _get_hogql_field_for_column(
-        self,
-        column_name: str,
-        column_definition: dict[str, Any] | str,
-        clickhouse_type: str,
-        is_nullable: bool,
-    ) -> DatabaseField:
-        if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
-            child_fields: dict[str, DatabaseField] = {}
-            nested_definitions = column_definition.get("fields")
-            if isinstance(nested_definitions, dict):
-                for nested_name, nested_definition in nested_definitions.items():
-                    if not isinstance(nested_definition, dict):
-                        continue
-
-                    nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
-                    nested_is_nullable = False
-                    if nested_clickhouse_type.startswith("Nullable("):
-                        nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
-                        nested_is_nullable = True
-
-                    child_fields[nested_name] = self._get_hogql_field_for_column(
-                        nested_name,
-                        nested_definition,
-                        nested_clickhouse_type,
-                        nested_is_nullable,
-                    )
-
-            return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
-
-        # Support for 'old' style columns
-        if isinstance(column_definition, str):
-            hogql_type_str = clickhouse_type.partition("(")[0]
-            return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-        return STR_TO_HOGQL_MAPPING.get(
-            str(column_definition.get("hogql", "UnknownDatabaseField")),
-            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-        )(name=column_name, nullable=is_nullable)
-
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable | DirectRedshiftTable:
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
         # These direct-query option keys are only needed here, at query-build time.
@@ -552,6 +621,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_POSTGRES_CATALOG_OPTION,
             DIRECT_POSTGRES_SCHEMA_OPTION,
             DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_REDSHIFT_CATALOG_OPTION,
+            DIRECT_REDSHIFT_SCHEMA_OPTION,
+            DIRECT_REDSHIFT_TABLE_OPTION,
             DIRECT_SNOWFLAKE_CATALOG_OPTION,
             DIRECT_SNOWFLAKE_SCHEMA_OPTION,
             DIRECT_SNOWFLAKE_TABLE_OPTION,
@@ -559,37 +631,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns = self.columns or {}
 
-        fields: dict[str, FieldOrTable] = {}
-        structure = []
-        for column, type in columns.items():
-            # Support for 'old' style columns
-            if isinstance(type, str):
-                clickhouse_type = type
-            else:
-                clickhouse_type = type["clickhouse"]
-
-            is_nullable = False
-
-            if clickhouse_type.startswith("Nullable("):
-                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
-                is_nullable = True
-
-            # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if clickhouse_type.startswith("Array("):
-                clickhouse_type = remove_named_tuples(clickhouse_type)
-
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                if is_nullable:
-                    structure.append(f"`{column}` Nullable({clickhouse_type})")
-                else:
-                    structure.append(f"`{column}` {clickhouse_type}")
-
-            fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+        fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers, column_order=self.column_order)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
@@ -661,6 +703,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_catalog=snowflake_catalog,
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_redshift:
+            # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
+            # double-quoted table-reference rendering (see DirectRedshiftTable).
+            job_inputs = self.external_data_source.job_inputs or {}
+            redshift_catalog = (
+                self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
+                else job_inputs.get("database")
+            )
+            redshift_schema = (
+                self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "public")
+            )
+            redshift_table_name = (
+                self.options.get(DIRECT_REDSHIFT_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectRedshiftTable(
+                name=self.name,
+                fields=fields,
+                postgres_catalog=redshift_catalog,
+                postgres_schema=redshift_schema,
+                postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

@@ -40,10 +40,10 @@ You review, suggest, and implement result handling code that follows the pipelin
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/pipelines/docs/07-result-handling.test.ts` — result types, constructors, DLQ/drop/redirect
-- `nodejs/src/ingestion/pipelines/docs/08-side-effects.test.ts` — side effect accumulation, await modes
-- `nodejs/src/ingestion/pipelines/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
-- `nodejs/src/ingestion/pipelines/results.ts` — result type definitions and constructor implementations
+- `nodejs/src/ingestion/framework/docs/07-result-handling.test.ts` — result types, constructors, DLQ/drop/redirect
+- `nodejs/src/ingestion/framework/docs/08-side-effects.test.ts` — side effect accumulation, await modes
+- `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
+- `nodejs/src/ingestion/framework/results.ts` — result type definitions and constructor implementations
 
 Also read any files the user points you to.
 
