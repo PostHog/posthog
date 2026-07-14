@@ -867,8 +867,10 @@ class DeltaTableHelper:
         """Distinct `_ph_snapshot_at` values present in the live Delta table, oldest first.
 
         Empty when the table doesn't exist yet or has no snapshot column (i.e. not a full-refresh-append
-        table). A single-column scan, used both to prune at sync time and to report retained / orphaned
-        snapshots on demand.
+        table). Used both to prune at sync time and to report retained / orphaned snapshots on demand.
+        Scans the single snapshot column in record batches and dedupes as it goes, so peak memory is
+        bounded by one batch rather than materializing the whole column (a snapshot table has few distinct
+        timestamps but can have very many rows).
         """
         table = await self.get_delta_table()
         if table is None:
@@ -878,8 +880,10 @@ class DeltaTableHelper:
             dataset = table.to_pyarrow_dataset()
             if SNAPSHOT_COLUMN not in dataset.schema.names:
                 return []
-            column = dataset.to_table(columns=[SNAPSHOT_COLUMN]).column(SNAPSHOT_COLUMN)
-            return sorted(value for value in pc.unique(column).to_pylist() if value is not None)
+            seen: set[datetime] = set()
+            for batch in dataset.to_batches(columns=[SNAPSHOT_COLUMN]):
+                seen.update(value for value in pc.unique(batch.column(0)).to_pylist() if value is not None)
+            return sorted(seen)
 
         return await asyncio.to_thread(_distinct_snapshots)
 
