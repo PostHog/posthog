@@ -15,6 +15,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams } from '~/types'
 
+import { FUNNEL_STEPS_BAND_PADDING } from '../shared/funnelStepsBarShared'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
@@ -58,12 +59,13 @@ export function FunnelStepsBarChart({
         [steps, getFunnelsColor]
     )
 
-    // Display step labels for the chart's bands (its built-in x-axis is hidden — the StepLegend
-    // footer row renders the visible labels — but they still feed the accessible tooltip header).
+    // Display step labels for the chart's bands. The built-in x-axis is hidden (`hideStepLabels`) —
+    // the StepLegend footer row renders the visible labels — but they still feed the tooltip header.
     const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
 
     const config = useMemo<FunnelChartConfig>(
         () => ({
+            hideStepLabels: true,
             animateHover: true,
             margins: { left: DEFAULT_MARGINS.left },
             tooltip: funnelStepsBarTooltipConfig(),
@@ -76,7 +78,10 @@ export function FunnelStepsBarChart({
 
     const breakdownCount = series.length
     const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+    const barsWidth = steps.length * stepWidthPx
+    const chartWidth = DEFAULT_MARGINS.left + barsWidth + DEFAULT_MARGINS.right
+
+    const stepBandWidthPx = stepWidthPx * (1 - FUNNEL_STEPS_BAND_PADDING)
 
     const onStepClick = useCallback(
         (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -104,48 +109,54 @@ export function FunnelStepsBarChart({
         [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
     )
 
-    const renderStepFooter = useCallback(
-        (stepIndex: number): JSX.Element | null => {
-            const step = steps[stepIndex]
-            if (!step) {
-                return null
-            }
-            return (
-                <StepLegend
-                    step={step}
-                    stepIndex={stepIndex}
-                    showTime={showTime}
-                    showPersonsModal={showPersonsModal}
-                    inCardView={inCardView}
-                />
-            )
-        },
-        [steps, showTime, showPersonsModal, inCardView]
-    )
-
     if (steps.length === 0) {
         return null
     }
 
     return (
         <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div
-                className="flex min-h-[150px] flex-1 flex-col"
-                style={{ width: chartWidth }}
-                data-attr="funnel-steps-bar-chart"
-            >
-                <FunnelChart<FunnelStepsBarSeriesMeta>
-                    steps={stepLabels}
-                    series={series}
-                    theme={theme}
-                    config={config}
-                    tooltip={renderTooltip}
-                    onStepClick={showPersonsModal ? onStepClick : undefined}
-                    stepFooter={renderStepFooter}
-                    dataAttr="funnel-steps-bar-chart-canvas"
-                    onError={handleChartError}
-                />
+            <div className="flex flex-1 flex-col" data-attr="funnel-steps-bar-chart">
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div
+                    className="flex min-h-[150px] flex-1"
+                    style={{ width: chartWidth }}
+                    data-attr="funnel-steps-bar-chart-canvas"
+                >
+                    <FunnelChart<FunnelStepsBarSeriesMeta>
+                        steps={stepLabels}
+                        series={series}
+                        theme={theme}
+                        config={config}
+                        tooltip={renderTooltip}
+                        onStepClick={showPersonsModal ? onStepClick : undefined}
+                        onError={handleChartError}
+                    />
+                </div>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div
+                    className="flex shrink-0"
+                    style={{ paddingLeft: DEFAULT_MARGINS.left, paddingRight: DEFAULT_MARGINS.right }}
+                >
+                    <div className="flex shrink-0" style={{ width: barsWidth }}>
+                        {steps.map((step, stepIndex) => (
+                            <div
+                                key={stepIndex}
+                                className={`flex min-w-0 flex-1 ${stepIndex === 0 ? 'justify-start' : 'justify-center'}`}
+                            >
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <div className="min-w-0 overflow-hidden" style={{ width: stepBandWidthPx }}>
+                                    <StepLegend
+                                        step={step}
+                                        stepIndex={stepIndex}
+                                        showTime={showTime}
+                                        showPersonsModal={showPersonsModal}
+                                        inCardView={inCardView}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         </ScrollableShadows>
     )
