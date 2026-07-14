@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.conf import settings
 from django.utils import timezone
 
+import httpx
+from openai import NotFoundError
 from parameterized import parameterized
 
 from products.replay_vision.backend.models import ReplayObservation, ReplayScanner, VisionAction, VisionActionRun
@@ -38,6 +40,16 @@ def _mock_openai(content: str, captured: list[str] | None = None):
 
 def _no_llm_client(**_kwargs):
     raise AssertionError("LLM should not be called")
+
+
+def _model_not_found_openai(**_kwargs):
+    # Mimic the gateway returning HTTP 404 model_not_found from chat.completions.create.
+    def _create(**_create_kwargs):
+        request = httpx.Request("POST", "https://gateway/chat/completions")
+        response = httpx.Response(404, request=request)
+        raise NotFoundError("model_not_found", response=response, body={"code": "model_not_found"})
+
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
 
 
 class TestVisionActionSynthesis(BaseTest):
@@ -308,6 +320,23 @@ class TestVisionActionSynthesis(BaseTest):
         result = self._synthesize(action, run, llm_content="   \n  ")
 
         self.assertEqual(result.status, SynthesisStatus.SKIPPED_EMPTY)
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown, "")
+
+    def test_model_unavailable_soft_skips_without_persisting(self) -> None:
+        # The gateway intermittently 404s the synthesis model. That must be a soft skip, not an uncaught
+        # NotFoundError crashing the activity, and nothing may persist (so a later run still synthesizes).
+        self._observation("something")
+        action = self._action()
+        run = self._run_for(action)
+
+        with (
+            patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
+            patch(f"{_SYNTH_PATH}.OpenAI", _model_not_found_openai),
+        ):
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
+
+        self.assertEqual(result.status, SynthesisStatus.SKIPPED_MODEL_UNAVAILABLE)
         run.refresh_from_db()
         self.assertEqual(run.synthesized_markdown, "")
 

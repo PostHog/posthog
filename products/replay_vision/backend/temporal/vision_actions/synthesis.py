@@ -16,6 +16,7 @@ from django.db.models import Q, QuerySet
 
 import structlog
 import posthoganalytics
+from openai import NotFoundError
 from posthoganalytics.ai.openai import OpenAI
 from temporalio import activity
 
@@ -145,7 +146,21 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     if not batch.lines:
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    markdown = _run_synthesis(team, action, batch.lines)
+    try:
+        markdown = _run_synthesis(team, action, batch.lines)
+    except NotFoundError as e:
+        # The PostHog AI gateway usually accepts SYNTHESIS_MODEL but intermittently returns HTTP 404
+        # model_not_found — most likely a failover routing the request to a backend that lacks the model.
+        # It's transient and self-heals on the next scheduled run, so treat it as a soft skip rather than
+        # letting the NotFoundError crash the activity into error tracking (the OpenAI SDK doesn't retry
+        # 4xx, so max_retries can't recover it either).
+        logger.warning(
+            "vision_action.synthesis.model_unavailable",
+            vision_action_id=str(action.id),
+            model=SYNTHESIS_MODEL,
+            error=str(e),
+        )
+        return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_MODEL_UNAVAILABLE)
     if not markdown.strip():
         # The model returned nothing. Skip without persisting — an empty `synthesized_markdown` would
         # read as "not done" to the idempotency guard above and re-bill the LLM on every retry.
