@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Literal, NotRequired, TypedDict
 from urllib.parse import urlsplit
 
@@ -34,17 +32,6 @@ class AlertDestinationValidationError(Exception):
         self.message = message
         self.field = field
         super().__init__(message)
-
-
-DestinationConfigBuilder = Callable[[LogsAlertConfiguration, EventKind, AlertDestinationData], AlertDestinationConfig]
-DestinationDataValidator = Callable[[AlertDestinationData], None]
-
-
-@dataclass(frozen=True)
-class AlertDestinationStrategy:
-    builder: DestinationConfigBuilder
-    required_fields: tuple[str, ...]
-    validator: DestinationDataValidator | None = None
 
 
 _PRODUCT_LABEL = "logs alert"
@@ -185,113 +172,6 @@ _SLACK_CONTEXT_ELEMENTS = (
 )
 
 
-def build_slack_config(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    slack_workspace_id: int,
-    slack_channel_id: str,
-    slack_channel_name: str | None,
-) -> AlertDestinationConfig:
-    spec = EVENT_KIND_CONFIG[kind]
-    channel_display = slack_channel_name or "channel"
-    return build_slack_destination_config(
-        team=alert.team,
-        spec=spec,
-        alert_id=str(alert.id),
-        alert_name=alert.name,
-        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
-        slack_workspace_id=slack_workspace_id,
-        slack_channel_id=slack_channel_id,
-        context_elements=_SLACK_CONTEXT_ELEMENTS,
-    )
-
-
-def build_webhook_config(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    spec = EVENT_KIND_CONFIG[kind]
-    return build_webhook_destination_config(
-        team=alert.team,
-        spec=spec,
-        alert_id=str(alert.id),
-        alert_name=alert.name,
-        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
-        webhook_url=webhook_url,
-    )
-
-
-def build_discord_config(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    spec = EVENT_KIND_CONFIG[kind]
-    return build_discord_destination_config(
-        team=alert.team,
-        spec=spec,
-        alert_id=str(alert.id),
-        alert_name=alert.name,
-        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Discord",
-        webhook_url=webhook_url,
-    )
-
-
-def build_teams_config(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    webhook_url: str,
-) -> AlertDestinationConfig:
-    spec = EVENT_KIND_CONFIG[kind]
-    return build_teams_destination_config(
-        team=alert.team,
-        spec=spec,
-        alert_id=str(alert.id),
-        alert_name=alert.name,
-        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams",
-        webhook_url=webhook_url,
-    )
-
-
-def _build_slack_strategy(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    data: AlertDestinationData,
-) -> AlertDestinationConfig:
-    return build_slack_config(
-        alert,
-        kind,
-        slack_workspace_id=data["slack_workspace_id"],
-        slack_channel_id=data["slack_channel_id"],
-        slack_channel_name=data.get("slack_channel_name"),
-    )
-
-
-def _build_webhook_strategy(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    data: AlertDestinationData,
-) -> AlertDestinationConfig:
-    return build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
-
-
-def _build_discord_strategy(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    data: AlertDestinationData,
-) -> AlertDestinationConfig:
-    return build_discord_config(alert, kind, webhook_url=data["webhook_url"])
-
-
-def _build_teams_strategy(
-    alert: LogsAlertConfiguration,
-    kind: EventKind,
-    data: AlertDestinationData,
-) -> AlertDestinationConfig:
-    return build_teams_config(alert, kind, webhook_url=data["webhook_url"])
-
-
 def _validate_discord_destination(data: AlertDestinationData) -> None:
     webhook_url = data["webhook_url"]
     try:
@@ -319,24 +199,11 @@ def _validate_discord_destination(data: AlertDestinationData) -> None:
         )
 
 
-DESTINATION_STRATEGIES: dict[DestinationType, AlertDestinationStrategy] = {
-    DestinationType.SLACK: AlertDestinationStrategy(
-        builder=_build_slack_strategy,
-        required_fields=("slack_workspace_id", "slack_channel_id"),
-    ),
-    DestinationType.WEBHOOK: AlertDestinationStrategy(
-        builder=_build_webhook_strategy,
-        required_fields=("webhook_url",),
-    ),
-    DestinationType.DISCORD: AlertDestinationStrategy(
-        builder=_build_discord_strategy,
-        required_fields=("webhook_url",),
-        validator=_validate_discord_destination,
-    ),
-    DestinationType.TEAMS: AlertDestinationStrategy(
-        builder=_build_teams_strategy,
-        required_fields=("webhook_url",),
-    ),
+REQUIRED_DESTINATION_FIELDS: dict[DestinationType, tuple[str, ...]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
+    DestinationType.WEBHOOK: ("webhook_url",),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.TEAMS: ("webhook_url",),
 }
 
 
@@ -350,8 +217,7 @@ def validate_destination_data(data: AlertDestinationData) -> None:
             f"Choose a supported destination type: {choices}.", field="type"
         ) from error
 
-    strategy = DESTINATION_STRATEGIES[destination_type]
-    missing_fields = tuple(field for field in strategy.required_fields if not data.get(field))
+    missing_fields = tuple(field for field in REQUIRED_DESTINATION_FIELDS[destination_type] if not data.get(field))
     if len(missing_fields) == 1:
         missing_field = missing_fields[0]
         raise AlertDestinationValidationError(
@@ -360,8 +226,8 @@ def validate_destination_data(data: AlertDestinationData) -> None:
     if missing_fields:
         formatted_fields = " and ".join(missing_fields)
         raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
-    if strategy.validator:
-        strategy.validator(data)
+    if destination_type == DestinationType.DISCORD:
+        _validate_discord_destination(data)
 
 
 def build_destination_config(
@@ -369,4 +235,43 @@ def build_destination_config(
     kind: EventKind,
     data: AlertDestinationData,
 ) -> AlertDestinationConfig:
-    return DESTINATION_STRATEGIES[data["type"]].builder(alert, kind, data)
+    spec = EVENT_KIND_CONFIG[kind]
+
+    if data["type"] == DestinationType.SLACK:
+        channel_display = data.get("slack_channel_name") or "channel"
+        return build_slack_destination_config(
+            team=alert.team,
+            spec=spec,
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            name=f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
+            slack_workspace_id=data["slack_workspace_id"],
+            slack_channel_id=data["slack_channel_id"],
+            context_elements=_SLACK_CONTEXT_ELEMENTS,
+        )
+    if data["type"] == DestinationType.WEBHOOK:
+        return build_webhook_destination_config(
+            team=alert.team,
+            spec=spec,
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            name=f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {data['webhook_url']}",
+            webhook_url=data["webhook_url"],
+        )
+    if data["type"] == DestinationType.DISCORD:
+        return build_discord_destination_config(
+            team=alert.team,
+            spec=spec,
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            name=f"Logs alert — {alert.name} ({spec.display_kind}) → Discord",
+            webhook_url=data["webhook_url"],
+        )
+    return build_teams_destination_config(
+        team=alert.team,
+        spec=spec,
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams",
+        webhook_url=data["webhook_url"],
+    )
