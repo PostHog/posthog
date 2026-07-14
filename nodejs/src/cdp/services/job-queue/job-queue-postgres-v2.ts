@@ -272,11 +272,17 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 try {
                     await job.heartbeat()
                 } catch (err) {
-                    // Race with ack/fail/reschedule flipping `released` on the wrapper.
-                    logger.debug('CyclotronV2 heartbeat skipped for released job', {
-                        id: inv.id,
-                        error: String(err),
-                    })
+                    const message = err instanceof Error ? err.message : String(err)
+                    if (message.includes('already released')) {
+                        // Benign race with ack/fail/reschedule flipping `released` on the wrapper.
+                        logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
+                    } else {
+                        // Real failure (connection error, pool exhaustion, query timeout) —
+                        // surface it so we can act. Don't rethrow: the tick continues for
+                        // the other jobs and the interval keeps firing so a transient blip
+                        // doesn't kill the batch.
+                        logger.warn('CyclotronV2 heartbeat failed', { id: inv.id, error: message })
+                    }
                 }
             })
         )
