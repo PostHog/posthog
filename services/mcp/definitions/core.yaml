@@ -257,8 +257,8 @@ tools:
     domains-retrieve:
         operation: domains_retrieve
         enabled: false
-    domains-scim-logs-retrieve:
-        operation: domains_scim_logs_retrieve
+    domains-scim-logs-list:
+        operation: domains_scim_logs_list
         enabled: false
     domains-update:
         operation: domains_update
@@ -349,6 +349,9 @@ tools:
         enabled: false
     identity-provider-configs-destroy:
         operation: identity_provider_configs_destroy
+        enabled: false
+    identity-provider-configs-domains-partial-update:
+        operation: identity_provider_configs_domains_partial_update
         enabled: false
     identity-provider-configs-list:
         operation: identity_provider_configs_list
