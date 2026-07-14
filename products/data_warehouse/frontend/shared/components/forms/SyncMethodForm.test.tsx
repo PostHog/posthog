@@ -42,6 +42,7 @@ describe('SyncMethodForm', () => {
         ['append on, valid value → allowed', true, 3, undefined],
         ['append on, empty value → blocked', true, null, 'You must set how many snapshots (or days) to keep'],
         ['append on, zero value → blocked', true, 0, 'You must set how many snapshots (or days) to keep'],
+        ['append on, over max → blocked', true, 366, 'Keep at most 365 snapshots (or days)'],
     ])('save disabled reason for full refresh: %s', (_, fullRefreshAppend, retentionValue, expected) => {
         expect(getSaveDisabledReason('full_refresh', null, null, fullRefreshAppend, retentionValue)).toBe(expected)
     })

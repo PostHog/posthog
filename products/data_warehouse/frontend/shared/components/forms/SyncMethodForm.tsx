@@ -160,8 +160,13 @@ export const getSaveDisabledReason = (
         return 'You must select an append field'
     }
 
-    if (syncType === 'full_refresh' && fullRefreshAppend && (!retentionValue || retentionValue < 1)) {
-        return 'You must set how many snapshots (or days) to keep'
+    if (syncType === 'full_refresh' && fullRefreshAppend) {
+        if (!retentionValue || retentionValue < 1) {
+            return 'You must set how many snapshots (or days) to keep'
+        }
+        if (retentionValue > 365) {
+            return 'Keep at most 365 snapshots (or days)'
+        }
     }
 }
 

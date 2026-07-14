@@ -533,8 +533,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
         ret["full_refresh_append"] = instance.is_full_refresh_append
-        ret["snapshot_retention_mode"] = instance.snapshot_retention_mode
-        ret["snapshot_retention_value"] = instance.snapshot_retention_value
+        # Retention only means something in append mode; report null otherwise so the API contract
+        # doesn't imply a retention policy on a schema that overwrites (or on incremental/cdc).
+        ret["snapshot_retention_mode"] = instance.snapshot_retention_mode if instance.is_full_refresh_append else None
+        ret["snapshot_retention_value"] = instance.snapshot_retention_value if instance.is_full_refresh_append else None
         return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
