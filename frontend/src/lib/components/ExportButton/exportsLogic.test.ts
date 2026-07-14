@@ -183,5 +183,22 @@ describe('exportsLogic', () => {
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
             }
         )
+
+        it('acknowledges a blocking export before the create request resolves', () => {
+            // Blocking renders (e.g. insight PNGs) can hold the request for 15+ seconds, so the
+            // kickoff toast must fire immediately — feedback that arrives only with the response
+            // is the regression this guards against.
+            jest.spyOn(api.exports, 'create').mockReturnValue(new Promise<ExportedAssetType>(() => {}))
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
+
+            expect(lemonToast.info).toHaveBeenCalledWith(
+                'Export starting…',
+                expect.objectContaining({ autoClose: false })
+            )
+            expect(lemonToast.success).not.toHaveBeenCalled()
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(lemonToast.dismiss).not.toHaveBeenCalled()
+        })
     })
 })
