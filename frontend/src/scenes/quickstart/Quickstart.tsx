@@ -2,16 +2,27 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconApps, IconBook, IconGear, IconGraduationCap, IconPeople, IconSparkles } from '@posthog/icons'
+import {
+    IconApps,
+    IconBook,
+    IconCheckCircle,
+    IconGear,
+    IconGraduationCap,
+    IconPeople,
+    IconSparkles,
+} from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
+import { productSetupLogic } from 'lib/components/ProductSetup'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { useInstallationComplete } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
@@ -216,7 +227,7 @@ function ProductStatusTag({ status }: { status: QuickstartProduct['status'] }): 
 
 function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
     const { enablingProducts } = useValues(quickstartLogic)
-    const { enableProduct } = useActions(quickstartLogic)
+    const { enableProduct, openToolSetupModal } = useActions(quickstartLogic)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
@@ -256,8 +267,10 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        to={product.setupUrl}
-                        onClick={() => captureQuickstartAction('set_up_product', product.key)}
+                        onClick={() => {
+                            captureQuickstartAction('set_up_product', product.key)
+                            openToolSetupModal(product.key)
+                        }}
                         data-attr={`quickstart-setup-${product.key}`}
                     >
                         Set up
@@ -276,6 +289,107 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                 )}
             </div>
         </LemonCard>
+    )
+}
+
+function ToolSetupModalContent({ product }: { product: QuickstartProduct }): JSX.Element {
+    const setupLogic = productSetupLogic({ productKey: product.key })
+    const { tasksWithState } = useValues(setupLogic)
+    const { runTask } = useActions(setupLogic)
+    const { closeToolSetupModal } = useActions(quickstartLogic)
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+                <span className="text-3xl leading-none">
+                    {getProductIcon(product.icon, { iconColor: product.iconColor })}
+                </span>
+                <div className="min-w-0">
+                    <p className="mb-0">{product.description}</p>
+                    <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
+                </div>
+            </div>
+            {tasksWithState.length > 0 ? (
+                <ul className="flex flex-col gap-1 mb-0">
+                    {tasksWithState.map((task) => (
+                        <li key={task.id} className="flex items-center justify-between gap-3 rounded border p-2">
+                            <div className="min-w-0">
+                                <div
+                                    className={cn(
+                                        'font-medium text-sm',
+                                        (task.completed || task.skipped) && 'line-through text-secondary'
+                                    )}
+                                >
+                                    {task.title}
+                                </div>
+                                <div className="text-xs text-secondary">{task.description}</div>
+                            </div>
+                            {task.completed ? (
+                                <IconCheckCircle className="text-success text-xl shrink-0" />
+                            ) : (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    disabledReason={task.lockedReason}
+                                    onClick={() => {
+                                        closeToolSetupModal()
+                                        runTask(task.id)
+                                    }}
+                                    data-attr={`quickstart-setup-task-${task.id}`}
+                                >
+                                    Go
+                                </LemonButton>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p className="text-secondary mb-0">Follow the setup guide to get {product.name} running.</p>
+            )}
+        </div>
+    )
+}
+
+function ToolSetupModal(): JSX.Element {
+    const { setupModalProduct } = useValues(quickstartLogic)
+    const { closeToolSetupModal } = useActions(quickstartLogic)
+
+    return (
+        <LemonModal
+            isOpen={!!setupModalProduct}
+            onClose={closeToolSetupModal}
+            title={setupModalProduct ? `Set up ${setupModalProduct.name}` : ''}
+            width="32rem"
+            footer={
+                setupModalProduct && (
+                    <div className="flex items-center justify-end gap-2">
+                        {setupModalProduct.docsUrl && (
+                            <LemonButton
+                                to={setupModalProduct.docsUrl}
+                                targetBlank
+                                onClick={() => captureQuickstartAction('open_docs', setupModalProduct.key)}
+                                data-attr="quickstart-setup-modal-docs"
+                            >
+                                Docs
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            to={setupModalProduct.setupUrl}
+                            onClick={() => {
+                                captureQuickstartAction('open_setup_guide', setupModalProduct.key)
+                                closeToolSetupModal()
+                            }}
+                            data-attr="quickstart-setup-modal-guide"
+                        >
+                            Open full setup guide
+                        </LemonButton>
+                    </div>
+                )
+            }
+        >
+            {setupModalProduct && <ToolSetupModalContent product={setupModalProduct} />}
+        </LemonModal>
     )
 }
 
@@ -655,6 +769,8 @@ export function Quickstart(): JSX.Element {
             </section>
 
             <PublicationsSection />
+
+            <ToolSetupModal />
         </div>
     )
 }

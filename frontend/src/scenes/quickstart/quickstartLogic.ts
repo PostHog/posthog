@@ -35,6 +35,8 @@ export interface QuickstartProduct {
 interface QuickstartProductDefinition {
     bestFor: string
     docsUrl?: string
+    /** Overrides the onboarding metadata copy when the quickstart card needs different framing */
+    description?: string
     /** Team settings patched to turn the product on in one click. Absent means the product needs a setup flow. */
     optInPayload?: Partial<TeamType>
     isActive: (team: TeamType) => boolean
@@ -119,7 +121,9 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
     },
     [ProductKey.WORKFLOWS]: {
         bestFor: 'automations & messaging',
-        isActive: (team) => hasOnboarded(team, ProductKey.WORKFLOWS),
+        description: 'Automate messages and actions. No install needed, though it works best with events flowing.',
+        // Workflows run without any SDK install, so the tool is usable from day one
+        isActive: () => true,
     },
     [ProductKey.LOGS]: {
         bestFor: 'backend debugging',
@@ -155,7 +159,7 @@ function buildProduct(key: ProductKey, featured: boolean, team: TeamType): Quick
         key,
         featured,
         name: toSentenceCase(meta.name),
-        description: meta.userCentricDescription ?? meta.description,
+        description: definition.description ?? meta.userCentricDescription ?? meta.description,
         icon: meta.icon,
         iconColor: meta.iconColor,
         bestFor: definition.bestFor,
@@ -174,6 +178,8 @@ export const quickstartLogic = kea<quickstartLogicType>([
     })),
     actions({
         enableProduct: (productKey: ProductKey) => ({ productKey }),
+        openToolSetupModal: (productKey: ProductKey) => ({ productKey }),
+        closeToolSetupModal: true,
         setPublicationsHasMore: (feed: PublicationFeedKey, hasMore: boolean) => ({ feed, hasMore }),
     }),
     loaders(({ actions, values }) => {
@@ -238,6 +244,13 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 setPublicationsHasMore: (state, { feed, hasMore }) => ({ ...state, [feed]: hasMore }),
             },
         ],
+        setupModalProductKey: [
+            null as ProductKey | null,
+            {
+                openToolSetupModal: (_, { productKey }) => productKey,
+                closeToolSetupModal: () => null,
+            },
+        ],
     }),
     selectors({
         hasIngestedEvent: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.ingested_event],
@@ -265,6 +278,11 @@ export const quickstartLogic = kea<quickstartLogicType>([
         moreProducts: [
             (s) => [s.products],
             (products): QuickstartProduct[] => products.filter((product) => !product.featured),
+        ],
+        setupModalProduct: [
+            (s) => [s.setupModalProductKey, s.products],
+            (setupModalProductKey, products): QuickstartProduct | null =>
+                (setupModalProductKey && products.find((product) => product.key === setupModalProductKey)) || null,
         ],
     }),
     listeners(({ actions }) => ({
