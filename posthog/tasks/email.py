@@ -2042,7 +2042,7 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
         try:
             data = error_tracking_api.build_team_digest_data(all_org_teams[team_id])
         except Exception:
-            logger.exception(f"Failed to build Error Tracking weekly digest data for team {team_id} in org {org_id}")
+            logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
             failed_team_ids.append(team_id)
             continue
         if data:
@@ -2066,6 +2066,7 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
     sent_count = 0
     failed_count = 0
     deferred_count = 0
+    lacking_sent_count = 0
 
     for membership, enabled_team_ids, disabled_team_names in recipients:
         user = membership.user
@@ -2074,7 +2075,10 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
         if not user_team_sections:
             continue
 
-        if not is_final_attempt and any(team_id in failed_team_id_set for team_id in enabled_team_ids):
+        # Teams the recipient subscribes to that failed to build this run: a non-empty list means their
+        # digest is "lacking" those sections. Defer them off the final attempt; on it, send the partial.
+        missing_failed_team_ids = [team_id for team_id in enabled_team_ids if team_id in failed_team_id_set]
+        if not is_final_attempt and missing_failed_team_ids:
             deferred_count += 1
             continue
 
@@ -2103,18 +2107,40 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
             try:
                 error_tracking_api.send_digest_to_workflow(digest, distinct_id)
             except Exception:
-                logger.exception(f"Failed to send Error Tracking weekly digest for user {user.uuid} in org {org_id}")
+                logger.exception("et_weekly_digest.send_failed", user_id=str(user.uuid), org_id=org_id)
                 failed_count += 1
                 continue
 
             record.sent_at = timezone.now()
             record.save()
             sent_count += 1
+            if missing_failed_team_ids:
+                # A lacking digest actually went out (final-attempt fallback): the recipient is missing
+                # these teams because their builds kept failing. Grep this event to audit lacking sends.
+                lacking_sent_count += 1
+                logger.warning(
+                    "et_weekly_digest.lacking_digest_sent",
+                    org_id=org_id,
+                    user_id=str(user.uuid),
+                    missing_team_ids=missing_failed_team_ids,
+                    teams_sent=len(user_team_sections),
+                )
 
+    # Per-org, per-attempt summary. Counts are per-attempt but don't double-count across retries: each
+    # recipient is sent (and counted) in exactly one attempt, then skipped via the sent_at guard. So
+    # summing a field across an org's attempts gives the true total.
     logger.info(
-        f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams built, {len(failed_team_ids)} team builds failed, "
-        f"{failed_count} send failures, {deferred_count} recipients deferred to retry)"
+        "et_weekly_digest.org_complete",
+        org_id=org_id,
+        retries=(getattr(self.request, "retries", 0) or 0),
+        is_final_attempt=is_final_attempt,
+        sent=sent_count,
+        lacking_sent=lacking_sent_count,
+        teams_built=len(team_digest_data),
+        team_builds_failed=len(failed_team_ids),
+        failed_team_ids=failed_team_ids,
+        send_failures=failed_count,
+        deferred=deferred_count,
     )
 
     if failed_count or failed_team_ids:
