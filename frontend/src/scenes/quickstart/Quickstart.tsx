@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconApps,
@@ -11,7 +11,7 @@ import {
     IconPeople,
     IconSparkles,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
@@ -45,8 +45,15 @@ export const scene: SceneExport = {
     logic: quickstartLogic,
 }
 
-const HERO_IMAGE_URL =
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/logs_hogs_5d5e98d9e6.png'
+const HERO_IMAGES = [
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/logs_hogs_5d5e98d9e6.png',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/dogfooding_73ff8d08f4.jpg',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/Untitled_Artwork_83_1_4f4ca95c68.png',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/Session_Summaries_escher_draft_f87a1b6f17.png',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/ramen_hog_4fd2715196.jpg',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/american_football_hogs_e16746858b.jpg',
+    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/fast_n_furious_92a9838d40.png',
+]
 
 function captureQuickstartAction(action: string, productKey?: string): void {
     posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
@@ -82,6 +89,27 @@ function EventsWaitingStatus(): JSX.Element {
             </div>
             <span>Waiting for your first event…</span>
         </div>
+    )
+}
+
+function HeroImageCycler(): JSX.Element {
+    const [imageIndex, setImageIndex] = useState(0)
+
+    return (
+        <Tooltip title="Click for another hog" delayMs={0}>
+            <button
+                type="button"
+                className="w-56 lg:w-72 shrink-0 hidden md:block p-0 border-0 cursor-pointer"
+                onClick={() => {
+                    setImageIndex((imageIndex + 1) % HERO_IMAGES.length)
+                    captureQuickstartAction('cycle_hero_image')
+                }}
+                aria-label="Show another hedgehog illustration"
+                data-attr="quickstart-hero-image"
+            >
+                <img src={HERO_IMAGES[imageIndex]} alt="" className="w-full h-full object-cover" />
+            </button>
+        </Tooltip>
     )
 }
 
@@ -503,7 +531,7 @@ export function Quickstart(): JSX.Element {
     return (
         <div className="flex flex-col gap-8 py-4">
             <section className="rounded-lg border bg-surface-secondary flex items-stretch gap-6 overflow-hidden">
-                <img src={HERO_IMAGE_URL} alt="" className="w-56 lg:w-72 shrink-0 object-cover hidden md:block" />
+                <HeroImageCycler />
                 <div className="flex flex-col justify-center gap-3 min-w-0 flex-1 p-4 md:p-6 md:pl-0">
                     <div>
                         <h1 className="text-3xl font-bold mb-1">
