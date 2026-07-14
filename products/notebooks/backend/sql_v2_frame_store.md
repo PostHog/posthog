@@ -38,8 +38,10 @@ A wins on every axis that matters here except single-transfer latency:
   Draining into S3 happens at datacenter speed, so CH resources are held for ~pure execution time.
   Draining into a Modal container is paced by public-internet throughput and the kernel's ingest —
   backpressure propagates into CH (memory pinned, query slot held, execution-time clock ticking).
-- **Reuse.** Frames are keyed by `query_hash`; an object serves retries, kernel restarts, and unchanged upstream
-  queries without re-executing CH. Push has no reuse story — every delivery is a fresh execution.
+- **Reuse.** Frames are keyed by `query_hash`; an object serves download retries and kernel restarts without
+  re-executing CH. Cross-run reuse of an unchanged query is phase 3 — and gated on a staleness policy,
+  because the key has no freshness component (see the stale-read hazard there). Push has no reuse story —
+  every delivery is a fresh execution.
 - **Attack surface.** Pull keeps the sandbox ingress-free; push requires a new streamed-upload endpoint on the
   kernel server, exposed to the internet, plus a request/callback correlation protocol.
 
@@ -73,8 +75,9 @@ Every building block already runs in production. Inventory (per deep-dive, 2026-
 ### Relevant negative
 
 There is **no generic S3-backed query-result cache** — `query_cache_factory.py` only returns the Redis manager.
-That cache exists to reuse identical insight queries within a TTL; the notebook flow already gets its reuse from
-`query_hash`-keyed frames, so we are not duplicating (or blocked on) any platform facility.
+That cache exists to reuse identical insight queries within a TTL; the notebook flow gets its reuse from
+`query_hash`-keyed frames (in-flight dedup and retry re-fetch today; cross-run reuse is phase 3), so we are
+not duplicating (or blocked on) any platform facility.
 
 ## Security model for sandbox reads
 
@@ -119,6 +122,12 @@ with `FORMAT ArrowStream`, and relays the raw bytes into one multipart upload
 (`frame_store.py`, key `notebooks/frames/team_{team}/{notebook}/{query_hash}.arrow`).
 The **object key** lands in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
 **302 redirect to a presigned URL** (≤5 min, minted only after token verification, team-prefix-checked).
+A frame key is a slot holding the query's current result, not an immutable blob: `query_hash` is
+`sha256(user_id + wrapped query)` with no freshness component, and dedup only joins **in-flight**
+materializations — a completed status is never served as a cache. Every re-run therefore re-executes against
+ClickHouse and atomically overwrites the same key, which is exactly why a re-run after new events lands always
+returns fresh rows in this phase (a reader holding a presign across an overwrite gets one complete object or
+the other, never torn bytes).
 One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
 `Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
 credential-free request instead of auto-following.
@@ -147,6 +156,11 @@ Serve repeat materializations of an unchanged upstream query straight from the e
 (`query_hash` in the key makes this a HEAD check), tighten lifecycle (delete on supersede),
 and align the format with the local-DuckDB engine direction so materialized frames double as DuckDB-readable
 tables without re-encoding.
+**Stale-read hazard — must be solved before the HEAD check ships:** the key has no freshness dimension, so a
+bare exists-check would serve a frame materialized before newer events landed. Phase 1 stays fresh only
+because it always re-executes and overwrites; cross-run reuse needs an explicit staleness input first — an
+age-based reuse rule (the insight cache's target-age precedent), a data watermark, or a time bucket folded
+into the key.
 
 ## Open questions
 
