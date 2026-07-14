@@ -1,6 +1,6 @@
-import { dateRangeForSelection, selectionForDateRange } from './InsightDateFilterComposer'
+import { dateRangeForSelection, selectionForDateRange } from './dateRangeSelection'
 
-describe('InsightDateFilterComposer date range mapping', () => {
+describe('date range selection mapping', () => {
     // Persisted PostHog strings must round-trip exactly — a drift here rewrites saved queries.
     it.each([
         ['-7d', null, { kind: 'rolling', count: 7, unit: 'days' }],
