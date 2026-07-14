@@ -54,26 +54,25 @@ function WaitingForEventsIndicator(): JSX.Element {
     )
 }
 
-function GetDataFlowingSection(): JSX.Element {
-    const installationComplete = useInstallationComplete('ingested_event')
+function EventsFlowingStatus(): JSX.Element {
+    return (
+        <div className="flex items-center gap-1.5 text-sm text-secondary">
+            <IconCheckCircle className="text-success text-base shrink-0" />
+            <span>Events are flowing.</span>
+            <Link
+                to={urls.activity(ActivityTab.ExploreEvents)}
+                onClick={() => captureQuickstartAction('view_events')}
+                data-attr="quickstart-view-events"
+            >
+                View events
+            </Link>
+        </div>
+    )
+}
+
+function InstallHeroCard(): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
     const { showInviteModal } = useActions(inviteLogic)
-
-    if (installationComplete) {
-        return (
-            <div className="flex items-center gap-1.5 text-sm text-secondary">
-                <IconCheckCircle className="text-success text-base shrink-0" />
-                <span>Events are flowing.</span>
-                <Link
-                    to={urls.activity(ActivityTab.ExploreEvents)}
-                    onClick={() => captureQuickstartAction('view_events')}
-                    data-attr="quickstart-view-events"
-                >
-                    View events
-                </Link>
-            </div>
-        )
-    }
 
     return (
         <LemonCard hoverEffect={false}>
@@ -366,13 +365,17 @@ function PublicationsSection(): JSX.Element | null {
 export function Quickstart(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featuredProducts, moreProducts } = useValues(quickstartLogic)
+    const installationComplete = useInstallationComplete('ingested_event')
 
     return (
         <div className="flex flex-col gap-8 py-4">
             <div className="flex flex-col gap-3">
-                <Logomark size="xl" className="self-start" />
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <Logomark size="xl" />
+                    {installationComplete && <EventsFlowingStatus />}
+                </div>
                 <div>
-                    <h1 className="text-2xl font-bold mb-1">
+                    <h1 className="text-3xl font-bold mb-1">
                         Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                     </h1>
                     <p className="text-secondary mb-0 max-w-200">
@@ -382,7 +385,7 @@ export function Quickstart(): JSX.Element {
                 </div>
             </div>
 
-            <GetDataFlowingSection />
+            {!installationComplete && <InstallHeroCard />}
 
             <section>
                 <SectionHeader
