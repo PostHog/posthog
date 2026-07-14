@@ -36,6 +36,7 @@ from posthog.renderers import ServerSentEventRenderer
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
+    cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.access import cloud_usage_limit_response
@@ -85,6 +86,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunBootstrapCreateRequestSerializer,
+    TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
@@ -942,6 +944,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_dto is None:
             raise NotFound()
         return Response(TaskSerializer(task_dto).data)
+
+    @validated_request(
+        request_serializer=TaskRunCancelRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunDetailSerializer, description="Run already finished; returned unchanged"
+            ),
+            202: OpenApiResponse(response=TaskRunDetailSerializer, description="Cancellation accepted"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run is not a cloud run"),
+            404: OpenApiResponse(description="Task run not found"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Cancellation could not be delivered; safe to retry",
+            ),
+        },
+        summary="Cancel task run",
+        description="Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for "
+        "later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a "
+        "finished run returns it unchanged.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="cancel", required_scopes=["task:write"])
+    def cancel(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome, run = tasks_cancellation.cancel_task_run(
+            pk,
+            task_id,
+            self.team_id,
+            reason=request.validated_data.get("reason"),
+            source="api",
+            requested_by_user_id=request.user.id,
+            requested_by_distinct_id=request.user.distinct_id,
+        )
+        if outcome == "not_found" or run is None:
+            raise NotFound()
+        if outcome == "already_terminal":
+            return Response(TaskRunDetailSerializer(run).data)
+        if outcome == "not_cloud":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be cancelled via this endpoint"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "unavailable":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Could not reach the run's workflow; try again"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(TaskRunDetailSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
         request_serializer=TaskRunUpdateSerializer,

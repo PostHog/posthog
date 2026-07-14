@@ -100,8 +100,8 @@ export const URI_MAP: Record<UiAppKey, string> = {
 }
 
 /**
- * App keys with a generated detail/list view that the `render-ui` umbrella tool
- * can render. Excludes custom apps, which have no convention view component.
+ * App keys with a reusable view that the `render-ui` umbrella tool can render.
+ * Custom apps are included only when they explicitly configure `render_ui`.
  */
 export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'action',
@@ -121,6 +121,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'insight-actors',
     'invite-email-preview',
     'llm-costs',
+    'query-results',
     'session-recording',
     'session-summary',
     'survey',
