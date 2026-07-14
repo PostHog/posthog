@@ -17,10 +17,10 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from braintrust import EvalHooks
-from braintrust.framework import EvalResultWithSummary
 
 from .base import _BaseEvalRun
 from .config import BaseEvalCase
+from .engines.types import ExperimentResult
 from .log_sink import write_case_logs
 
 if TYPE_CHECKING:
@@ -105,7 +105,7 @@ async def OneShotEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
-) -> EvalResultWithSummary:
+) -> ExperimentResult:
     """Run a one-shot evaluation suite via Braintrust.
 
     For each ``BaseEvalCase``, invokes ``task(case, ctx)`` once under the global

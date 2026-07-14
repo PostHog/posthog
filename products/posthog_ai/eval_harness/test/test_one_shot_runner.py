@@ -6,10 +6,9 @@ from typing import Any
 
 import pytest
 
-from braintrust.framework import EvalResultWithSummary
-
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.engines.base import EvalTaskFn
+from products.posthog_ai.eval_harness.engines.types import EvalSummary, ExperimentResult
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 
@@ -31,7 +30,7 @@ class _StubReporter:
 
 
 class _StubEngine:
-    def __init__(self, result: EvalResultWithSummary) -> None:
+    def __init__(self, result: ExperimentResult) -> None:
         self.result = result
         self.calls: list[dict[str, Any]] = []
 
@@ -46,7 +45,7 @@ class _StubEngine:
         is_public: bool,
         no_send_logs: bool,
         metadata: dict[str, Any],
-    ) -> EvalResultWithSummary:
+    ) -> ExperimentResult:
         self.calls.append(
             {"project_name": project_name, "cases": list(cases), "trial_count": trial_count, "metadata": metadata}
         )
@@ -159,7 +158,10 @@ def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.Monke
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
-    canned = EvalResultWithSummary(summary=object(), results=[])
+    canned = ExperimentResult(
+        summary=EvalSummary(engine_name="stub", experiment_name="one-shot-test", scores={}),
+        results=[],
+    )
     engine = _StubEngine(canned)
     ctx = _build_ctx()
     run = _build_run(tmp_path, monkeypatch, ctx, task)

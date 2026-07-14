@@ -13,7 +13,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Protocol
 
 from braintrust import EvalCase, EvalHooks
-from braintrust.framework import EvalResultWithSummary
+
+from .types import ExperimentResult
 
 EvalTaskFn = Callable[[dict[str, Any], EvalHooks], Awaitable[dict[str, Any] | None]]
 """The per-case task the engine drives: it takes the JSON-safe case input and the
@@ -41,7 +42,8 @@ class EvalEngine(Protocol):
         is_public: bool,
         no_send_logs: bool,
         metadata: dict[str, Any],
-    ) -> EvalResultWithSummary:
+    ) -> ExperimentResult:
         """Run every case (``trial_count`` times each) through ``task`` and
-        ``scorers``, and return the result plus its per-scorer summary."""
+        ``scorers``, and return the engine-neutral result plus its per-scorer
+        summary."""
         ...

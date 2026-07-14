@@ -9,12 +9,12 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from braintrust import EvalCase, EvalHooks
-from braintrust.framework import EvalResultWithSummary
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.braintrust import BraintrustEngine
+from .engines.types import ExperimentResult
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
@@ -226,7 +226,7 @@ class _BaseEvalRun:
                 status=status,
             )
 
-    async def _finalize(self, result: EvalResultWithSummary) -> None:
+    async def _finalize(self, result: ExperimentResult) -> None:
         """Append scores to local summaries, emit PostHog evaluation/trace-root
         events, and hand the summary to the reporter — after scoring completes."""
         # Append final scores to local summary files for every case we wrote.
@@ -279,7 +279,7 @@ class _BaseEvalRun:
         error_count = sum(1 for r in result.results if r.error is not None)
         await self.ctx.reporter.record_summary(self.experiment_name, result.summary, error_count=error_count)
 
-    async def run(self) -> EvalResultWithSummary:
+    async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
 
         # Register the case total (post-filter, times trials) so the reporter can
@@ -479,7 +479,7 @@ async def SandboxedEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
-) -> EvalResultWithSummary:
+) -> ExperimentResult:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
     For each ``SandboxedEvalCase``, creates a Task, triggers the temporal workflow

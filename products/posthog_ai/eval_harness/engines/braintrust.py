@@ -9,6 +9,7 @@ from braintrust import EvalAsync, EvalCase
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
 from .base import EvalTaskFn
+from .types import AggregateScore, CaseResult, EvalSummary, ExperimentResult
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -62,8 +63,8 @@ class BraintrustEngine:
         is_public: bool,
         no_send_logs: bool,
         metadata: dict[str, Any],
-    ) -> EvalResultWithSummary:
-        return await EvalAsync(
+    ) -> ExperimentResult:
+        result = await EvalAsync(
             project_name,
             data=list(cases),
             task=task,
@@ -87,4 +88,36 @@ class BraintrustEngine:
             # Experiment names stay runtime/model-agnostic so history lines up
             # across runs; the metadata is what lets Braintrust filter or compare.
             metadata=metadata,
+        )
+        return self._translate(result)
+
+    def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
+        """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
+
+        ``score=None`` is preserved per-case (braintrust drops it from the
+        aggregate); a task exception becomes ``CaseResult.error`` as a string so
+        callers never re-handle a live ``Exception``; ``summary.raw`` is the
+        braintrust summary's ``as_dict()`` so the jsonl export round-trips
+        byte-for-byte through ``EvalSummary.as_json()``.
+        """
+        summary = result.summary
+        return ExperimentResult(
+            summary=EvalSummary(
+                engine_name="braintrust",
+                experiment_name=summary.experiment_name,
+                scores={name: AggregateScore(name=s.name, score=s.score) for name, s in summary.scores.items()},
+                experiment_url=summary.experiment_url,
+                raw=summary.as_dict(),
+            ),
+            results=[
+                CaseResult(
+                    input=case.input,
+                    output=case.output,
+                    scores=dict(case.scores or {}),
+                    expected=case.expected,
+                    metadata=dict(case.metadata or {}),
+                    error=None if case.error is None else str(case.error),
+                )
+                for case in result.results
+            ],
         )

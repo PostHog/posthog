@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from braintrust.logger import ExperimentSummary
+from ..engines.types import EvalSummary
 
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
@@ -42,7 +42,7 @@ class ProgressReporter:
         self._total_suites = total_suites
         self._lock = asyncio.Lock()
         self._finished_suites = 0
-        self._summaries: dict[str, ExperimentSummary] = {}
+        self._summaries: dict[str, EvalSummary] = {}
         self._case_counts: dict[str, int] = defaultdict(int)
         self._case_durations: dict[str, float] = defaultdict(float)
         self._case_statuses: dict[str, Counter[str]] = defaultdict(Counter)
@@ -110,7 +110,7 @@ class ProgressReporter:
                 f"{_format_duration(result.duration_seconds)}"
             )
 
-    async def record_summary(self, experiment_name: str, summary: ExperimentSummary, *, error_count: int = 0) -> None:
+    async def record_summary(self, experiment_name: str, summary: EvalSummary, *, error_count: int = 0) -> None:
         async with self._lock:
             self._summaries[experiment_name] = summary
             self._summary_error_counts[experiment_name] = error_count
@@ -195,7 +195,7 @@ class ProgressReporter:
             combined["error"] += max(statuses["error"], self._summary_error_counts[experiment_name])
         return combined
 
-    def _experiment_block(self, experiment_name: str, summary: ExperimentSummary) -> list[str]:
+    def _experiment_block(self, experiment_name: str, summary: EvalSummary) -> list[str]:
         statuses = self._case_statuses[experiment_name]
         error_count = max(statuses["error"], self._summary_error_counts[experiment_name])
         lines = [
