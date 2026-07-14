@@ -10,6 +10,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
@@ -55,6 +56,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     candidates = candidate_query.run()
 
+    record_sweep_outcome("candidates_found" if candidates else "no_candidates", candidates=len(candidates))
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.

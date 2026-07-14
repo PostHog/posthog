@@ -24,6 +24,7 @@ export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'st
 // any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
 // callers can treat it as an ordinary request failure rather than crashing.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    // nosemgrep: toolbar-no-raw-fetch - this IS the wrapper the rule points everyone to
     const response = await fetch(input, init)
     if (response && typeof response === 'object') {
         return response
