@@ -90,6 +90,18 @@ export const CdcTableModeEnumApi = {
 } as const
 
 /**
+ * * `count` - count
+ * * `days` - days
+ */
+export type SnapshotRetentionModeEnumApi =
+    (typeof SnapshotRetentionModeEnumApi)[keyof typeof SnapshotRetentionModeEnumApi]
+
+export const SnapshotRetentionModeEnumApi = {
+    Count: 'count',
+    Days: 'days',
+} as const
+
+/**
  * @nullable
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
@@ -202,6 +214,23 @@ export interface ExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Full refresh sub-mode. When true, each sync appends a full snapshot of the source instead of overwriting, retaining point-in-time history. Rows carry a `_ph_snapshot_at` timestamp marking their sync. Only valid when sync_type is full_refresh. Snapshots outside the retention window are pruned at sync time, so expired snapshots can remain queryable between syncs. Toggling this rebuilds the table from scratch on the next sync.
+     * @nullable
+     */
+    full_refresh_append?: boolean | null
+    /** How full-refresh-append snapshot retention is measured: 'count' keeps the newest N snapshots, 'days' keeps snapshots synced within the last N days. Paired with snapshot_retention_value.
+     *
+     * * `count` - count
+     * * `days` - days */
+    snapshot_retention_mode?: SnapshotRetentionModeEnumApi | null
+    /**
+     * Full-refresh-append retention size: the number of snapshots to keep (mode 'count') or the number of days of snapshots to keep (mode 'days'). Minimum 1. The newest snapshot is always kept even if older than the day window.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    snapshot_retention_value?: number | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -343,6 +372,23 @@ export interface PatchedExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Full refresh sub-mode. When true, each sync appends a full snapshot of the source instead of overwriting, retaining point-in-time history. Rows carry a `_ph_snapshot_at` timestamp marking their sync. Only valid when sync_type is full_refresh. Snapshots outside the retention window are pruned at sync time, so expired snapshots can remain queryable between syncs. Toggling this rebuilds the table from scratch on the next sync.
+     * @nullable
+     */
+    full_refresh_append?: boolean | null
+    /** How full-refresh-append snapshot retention is measured: 'count' keeps the newest N snapshots, 'days' keeps snapshots synced within the last N days. Paired with snapshot_retention_value.
+     *
+     * * `count` - count
+     * * `days` - days */
+    snapshot_retention_mode?: SnapshotRetentionModeEnumApi | null
+    /**
+     * Full-refresh-append retention size: the number of snapshots to keep (mode 'count') or the number of days of snapshots to keep (mode 'days'). Minimum 1. The newest snapshot is always kept even if older than the day window.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    snapshot_retention_value?: number | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
