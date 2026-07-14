@@ -2445,6 +2445,7 @@ dependencies = [
  "bytes",
  "chrono",
  "metrics",
+ "metrics-util",
  "rdkafka",
  "thiserror 2.0.18",
  "tokio",

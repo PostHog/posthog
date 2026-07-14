@@ -9,10 +9,12 @@
 //!
 //! See `POC_NOTES.md` for deviations from the design doc.
 
+pub mod fail_open;
 pub mod metrics_consts;
 pub mod result;
 pub mod step;
 
+pub use fail_open::{FailOpen, FailOpenExt};
 pub use result::{NoOutputs, Outputs, StepError, StepResult};
 pub use step::{
     ChunkOutcome, ChunkStep, ItemOutcome, Pipeline, PipelineBuilder, Step, Verdict, VerdictKind,
