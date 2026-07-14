@@ -50,11 +50,10 @@ describe('date range selection mapping', () => {
         expect(dateRangeForSelection(selection)).toEqual({
             date_from: '2026-07-01',
             date_to: '2026-07-10',
-            explicitDate: false,
         })
     })
 
-    it('serializes times and sets explicitDate when the selection includes time', () => {
+    it('serializes times without touching explicitDate when the selection includes time', () => {
         const selection = {
             kind: 'custom' as const,
             start: new Date(2026, 6, 1, 9, 30),
@@ -64,7 +63,6 @@ describe('date range selection mapping', () => {
         expect(dateRangeForSelection(selection)).toEqual({
             date_from: '2026-07-01T09:30:00',
             date_to: '2026-07-01T17:00:00',
-            explicitDate: true,
         })
     })
 

@@ -57,11 +57,11 @@ export function dateRangeForSelection(selection: DateRangeSelection): Partial<Da
         const named = dateMapping.find(({ key }) => key === selection.name)
         return { date_from: named?.values[0] ?? null, date_to: named?.values[1] ?? null }
     }
+    // explicitDate is deliberately not written: like the legacy filter, applying a range
+    // never touches the "Exact time range" toggle — only the toggle itself does.
     const includesTime = !!selection.includesTime
     return {
         date_from: formatCustomDate(selection.start, includesTime),
         date_to: formatCustomDate(selection.end, includesTime),
-        // Without explicitDate the backend floors/ceils to whole days, discarding picked times
-        explicitDate: includesTime,
     }
 }
