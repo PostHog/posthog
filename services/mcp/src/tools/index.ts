@@ -153,5 +153,5 @@ export const getToolsFromContext = async (
 
     const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
 
-    return filterStaffOnlyTools(candidates, scopes, () => context.stateManager.getUser())
+    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

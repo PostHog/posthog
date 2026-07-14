@@ -24,12 +24,22 @@ export const keyExplicitlyGrantsHiddenScopes = (requiredScopes: string[], keySco
  * lookup needs `user:read` on the key and fails closed, hiding the tools
  * whenever staffness cannot be confirmed. The lookup only runs when a
  * staff-only tool would otherwise surface, so customer sessions never pay it.
+ *
+ * Tenant-scoped keys (scoped_teams/scoped_organizations) never surface staff
+ * tools either: the staff endpoints reject scoped keys outright, so showing
+ * the tools would only advertise calls that always 403.
  */
 export async function filterStaffOnlyTools<T extends { scopes: string[] }>(
     tools: T[],
-    keyScopes: string[],
+    key: { scopes: string[]; scoped_teams?: number[]; scoped_organizations?: string[] },
     getUser: () => Promise<{ is_staff?: boolean }>
 ): Promise<T[]> {
+    const keyScopes = key.scopes
+    const keyIsTenantScoped = (key.scoped_teams?.length ?? 0) > 0 || (key.scoped_organizations?.length ?? 0) > 0
+    if (keyIsTenantScoped) {
+        return tools.filter((tool) => !isStaffOnlyTool(tool.scopes))
+    }
+
     let userIsStaff = false
     if (tools.some((tool) => isStaffOnlyTool(tool.scopes) && keyExplicitlyGrantsHiddenScopes(tool.scopes, keyScopes))) {
         try {

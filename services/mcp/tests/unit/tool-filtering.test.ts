@@ -242,7 +242,11 @@ describe('Tool Filtering - Tools Allowlist', () => {
     })
 })
 
-const createMockContext = (scopes: string[], getUser?: () => Promise<{ is_staff?: boolean }>): Context => ({
+const createMockContext = (
+    scopes: string[],
+    getUser?: () => Promise<{ is_staff?: boolean }>,
+    apiKeyExtra?: { scoped_teams?: number[]; scoped_organizations?: string[] }
+): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
@@ -255,7 +259,7 @@ const createMockContext = (scopes: string[], getUser?: () => Promise<{ is_staff?
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getApiKey: async () => ({ scopes }),
+        getApiKey: async () => ({ scopes, ...apiKeyExtra }),
         getAiConsentGiven: async () => undefined,
         getUser:
             getUser ??
@@ -381,8 +385,17 @@ describe('Tool Filtering - Staff-only (OAuth-hidden scope) tools', () => {
             getUser: undefined,
             visible: false,
         },
-    ])('$description', async ({ scopes, getUser, visible }) => {
-        const context = createMockContext(scopes, getUser)
+        {
+            // The staff endpoints reject tenant-scoped keys, so discovery must not
+            // advertise tools whose every call would 403.
+            description: 'hidden for a tenant-scoped key even with staff + explicit scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            apiKeyExtra: { scoped_organizations: ['0195b1a0-0000-0000-0000-000000000000'] },
+            visible: false,
+        },
+    ])('$description', async ({ scopes, getUser, visible, apiKeyExtra }) => {
+        const context = createMockContext(scopes, getUser, apiKeyExtra)
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 

@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource metadata.
+"""Generate the MCP server's view of the OAuth scope universe from posthog/scopes.py.
 
-The MCP server publishes RFC 9728 protected-resource metadata at
-`/.well-known/oauth-protected-resource`. Spec-compliant clients (e.g. Claude
-Code) read `scopes_supported` from there and pass every entry to the
-authorization server's `/oauth/authorize`. If the resource list contains a
-scope the AS does not recognize, sign-in fails with `?error=invalid_scope`.
+Emits two constants into `services/mcp/src/lib/oauth-scopes.generated.ts`:
 
-Both lists derive from `posthog.scopes.get_oauth_scopes_supported()`. This
-script generates `services/mcp/src/lib/oauth-scopes.generated.ts` from that
-function so the protected resource cannot drift out of subset of the AS.
+- OAUTH_SCOPES_SUPPORTED (from `get_oauth_scopes_supported()`): the MCP server
+  publishes RFC 9728 protected-resource metadata at
+  `/.well-known/oauth-protected-resource`. Spec-compliant clients (e.g. Claude
+  Code) read `scopes_supported` from there and pass every entry to the
+  authorization server's `/oauth/authorize`. If the resource list contains a
+  scope the AS does not recognize, sign-in fails with `?error=invalid_scope`,
+  so this list must stay a subset of the AS's.
+- OAUTH_HIDDEN_SCOPES: PAT-grantable scopes deliberately excluded from the
+  list above (staff-only surfaces like `batch_import_support`). The MCP server
+  uses this at runtime to gate tool discovery (`src/lib/staff-only-tools.ts`)
+  and in tests to allow tools to require a non-advertised scope on purpose.
+
+Generating both from `posthog/scopes.py` keeps that module the single
+authority for scope classification; the TS side is a projection of it.
 
 Run via hogli: `hogli build:openapi-mcp-scopes` (also runs as part of
 `build:openapi`). See `common/hogli/manifest.yaml`.

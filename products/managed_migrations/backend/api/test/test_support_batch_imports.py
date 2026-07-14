@@ -9,6 +9,7 @@ from posthog.models import Organization, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.managed_migrations.backend.api.support_batch_imports import BatchImportSupportDetailSerializer
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType
 
 
@@ -18,20 +19,28 @@ class TestBatchImportSupportAPI(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-    def _create_pat(self, scopes: list[str]) -> str:
+    def _create_pat(self, scopes: list[str], **kwargs) -> str:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
             label="test",
             secure_value=hash_key_value(token),
             scopes=scopes,
+            **kwargs,
         )
         return token
 
     def _create_import(self, team: Team | None = None, **kwargs) -> BatchImport:
-        defaults: dict = {"import_config": {}, "secrets": {}}
+        defaults: dict = {"import_config": {}, "secrets": {"placeholder": "true"}}
         defaults.update(kwargs)
-        return BatchImport.objects.create(team=team or self.team, **defaults)
+        batch_import = BatchImport(team=team or self.team, **defaults)
+        # BatchImport.__init__ resets `secrets` to {} whenever import_config is falsy
+        # (BatchImportConfigBuilder initialize_empty), and EncryptedJSONStringField
+        # serializes {} to NULL, violating the NOT NULL constraint - so re-apply after
+        # init to keep the row insertable while still exercising an empty config.
+        batch_import.secrets = defaults["secrets"]
+        batch_import.save()
+        return batch_import
 
     @parameterized.expand(
         [
@@ -51,6 +60,25 @@ class TestBatchImportSupportAPI(APIBaseTest):
 
         response = self.client.get("/api/managed_migrations_support/", headers={"authorization": f"Bearer {token}"})
         self.assertEqual(response.status_code, expected_status, response.content)
+
+    @parameterized.expand(
+        [
+            # Tenant-scoped keys must be rejected even with staff + the exact scope: this
+            # root route has no routed team/org for APIScopePermission to anchor on, and
+            # an org-scoped key would otherwise fail OPEN and bypass its organization
+            # ceiling onto every customer's jobs (team-scoped keys already fail closed
+            # centrally; pinned here so this route never regresses either way).
+            ("org_scoped", "scoped_organizations"),
+            ("team_scoped", "scoped_teams"),
+        ]
+    )
+    def test_tenant_scoped_keys_are_rejected(self, _name, scoped_field):
+        scoped_value = [str(self.organization.id)] if scoped_field == "scoped_organizations" else [self.team.pk]
+        token = self._create_pat(scopes=["batch_import_support:read"], **{scoped_field: scoped_value})
+        self.client.logout()
+
+        response = self.client.get("/api/managed_migrations_support/", headers={"authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
     @parameterized.expand(
         [
@@ -85,6 +113,10 @@ class TestBatchImportSupportAPI(APIBaseTest):
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
 
     def test_secret_values_never_appear_in_responses(self):
+        # Structural guarantee first: neither serializer declares the field at all
+        # (detail inherits list, so this covers both endpoints).
+        self.assertNotIn("secrets", BatchImportSupportDetailSerializer().fields)
+
         batch_import = BatchImport(team=self.team)
         batch_import.config.json_lines(ContentType.CAPTURED).from_s3(
             bucket="customer-bucket",

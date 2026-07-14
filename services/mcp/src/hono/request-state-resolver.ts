@@ -179,7 +179,7 @@ export class RequestStateResolver {
         // is_staff gate on top of the catalog's plain scope filter.
         const allTools = await filterStaffOnlyTools(
             this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
-            apiKeyScopes,
+            _apiKey ?? { scopes: [] },
             () => context.stateManager.getUser()
         )
         // Scope-gated hints are only consumed by the exec `search` command, which

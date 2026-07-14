@@ -4,7 +4,8 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, request, response, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.views import APIView
 
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission, IsStaffUser
@@ -200,6 +201,27 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
         return email
 
 
+class UnscopedPersonalAPIKeyPermission(BasePermission):
+    """
+    Rejects personal API keys carrying scoped_teams or scoped_organizations.
+
+    This viewset is root-level and cross-team, so APIScopePermission has no routed
+    team/org to check scoping against: scoped-team keys already fail closed there,
+    but scoped-ORGANIZATION keys fall through its ValueError handler and would
+    silently bypass their organization ceiling on this cross-team surface.
+    A support key must be unscoped; a scoped one is a misconfiguration either way.
+    """
+
+    message = "This endpoint requires an unscoped personal API key (no scoped organizations or projects)."
+
+    def has_permission(self, request: request.Request, view: APIView) -> bool:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, PersonalAPIKeyAuthentication):
+            return True
+        key = authenticator.personal_api_key
+        return not key.scoped_organizations and not key.scoped_teams
+
+
 @extend_schema_view(
     list=extend_schema(
         description="List batch import (managed migration) jobs across all teams. PostHog staff only.",
@@ -230,12 +252,15 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
     `user:read` is required for MCP use: tool discovery verifies staffness via
     `/api/users/@me/` and hides these tools (fail-closed) when it cannot. The key must be
     unscoped - keys with scoped_teams/scoped_organizations are rejected on root-level
-    endpoints. Full operator guide: products/managed_migrations/docs/support-mcp-tools.md.
+    endpoints (scoped_teams centrally, scoped_organizations via
+    UnscopedPersonalAPIKeyPermission below - the central org check cannot anchor on a
+    root route and would otherwise fail open).
+    Full operator guide: products/managed_migrations/docs/support-mcp-tools.md.
     """
 
     scope_object = "INTERNAL"
     required_scopes = ["batch_import_support:read"]
-    permission_classes = [IsAuthenticated, IsStaffUser, APIScopePermission]
+    permission_classes = [IsAuthenticated, IsStaffUser, APIScopePermission, UnscopedPersonalAPIKeyPermission]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     queryset = BatchImport.objects.select_related("team").order_by("-created_at")
     serializer_class = BatchImportSupportListSerializer
