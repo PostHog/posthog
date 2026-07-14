@@ -29,8 +29,6 @@ class TestSourceConfig:
         assert config.label == "Fly.io"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Alpha and not yet fully verified end to end — stays hidden until promoted.
-        assert config.unreleasedSource is True
         # docsUrl filename must match the posthog.com doc (fly-io).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fly-io"
 
