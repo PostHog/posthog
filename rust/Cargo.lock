@@ -2437,6 +2437,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-pipelines"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "metrics",
+ "rdkafka",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "common-posthog"
 version = "0.1.0"
 dependencies = [

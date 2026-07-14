@@ -1,0 +1,15 @@
+//! `common-pipelines` — a small framework for PostHog ingestion pipelines.
+//!
+//! This is a proof-of-concept implementation of the design in
+//! `rust-ingestion-pipelines-design.md`. It provides the core vocabulary
+//! (per-event verdicts), synchronous per-event and asynchronous per-chunk step
+//! traits, a batch executor, a fail-open combinator, an effects/plugin/observer
+//! layer, and result handling that produces DLQ/redirect messages with
+//! Node-compatible provenance headers.
+//!
+//! See `POC_NOTES.md` for deviations from the design doc.
+
+pub mod metrics_consts;
+pub mod result;
+
+pub use result::{NoOutputs, Outputs, StepError, StepResult};

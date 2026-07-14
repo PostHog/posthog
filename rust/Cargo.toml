@@ -22,6 +22,7 @@ members = [
   "common/lifecycle",
   "common/limiters",
   "common/metrics",
+  "common/pipelines",
   "common/posthog",
   "common/profiler",
   "common/continuous_profiling",
