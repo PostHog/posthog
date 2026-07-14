@@ -5,6 +5,11 @@ use sqlx::postgres::PgPool;
 /// ids. Ids come from the production sequence so they are unique against
 /// real data and spread across leader partitions exactly like organic ids.
 ///
+/// There is no team to seed: the persons database has no team table and no
+/// foreign key on `team_id` — a team exists here only as an integer value
+/// on rows, so the first insert brings the harness team into existence and
+/// a team-wide delete removes every trace of it.
+///
 /// This writes SQL instead of calling CreatePerson because the create RPC's
 /// future is still being settled; this function is the seam where the RPC
 /// swaps in.
@@ -69,6 +74,12 @@ pub fn validate_table_name(table: &str) -> Result<()> {
 
 /// Delete all persons (and any distinct-id rows) for `team_id`. The harness
 /// owns its team ids outright, so a team-wide delete is the whole cleanup.
+///
+/// Cleanup is deliberately broader than what today's seeder writes: nothing
+/// currently inserts distinct-id rows (traffic is id-keyed), but RPC-based
+/// seeding via CreatePerson will, and cleanup owning everything a harness
+/// team could accumulate means that swap can't leak rows. Deleting from an
+/// empty set costs nothing.
 pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<(u64, u64)> {
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
 

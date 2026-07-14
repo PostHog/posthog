@@ -35,6 +35,7 @@ target/debug/personhog-cannon gate --external-router-url http://127.0.0.1:50054 
 
 The spawned stack is isolated from the dev stack: its own port range (51xxx), its own etcd prefix (`/personhog-cannon/`), and a per-run changelog topic (`personhog_cannon_<run_id>`, deleted on teardown).
 Persons are seeded directly in Postgres for a reserved harness team id (SQL is the interim seeding mechanism until the create RPC's future is settled; `src/seed.rs` is the swap seam).
+There is no team to seed — the persons database has no team table and no foreign key on `team_id`, so the harness team exists only as an integer on rows — and cleanup deletes distinct-id rows that nothing writes yet, so RPC-based seeding (which will write them) can swap in without leaking.
 Service logs land in `<bin-dir>/cannon-logs/<run_id>/`.
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).
@@ -81,14 +82,34 @@ target/debug/personhog-cannon gate --leaders 3 --duration 20s \
   --shutdown-after 5s --kill-handoff-target
 ```
 
-### Eviction pressure
+### Known defects these scenarios reproduce
 
-`--cache-capacity` sets the leader cache size in entries.
-Setting it below `--persons` forces eviction of dirty entries under writer lag, which currently loses acked writes (the known cache-eviction hazard documented in `personhog-leader/src/cache/persons.rs`) — expect the gate to go red until that is fixed:
+Two real leader-path bugs surface under specific gate configurations.
+They are documented here so red or noisy runs read as signal, not harness flakiness.
+
+**Cache eviction under writer lag loses acked writes — the gate goes RED.**
+`--cache-capacity` sets the leader cache size in entries; below `--persons` it forces eviction of dirty entries whose writes the writer has not yet flushed.
+The next operation reloads the stale Postgres row, later merges build on the stale base, and acked writes disappear — exactly what the journal catches:
 
 ```bash
+# Expect thousands of violations until the eviction hazard is fixed
 target/debug/personhog-cannon gate --persons 50 --cache-capacity 10 --duration 10s
 ```
+
+Fix direction: pin dirty entries until the writer's committed offset passes their produce offset (see the TODO in `personhog-leader/src/cache/persons.rs`).
+
+**Graceful shutdown black-holes the leader's partitions — elevated Failed count, gate stays green.**
+The leader's lifecycle manager signals every component at SIGTERM simultaneously, so the gRPC server and Kafka producer finish shutting down (~160ms) long before the coordination drain hands partitions off (~2s: Draining status → 1s coordinator rebalance debounce → freeze → stash → fence → release).
+For most of that window the pod is still the registered owner with a dead server: writes get UNAVAILABLE, the router retries against the same owner (the stash only engages once it observes Freezing), and callers fail.
+
+```bash
+# Expect ~1% failed writes. All are unacked, so the invariant holds and the
+# gate passes — the signature is the Failed column, not violations.
+target/debug/personhog-cannon gate --leaders 3 --duration 15s --shutdown-after 5s
+```
+
+Fix direction: ordered shutdown — drain the coordination component before stopping the gRPC server and producer (the lifecycle crate currently has no phase/ordering primitive).
+Once fixed, this run's Failed count should drop to ~0, matching the zombie scenario's.
 
 ## `seed` / `cleanup` — manage traffic targets
 
