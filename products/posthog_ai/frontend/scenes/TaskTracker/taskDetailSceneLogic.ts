@@ -4,12 +4,13 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
+import { userLogic } from 'scenes/userLogic'
 
 import { isApiNotFound, loadErrorMessage } from '../../lib/load-error'
 import { phDebugQueryParams } from '../../lib/ph-debug'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
-import { TaskRun } from '../../types/taskTypes'
+import { TEAM_CONTROLLABLE_ORIGIN_PRODUCTS, TaskRun } from '../../types/taskTypes'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
@@ -20,7 +21,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError']],
+        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError'], userLogic, ['user']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -144,6 +145,25 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             (s) => [s.task],
             (task): string => {
                 return task?.title || task?.slug || 'Task'
+            },
+        ],
+        // Mirrors the backend control rule (`task_control_q` in products/tasks/backend/visibility.py):
+        // a task is drivable by its creator, by anyone when it has no creator, and by any team member
+        // when its origin product is team-scoped. Non-controllable views (a staff support read, a
+        // teammate's public-channel task) hide the composer — the backend rejects their writes anyway.
+        // While the task is still loading, only staff default to read-only: they may be opening someone
+        // else's task by URL, and the composer must not flash in and then vanish.
+        isReadOnlyViewer: [
+            (s) => [s.task, s.user],
+            (task, user): boolean => {
+                if (!task) {
+                    return !!user?.is_staff
+                }
+                const canControl =
+                    !task.created_by ||
+                    task.created_by.id === user?.id ||
+                    TEAM_CONTROLLABLE_ORIGIN_PRODUCTS.includes(task.origin_product)
+                return !canControl
             },
         ],
     }),

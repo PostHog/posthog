@@ -723,6 +723,21 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_artifact_presign_on_other_user_run_still_404s_with_ph_debug(self):
+        # Artifact egress (presign/download) is outside the ph_debug action list — the opt-in is
+        # reachable by non-staff members of the internal-debug team, so it must not mint download
+        # URLs for another member's run artifacts.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/?ph_debug=true",
+            {"storage_path": "task_runs/some/artifact"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_write_action_on_other_user_task_still_returns_404(self, _mock_workflow):
         # POST /tasks/<id>/run/ is a write — bypass must NOT fire even when the
@@ -747,13 +762,13 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+# Cloud staff can READ any task/run on the team with no `?ph_debug=true` opt-in (the frontend can't
+# thread a query param through every read — the SSE stream carries none), while writes stay
+# creator-scoped and the `all_team_tasks=true` list filter stays opt-in. The bypass is cloud-only:
+# on self-hosted, `is_staff` marks the instance admin, not PostHog support. The internal-debug-team
+# `?ph_debug=true` path is covered by `TestTaskVisibilityInternalDebugTeamBypass`.
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
-    """Staff users can READ any task/run on the team, unconditionally — no ``?ph_debug=true`` opt-in
-    (unlike internal-debug teams), because the frontend can't reliably thread a query param through
-    every read (the SSE stream carries none). The ``all_team_tasks=true`` list filter stays opt-in so
-    the default list is unchanged. Non-staff users can't reach either, and writes stay creator-scoped.
-    The internal-debug-team ``?ph_debug=true`` path is covered by ``TestTaskVisibilityInternalDebugTeamBypass``."""
-
     def setUp(self):
         super().setUp()
         # self.user is the authenticated requester (it resolves `@current`); make it staff and
@@ -762,13 +777,26 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         self.user.save(update_fields=["is_staff"])
         self.other_user = self.create_organization_user("teammate")
 
-    def test_staff_all_team_tasks_filter_includes_other_user_tasks(self):
+    def _set_staff(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save(update_fields=["is_staff"])
+
+    @parameterized.expand(
+        [
+            ("staff", True, True),
+            ("non_staff", False, False),
+        ]
+    )
+    def test_all_team_tasks_filter_lists_other_user_tasks_only_for_staff(
+        self, _name: str, is_staff: bool, expect_theirs: bool
+    ) -> None:
+        self._set_staff(is_staff)
         theirs = self.create_task("Theirs", created_by=self.other_user)
 
         response = self.client.get("/api/projects/@current/tasks/?all_team_tasks=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {item["id"] for item in response.json()["results"]}
-        assert str(theirs.id) in ids
+        self.assertEqual(str(theirs.id) in ids, expect_theirs)
 
     def test_staff_list_without_filter_still_excludes_other_user_tasks(self):
         # The filter is opt-in — the default list stays creator-scoped even for staff.
@@ -779,31 +807,36 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         ids = {item["id"] for item in response.json()["results"]}
         assert str(theirs.id) not in ids
 
-    def test_non_staff_all_team_tasks_filter_is_ignored(self):
-        self.user.is_staff = False
-        self.user.save(update_fields=["is_staff"])
-        theirs = self.create_task("Theirs", created_by=self.other_user)
-
-        response = self.client.get("/api/projects/@current/tasks/?all_team_tasks=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = {item["id"] for item in response.json()["results"]}
-        assert str(theirs.id) not in ids
-
-    def test_staff_retrieve_other_user_task_needs_no_ph_debug(self):
+    @parameterized.expand(
+        [
+            ("staff", True, status.HTTP_200_OK),
+            ("non_staff", False, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_retrieve_other_user_task_succeeds_only_for_staff(
+        self, _name: str, is_staff: bool, expected_status: int
+    ) -> None:
         # No opt-in param — a staff user opening a teammate's task by URL just works.
+        self._set_staff(is_staff)
         task = self.create_task(created_by=self.other_user)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.status_code, expected_status)
 
-    def test_non_staff_retrieve_other_user_task_still_404s(self):
-        self.user.is_staff = False
-        self.user.save(update_fields=["is_staff"])
+    @parameterized.expand(
+        [
+            ("eu_prod", "EU", status.HTTP_200_OK),
+            ("self_hosted", None, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_staff_bypass_is_cloud_only(self, _name: str, deployment: str | None, expected_status: int) -> None:
+        # On self-hosted, the auto-granted first-user `is_staff` flag must not unlock other
+        # members' tasks; on any cloud region it must.
         task = self.create_task(created_by=self.other_user)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, expected_status)
 
     def test_staff_list_runs_for_other_user_task_needs_no_ph_debug(self):
         task = self.create_task(created_by=self.other_user)
@@ -815,8 +848,8 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         self.assertEqual(ids, {str(run.id)})
 
     def test_staff_list_living_artifacts_for_other_user_run(self):
-        # Living artifacts are a separate run-read viewset whose gate previously required an
-        # internal-debug team — staff must reach it on any team too.
+        # Living artifacts are gated by a separate run-read viewset — the staff bypass must
+        # cover it too, or the task page half-renders for staff.
         task = self.create_task(created_by=self.other_user)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 

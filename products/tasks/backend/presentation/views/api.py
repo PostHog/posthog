@@ -22,6 +22,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -29,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -150,17 +152,29 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
-def _can_bypass_visibility(request, team_id: int | None) -> bool:
-    """Whether this request may READ tasks/runs it doesn't own (never write — control stays creator-scoped).
+def _is_staff_visibility_bypass(request: Request) -> bool:
+    """Cloud PostHog staff may READ tasks/runs they don't own, on any team (support/debugging).
 
-    - Staff users: unconditionally, on any team (support/debugging). No opt-in needed, so staff don't hit
-      the per-creator 404 when opening a task by URL or streaming its run logs — the frontend can't reliably
-      thread a query param through every read (the SSE stream doesn't carry one).
-    - Internal-debug teams: keep the narrower, explicit ``?ph_debug=true`` opt-in (dev/debug workflow).
+    No opt-in needed, so staff don't hit the per-creator 404 when opening a task by URL or streaming its
+    run logs — the frontend can't reliably thread a query param through every read (the SSE stream doesn't
+    carry one). Gated to cloud: on self-hosted instances ``is_staff`` marks the instance admin (the first
+    signup gets it automatically), not PostHog support, and must not unlock other members' tasks.
     """
-    if bool(getattr(request.user, "is_staff", False)):
-        return True
+    return is_cloud() and bool(getattr(request.user, "is_staff", False))
+
+
+def _is_internal_debug_visibility_bypass(request: Request, team_id: int | None) -> bool:
+    """Internal-debug teams get a narrower, explicit ``?ph_debug=true`` read opt-in (dev/debug workflow).
+
+    Unlike the staff bypass this is available to non-staff members of the internal-debug team, so callers
+    gate it to a deliberately small action surface (see ``TaskRunViewSet._PH_DEBUG_READ_ACTIONS``).
+    """
     return _is_internal_debug_team(team_id) and request.query_params.get("ph_debug") == "true"
+
+
+def _can_bypass_visibility(request: Request, team_id: int | None) -> bool:
+    """Whether this request may READ tasks/runs it doesn't own (never write — control stays creator-scoped)."""
+    return _is_staff_visibility_bypass(request) or _is_internal_debug_visibility_bypass(request, team_id)
 
 
 class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
@@ -249,9 +263,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
         # Staff can opt into seeing every team task; re-check server-side so a client can't
-        # forge the flag to bypass the per-user visibility gate.
+        # forge the flag to bypass the per-user visibility gate. Staff-only (matching the
+        # serializer help text): the ph_debug opt-in never unlocked list enumeration.
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
-        bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
+        bypass_visibility = all_team_tasks and _is_staff_visibility_bypass(request)
         tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
         )
@@ -799,15 +814,30 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_download",
     )
 
+    # The ph_debug bypass is reachable by non-staff members of the internal-debug team, so it gets a
+    # smaller action surface than the staff bypass: no artifact egress (presign/download).
+    _PH_DEBUG_READ_ACTIONS = (
+        "list",
+        "retrieve",
+        "logs",
+        "session_logs",
+        "stream",
+        "stream_token",
+    )
+
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
 
-        Staff users (and internal-debug teams via ``?ph_debug=true``) may read another member's runs
-        through the read-only actions; the bypass never applies to control actions.
+        Staff users may read another member's runs through any read-only action; internal-debug teams
+        (via ``?ph_debug=true``) through ``_PH_DEBUG_READ_ACTIONS`` only. The bypass never applies to
+        control actions.
         """
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
-        bypass_visibility = is_read_only and _can_bypass_visibility(self.request, self.team_id)
+        bypass_visibility = (is_read_only and _is_staff_visibility_bypass(self.request)) or (
+            self.action in self._PH_DEBUG_READ_ACTIONS
+            and _is_internal_debug_visibility_bypass(self.request, self.team_id)
+        )
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
             self.team_id,

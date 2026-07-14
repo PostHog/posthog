@@ -20,7 +20,23 @@ export enum OriginProduct {
     // Tasks created autonomously by the headless Signals Scout — team-scoped, visible to everyone.
     SIGNALS_SCOUT = 'signals_scout',
     POSTHOG_AI = 'posthog_ai',
+    // The "Set up PostHog" wizard task — team-scoped so anyone can pick up the setup.
+    ONBOARDING = 'onboarding',
+    // HogDesk support-desk Code threads — team-scoped so any agent on the ticket resumes the thread.
+    HOGDESK = 'hogdesk',
 }
+
+/**
+ * Origin products whose tasks are team-scoped rather than personal: any team member may view AND
+ * drive them regardless of who `created_by` points at. Mirrors `TEAM_VISIBLE_ORIGIN_PRODUCTS` in
+ * products/tasks/backend/visibility.py — keep the two lists in sync.
+ */
+export const TEAM_CONTROLLABLE_ORIGIN_PRODUCTS: OriginProduct[] = [
+    OriginProduct.SIGNAL_REPORT,
+    OriginProduct.SIGNALS_SCOUT,
+    OriginProduct.ONBOARDING,
+    OriginProduct.HOGDESK,
+]
 
 /**
  * TaskTracker list filter: the current user's own tasks, team scout tasks, or — staff only —
