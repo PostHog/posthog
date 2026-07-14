@@ -121,7 +121,10 @@ pub async fn run_traffic(
 }
 
 /// Read every journaled person back with STRONG consistency and check that
-/// all acked writes are visible.
+/// all acked writes are visible. A person that cannot be read is a
+/// violation, not a skip: NotFound for a person with acked writes means the
+/// person is gone, and a read error (retried once, since verification can
+/// race a settling handoff) means visibility cannot be asserted at all.
 pub async fn verify_strong(
     client: &CannonClient,
     collector: &StatsCollector,
@@ -133,10 +136,17 @@ pub async fn verify_strong(
 
     for person_id in person_ids {
         let start = Instant::now();
-        match client
+        let mut result = client
             .get_person(team_id, person_id, ConsistencyLevel::Strong)
-            .await
-        {
+            .await;
+        if result.is_err() {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            result = client
+                .get_person(team_id, person_id, ConsistencyLevel::Strong)
+                .await;
+        }
+
+        match result {
             Ok(Some(person)) => {
                 collector.reads.record_success(start.elapsed());
                 let props: serde_json::Value = if person.properties.is_empty() {
@@ -149,11 +159,21 @@ pub async fn verify_strong(
             }
             Ok(None) => {
                 collector.reads.record_failure();
-                tracing::warn!(person_id, "person not found during verification");
+                all_violations.push(ConsistencyViolation {
+                    person_id,
+                    key: "__missing_person".to_string(),
+                    expected: serde_json::json!("person with acked writes exists"),
+                    actual: serde_json::Value::Null,
+                });
             }
             Err(e) => {
                 collector.reads.record_failure();
-                tracing::warn!(person_id, error = %e, "read failed during verification");
+                all_violations.push(ConsistencyViolation {
+                    person_id,
+                    key: "__strong_read_failed".to_string(),
+                    expected: serde_json::json!("readable"),
+                    actual: serde_json::json!(e.to_string()),
+                });
             }
         }
     }

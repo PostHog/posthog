@@ -94,6 +94,7 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
 /// write is visible via strong reads AND lands in Postgres with the acked
 /// version. Exits non-zero on any violation, so it can gate CI.
 pub async fn run(args: GateArgs) -> Result<()> {
+    seed::validate_table_name(&args.pg_target_table)?;
     let chaos = chaos_timeline(&args);
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
@@ -126,6 +127,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     etcd_endpoints: args.etcd_endpoints.clone(),
                     persons_db_url: args.persons_db_url.clone(),
                     writer_flush_interval_ms: 1000,
+                    pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
                 })
                 .await?,
@@ -250,7 +252,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     println!("Waiting for the writer to drain, then verifying Postgres...");
     let journal = state.snapshot().await;
-    violations.extend(verify_postgres(&pool, args.team_id, &journal).await?);
+    violations.extend(verify_postgres(&pool, &args.pg_target_table, args.team_id, &journal).await?);
 
     print_report(
         "gate",
@@ -262,6 +264,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     if !args.keep_data {
         let (persons, _) = seed::cleanup_team(&pool, args.team_id).await?;
+        if args.pg_target_table != "posthog_person" {
+            seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
+        }
         println!("Cleaned up {persons} persons");
     }
 
@@ -283,6 +288,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if !violations.is_empty() {
         bail!("{} consistency violations detected", violations.len());
     }
+    // The invariant is "acked implies visible", which zero acks satisfy
+    // vacuously — a stack that failed every write must not pass the gate.
+    if collector.writes.snapshot().successes == 0 {
+        bail!("no writes were acked; the gate asserted nothing");
+    }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
     Ok(())
 }
@@ -292,6 +302,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
 /// Returns the outstanding violations (empty = converged).
 async fn verify_postgres(
     pool: &PgPool,
+    table: &str,
     team_id: i64,
     journal: &HashMap<i64, ExpectedPerson>,
 ) -> Result<Vec<ConsistencyViolation>> {
@@ -301,17 +312,18 @@ async fn verify_postgres(
         return Ok(Vec::new());
     }
 
+    let query = format!(
+        "SELECT id, properties::text AS properties, version \
+         FROM {table} WHERE team_id = $1 AND id = ANY($2)"
+    );
     let deadline = Instant::now() + QUIESCE_DEADLINE;
     loop {
-        let rows = sqlx::query(
-            "SELECT id, properties::text AS properties, version \
-             FROM posthog_person WHERE team_id = $1 AND id = ANY($2)",
-        )
-        .bind(team)
-        .bind(&person_ids)
-        .fetch_all(pool)
-        .await
-        .context("reading persons from Postgres")?;
+        let rows = sqlx::query(&query)
+            .bind(team)
+            .bind(&person_ids)
+            .fetch_all(pool)
+            .await
+            .context("reading persons from Postgres")?;
 
         let mut by_id: HashMap<i64, (serde_json::Value, i64)> = HashMap::new();
         for row in rows {

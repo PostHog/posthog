@@ -40,6 +40,8 @@ pub struct StackConfig {
     pub persons_db_url: String,
     /// Writer flush cadence. Short by default so gate quiesce is quick.
     pub writer_flush_interval_ms: u64,
+    /// The table the writer upserts into.
+    pub pg_target_table: String,
     /// Leader in-memory cache capacity (entries). Lower it below the seeded
     /// person count to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
@@ -136,7 +138,7 @@ impl Stack {
                     "KAFKA_CONSUMER_GROUP",
                     "personhog-cannon-writer".to_string(),
                 ),
-                ("PG_TARGET_TABLE", "posthog_person".to_string()),
+                ("PG_TARGET_TABLE", config.pg_target_table.clone()),
                 (
                     "FLUSH_INTERVAL_MS",
                     config.writer_flush_interval_ms.to_string(),

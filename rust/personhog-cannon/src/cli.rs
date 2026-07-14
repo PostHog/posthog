@@ -145,6 +145,13 @@ pub struct GateArgs {
     #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
     pub persons_db_url: String,
 
+    /// The table the writer under test upserts into. Must match the
+    /// writer's PG_TARGET_TABLE: spawned stacks run in posthog_person mode;
+    /// the dev stack's writer defaults to personhog_person_tmp, so pass
+    /// that with --external-router-url against dev.
+    #[arg(long, default_value = "posthog_person")]
+    pub pg_target_table: String,
+
     #[arg(long, default_value = "localhost:9092")]
     pub kafka_hosts: String,
 

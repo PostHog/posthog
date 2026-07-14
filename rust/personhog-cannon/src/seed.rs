@@ -44,6 +44,29 @@ pub async fn seed_persons(pool: &PgPool, team_id: i64, count: u32) -> Result<Vec
     Ok(ids)
 }
 
+/// Delete a team's rows from a writer target table other than
+/// posthog_person (e.g. the dev stack's personhog_person_tmp validation
+/// table). The table name comes from the operator's CLI, but sanity-check
+/// it anyway since it is interpolated into SQL.
+pub async fn cleanup_target_table(pool: &PgPool, table: &str, team_id: i64) -> Result<u64> {
+    validate_table_name(table)?;
+    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+    let deleted = sqlx::query(&format!("DELETE FROM {table} WHERE team_id = $1"))
+        .bind(team)
+        .execute(pool)
+        .await
+        .with_context(|| format!("cleaning up {table}"))?
+        .rows_affected();
+    Ok(deleted)
+}
+
+pub fn validate_table_name(table: &str) -> Result<()> {
+    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        anyhow::bail!("invalid table name: {table}");
+    }
+    Ok(())
+}
+
 /// Delete all persons (and any distinct-id rows) for `team_id`. The harness
 /// owns its team ids outright, so a team-wide delete is the whole cleanup.
 pub async fn cleanup_team(pool: &PgPool, team_id: i64) -> Result<(u64, u64)> {

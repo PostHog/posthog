@@ -27,8 +27,10 @@ target/debug/personhog-cannon gate --duration 10s --persons 100 --concurrency 10
 # More leaders/partitions
 target/debug/personhog-cannon gate --leaders 3 --partitions 8 --duration 30s
 
-# Against an already-running stack instead of spawning one
-target/debug/personhog-cannon gate --external-router-url http://127.0.0.1:50054
+# Against an already-running stack instead of spawning one. The dev stack's
+# writer targets personhog_person_tmp, so tell the verifier to read it there.
+target/debug/personhog-cannon gate --external-router-url http://127.0.0.1:50054 \
+  --pg-target-table personhog_person_tmp
 ```
 
 The spawned stack is isolated from the dev stack: its own port range (51xxx), its own etcd prefix (`/personhog-cannon/`), and a per-run changelog topic (`personhog_cannon_<run_id>`, deleted on teardown).
