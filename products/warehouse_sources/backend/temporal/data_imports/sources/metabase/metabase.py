@@ -163,23 +163,27 @@ def _connection_error_message(error: Exception) -> str:
     port=3000): ... SSLError(... WRONG_VERSION_NUMBER ...)"). Returning that verbatim leaks the
     customer's host/IP and tells them nothing they can act on.
     """
+    # Match on the exception type first: substring checks against str(error) alone would misfire on
+    # a hostname that happens to contain "ssl"/"timeout" (e.g. https://sslserver.com).
     text = str(error).lower()
-    if "wrong_version_number" in text:
-        return (
-            "Couldn't establish a secure (HTTPS) connection to your Metabase instance. "
-            "PostHog connects over HTTPS, so the instance must be served over HTTPS. Check the Instance URL."
-        )
-    if "ssl" in text or "certificate" in text:
+    if isinstance(error, requests.exceptions.SSLError):
+        if "wrong_version_number" in text:
+            return (
+                "Couldn't establish a secure (HTTPS) connection to your Metabase instance. "
+                "PostHog connects over HTTPS, so the instance must be served over HTTPS. Check the Instance URL."
+            )
         return (
             "Couldn't establish a secure (TLS) connection to your Metabase instance. "
             "Check that the Instance URL is correct and its TLS certificate is valid."
         )
-    if "timed out" in text or "timeout" in text:
+    if isinstance(error, requests.exceptions.Timeout):
         return (
             "Connecting to your Metabase instance timed out. "
             "Check that the Instance URL is correct and reachable from the public internet."
         )
-    if "name or service not known" in text or "nodename nor servname" in text or "failed to resolve" in text:
+    if isinstance(error, requests.exceptions.ConnectionError) and (
+        "name or service not known" in text or "nodename nor servname" in text or "failed to resolve" in text
+    ):
         return (
             "Couldn't resolve the Metabase host. "
             "Check that the Instance URL is spelled correctly and reachable from the public internet."
