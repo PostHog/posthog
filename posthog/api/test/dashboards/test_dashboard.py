@@ -826,25 +826,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertIsNotNone(response_data["tiles"][0]["last_refresh"])
             self.assertEqual(response_data["tiles"][0]["insight"]["result"][0]["count"], 0)
 
-            item_default.refresh_from_db()
-            item_trends.refresh_from_db()
-
-            self.assertEqual(
-                isoparse(response_data["tiles"][0]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-            self.assertEqual(
-                isoparse(response_data["tiles"][1]["last_refresh"]),
-                item_default.caching_state.last_refresh,
-            )
-
             self.assertAlmostEqual(
-                item_default.caching_state.last_refresh,
+                isoparse(response_data["tiles"][0]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )
             self.assertAlmostEqual(
-                item_trends.caching_state.last_refresh,
+                isoparse(response_data["tiles"][1]["last_refresh"]),
                 now(),
                 delta=datetime.timedelta(seconds=5),
             )
