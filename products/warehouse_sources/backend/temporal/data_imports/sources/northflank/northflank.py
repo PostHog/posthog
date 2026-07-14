@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -99,7 +100,9 @@ def _next_cursor(body: dict[str, Any]) -> str | None:
 
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Confirm the token by listing projects (the resource every stream depends on)."""
-    session = make_tracked_session(redact_values=(api_token,))
+    # Disable the adapter's urllib3 retry layer: an already rate-limited token would otherwise make
+    # validation block the worker for the provider's full (uncapped) Retry-After. Fail fast instead.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_token,))
     try:
         response = session.get(
             _build_url("/v1/projects", {"per_page": 1}),
@@ -119,8 +122,11 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
 def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageFn:
     headers = _get_headers(api_token)
     # One session reused across pages/retries so connection pooling and per-session tracking hold;
-    # redact_values masks the token in logs and captured samples.
-    session = make_tracked_session(redact_values=(api_token,))
+    # redact_values masks the token in logs and captured samples. retry=Retry(total=0) disables the
+    # adapter's urllib3 retry layer so the tenacity policy below is the only one — otherwise urllib3
+    # would retry 429/5xx underneath it, honoring an uncapped Retry-After and stacking retry layers,
+    # bypassing this connector's capped rate-limit backoff.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_token,))
 
     @retry(
         retry=retry_if_exception_type((NorthflankRetryableError, requests.ReadTimeout, requests.ConnectionError)),
