@@ -100,7 +100,7 @@ export function SCIMSettings(): JSX.Element {
                                                 },
                                                 {
                                                     key: 'actions',
-                                                    width: 0,
+                                                    width: 120,
                                                     render: (_, domain) =>
                                                         scimConfig.id ? (
                                                             <LemonButton
