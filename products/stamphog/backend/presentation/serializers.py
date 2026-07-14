@@ -57,6 +57,17 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
 
 class StamphogRepoConfigSerializer(serializers.ModelSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # provider + repository are the config's identity: they resolve inbound webhooks and anchor
+        # every PullRequest/ReviewRun FK. Editing them on an existing row would reroute that history to a
+        # different repo and stop the original repo's webhooks from resolving, so they're create-only.
+        # self.instance is set only for updates (schema generation and creates leave it None).
+        if self.instance is not None:
+            fields["provider"].read_only = True
+            fields["repository"].read_only = True
+        return fields
+
     class Meta:
         model = StamphogRepoConfig
         fields = [

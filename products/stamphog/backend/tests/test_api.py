@@ -45,6 +45,22 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert config.team_id == self.team.id
         assert config.installation_id == ""
 
+    def test_update_cannot_change_identity_fields(self) -> None:
+        # provider + repository anchor webhook resolution and every PR/ReviewRun FK. A PATCH that
+        # changed them would reroute the config's history and orphan the original repo's webhooks, so
+        # they're create-only: the values are ignored on update while enabled still toggles.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        response = self.client.patch(
+            f"{self.url}{created['id']}/",
+            {"repository": "PostHog/evil", "provider": "gitlab", "enabled": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["repository"] == "PostHog/posthog"
+        assert body["provider"] == "github"
+        assert body["enabled"] is False
+
     def test_list_excludes_other_teams_configs(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         self.client.post(self.url, {"repository": "PostHog/posthog", "installation_id": "1"}, format="json")

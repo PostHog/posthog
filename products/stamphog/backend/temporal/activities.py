@@ -30,6 +30,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
@@ -37,7 +38,7 @@ from products.stamphog.backend.logic.reviewer import (
     build_reviewer_invocation,
     parse_reviewer_output,
 )
-from products.stamphog.backend.models import PullRequest, ReviewRun
+from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
@@ -285,6 +286,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             run.posted_review_id = _comment_id(review)
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
+        _stamp_digest_audience_if_merged(repo_config, pull_request, output.get("pr") or {})
         update_fields.append("posted_review_id")
     else:
         _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
@@ -442,6 +444,24 @@ def _write_sandbox_file(sandbox: SandboxBase, path: str, content: str) -> None:
     parent = path.rsplit("/", 1)[0] if "/" in path else "."
     sandbox.execute(f"mkdir -p {shlex.quote(parent)}", timeout_seconds=30)
     sandbox.write_file(path, content.encode())
+
+
+def _stamp_digest_audience_if_merged(
+    repo_config: StamphogRepoConfig, pull_request: PullRequest, pr_payload: dict
+) -> None:
+    """Stamp the digest audience if the PR already merged before this approval landed.
+
+    The merge handler only stamps a merged PR's ``audience_key`` when a stamphog-approved run already
+    exists. In the merge-before-approval race it records the merge with a blank audience and never
+    revisits it, so a just-approved-and-already-merged PR would silently miss the digest. Re-reading the
+    merge state here — the moment the approval is saved — closes that race from the approval side,
+    without depending on a webhook redelivery. Only stamps digest-enabled repos with no audience yet.
+    """
+    pull_request.refresh_from_db(fields=["merged_at", "audience_key"])
+    if pull_request.merged_at is None or not repo_config.digest_enabled or pull_request.audience_key:
+        return
+    pull_request.audience_key = resolve_audience_key(repo_config, pr_payload)
+    pull_request.save(update_fields=["audience_key", "updated_at"])
 
 
 def _post_sticky(client: StamphogGitHubClient, repo: str, pull_request: PullRequest, body: str) -> None:
