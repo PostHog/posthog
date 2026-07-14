@@ -607,6 +607,21 @@ function classifyFetchError(error: unknown): string {
 }
 
 /**
+ * A reachability HEAD that returns a 4xx is an expected outcome, not a bug: the
+ * resolved uiHost simply doesn't serve `/toolbar_oauth/check` (host-resolution
+ * mismatch, reverse-proxy setup, or version skew). Mirroring `toolbarApi.ts`,
+ * these client errors are still recorded in telemetry but not reported as
+ * exceptions — only 5xx / network / timeout failures are genuinely unexpected.
+ */
+function isExpectedClientError(error: unknown): boolean {
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        const status = Number(error.message.slice('HTTP '.length))
+        return status >= 400 && status < 500
+    }
+    return false
+}
+
+/**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
  * (or shows the config modal on failure).
@@ -657,13 +672,19 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Expected 4xx responses (the host doesn't serve /toolbar_oauth/check) are
+            // noise in error tracking — keep the telemetry event for visibility but
+            // only report genuinely unexpected failures (5xx / network / timeout).
+            if (!isExpectedClientError(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
