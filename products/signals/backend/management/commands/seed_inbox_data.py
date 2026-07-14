@@ -34,7 +34,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -158,6 +158,8 @@ class Command(BaseCommand):
         return fixtures
 
     def _clear_existing(self, team: Team) -> None:
+        # Refunds RESTRICT report deletion; reseeding means a full reset.
+        SignalReportRefund.objects.for_team(team.id).delete()
         deleted, _ = SignalReport.objects.filter(team=team).delete()
         self.stdout.write(self.style.WARNING(f"Deleted {deleted} existing signal report row(s) for team {team.id}"))
 

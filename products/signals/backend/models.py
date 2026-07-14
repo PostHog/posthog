@@ -988,7 +988,9 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents (app-level enforcement only).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="refund")
+    # RESTRICT: hard-deleting a report must never silently destroy this financial record (it drives
+    # the quota offset and refund audit). Team deletion still cascades in via the team FK above.
+    report = models.OneToOneField(SignalReport, on_delete=models.RESTRICT, related_name="refund")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
