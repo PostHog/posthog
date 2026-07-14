@@ -12,6 +12,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -48,7 +49,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -349,6 +350,7 @@ interface ConditionProps {
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
+    propertySelectErrors: DeepPartialMap<FeatureFlagGroupType, ValidationErrorType>[] | null
     openConditions: string[]
     handleOpenConditionsChange: (newKeys: string[]) => void
     flagId?: FeatureFlagLogicProps['id']
@@ -412,6 +414,7 @@ const ConditionContent = ({
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
+    propertySelectErrors,
     openConditions,
     handleOpenConditionsChange,
     flagId,
@@ -615,6 +618,26 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            errorMessages={
+                                                propertySelectErrors?.[index]?.properties?.some(
+                                                    (message) => typeof message?.value === 'string'
+                                                )
+                                                    ? propertySelectErrors[index].properties?.map(
+                                                          (message, messageIndex) =>
+                                                              typeof message?.value === 'string' ? (
+                                                                  <div
+                                                                      key={messageIndex}
+                                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
+                                                                  >
+                                                                      <IconErrorOutline className="text-xl" />{' '}
+                                                                      {message.value}
+                                                                  </div>
+                                                              ) : (
+                                                                  <React.Fragment key={messageIndex} />
+                                                              )
+                                                      )
+                                                    : null
+                                            }
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -836,6 +859,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
         properties,
+        propertySelectErrors,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
@@ -1239,6 +1263,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                                 releaseFilters={releaseFilters}
                                                 variants={variants}
+                                                propertySelectErrors={propertySelectErrors}
                                                 openConditions={openConditions}
                                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                                 flagId={flagId}
@@ -1314,6 +1339,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1364,6 +1390,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1396,6 +1423,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}
+                                propertySelectErrors={propertySelectErrors}
                                 openConditions={openConditions}
                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                 flagId={flagId}
