@@ -1,3 +1,4 @@
+import itertools
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -133,11 +134,15 @@ def _page_based_rows(
         resumable_source_manager.save_state(ZepResumeConfig(page_number=page_number))
 
 
-def _iter_thread_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
-    """Enumerate every thread id by paging /threads (used to fan out into per-thread messages)."""
+def _iter_thread_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
+    """Lazily page /threads, yielding thread ids one at a time (used to fan out into messages).
+
+    Streaming rather than materialising the whole catalog keeps memory flat no matter how many
+    threads a project has, so a large Zep project can't exhaust the sync worker.
+    """
     threads_config = ZEP_ENDPOINTS["threads"]
-    thread_ids: list[str] = []
     page_number = 1
+    seen = 0
     while True:
         params: dict[str, Any] = {
             "page_size": threads_config.page_size,
@@ -149,12 +154,15 @@ def _iter_thread_ids(session: requests.Session, headers: dict[str, str], logger:
         items = data.get("threads") or []
         if not items:
             break
-        thread_ids.extend(item["thread_id"] for item in items if item.get("thread_id") is not None)
+        for item in items:
+            thread_id = item.get("thread_id")
+            if thread_id is not None:
+                yield thread_id
+        seen += len(items)
         total_count = data.get("total_count")
-        if (total_count is not None and len(thread_ids) >= total_count) or len(items) < threads_config.page_size:
+        if (total_count is not None and seen >= total_count) or len(items) < threads_config.page_size:
             break
         page_number += 1
-    return thread_ids
 
 
 def _fan_out_message_rows(
@@ -171,22 +179,36 @@ def _fan_out_message_rows(
     the number of rows returned) and stop once a short page or the reported total is reached. If Zep
     ever changes cursor semantics this stays safe: merge dedupes on the message `uuid` primary key.
     """
-    thread_ids = _iter_thread_ids(session, headers, logger)
-
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = thread_ids
-    resume_cursor: int | None = None
-    if resume is not None and resume.thread_id is not None and resume.thread_id in thread_ids:
-        remaining = thread_ids[thread_ids.index(resume.thread_id) :]
-        resume_cursor = resume.cursor
-        logger.debug(f"Zep: resuming thread_messages from thread_id={resume.thread_id}, cursor={resume_cursor}")
+    resume_thread_id = resume.thread_id if resume is not None else None
+    resume_cursor: int | None = resume.cursor if resume is not None and resume_thread_id is not None else None
 
-    for index, thread_id in enumerate(remaining):
+    thread_id_iter = iter(_iter_thread_ids(session, headers, logger))
+
+    if resume_thread_id is not None:
+        # Skip forward until the bookmarked thread. Thread order (created_at asc) is stable, so the
+        # bookmark's position doesn't move; seeking lazily avoids holding the full id list in memory.
+        for thread_id in thread_id_iter:
+            if thread_id == resume_thread_id:
+                break
+        else:
+            # The bookmarked thread vanished before the retry (rare). Its messages are gone anyway,
+            # so there's nothing to resume; the next full-refresh job re-reads every thread.
+            logger.warning(f"Zep: resume thread_id={resume_thread_id} no longer present, ending thread_messages")
+            return
+        logger.debug(f"Zep: resuming thread_messages from thread_id={resume_thread_id}, cursor={resume_cursor}")
+        # Re-inject the matched thread so it's processed below rather than skipped.
+        thread_id_iter = itertools.chain([resume_thread_id], thread_id_iter)
+
+    # Keep one id of lookahead so we can bookmark the *next* thread without knowing the total count.
+    current = next(thread_id_iter, None)
+    cursor = resume_cursor or 0
+    while current is not None:
+        nxt = next(thread_id_iter, None)
+        thread_id = current
         # thread_id is a user-defined string; escape path-significant characters (/, ?, #) so it
         # can't break out of its path segment and hit the wrong URL.
         path = config.path.format(thread_id=quote(thread_id, safe=""))
-        cursor = resume_cursor or 0
-        resume_cursor = None  # only the resumed-into thread uses the saved cursor
 
         seen = 0
         while True:
@@ -214,8 +236,11 @@ def _fan_out_message_rows(
             resumable_source_manager.save_state(ZepResumeConfig(thread_id=thread_id, cursor=cursor))
 
         # Advance the bookmark to the next thread so a crash between threads resumes correctly.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(ZepResumeConfig(thread_id=remaining[index + 1], cursor=0))
+        if nxt is not None:
+            resumable_source_manager.save_state(ZepResumeConfig(thread_id=nxt, cursor=0))
+
+        current = nxt
+        cursor = 0  # only the resumed-into thread uses the saved cursor
 
 
 def get_rows(
