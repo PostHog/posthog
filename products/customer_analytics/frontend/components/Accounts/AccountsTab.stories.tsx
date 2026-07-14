@@ -431,6 +431,13 @@ export const RowExpandedUsagePopulated: Story = {
         mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
     ),
     play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
+        // Minimal play: expand row and switch tab without waiting for sidebar links.
+        // The sidebar waits in expandAndOpenTab can take 20-30s under CI load, which
+        // combined with the postVisit waitForSelector for the canvas exceeds the 60s
+        // Jest timeout. We only need the tab switch here — the canvas is verified by
+        // waitForSelector in testOptions above.
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }))
     },
 }
