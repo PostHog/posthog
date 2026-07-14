@@ -79,6 +79,7 @@ export class CyclotronV2Janitor {
     private readonly stallTimeoutMs: number
     private readonly maxTouchCount: number
     private readonly cleanupGraceMs: number
+    private readonly poisonRecoveryEnabled: boolean
     private readonly fleetStallRatioThreshold: number
     private readonly fleetHealthWindowMs: number
     private readonly fleetMinStalledCount: number
@@ -106,9 +107,16 @@ export class CyclotronV2Janitor {
         this.stallTimeoutMs = config.stallTimeoutMs ?? 30000
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
+        this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
         this.fleetStallRatioThreshold = config.fleetStallRatioThreshold ?? 0.5
         this.fleetHealthWindowMs = config.fleetHealthWindowMs ?? 300000
         this.fleetMinStalledCount = config.fleetMinStalledCount ?? 5
+
+        if (!this.poisonRecoveryEnabled) {
+            logger.warn(
+                'CyclotronV2Janitor poison-pill recovery DISABLED via CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED=false — blind-deleting poison pills with no recovery record (legacy behavior)'
+            )
+        }
     }
 
     async start(): Promise<void> {
@@ -131,22 +139,31 @@ export class CyclotronV2Janitor {
 
         this.recordCompletionSample(deletedCounts['completed'] ?? 0)
 
-        // Gate the give-up on fleet health: during a fleet-wide outage every
-        // in-flight job stalls at once, and giving up on them would drop work a
-        // recovered fleet could still run. In that state only reset/retry.
-        const stalledNow = await this.countStalledRunningJobs()
-        const poisoningPaused = this.isFleetUnhealthy(stalledNow)
-        poisoningPausedGauge.set(poisoningPaused ? 1 : 0)
-
         let poisonedIds: string[] = []
-        if (poisoningPaused) {
-            logger.warn('CyclotronV2Janitor poisoning paused, fleet unhealthy', {
-                stalledNow,
-                completedInWindow: this.completedInWindow(),
-                fleetStallRatioThreshold: this.fleetStallRatioThreshold,
-            })
+        let poisoningPaused = false
+
+        if (!this.poisonRecoveryEnabled) {
+            // Kill-switch off: legacy behavior — blind-delete poison pills with
+            // no recovery record and no fleet-health pause.
+            poisoningPausedGauge.set(0)
+            poisonedIds = await this.blindDeletePoisonPills()
         } else {
-            poisonedIds = await this.recordAndDeletePoisonPills()
+            // Gate the give-up on fleet health: during a fleet-wide outage every
+            // in-flight job stalls at once, and giving up on them would drop work
+            // a recovered fleet could still run. In that state only reset/retry.
+            const stalledNow = await this.countStalledRunningJobs()
+            poisoningPaused = this.isFleetUnhealthy(stalledNow)
+            poisoningPausedGauge.set(poisoningPaused ? 1 : 0)
+
+            if (poisoningPaused) {
+                logger.warn('CyclotronV2Janitor poisoning paused, fleet unhealthy', {
+                    stalledNow,
+                    completedInWindow: this.completedInWindow(),
+                    fleetStallRatioThreshold: this.fleetStallRatioThreshold,
+                })
+            } else {
+                poisonedIds = await this.recordAndDeletePoisonPills()
+            }
         }
 
         const stalled = await this.resetStalledJobs()
@@ -242,6 +259,38 @@ export class CyclotronV2Janitor {
      * original incident deleted these with no trace; here every give-up is
      * logged with its id and recorded for replay.
      */
+    // Legacy pre-recovery behavior, used only when the kill-switch disables
+    // poison-pill recovery: delete poison pills outright with no recovery record.
+    // SKIP LOCKED still keeps us from racing a worker that just re-locked a row.
+    private async blindDeletePoisonPills(): Promise<string[]> {
+        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
+
+        const deleted = await this.pool.query<{ id: string }>(
+            `WITH doomed AS (
+                SELECT id FROM cyclotron_jobs
+                WHERE status = 'running'
+                  AND COALESCE(last_heartbeat, $1) <= $1
+                  AND janitor_touch_count >= $2
+                ORDER BY last_transition ASC
+                LIMIT $3
+                FOR UPDATE SKIP LOCKED
+            )
+            DELETE FROM cyclotron_jobs WHERE id IN (SELECT id FROM doomed) RETURNING id`,
+            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+        )
+        const deletedIds = deleted.rows.map((r) => r.id)
+
+        if (deletedIds.length > 0) {
+            janitorPoisonedCounter.inc(deletedIds.length)
+            logger.warn('CyclotronV2Janitor blind-deleted poison pill jobs (recovery disabled)', {
+                count: deletedIds.length,
+                ids: deletedIds,
+            })
+        }
+
+        return deletedIds
+    }
+
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 

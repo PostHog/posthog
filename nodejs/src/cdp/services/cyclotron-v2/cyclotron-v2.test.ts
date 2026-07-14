@@ -165,10 +165,11 @@ describe('Cyclotron V2', () => {
     })
 
     async function seedAndDequeue(
-        jobInit?: Partial<CyclotronV2JobInit>
+        jobInit?: Partial<CyclotronV2JobInit>,
+        workerOverrides?: Record<string, unknown>
     ): Promise<{ id: string; job: CyclotronV2DequeuedJob }> {
         const id = await manager.createJob({ teamId: 1, queueName: QUEUE, ...jobInit })
-        const worker = createWorker()
+        const worker = createWorker(QUEUE, workerOverrides)
         const jobs = await dequeueOneBatch(worker)
         return { id, job: jobs[0] }
     }
@@ -875,6 +876,19 @@ describe('Cyclotron V2', () => {
 
             expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
+
+        it.each(['ack', 'fail', 'cancel', 'reschedule'] as const)(
+            '%s() preserves janitor_touch_count when the recovery kill-switch is off',
+            async (method) => {
+                const { id, job } = await seedAndDequeue(undefined, { resetTouchCountOnRelease: false })
+                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+                await job[method]()
+
+                // Kill-switch off → lifetime-stall counting, so the count is left intact.
+                expect((await queryJob(id)).janitor_touch_count).toBe(2)
+            }
+        )
 
         it('reschedule() returns job to available', async () => {
             const { id, job } = await seedAndDequeue()
@@ -1625,6 +1639,33 @@ describe('Cyclotron V2', () => {
 
             expect(result.poisoned).toBe(0)
             expect(await totalJobCount()).toBe(1)
+        })
+
+        it('blind-deletes a poison pill without recording when recovery is disabled (kill-switch)', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            // A results service is wired, but the kill-switch reverts to the
+            // legacy path: delete outright, never record a recovery row.
+            const { service, recordTerminalFailureDurably } = createMockResults(true)
+            const janitor = createJanitor(
+                { stallTimeoutMs: 1_000, maxTouchCount: 2, poisonRecoveryEnabled: false },
+                service
+            )
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(1)
+            expect(result.poisonedIds).toEqual([jobId])
+            expect(recordTerminalFailureDurably).not.toHaveBeenCalled()
+            expect(await totalJobCount()).toBe(0)
         })
 
         it('gives up on poison pills before stalled jobs are reset', async () => {

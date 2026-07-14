@@ -394,6 +394,10 @@ export class CyclotronV2Worker {
         const lockId = row.lock_id
         let released = false
 
+        // Zeroing the touch count on deliberate release is part of poison-pill
+        // recovery; the kill-switch reverts to lifetime-stall counting.
+        const touchResetClause = (this.config.resetTouchCountOnRelease ?? true) ? ', janitor_touch_count = 0' : ''
+
         const releaseGuard = (method: string) => {
             if (released) {
                 throw new Error(`Job ${row.id} already released, cannot call ${method}`)
@@ -421,8 +425,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
-                         janitor_touch_count = 0
+                         last_transition = NOW(), transition_count = transition_count + 1${touchResetClause}
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -433,8 +436,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
-                         janitor_touch_count = 0
+                         last_transition = NOW(), transition_count = transition_count + 1${touchResetClause}
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
@@ -451,13 +453,16 @@ export class CyclotronV2Worker {
                     `last_heartbeat = NULL`,
                     `last_transition = NOW()`,
                     `transition_count = transition_count + 1`,
-                    // A deliberate release means the worker is healthy, so the
-                    // poison budget counts CONSECUTIVE stalls — long-lived jobs
-                    // (e.g. wait_until_condition polls) don't accrue touches for
-                    // their whole life and get mistaken for poison pills.
-                    `janitor_touch_count = 0`,
                     `scheduled = $3`,
                 ]
+                // A deliberate release means the worker is healthy, so the poison
+                // budget counts CONSECUTIVE stalls — long-lived jobs (e.g.
+                // wait_until_condition polls) don't accrue touches for their whole
+                // life and get mistaken for poison pills. Skipped when the
+                // recovery kill-switch is off.
+                if (touchResetClause) {
+                    setClauses.push(`janitor_touch_count = 0`)
+                }
                 const params: any[] = [row.id, lockId, scheduled]
 
                 if (options?.state !== undefined) {
@@ -508,8 +513,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
-                         janitor_touch_count = 0
+                         last_transition = NOW(), transition_count = transition_count + 1${touchResetClause}
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )

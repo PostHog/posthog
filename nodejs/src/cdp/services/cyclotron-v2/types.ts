@@ -119,6 +119,11 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    // When false, deliberate releases (ack/fail/reschedule/cancel) stop zeroing
+    // janitor_touch_count, so the poison budget counts lifetime stalls again
+    // (pre-recovery behavior). Tied to the poison-pill recovery kill-switch.
+    // Defaults to true.
+    resetTouchCountOnRelease?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {
@@ -128,6 +133,10 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
+    // Master kill-switch. When false the janitor blind-deletes poison pills with
+    // no failed-result record and no fleet-health pause (the pre-recovery
+    // behavior). Defaults to true.
+    poisonRecoveryEnabled?: boolean
     // Fleet-health gate: giving up on poison pills is paused while stalls look
     // fleet-wide (an outage) rather than isolated (a genuinely bad job).
     fleetStallRatioThreshold?: number

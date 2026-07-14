@@ -267,6 +267,7 @@ export class PluginServer implements NodeServer {
                         stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
                         maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
                         cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                        poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
                         fleetStallRatioThreshold: this.config.CYCLOTRON_NODE_JANITOR_FLEET_STALL_RATIO_THRESHOLD,
                         fleetHealthWindowMs: this.config.CYCLOTRON_NODE_JANITOR_FLEET_HEALTH_WINDOW_MS,
                         fleetMinStalledCount: this.config.CYCLOTRON_NODE_JANITOR_FLEET_MIN_STALLED_COUNT,
@@ -426,6 +427,7 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    resetTouchCountOnRelease: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

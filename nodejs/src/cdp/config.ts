@@ -144,6 +144,12 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Master kill-switch for poison-pill recovery. When false the whole feature
+    // reverts to the pre-recovery behavior: the janitor blind-deletes poison
+    // pills (no failed-result record, no fleet-health pause) and workers stop
+    // zeroing janitor_touch_count on release. Flip to false to roll back to the
+    // old behavior without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
     // Fleet-health gate: the janitor pauses giving up on poison pills while
     // stalls look fleet-wide (an outage) rather than isolated (a bad job).
     CYCLOTRON_NODE_JANITOR_FLEET_STALL_RATIO_THRESHOLD: number
@@ -285,6 +291,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
         CYCLOTRON_NODE_JANITOR_FLEET_STALL_RATIO_THRESHOLD: 0.5,
         CYCLOTRON_NODE_JANITOR_FLEET_HEALTH_WINDOW_MS: 300000,
         CYCLOTRON_NODE_JANITOR_FLEET_MIN_STALLED_COUNT: 5,
