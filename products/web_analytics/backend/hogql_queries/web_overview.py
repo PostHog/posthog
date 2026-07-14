@@ -73,13 +73,13 @@ SELECT
     {previous_views} AS previous_total_filtered_pageview_count
 FROM events
 WHERE and(
-    {events_session_id} IS NOT NULL,
+    {events_session_id_present},
     {event_type_expr},
     {inside_timestamp_period},
 )
             """,
             placeholders={
-                "events_session_id": self.events_session_property,
+                "events_session_id_present": self.events_session_id_present,
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "current_users": self._current_period_expression("timestamp"),

@@ -2537,6 +2537,15 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                         "$current_url": f"https://example.com{pathname}",
                     },
                 )
+        # A server-side pageview with no session: the join path drops it (NULL session
+        # start), so the no-join counts side must exclude it too.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$pathname": "/", "$current_url": "https://example.com/"},
+        )
         flush_persons_and_events()
 
     def _make_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:

@@ -697,6 +697,19 @@ WHERE
         else:
             return parse_expr("events.$session_id")
 
+    @cached_property
+    def events_session_id_present(self) -> ast.Expr:
+        """True when the event carries a usable session id.
+
+        A missing `$session_id` materializes as an empty string, not NULL, so an
+        `IS NOT NULL` check alone lets sessionless (server-side) events through.
+        The join path excludes them implicitly (NULL session start fails the
+        period HAVING); the no-join query shapes need this explicit guard.
+        """
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid IS NOT NULL")
+        return parse_expr("events.$session_id IS NOT NULL AND events.$session_id != ''")
+
 
 def _sample_rate_from_count(count: int) -> SamplingRate:
     # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of

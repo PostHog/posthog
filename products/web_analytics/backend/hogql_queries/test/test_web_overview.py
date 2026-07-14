@@ -1063,6 +1063,15 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                     timestamp=ts,
                     properties={"$session_id": session_id, "$current_url": "https://example.com/"},
                 )
+        # Sessionless (server-side) pageview: the join path drops it via the session
+        # start HAVING, so the no-join events side must exclude it explicitly.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$current_url": "https://example.com/"},
+        )
 
     def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
         query = WebOverviewQuery(

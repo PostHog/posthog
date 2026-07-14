@@ -241,6 +241,7 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
     def _placeholders(self) -> dict[str, ast.Expr]:
         return {
             "breakdown_value": self.runner._counts_breakdown_value(),
+            "events_session_id_present": self.runner.events_session_id_present,
             "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown_sessions(),
             "current_timestamp_period": self.runner._current_period_expression("timestamp"),
             "previous_timestamp_period": self.runner._previous_period_expression("timestamp"),

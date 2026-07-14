@@ -202,6 +202,7 @@ FROM (
         countIf({previous_timestamp_period}) AS previous_views
     FROM events
     WHERE and(
+        {events_session_id_present},
         or(events.event == '$pageview', events.event == '$screen'),
         {inside_timestamp_periods},
     )
@@ -249,6 +250,7 @@ FROM (
         countIf({previous_timestamp_period}) AS previous_views
     FROM events
     WHERE and(
+        {events_session_id_present},
         or(events.event == '$pageview', events.event == '$screen'),
         {inside_timestamp_periods},
     )
