@@ -244,7 +244,10 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
-            queryset = queryset.filter(pull_request__pr_number=pr_number)
+            try:
+                queryset = queryset.filter(pull_request__pr_number=int(pr_number))
+            except ValueError:
+                return queryset.none()
 
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -296,7 +299,10 @@ class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
-            queryset = queryset.filter(pr_number=pr_number)
+            try:
+                queryset = queryset.filter(pr_number=int(pr_number))
+            except ValueError:
+                return queryset.none()
 
         merged = self.request.query_params.get("merged")
         if merged is not None:

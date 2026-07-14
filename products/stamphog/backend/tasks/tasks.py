@@ -28,8 +28,11 @@ logger = structlog.get_logger(__name__)
 STAMPHOG_PR_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 
-# PR actions worth a (re)review. Anything else (closed, assigned, edited, ...) is dropped.
-RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
+# PR actions worth a (re)review. Anything else (closed, assigned, edited, labeled, ...) is dropped.
+# `labeled` is deliberately excluded: every add fires a new delivery id, so toggling any label would
+# re-run the sandbox + LLM review without a code change — a cheap way to burn review capacity. A
+# label-gated re-review, if wanted, belongs behind a dedicated label with a per-PR cooldown.
+RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened"})
 
 # A run in one of these states is done and must not be superseded.
 TERMINAL_STATUSES = frozenset({ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED})

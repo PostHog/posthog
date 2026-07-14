@@ -83,15 +83,23 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
 def _reviewer_environment() -> dict[str, str]:
     """Environment for the in-sandbox reviewer, passed through from the worker env.
 
-    The sandbox holds no GitHub token by design; the only secrets it receives are the
-    LLM credentials the engine needs — the internal ai-gateway when configured, with
-    direct Anthropic as the engine's own fallback (tools/pr-approval-agent/gateway.py).
+    The sandbox holds no GitHub token by design; the only secrets it receives are the LLM credentials
+    the engine needs. Prefer the internal ai-gateway when configured and ship ONLY its key: a gateway
+    credential is scoped to stamphog's own credit bucket, so if an untrusted PR coaxes the reviewer into
+    leaking it, the blast radius is this product's LLM budget rather than an org-wide Anthropic key. The
+    raw ANTHROPIC_API_KEY is forwarded only as the engine's fallback when the gateway isn't configured
+    (tools/pr-approval-agent/gateway.py). Output scrubbing (_scrub_credentials) stays as defense in depth.
     """
     env = {"STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR}
-    for key in ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY"):
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
+    gateway_url = os.environ.get("AI_GATEWAY_URL")
+    gateway_key = os.environ.get("AI_GATEWAY_API_KEY")
+    if gateway_url and gateway_key:
+        env["AI_GATEWAY_URL"] = gateway_url
+        env["AI_GATEWAY_API_KEY"] = gateway_key
+    else:
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            env["ANTHROPIC_API_KEY"] = anthropic_key
     return env
 
 
@@ -144,6 +152,15 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
     run = _load_run(input)
+
+    # A newer relevant delivery for the same PR may have superseded this run while it queued — even
+    # one that didn't move the head SHA (e.g. `labeled`, `ready_for_review`). Bail before flipping the
+    # status back to REVIEWING: reviving it here would defeat the post_verdict superseded guard (which
+    # keys off status) and let a stale run post its verdict. Skip the sandbox entirely.
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        activity.logger.info(f"Skipping sandbox for superseded run {run.id}")
+        return {"skipped": "superseded"}
+
     repo_config = run.pull_request.repo_config
     repo = repo_config.repository
     output = run.output or {}

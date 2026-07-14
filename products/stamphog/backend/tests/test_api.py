@@ -123,6 +123,14 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         ids = [row["id"] for row in response.json()["results"]]
         assert ids == [str(run_two.id)]
 
+    def test_non_integer_pr_number_returns_empty_not_500(self) -> None:
+        # pr_number flows into an integer ORM filter; a non-integer value used to raise and 500.
+        # It's exposed via the API/MCP, so a bad value must degrade to an empty 200, not crash.
+        self._make_run(pr_number=1)
+        response = self.client.get(self.url, {"pr_number": "abc"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["results"] == []
+
     def test_filter_by_status(self) -> None:
         self._make_run(pr_number=1, status_value="completed")
         queued_run = self._make_run(pr_number=2, status_value="queued")

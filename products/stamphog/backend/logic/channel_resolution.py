@@ -48,10 +48,11 @@ def _declared_repo_channel_name(team_id: int, audience_key: str) -> str | None:
     digest-enabled, or hasn't declared a channel.
     """
     repository = audience_key[len(_REPO_AUDIENCE_PREFIX) :]
+    # Gate on digest_enabled only, not review `enabled`: a digest-only repo (review off, digest on)
+    # still stamps merges with a "repo:" audience, so its declared channel must resolve or those PRs
+    # never get delivered.
     repo_config = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .filter(repository=repository, enabled=True, digest_enabled=True)
-        .first()
+        StamphogRepoConfig.objects.for_team(team_id).filter(repository=repository, digest_enabled=True).first()
     )
     if repo_config is None:
         return None
