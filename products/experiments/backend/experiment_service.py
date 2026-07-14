@@ -567,7 +567,9 @@ class ExperimentService:
             )
 
     @staticmethod
-    def _materialize_baseline_variant_key(stats_config: dict | None, variant_keys: list[str]) -> dict | None:
+    def _materialize_baseline_variant_key(
+        stats_config: dict | None, variant_keys: list[str], *, current_variant_keys: list[str] | None = None
+    ) -> dict | None:
         """Pin the inferred baseline for control-less variant sets.
 
         Without 'control' among the variants the implicit default is the first variant,
@@ -575,12 +577,21 @@ class ExperimentService:
         the baseline under historical results. Persisting the key at write time makes
         the choice explicit and visible to API/frontend consumers. With 'control'
         present the default is order-independent, so absence is left as-is.
+
+        ``current_variant_keys`` is the pre-update variant set: the pinned key is the
+        baseline currently in effect (a [A, B] → [B, A] reorder keeps A), not the first
+        key of the new order. When the current baseline does not survive into
+        ``variant_keys``, nothing is pinned — the launch paths pin against the flag's
+        final variant set instead.
         """
         if (stats_config or {}).get("baseline_variant_key"):
             return stats_config
         if not variant_keys or CONTROL_VARIANT_KEY in variant_keys:
             return stats_config
-        return {**(stats_config or {}), "baseline_variant_key": variant_keys[0]}
+        baseline = get_baseline_variant_key(stats_config, current_variant_keys or variant_keys)
+        if baseline not in variant_keys:
+            return stats_config
+        return {**(stats_config or {}), "baseline_variant_key": baseline}
 
     # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
     # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
@@ -1220,6 +1231,18 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
+    def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
+        """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
+
+        The flag can drift after create (edited directly through the flags API), so launch
+        re-checks everything create enforced: not deleted, experiment-eligible variants,
+        and the web-only 'control' requirement.
+        """
+        self._assert_flag_not_deleted_for_launch(feature_flag)
+        self._validate_existing_flag(feature_flag)
+        if experiment.type == "web" and CONTROL_VARIANT_KEY not in self._variant_keys(feature_flag.variants):
+            raise ValidationError("Web experiments require a variant with key 'control'")
+
     @staticmethod
     def _assign_uuids_to_metrics(
         metrics: list[dict] | None,
@@ -1519,8 +1542,21 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        self._assert_flag_not_deleted_for_launch(feature_flag)
-        self._validate_existing_flag(feature_flag)
+        self._validate_flag_for_launch(experiment, feature_flag)
+
+        # The flag may have lost 'control' since create (out-of-band edit), so pin the
+        # inferred baseline before it goes live — the fingerprints below and all later
+        # results must not depend on variant order. A dangling configured baseline is
+        # rejected rather than silently launched with uncomputable results.
+        flag_variant_keys = self._variant_keys(feature_flag.variants)
+        self.validate_stats_config(experiment.stats_config, flag_variant_keys)
+        experiment.stats_config = self._materialize_baseline_variant_key(experiment.stats_config, flag_variant_keys)
+        if experiment.excluded_variants:
+            self._validate_excluded_variant_keys(
+                experiment.excluded_variants,
+                flag_variant_keys,
+                get_baseline_variant_key(experiment.stats_config, flag_variant_keys),
+            )
 
         # Activate the feature flag through the approval gate first. If approval is
         # required this raises ApprovalRequired (-> 409) before we touch the experiment,
@@ -2854,10 +2890,16 @@ class ExperimentService:
         # Revalidate the baseline whenever either side of the constraint changes:
         # the stats_config itself, or the variant set it references. A variants-only
         # PATCH (e.g. updateDistribution) that renames/removes the current baseline
-        # must not leave a dangling baseline_variant_key behind.
+        # must not leave a dangling baseline_variant_key behind. Launching via PATCH
+        # (start_date) also runs this so the flag's current variants get a pinned
+        # baseline exactly like the dedicated launch action.
         update_variants = self._flag_config_variants(feature_flag_config)
-        if "stats_config" in update_data or update_variants is not None:
+        stats_config_updated = "stats_config" in update_data
+        launching = experiment.is_draft and update_data.get("start_date") is not None
+        durable_baseline_pin: dict | None = None
+        if stats_config_updated or update_variants is not None or launching:
             variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
+            current_variant_keys = self._variant_keys(feature_flag.variants)
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
@@ -2865,21 +2907,37 @@ class ExperimentService:
             if update_variants is not None and experiment.type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
                 raise ValidationError("Web experiments require a variant with key 'control'")
 
-            # A variants update can drop 'control' (e.g. a rename), leaving an absent
-            # baseline pointing at an order-sensitive default — pin it, like on create.
-            materialized = self._materialize_baseline_variant_key(effective_stats_config, variant_keys)
+            # A variants update can leave an absent baseline pointing at an
+            # order-sensitive default — pin the currently effective baseline, like on
+            # create. When the flag write below is approval-gated, the approved change
+            # request later applies flag-side only, so the pin must also be committed
+            # independently of this update (durable_baseline_pin, persisted before the
+            # flag write).
+            materialized = self._materialize_baseline_variant_key(
+                effective_stats_config, variant_keys, current_variant_keys=current_variant_keys
+            )
             if materialized is not effective_stats_config:
                 update_data["stats_config"] = materialized
+            if update_variants is not None:
+                pinned = self._materialize_baseline_variant_key(
+                    experiment.stats_config, variant_keys, current_variant_keys=current_variant_keys
+                )
+                if pinned is not experiment.stats_config:
+                    durable_baseline_pin = pinned
 
         # Validate excluded_variants against the resolved flag variants — no
-        # feature_flag_variants resend required.
-        if "excluded_variants" in update_data:
-            new_excluded = update_data["excluded_variants"]
-            if new_excluded:
+        # feature_flag_variants resend required. The stored list is revalidated too
+        # whenever the variant set or baseline moves under it (e.g. a variants update
+        # must not silently leave the baseline excluded, breaking result queries).
+        if "excluded_variants" in update_data or stats_config_updated or update_variants is not None or launching:
+            effective_excluded = (
+                update_data["excluded_variants"] if "excluded_variants" in update_data else experiment.excluded_variants
+            )
+            if effective_excluded:
                 variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
                 effective_stats_config = update_data.get("stats_config", experiment.stats_config)
                 baseline_key = get_baseline_variant_key(effective_stats_config, variant_keys)
-                self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
+                self._validate_excluded_variant_keys(effective_excluded, variant_keys, baseline_key)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
@@ -2887,6 +2945,16 @@ class ExperimentService:
         # other PATCH) on rows that pre-date the dedup logic.
         if "metrics" in update_data or "metrics_secondary" in update_data:
             self.validate_no_duplicate_metric_uuids(update_data.get("metrics"), update_data.get("metrics_secondary"))
+
+        # --- durable baseline pin (BEFORE the flag write) ---------------------
+        # An approval-gated variants change raises ApprovalRequired below, aborting the
+        # rest of this update, and the approved ChangeRequest later applies flag-side
+        # only — it never re-enters this service. So the pin is committed on its own
+        # first. It restates the currently effective baseline, which makes it a no-op
+        # if the change request is rejected.
+        if durable_baseline_pin is not None:
+            experiment.stats_config = durable_baseline_pin
+            experiment.save(update_fields=["stats_config", "updated_at"])
 
         # --- feature flag sync (OUTSIDE the atomic block) ---------------------
         # The flag write goes through the FeatureFlagSerializer approval gate.
@@ -3188,8 +3256,7 @@ class ExperimentService:
         # run the same flag guards as the dedicated launch_experiment action: flag not
         # deleted, and a valid variant configuration.
         if experiment.is_draft and update_data.get("start_date") is not None:
-            self._assert_flag_not_deleted_for_launch(feature_flag)
-            self._validate_existing_flag(feature_flag)
+            self._validate_flag_for_launch(experiment, feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):

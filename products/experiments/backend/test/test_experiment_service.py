@@ -433,7 +433,11 @@ class TestExperimentService(APIBaseTest):
 
         assert "control" in str(ctx.exception)
 
-    def test_update_variants_dropping_control_pins_baseline(self):
+    def test_update_variants_dropping_control_defers_pin_to_launch(self):
+        # Replacing 'control' changes the baseline's identity. Pinning the new order's
+        # first key at update time would dangle if the flag write lands via a rejected
+        # or pending change request, so the pin waits for launch (which reads the
+        # flag's final state).
         experiment = self._create_draft_experiment()
         service = self._service()
 
@@ -452,7 +456,129 @@ class TestExperimentService(APIBaseTest):
             },
         )
 
+        assert "baseline_variant_key" not in (updated.stats_config or {})
+
+        launched = service.launch_experiment(updated)
+
+        assert launched.stats_config["baseline_variant_key"] == "variant-a"
+
+    def test_update_variants_reorder_pins_currently_effective_baseline(self):
+        # An unpinned control-less experiment implicitly uses the first variant; a
+        # reorder must pin that same variant, not the new order's first.
+        experiment = self._create_draft_experiment(flag_key="reorder-flag")
+        flag = experiment.feature_flag
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant-a", "rollout_percentage": 50},
+            {"key": "variant-b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "variant-b", "rollout_percentage": 50},
+                            {"key": "variant-a", "rollout_percentage": 50},
+                        ]
+                    }
+                }
+            },
+        )
+
         assert updated.stats_config["baseline_variant_key"] == "variant-a"
+
+    def test_update_variants_baseline_pin_survives_approval_gate(self):
+        # A gated variants change lands later via the approved change request, which
+        # never re-enters the experiment service — the pin must already be committed
+        # when ApprovalRequired aborts the update.
+        experiment = self._create_draft_experiment(flag_key="approval-pin-flag")
+        flag = experiment.feature_flag
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant-a", "rollout_percentage": 50},
+            {"key": "variant-b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        # The gate detects rollout changes, so the reorder also shifts the split.
+        with self.assertRaises(ApprovalRequired):
+            self._service().update_experiment(
+                experiment,
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-b", "rollout_percentage": 60},
+                                {"key": "variant-a", "rollout_percentage": 40},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        experiment.refresh_from_db()
+        assert experiment.stats_config["baseline_variant_key"] == "variant-a"
+
+    @parameterized.expand(
+        [
+            (
+                "variants_update",
+                {},
+                {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-a", "rollout_percentage": 34},
+                                {"key": "variant-b", "rollout_percentage": 33},
+                                {"key": "variant-c", "rollout_percentage": 33},
+                            ]
+                        }
+                    }
+                },
+            ),
+            ("baseline_update", {"stats_config": {"baseline_variant_key": "variant-a"}}, None),
+        ]
+    )
+    def test_update_moving_baseline_onto_excluded_variant_raises(self, _name, update_data, feature_flag_config):
+        # Stored exclusions must be revalidated when the variant set or baseline moves
+        # under them — a variant both baseline and excluded breaks result queries.
+        self._create_flag(
+            key="excluded-baseline-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                {"key": "variant-a", "name": "A", "rollout_percentage": 33},
+                {"key": "variant-b", "name": "B", "rollout_percentage": 33},
+            ],
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Excluded Baseline",
+            feature_flag_key="excluded-baseline-flag",
+            excluded_variants=["variant-a"],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, update_data, feature_flag_config=feature_flag_config)
+
+        assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
@@ -2474,8 +2600,9 @@ class TestExperimentService(APIBaseTest):
         assert groups[0]["rollout_percentage"] == 50
 
     def test_launch_experiment_flag_modified_to_control_less_launches(self):
-        # A flag renamed away from 'control' out-of-band stays launchable; the
-        # baseline falls back to the first variant at query time.
+        # A flag renamed away from 'control' out-of-band stays launchable, but the
+        # inferred baseline must be pinned at launch — otherwise a later reorder
+        # would silently move it under historical results.
         flag = self._create_flag(key="renamed-variants")
         experiment = self._create_launchable_experiment(name="Renamed Variants", feature_flag_key="renamed-variants")
 
@@ -2489,6 +2616,46 @@ class TestExperimentService(APIBaseTest):
         launched = self._service().launch_experiment(experiment)
 
         assert launched.start_date is not None
+        experiment.refresh_from_db()
+        assert experiment.stats_config["baseline_variant_key"] == "variant_a"
+
+    def test_launch_via_start_date_patch_pins_baseline_for_control_less_flag(self):
+        # PATCHing start_date is an alternate launch path and must pin the inferred
+        # baseline exactly like the dedicated launch action.
+        flag = self._create_flag(key="patch-launch-flag")
+        experiment = self._create_launchable_experiment(name="Patch Launch", feature_flag_key="patch-launch-flag")
+
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        updated = self._service().update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert not updated.is_draft
+        assert updated.stats_config["baseline_variant_key"] == "variant_a"
+
+    def test_launch_web_experiment_flag_modified_to_control_less_raises(self):
+        # The web guard on create can be bypassed by editing the flag out-of-band;
+        # launch must re-check it, or the toolbar editor breaks on a live experiment.
+        flag = self._create_flag(key="web-launch-flag")
+        experiment = self._create_launchable_experiment(
+            name="Web Launch", feature_flag_key="web-launch-flag", type="web"
+        )
+
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().launch_experiment(experiment)
+
+        assert "control" in str(ctx.exception)
 
     def test_launch_experiment_flag_reduced_to_single_variant_raises(self):
         """Flag modified to have only 1 variant. Launch should fail."""
