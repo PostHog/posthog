@@ -769,7 +769,7 @@ class HogQLCohortQuery:
         if isinstance(condition.query, ast.SelectSetQuery) and any(
             node.set_operator.startswith("UNION") for node in condition.query.subsequent_select_queries
         ):
-            # Keep membership unique if parallel set branches return the same person.
+            # ClickHouse UNION DISTINCT intermittently leaks duplicates under load; dedup again.
             return ast.SelectQuery(
                 select=[ast.Field(chain=["id"])],
                 distinct=True,
