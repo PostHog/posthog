@@ -166,11 +166,11 @@ def ship_variant(
     flag: FeatureFlag,
     variant_key: str,
     *,
-    release_to_everyone: bool = False,
-    release_condition_description: str | None = None,
     team: Team,
     user: Any,
     request: Any | None = None,
+    release_to_everyone: bool = False,
+    release_condition_description: str | None = None,
     base_filters: dict | None = None,
 ) -> FeatureFlag:
     """Roll ``variant_key`` out at 100% of the flag's variant distribution, through the gated write.
