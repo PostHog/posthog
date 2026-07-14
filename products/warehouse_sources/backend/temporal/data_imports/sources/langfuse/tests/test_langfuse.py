@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -9,6 +10,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse import langfuse as langfuse_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
     LangfuseHostNotAllowedError,
+    LangfuseResponseTooLargeError,
     LangfuseResumeConfig,
     get_rows,
     langfuse_source,
@@ -27,6 +29,10 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.text = text
     response.json.return_value = json_data
     response.headers = {}
+    # get_rows streams the body via iter_content (see _read_json_capped), so feed the
+    # serialized payload back one chunk at a time.
+    payload = json.dumps(json_data).encode() if json_data is not None else text.encode()
+    response.iter_content.return_value = iter([payload] if payload else [])
     return response
 
 
@@ -343,3 +349,55 @@ class TestGetRows:
         error_response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
         with pytest.raises(requests.HTTPError):
             self._run(manager, [error_response])
+
+    def test_stops_at_max_pages(self):
+        # A host that never reports totalPages and always returns a nonempty page would page
+        # forever without the cap, tying up the worker until the activity timeout.
+        manager = self._manager()
+        session = mock.MagicMock()
+        session.get.side_effect = lambda *a, **k: _page([{"id": "x"}], total_pages=None)
+        with (
+            mock.patch.object(langfuse_module, "make_tracked_session", return_value=session),
+            mock.patch.object(langfuse_module, "MAX_PAGES", 3),
+        ):
+            batches = list(
+                get_rows(
+                    host=None,
+                    public_key="pk",
+                    secret_key="sk",
+                    endpoint="traces",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        assert len(batches) == 3
+        assert session.get.call_count == 3
+
+    def test_stops_on_repeated_cursor(self):
+        # A cursor endpoint that keeps echoing the same cursor would otherwise loop forever.
+        manager = self._manager()
+        session = mock.MagicMock()
+        session.get.side_effect = lambda *a, **k: _cursor_page([{"id": "a"}], "same-cursor")
+        with mock.patch.object(langfuse_module, "make_tracked_session", return_value=session):
+            batches = list(
+                get_rows(
+                    host=None,
+                    public_key="pk",
+                    secret_key="sk",
+                    endpoint="observations",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        # First page is followed once; the repeated cursor on the second page stops the loop.
+        assert session.get.call_count == 2
+        assert len(batches) == 2
+
+    def test_rejects_oversized_response(self):
+        # A hostile host can ignore the page-size limit and stream back an enormous body.
+        manager = self._manager()
+        with mock.patch.object(langfuse_module, "MAX_RESPONSE_BYTES", 4):
+            with pytest.raises(LangfuseResponseTooLargeError):
+                self._run(manager, [_page([{"id": "1"}], total_pages=1)])

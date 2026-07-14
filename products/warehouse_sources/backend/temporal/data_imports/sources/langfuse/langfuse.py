@@ -16,6 +16,7 @@ smoke-tested against a live project without credentials.
 """
 
 import re
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -44,6 +45,14 @@ MAX_RETRIES = 5
 # Langfuse's legacy read APIs allow as few as 15 requests/minute on the Hobby plan, so a
 # rate-limit reset can be up to a full minute away.
 MAX_RETRY_AFTER_SECONDS = 60
+# The host is customer-controlled, so a misbehaving or hostile endpoint could paginate
+# forever — page pagination that never reports totalPages, or a cursor endpoint that keeps
+# handing out fresh cursors. Cap the pages pulled per activity so termination never depends
+# solely on the remote response; hitting the cap just resumes from saved state next run.
+MAX_PAGES = 100_000
+# Ceiling on a single decoded page. Without it a hostile host could ignore the `limit` param
+# and return an arbitrarily large body, exhausting the import worker's memory.
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024  # 100 MiB
 
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 
@@ -56,6 +65,31 @@ class LangfuseRetryableError(Exception):
 
 class LangfuseHostNotAllowedError(Exception):
     pass
+
+
+class LangfuseResponseTooLargeError(Exception):
+    pass
+
+
+def _read_json_capped(response: requests.Response) -> Any:
+    """Read the body under a hard byte ceiling before parsing.
+
+    ``requests`` buffers the whole body into memory on ``.json()``/``.content``; streaming
+    with a cap stops a hostile host from returning a multi-GB page and OOM-ing the worker.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            response.close()
+            raise LangfuseResponseTooLargeError(
+                f"Langfuse response exceeded the {MAX_RESPONSE_BYTES}-byte limit; refusing to buffer it"
+            )
+        chunks.append(chunk)
+    return json.loads(b"".join(chunks)) if chunks else {}
 
 
 @dataclasses.dataclass
@@ -260,6 +294,7 @@ def get_rows(
             auth=(public_key, secret_key),
             timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
+            stream=True,
         )
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -282,7 +317,16 @@ def get_rows(
 
         return response
 
+    pages_fetched = 0
+    # Cursors already queued, so a host that keeps echoing the same cursor can't trap us in a loop.
+    seen_cursors: set[str] = set()
+    if cursor is not None:
+        seen_cursors.add(cursor)
     while True:
+        if pages_fetched >= MAX_PAGES:
+            logger.warning(f"Langfuse: reached MAX_PAGES ({MAX_PAGES}) for {endpoint}; stopping pagination")
+            break
+
         params = dict(base_params)
         if config.pagination == "page":
             params["page"] = page
@@ -290,12 +334,13 @@ def get_rows(
             params["cursor"] = cursor
 
         response = fetch_page(params)
-        body = response.json()
+        body = _read_json_capped(response)
         rows = body.get("data") or []
         if not isinstance(rows, list) or not rows:
             break
 
         yield rows
+        pages_fetched += 1
 
         meta = body.get("meta") or {}
         if config.pagination == "page":
@@ -308,9 +353,11 @@ def get_rows(
             # resume and merge dedupes it — never skips a page.
             resumable_source_manager.save_state(LangfuseResumeConfig(next_page=page, incremental_from=incremental_from))
         else:
-            cursor = meta.get("cursor")
-            if not cursor:
+            next_cursor = meta.get("cursor")
+            if not next_cursor or next_cursor in seen_cursors:
                 break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
             resumable_source_manager.save_state(
                 LangfuseResumeConfig(next_cursor=cursor, incremental_from=incremental_from)
             )
