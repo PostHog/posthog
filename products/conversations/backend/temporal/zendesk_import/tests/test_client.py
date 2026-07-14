@@ -8,10 +8,23 @@ from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskAttachmentTooLargeError,
     ZendeskCredentials,
     ZendeskImportClient,
+    _PinnedIPAdapter,
     validate_zendesk_credentials,
 )
 
 M = "products.conversations.backend.temporal.zendesk_import.client"
+
+
+class TestPinnedIPAdapter:
+    def test_idn_host_pin_matches_punycode_lookup(self) -> None:
+        # requests IDNA-encodes the host before send(), so a pin under the raw Unicode host must
+        # still resolve when send() looks it up by the "xn--" form — otherwise the lookup misses
+        # and falls back to live DNS (rebinding window).
+        adapter = _PinnedIPAdapter()
+        adapter.pin("éxample.test", "203.0.113.10")
+        assert adapter._pin_map == {"xn--xample-9ua.test": "203.0.113.10"}
+        assert adapter._canonical_host("xn--xample-9ua.test") == "xn--xample-9ua.test"
+        assert adapter._canonical_host("ÉXAMPLE.test") == "xn--xample-9ua.test"
 
 
 class _FakeStreamResponse:

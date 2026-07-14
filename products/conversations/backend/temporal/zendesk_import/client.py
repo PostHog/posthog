@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from urllib.parse import urljoin, urlparse, urlsplit, urlunparse
 
+import idna
 import requests
 import structlog
 from requests import Response
@@ -101,8 +102,25 @@ class _PinnedIPAdapter(HTTPAdapter):
         self._pin_map: dict[str, str] = {}
         self._current_original_host: str | None = None
 
+    @staticmethod
+    def _canonical_host(hostname: str) -> str:
+        """Match the ASCII/punycode host `requests` derives when preparing the request.
+
+        `requests` IDNA-encodes Unicode hosts (uts46) before send(), so a pin keyed by the raw
+        Unicode host ("éxample.test") would never match the "xn--…" host seen at send time — the
+        lookup would miss and fall back to live DNS, reopening the rebinding window. Encode the
+        same way (idempotent on already-ASCII/punycode input) so both sides agree.
+        """
+        host = hostname.lower()
+        if not host:
+            return host
+        try:
+            return idna.encode(host, uts46=True).decode("ascii")
+        except idna.IDNAError:
+            return host
+
     def pin(self, hostname: str, ip: str) -> None:
-        self._pin_map[hostname.lower()] = ip
+        self._pin_map[self._canonical_host(hostname)] = ip
 
     def send(  # type: ignore[override]
         self,
@@ -114,7 +132,7 @@ class _PinnedIPAdapter(HTTPAdapter):
         proxies: dict[str, str] | None = None,
     ) -> Response:
         parsed = urlparse(request.url or "")
-        host = (parsed.hostname or "").lower()
+        host = self._canonical_host(parsed.hostname or "")
         ip_str = self._pin_map.get(host)
         if ip_str is not None:
             self._current_original_host = host
@@ -130,7 +148,7 @@ class _PinnedIPAdapter(HTTPAdapter):
         return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
 
     def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
-        super().cert_verify(conn, url, verify, cert)  # type: ignore[arg-type]
+        super().cert_verify(conn, url, verify, cert)
         original = getattr(self, "_current_original_host", None)
         if original:
             # Mutating urllib3 pool internals so TLS SNI/cert checks use the original hostname
