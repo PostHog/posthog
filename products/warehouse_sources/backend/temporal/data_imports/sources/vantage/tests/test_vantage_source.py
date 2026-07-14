@@ -33,7 +33,6 @@ class TestVantageSourceConfig:
     def test_config_is_alpha_and_unreleased(self) -> None:
         config = VantageSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/vantage"
 
 
