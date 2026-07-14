@@ -840,6 +840,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Wrong passphrase for an encrypted key (cryptography ValueError).
+            "Incorrect password, could not decrypt key",
+            # No passphrase given for an encrypted key (cryptography TypeError).
+            "Password was not given but private key is encrypted",
+        ],
+    )
+    def test_encrypted_key_passphrase_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
@@ -870,6 +884,28 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Wrong passphrase for an encrypted key.
+            ValueError("Incorrect password, could not decrypt key"),
+            # No passphrase given for an encrypted key — a TypeError, not a ValueError.
+            TypeError("Password was not given but private key is encrypted"),
+        ],
+    )
+    def test_encrypted_key_passphrase_returns_friendly_message_without_capture(self, source, error):
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):
