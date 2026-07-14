@@ -36,7 +36,7 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     return response
 
 
-def _page(rows: list[dict[str, Any]], *, total_pages: int, page: int = 1) -> mock.MagicMock:
+def _page(rows: list[dict[str, Any]], *, total_pages: Optional[int], page: int = 1) -> mock.MagicMock:
     return _response(
         json_data={"data": rows, "meta": {"page": page, "limit": 100, "totalItems": 0, "totalPages": total_pages}}
     )
