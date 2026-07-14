@@ -288,6 +288,26 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["config"] == {"recording_filters": {"duration_min": 30}}
 
+    def test_update_reanchors_created_by_to_the_editor(self):
+        # Emitters authorize reads via created_by; an editor's write must not ride the creator's access.
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="engineering_analytics",
+            source_type="ci_flaky_check",
+            config={"github_source_ids": []},
+            created_by=self.user,
+        )
+        editor = self._create_user("config-editor@posthog.com")
+        self.client.force_login(editor)
+        response = self.client.patch(
+            self._url(str(config.id)),
+            data={"config": {"github_source_ids": ["11111111-1111-1111-1111-111111111111"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.created_by == editor
+
     def test_update_config_recording_filters_not_dict_rejected(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
