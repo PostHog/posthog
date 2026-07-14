@@ -277,6 +277,7 @@ the row lists both.
 | newsdata                  | HTTP                        | requests                                                        | ✅                          |
 | okta                      | HTTP                        | requests                                                        | ✅                          |
 | nocrm                     | HTTP                        | requests                                                        | ✅                          |
+| northflank                | HTTP                        | requests                                                        | ✅                          |
 | northpass_lms             | HTTP                        | requests                                                        | ✅                          |
 | notion                    | HTTP                        | requests                                                        | ✅                          |
 | omnisend                  | HTTP                        | requests                                                        | ✅                          |
@@ -681,7 +682,6 @@ doesn't conflict with concurrent PRs.
 - nexiopay
 - ninjaone_rmm
 - nocrm
-- northflank
 - northpass_lms
 - nutshell
 - nylas
