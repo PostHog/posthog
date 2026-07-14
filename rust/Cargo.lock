@@ -5263,8 +5263,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
+ "bytes",
  "chrono",
  "common-alloc",
+ "common-event-restrictions",
+ "common-kafka",
+ "common-pipelines",
  "dashmap 6.1.0",
  "envconfig",
  "futures",

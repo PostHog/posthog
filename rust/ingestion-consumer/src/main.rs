@@ -25,6 +25,7 @@ use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::preprocess::Preprocessor;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
@@ -430,12 +431,24 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
+    // Header-only preprocess pipeline (deny events, event restrictions). `None`
+    // unless PREPROCESS_MODE is dry_run/enforce — off by default, zero change.
+    // In enforce mode with a DLQ/overflow topic configured this creates a Kafka
+    // producer (reusing the consumer's liveness handle).
+    let preprocessor = Preprocessor::from_config(&config, consumer_handle.clone())
+        .await
+        .context("Failed to build preprocess pipeline")?;
+    if let Some(pp) = &preprocessor {
+        info!(mode = ?pp.mode(), "Preprocess pipeline enabled");
+    }
+
     let consumer = IngestionConsumer::new(
         &config,
         Arc::clone(&dispatcher),
         transport,
         consumer_handle,
         debug_recorder,
+        preprocessor,
     )
     .context("Failed to create Kafka consumer")?;
 
