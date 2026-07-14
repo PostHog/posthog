@@ -64,7 +64,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                         key: 'service.name',
                     })
                     breakpoint()
-                    return response.results
+                    return response.results.map((value) => value.name)
                 },
             },
         ],

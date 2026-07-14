@@ -33,12 +33,17 @@ describe('metricsStarterDashboardLogic', () => {
         mockInsightCreate.mockReset()
         mockNames.mockResolvedValue({
             results: [
-                { name: 'billing.invoices.processed', metric_type: 'sum', last_seen: '2026-07-14T10:00:00Z' },
-                { name: 'billing.queue.depth', metric_type: 'gauge', last_seen: '2026-07-14T10:00:00Z' },
-                { name: 'billing.job.duration', metric_type: 'histogram', last_seen: '2026-07-14T10:00:00Z' },
+                { name: 'billing.invoices.processed', metric_type: 'sum' },
+                { name: 'billing.queue.depth', metric_type: 'gauge' },
+                { name: 'billing.job.duration', metric_type: 'histogram' },
             ],
         })
-        mockValues.mockResolvedValue({ results: ['billing-worker', 'checkout'] })
+        mockValues.mockResolvedValue({
+            results: [
+                { id: 'billing-worker', name: 'billing-worker', count: 10 },
+                { id: 'checkout', name: 'checkout', count: 5 },
+            ],
+        })
         mockInsightCreate.mockResolvedValue({ id: 101, short_id: 'abc' } as any)
         apiCreateSpy = jest.spyOn(api, 'create').mockResolvedValue({ id: 42, name: 'Billing' } as any)
         logic = metricsStarterDashboardLogic()
