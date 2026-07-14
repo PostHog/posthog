@@ -449,6 +449,13 @@ class TestCoalescing:
                 [[("run-1", 0)], [("run-1", 1)], [("run-1", 2)]],
             ),
             (
+                # byte_size 0 = unknown size; letting it join a unit would defeat the byte cap.
+                "unknown_size_member_isolated",
+                [_cdc_batch(0), _cdc_batch(1, byte_size=0), _cdc_batch(2)],
+                {},
+                [[("run-1", 0)], [("run-1", 1)], [("run-1", 2)]],
+            ),
+            (
                 "kill_switch_restores_single_batch_units",
                 [_cdc_batch(0), _cdc_batch(1), _cdc_batch(2)],
                 {"coalesce_max_batches": 1},

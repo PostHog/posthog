@@ -564,7 +564,7 @@ class BatchConsumer:
                     if len(unit) == 1:
                         succeeded = await self._process_single(unit[0], lock_conn=group_conn)
                     else:
-                        succeeded = await self._process_multi(unit, lock_conn=group_conn)
+                        succeeded = await self._process_claimed(unit, lock_conn=group_conn)
                 except OwnershipLostError:
                     logger.warning(
                         self._event("ownership_lost_abandoning_group"),
@@ -621,7 +621,9 @@ class BatchConsumer:
         unit_bytes = 0
         unit_coalescible = False
         for batch in batches:
-            eligible = self._coalesce_eligible(batch)
+            # byte_size <= 0 means the size probe failed at enqueue time; the
+            # byte cap can't account for an unknown size, so never coalesce it.
+            eligible = batch.byte_size > 0 and self._coalesce_eligible(batch)
             extends_unit = (
                 bool(unit)
                 and unit_coalescible
@@ -760,18 +762,35 @@ class BatchConsumer:
                         error=str(e),
                     )
 
+    @staticmethod
+    async def _stop_heartbeat(heartbeat_task: asyncio.Task[None] | None) -> None:
+        if heartbeat_task is None:
+            return
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
-        """Bind per-batch log context, then process. Returns True only on success.
+        return await self._process_claimed([batch], lock_conn=lock_conn)
+
+    async def _process_claimed(
+        self, unit: list[PendingBatch], lock_conn: psycopg.AsyncConnection[Any] | None = None
+    ) -> bool:
+        """Bind log context for a claimed unit (usually a single batch), then process.
+        Returns True only on success.
 
         Binds structlog contextvars so every downstream log line (including loader calls)
         routes to log_entries under the right schema/workflow before any logger fires.
         """
-        team_id = str(batch.team_id)
-        schema_id = batch.schema_id
-        attempt = batch.latest_attempt + 1
+        lead = unit[0]
+        team_id = str(lead.team_id)
+        schema_id = lead.schema_id
+        attempts = {batch.id: batch.latest_attempt + 1 for batch in unit}
 
-        workflow_id = batch.metadata.get("workflow_id") or ""
-        workflow_run_id = batch.metadata.get("workflow_run_id") or ""
+        workflow_id = lead.metadata.get("workflow_id") or ""
+        workflow_run_id = lead.metadata.get("workflow_run_id") or ""
         workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
 
         bound_keys = (
@@ -789,25 +808,27 @@ class BatchConsumer:
             "attempt",
         )
         structlog.contextvars.bind_contextvars(
-            team_id=batch.team_id,
-            external_data_schema_id=batch.schema_id,
-            external_data_source_id=batch.source_id,
-            external_data_job_id=batch.job_id,
-            run_uuid=batch.run_uuid,
-            batch_id=batch.id,
-            resource_name=batch.resource_name,
+            team_id=lead.team_id,
+            external_data_schema_id=lead.schema_id,
+            external_data_source_id=lead.source_id,
+            external_data_job_id=lead.job_id,
+            run_uuid=lead.run_uuid,
+            batch_id=lead.id,
+            resource_name=lead.resource_name,
             workflow_type=workflow_type,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            log_source_id=batch.schema_id,
-            attempt=attempt,
+            log_source_id=lead.schema_id,
+            attempt=max(attempts.values()),
         )
-        self._inflight_started[batch.id] = time.monotonic()
+        self._inflight_started[lead.id] = time.monotonic()
         try:
-            await self._verify_ownership(lock_conn, batch)
-            return await self._process_single_inner(batch, attempt, team_id, schema_id, lock_conn)
+            await self._verify_ownership(lock_conn, lead)
+            if len(unit) == 1:
+                return await self._process_single_inner(lead, attempts[lead.id], team_id, schema_id, lock_conn)
+            return await self._process_multi_inner(unit, attempts, team_id, schema_id, lock_conn)
         finally:
-            self._inflight_started.pop(batch.id, None)
+            self._inflight_started.pop(lead.id, None)
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
     async def _process_single_inner(
@@ -908,62 +929,7 @@ class BatchConsumer:
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-
-    async def _process_multi(
-        self, unit: list[PendingBatch], lock_conn: psycopg.AsyncConnection[Any] | None = None
-    ) -> bool:
-        """Unit-level sibling of `_process_single`: bind log context for the coalesced
-        unit, then apply its members as one sink write. Returns True only on success."""
-        lead = unit[0]
-        team_id = str(lead.team_id)
-        schema_id = lead.schema_id
-        attempts = {batch.id: batch.latest_attempt + 1 for batch in unit}
-
-        workflow_id = lead.metadata.get("workflow_id") or ""
-        workflow_run_id = lead.metadata.get("workflow_run_id") or ""
-        workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
-
-        bound_keys = (
-            "team_id",
-            "external_data_schema_id",
-            "external_data_source_id",
-            "external_data_job_id",
-            "run_uuid",
-            "batch_id",
-            "resource_name",
-            "workflow_type",
-            "workflow_id",
-            "workflow_run_id",
-            "log_source_id",
-            "attempt",
-        )
-        structlog.contextvars.bind_contextvars(
-            team_id=lead.team_id,
-            external_data_schema_id=lead.schema_id,
-            external_data_source_id=lead.source_id,
-            external_data_job_id=lead.job_id,
-            run_uuid=lead.run_uuid,
-            batch_id=lead.id,
-            resource_name=lead.resource_name,
-            workflow_type=workflow_type,
-            workflow_id=workflow_id,
-            workflow_run_id=workflow_run_id,
-            log_source_id=lead.schema_id,
-            attempt=max(attempts.values()),
-        )
-        self._inflight_started[lead.id] = time.monotonic()
-        try:
-            await self._verify_ownership(lock_conn, lead)
-            return await self._process_multi_inner(unit, attempts, team_id, schema_id, lock_conn)
-        finally:
-            self._inflight_started.pop(lead.id, None)
-            structlog.contextvars.unbind_contextvars(*bound_keys)
+            await self._stop_heartbeat(heartbeat_task)
 
     async def _process_multi_inner(
         self,
@@ -1034,13 +1000,8 @@ class BatchConsumer:
             # Cancel heartbeat before post-processing DB writes to avoid
             # concurrent use of the group connection (psycopg async
             # connections are not safe for concurrent coroutine access).
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-                heartbeat_task = None
+            await self._stop_heartbeat(heartbeat_task)
+            heartbeat_task = None
 
             for batch in unit:
                 await self._adapter.after_batch_processed(status_conn, batch=batch)
@@ -1083,12 +1044,7 @@ class BatchConsumer:
             await self._handle_unit_failure(unit, attempts, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
+            await self._stop_heartbeat(heartbeat_task)
 
     async def _handle_unit_failure(
         self,
@@ -1099,8 +1055,9 @@ class BatchConsumer:
         lock_conn: psycopg.AsyncConnection[Any] | None,
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
-        """Unit-level mirror of `_handle_batch_failure`: same three-way routing,
-        with the retry state written per member (each with its own attempt)."""
+        """Write the retry/terminal state after a processing error: non-retryable
+        or attempt-exhausted fails the run; otherwise the retry state is written
+        per member (each with its own attempt)."""
         lead = unit[0]
         max_attempt = max(attempts.values())
         if not self._adapter.is_retryable_error(err):
@@ -1153,43 +1110,7 @@ class BatchConsumer:
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
         """Write the retry/terminal state after a processing error."""
-        if not self._adapter.is_retryable_error(err):
-            # Deterministic failures do not benefit from retrying. Preserve their
-            # messages, except for explicitly classified permanent apply errors.
-            logger.exception(
-                self._event("batch_failed_non_retryable"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
-            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
-            await self._fail_run(batch, reason=reason, conn=lock_conn)
-        elif attempt >= self._config.max_attempts:
-            reason = f"max retries exceeded: {err}"
-            logger.exception(
-                self._event("batch_failed_no_retries_left"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
-            await self._fail_run(batch, reason=reason, conn=lock_conn)
-        else:
-            logger.warning(
-                self._event("batch_failed_will_retry"),
-                batch_id=batch.id,
-                attempt=attempt,
-                error=str(err),
-            )
-            await self._adapter.update_status(
-                status_conn,
-                batch_id=batch.id,
-                job_state=self._adapter.waiting_retry_state,
-                attempt=attempt,
-                error_response={"error": str(err)[:1000]},
-                batch_created_at=batch.created_at,
-            )
+        await self._handle_unit_failure([batch], {batch.id: attempt}, err, lock_conn=lock_conn, status_conn=status_conn)
 
     async def _fail_run(
         self,
