@@ -247,12 +247,14 @@ impl RawNativeFrame {
             // The symbol set exists but doesn't cover this address (e.g. a
             // section outside the symcache). The frame falls back to its
             // client-side fields — but the set's source bundle can still
-            // supply context for the client-reported file/line.
+            // supply context for the client-reported file/line. Exact-match
+            // only: the path comes from event input here, so the fuzzy
+            // basename fallback could attach lines from the wrong file.
             let mut frame = self.handle_resolution_error(NativeError::SymbolNotFound(lookup_addr));
             if let (Some(filename), Some(lineno)) =
                 (self.filename.as_deref(), self.lineno.filter(|l| *l > 0))
             {
-                if let Some(source_text) = symbols.get_source(filename) {
+                if let Some(source_text) = symbols.get_source_exact(filename) {
                     frame.context = get_context_lines(
                         source_text.lines(),
                         (lineno - 1) as usize,
@@ -1447,5 +1449,22 @@ mod test {
             "expected fixture line 6, got: {:?}",
             context.line.line
         );
+
+        // The salvage path is exact-match only: a bare basename (or any other
+        // fuzzy spelling) of a bundled path attaches nothing, since the
+        // filename here is event input rather than symcache output.
+        let mut fuzzy = native_frame_at(slide_base + 0x10, slide_base);
+        fuzzy.client_resolved = true;
+        fuzzy.function = Some("inlined_leaf".to_string());
+        fuzzy.filename = Some("test_binary_inline.c".to_string());
+        fuzzy.lineno = Some(6);
+        let resolved = RawFrame::Native(fuzzy)
+            .resolve(1, &catalog, &debug_images, 3)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert!(!resolved.resolved);
+        assert!(resolved.context.is_none());
     }
 }
