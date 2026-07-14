@@ -80,6 +80,14 @@ class TestSignalsBilling(BaseTest):
         self._report()
         self.assertEqual(self._credits(), {})
 
+    def test_billing_exempt_report_not_billed(self) -> None:
+        # Complimentary reports (wizard setup review) ship a PR but never charge.
+        report = self._report()
+        report.billing_exempt = True
+        report.save(update_fields=["billing_exempt"])
+        self._pr_run(report, created_at=_at(10))
+        self.assertEqual(self._credits(), {})
+
     @parameterized.expand([("null_pr_url", None), ("empty_pr_url", "")])
     def test_run_without_usable_pr_url_not_billed(self, _name: str, pr_url: str | None) -> None:
         report = self._report()

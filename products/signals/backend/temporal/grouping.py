@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -739,6 +740,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     signal_count=1,
                     title=match_result.title,
                     summary=match_result.summary,
+                    # Wizard setup-review findings are complimentary: the resulting
+                    # implementation PR must never bill the customer.
+                    billing_exempt=input.source_product == SignalSourceProduct.WIZARD,
                 )
 
             # Promotion rules by status:

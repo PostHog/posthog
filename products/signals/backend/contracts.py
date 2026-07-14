@@ -381,6 +381,21 @@ class HealthCheckSignalInput(SignalInputBase):
     extra: HealthCheckSignalExtra
 
 
+# ── Setup wizard ────────────────────────────────────────────────────────────────
+
+
+class WizardSetupReviewSignalExtra(SignalExtraBase):
+    repository: str
+    category: str
+    evidence: str | None = None
+
+
+class WizardSetupReviewSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SETUP_REVIEW]
+    source_product: Literal[SignalSourceProduct.WIZARD]
+    extra: WizardSetupReviewSignalExtra
+
+
 # ── Report reviewer types ───────────────────────────────────────────────────────
 
 
@@ -427,7 +442,8 @@ SignalInput = Annotated[
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
-    | ReplayVisionScannerFindingSignalInput,
+    | ReplayVisionScannerFindingSignalInput
+    | WizardSetupReviewSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -448,6 +464,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     LogsAlertStateChangeSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
+    WizardSetupReviewSignalInput,
 )
 
 

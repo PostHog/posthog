@@ -55,12 +55,6 @@ from products.signals.backend.temporal.reingestion import (
 )
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
-from products.signals.backend.temporal.setup_audit import (
-    SetupAuditWorkflow,
-    create_proposal_reports_activity,
-    detect_setup_gaps_activity,
-    personalize_proposals_activity,
-)
 from products.signals.backend.temporal.signal_queries import (
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
@@ -76,6 +70,12 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     publish_report_completed_activity,
     reset_report_to_potential_activity,
+)
+from products.signals.backend.temporal.wizard_review import (
+    WizardSetupReviewWorkflow,
+    collect_setup_review_intel_activity,
+    compose_review_signals_activity,
+    emit_review_signals_activity,
 )
 
 WORKFLOWS = [
@@ -93,7 +93,7 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
-    SetupAuditWorkflow,
+    WizardSetupReviewWorkflow,
 ]
 
 ACTIVITIES = [
@@ -141,7 +141,7 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
-    detect_setup_gaps_activity,
-    personalize_proposals_activity,
-    create_proposal_reports_activity,
+    collect_setup_review_intel_activity,
+    compose_review_signals_activity,
+    emit_review_signals_activity,
 ]

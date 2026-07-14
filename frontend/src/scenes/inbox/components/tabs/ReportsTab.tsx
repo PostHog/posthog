@@ -3,7 +3,6 @@ import { IconNotebook } from '@posthog/icons'
 import { INBOX_FLAT_TAB_LIST_PARAMS } from '../../logics/reportListLogic'
 import { ReportCard } from '../cards/ReportCard'
 import { InboxReportList } from '../InboxReportList'
-import { ProposalsColdStart } from '../ProposalsColdStart'
 
 export function ReportsTab(): JSX.Element {
     return (
@@ -11,7 +10,6 @@ export function ReportsTab(): JSX.Element {
             tabKey="reports"
             listParams={INBOX_FLAT_TAB_LIST_PARAMS.reports}
             Card={ReportCard}
-            ColdStart={ProposalsColdStart}
             emptyState={{
                 icon: <IconNotebook className="text-2xl" />,
                 title: 'No reports yet',

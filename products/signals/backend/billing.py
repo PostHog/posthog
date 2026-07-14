@@ -58,6 +58,8 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
+        # Complimentary reports (e.g. wizard setup-review findings) never bill.
+        report__billing_exempt=False,
         # Fail closed on team disagreement across run / task / bridge / report.
         task__team_id=F("team_id"),
         report__team_id=F("team_id"),

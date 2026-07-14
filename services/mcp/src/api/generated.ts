@@ -37039,7 +37039,6 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
-     * * `proposal` - Proposal
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
      * * `commit` - Commit
@@ -37060,7 +37059,6 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
-      Proposal: 'proposal',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
       Commit: 'commit',
@@ -37132,18 +37130,6 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
-    /**
-     * Shape of the `proposal` field on a report: the latest `proposal` artefact's content.
-     */
-    export interface SignalReportProposal {
-      /** Proposal flavor; `setup_improvement` is the only kind today. */
-      kind: string;
-      /** Setup gap the proposal addresses: `events`, `feature_flags`, `error_tracking`, or `logs`. */
-      category: string;
-      /** PostHog product the proposed PR would set up (e.g. `error_tracking`). */
-      product: string;
-    }
-
     export interface SignalReport {
       readonly id: string;
       /** @nullable */
@@ -37195,8 +37181,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
-      /** Content of the latest proposal artefact when this report is a setup-improvement proposal (inbox cold-start content); null for regular reports. */
-      readonly proposal: SignalReportProposal | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -37223,6 +37207,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `wizard` - Setup wizard
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -37242,6 +37227,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      Wizard: 'wizard',
     } as const;
 
     /**
@@ -37259,6 +37245,7 @@ export namespace Schemas {
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
+     * * `setup_review` - Setup review
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -37278,6 +37265,7 @@ export namespace Schemas {
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
+      SetupReview: 'setup_review',
     } as const;
 
     export interface SignalSourceConfig {
@@ -51652,6 +51640,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `wizard` - wizard
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -51671,6 +51660,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      Wizard: 'wizard',
     } as const;
 
     /**
@@ -51689,6 +51679,7 @@ export namespace Schemas {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
+     * * `setup_review` - setup_review
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -51709,6 +51700,7 @@ export namespace Schemas {
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
+      SetupReview: 'setup_review',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -51771,7 +51763,13 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export interface WizardSetupReviewSignalExtra {
+      repository: string;
+      category: string;
+      evidence?: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | WizardSetupReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -51795,7 +51793,8 @@ export namespace Schemas {
        * * `signals_scout` - signals_scout
        * * `logs` - logs
        * * `health_checks` - health_checks
-       * * `replay_vision` - replay_vision */
+       * * `replay_vision` - replay_vision
+       * * `wizard` - wizard */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -51813,7 +51812,8 @@ export namespace Schemas {
        * * `cross_source_issue` - cross_source_issue
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
-       * * `scanner_finding` - scanner_finding */
+       * * `scanner_finding` - scanner_finding
+       * * `setup_review` - setup_review */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -73596,10 +73596,6 @@ export namespace Schemas {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean;
-    /**
-     * Filter reports by whether they are setup-improvement proposals (carry a 'proposal' artefact). 'true' keeps only proposals; 'false' excludes them.
-     */
-    has_proposal?: boolean;
     /**
      * Number of results to return per page.
      */

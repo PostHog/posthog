@@ -1075,47 +1075,6 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
-    # --- setup-improvement proposals ---
-
-    def _proposal_artefact(self, report: SignalReport) -> SignalReportArtefact:
-        return SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.PROPOSAL,
-            content=json.dumps({"kind": "setup_improvement", "category": "events", "product": "product_analytics"}),
-        )
-
-    def test_list_has_proposal_filter_and_proposal_field(self):
-        regular = self._create_report(title="Regular report")
-        proposal_report = self._create_report(title="Proposal report")
-        self._proposal_artefact(proposal_report)
-
-        response = self.client.get(self._list_url(has_proposal="true"))
-        assert response.status_code == status.HTTP_200_OK
-        rows = response.json()["results"]
-        assert [r["id"] for r in rows] == [str(proposal_report.id)]
-        assert rows[0]["proposal"] == {
-            "kind": "setup_improvement",
-            "category": "events",
-            "product": "product_analytics",
-        }
-
-        response = self.client.get(self._list_url(has_proposal="false"))
-        assert response.status_code == status.HTTP_200_OK
-        ids = [r["id"] for r in response.json()["results"]]
-        assert str(regular.id) in ids
-        assert str(proposal_report.id) not in ids
-
-    def test_proposal_reports_stay_out_of_actionability_filtered_tabs(self):
-        # The inbox Reports tab filters on actionability; proposals carry no actionability
-        # judgment and must not leak into it (they only render via the cold-start slot).
-        proposal_report = self._create_report(title="Proposal report")
-        self._proposal_artefact(proposal_report)
-
-        response = self.client.get(self._list_url(actionability="immediately_actionable,requires_human_input"))
-        assert response.status_code == status.HTTP_200_OK
-        assert str(proposal_report.id) not in [r["id"] for r in response.json()["results"]]
-
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of

@@ -84,14 +84,16 @@ def _build_input(
     team_id: int,
     match_result: ExistingReportMatch | NewReportMatch,
     weight: float = 0.5,
+    source_product: str = "conversations",
+    source_type: str = "ticket",
 ) -> AssignAndEmitSignalInput:
     return AssignAndEmitSignalInput(
         team_id=team_id,
         signal_id=str(uuid.uuid4()),
         description="A test signal description",
         weight=weight,
-        source_product="conversations",
-        source_type="ticket",
+        source_product=source_product,
+        source_type=source_type,
         source_id=f"src-{uuid.uuid4()}",
         extra={},
         embedding=[0.0] * 1536,
@@ -132,6 +134,24 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.promoted_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_product,source_type,expected_exempt",
+    [("wizard", "setup_review", True), ("conversations", "ticket", False)],
+)
+async def test_new_report_billing_exemption_follows_source(ateam, source_product, source_type, expected_exempt):
+    """Reports born from wizard setup-review signals are complimentary; others stay billable."""
+    input_ = _build_input(
+        ateam.id, _new_match(), weight=WEIGHT_THRESHOLD, source_product=source_product, source_type=source_type
+    )
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.billing_exempt is expected_exempt
 
 
 # ---------------------------------------------------------------------------

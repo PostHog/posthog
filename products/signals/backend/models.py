@@ -59,6 +59,7 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        SETUP_REVIEW = "setup_review", "Setup review"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
@@ -87,6 +88,17 @@ class SignalSourceConfig(UUIDModel):
         # UI, so this gate is fail-open: absence of a row means on. A team can still opt out via the
         # MCP/API by writing an explicit disabled row, which this honors.
         if source_product == cls.SourceProduct.SIGNALS_SCOUT and source_type == cls.SourceType.CROSS_SOURCE_ISSUE:
+            return not cls.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                enabled=False,
+            ).exists()
+
+        # Wizard setup-review signals fire once, right after the setup wizard's instrumentation PR
+        # merges — before the team has ever seen the sources UI — so this gate is fail-open like
+        # scout findings: absence of a row means on, an explicit disabled row opts out.
+        if source_product == cls.SourceProduct.WIZARD and source_type == cls.SourceType.SETUP_REVIEW:
             return not cls.objects.filter(
                 team_id=team_id,
                 source_product=source_product,
@@ -208,6 +220,10 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+
+    # Exempt from the flat per-report-with-PR charge (billing.py). Set at creation for reports
+    # born from complimentary sources — today only the post-onboarding wizard setup review.
+    billing_exempt = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -681,7 +697,6 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
-        PROPOSAL = "proposal"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
         COMMIT = "commit"
@@ -709,7 +724,6 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
-            ArtefactType.PROPOSAL,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(

@@ -196,7 +196,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         run_output = task_run.output if isinstance(task_run.output, dict) else {}
         if run_output.get("pr_url") == pr_url:
             _record_run_pr_merged(task_run)
-            _start_setup_audit_on_wizard_merge(task_run, repository_full_name)
+            _start_wizard_setup_review_on_merge(task_run, repository_full_name)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
     return HttpResponse(status=200)
@@ -275,10 +275,10 @@ def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
     transaction.on_commit(_signal)
 
 
-def _start_setup_audit_on_wizard_merge(task_run: TaskRun, repository: str | None) -> None:
-    """Kick the signals setup audit when a wizard's instrumentation PR merges — the moment the
-    repo is known and data is about to flow. Best-effort: the webhook must stay 2xx even if
-    Temporal is unreachable, and the audit is idempotent per team.
+def _start_wizard_setup_review_on_merge(task_run: TaskRun, repository: str | None) -> None:
+    """Kick the signals wizard setup review when a wizard's instrumentation PR merges — the
+    moment the repo is known and data is about to flow. Best-effort: the webhook must stay 2xx
+    even if Temporal is unreachable, and the review is idempotent per team.
     """
     state = task_run.state if isinstance(task_run.state, dict) else {}
     if "wizard_config" not in state:
@@ -288,9 +288,9 @@ def _start_setup_audit_on_wizard_merge(task_run: TaskRun, repository: str | None
 
     def _dispatch() -> None:
         try:
-            signals_facade.start_setup_audit(team_id=task_run.task.team_id, repository=repository)
+            signals_facade.start_wizard_setup_review(team_id=task_run.task.team_id, repository=repository)
         except Exception:
-            logger.warning("github_pr_webhook_setup_audit_dispatch_failed", run_id=str(task_run.id), exc_info=True)
+            logger.warning("github_pr_webhook_setup_review_dispatch_failed", run_id=str(task_run.id), exc_info=True)
 
     transaction.on_commit(_dispatch)
 

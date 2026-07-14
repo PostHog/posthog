@@ -603,7 +603,6 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
-        qs = self._apply_signal_report_proposal_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
@@ -744,27 +743,6 @@ class SignalReportViewSet(
             )
         pr_filter = self._implementation_pr_report_filter()
         return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
-
-    def _apply_signal_report_proposal_filter(self, queryset):
-        # `has_proposal=true|false` filters reports by whether they carry a `proposal` artefact
-        # (setup-improvement proposals rendered by the inbox cold-start state). Absent or empty
-        # param leaves the list unchanged; an unrecognized value is a 400.
-        raw = self.request.query_params.get("has_proposal")
-        if raw is None or not raw.strip():
-            return queryset
-        value = raw.strip().lower()
-        if value in ("1", "true", "yes"):
-            wants_proposal = True
-        elif value in ("0", "false", "no"):
-            wants_proposal = False
-        else:
-            raise serializers.ValidationError({"has_proposal": f"Invalid value: {raw!r}. Allowed: true, false."})
-        proposal_exists = Exists(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.PROPOSAL
-            )
-        )
-        return queryset.filter(proposal_exists) if wants_proposal else queryset.exclude(proposal_exists)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -952,13 +930,6 @@ class SignalReportViewSet(
                     "-created_at"
                 ),
                 to_attr="prefetched_dismissal_artefacts",
-            ),
-            Prefetch(
-                "artefacts",
-                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.PROPOSAL).order_by(
-                    "-created_at"
-                ),
-                to_attr="prefetched_proposal_artefacts",
             ),
         )
 
@@ -1199,16 +1170,6 @@ class SignalReportViewSet(
                     "Filter reports by whether a shipped implementation pull request exists. "
                     "'true' keeps only reports with a PR; 'false' keeps only those without. "
                     "Pair with limit=1 to count PR reports cheaply."
-                ),
-            ),
-            OpenApiParameter(
-                name="has_proposal",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter reports by whether they are setup-improvement proposals (carry a "
-                    "'proposal' artefact). 'true' keeps only proposals; 'false' excludes them."
                 ),
             ),
         ],

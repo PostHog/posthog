@@ -65,9 +65,9 @@ class TestGitHubPRWebhook(TestCase):
         self.webhook_secret = "test-webhook-secret"
         # The wizard-merge path dispatches the signals setup audit (a Temporal workflow start);
         # neutralize it class-wide so these tests never open a real Temporal connection.
-        setup_audit_patcher = patch("products.tasks.backend.webhooks.signals_facade.start_setup_audit")
-        self.mock_start_setup_audit = setup_audit_patcher.start()
-        self.addCleanup(setup_audit_patcher.stop)
+        setup_review_patcher = patch("products.tasks.backend.webhooks.signals_facade.start_wizard_setup_review")
+        self.mock_start_setup_review = setup_review_patcher.start()
+        self.addCleanup(setup_review_patcher.stop)
 
     def _make_webhook_request(self, payload: dict, event_type: str = "pull_request"):
         """Helper to make a webhook request with proper signature."""
@@ -237,7 +237,7 @@ class TestGitHubPRWebhook(TestCase):
     )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_merged_dispatches_setup_audit_only_for_wizard_runs(
+    def test_pr_merged_dispatches_setup_review_only_for_wizard_runs(
         self, _name, state, include_repository, expected_dispatches, _mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
@@ -260,9 +260,9 @@ class TestGitHubPRWebhook(TestCase):
                 response = self._make_webhook_request(payload)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.mock_start_setup_audit.call_count, expected_dispatches)
+        self.assertEqual(self.mock_start_setup_review.call_count, expected_dispatches)
         if expected_dispatches:
-            self.mock_start_setup_audit.assert_called_once_with(team_id=self.team.id, repository="posthog/posthog")
+            self.mock_start_setup_review.assert_called_once_with(team_id=self.team.id, repository="posthog/posthog")
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

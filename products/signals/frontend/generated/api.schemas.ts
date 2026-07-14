@@ -61,18 +61,6 @@ export const SignalReportStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
-/**
- * Shape of the `proposal` field on a report: the latest `proposal` artefact's content.
- */
-export interface SignalReportProposalApi {
-    /** Proposal flavor; `setup_improvement` is the only kind today. */
-    kind: string
-    /** Setup gap the proposal addresses: `events`, `feature_flags`, `error_tracking`, or `logs`. */
-    category: string
-    /** PostHog product the proposed PR would set up (e.g. `error_tracking`). */
-    product: string
-}
-
 export interface SignalReportApi {
     readonly id: string
     /** @nullable */
@@ -124,8 +112,6 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
-    /** Content of the latest proposal artefact when this report is a setup-improvement proposal (inbox cold-start content); null for regular reports. */
-    readonly proposal: SignalReportProposalApi | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -174,6 +160,7 @@ export interface PatchedSignalReportContentUpdateApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `wizard` - wizard
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -192,6 +179,7 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Wizard: 'wizard',
 } as const
 
 /**
@@ -210,6 +198,7 @@ export const SignalSourceProductApi = {
  * * `alert_state_change` - alert_state_change
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
+ * * `setup_review` - setup_review
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -229,6 +218,7 @@ export const SignalSourceTypeApi = {
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
+    SetupReview: 'setup_review',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -481,6 +471,12 @@ export interface HealthCheckSignalExtraApi {
     payload: HealthCheckSignalExtraApiPayload
 }
 
+export interface WizardSetupReviewSignalExtraApi {
+    repository: string
+    category: string
+    evidence?: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -498,6 +494,7 @@ export type SignalExtraApi =
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | HealthCheckSignalExtraApi
+    | WizardSetupReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -550,7 +547,8 @@ export interface SignalNodeApi {
      * * `signals_scout` - signals_scout
      * * `logs` - logs
      * * `health_checks` - health_checks
-     * * `replay_vision` - replay_vision */
+     * * `replay_vision` - replay_vision
+     * * `wizard` - wizard */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -568,7 +566,8 @@ export interface SignalNodeApi {
      * * `cross_source_issue` - cross_source_issue
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
-     * * `scanner_finding` - scanner_finding */
+     * * `scanner_finding` - scanner_finding
+     * * `setup_review` - setup_review */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -658,7 +657,6 @@ export interface SignalReportStateRequestApi {
  * * `signal_finding` - Signal Finding
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
- * * `proposal` - Proposal
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
  * * `commit` - Commit
@@ -679,7 +677,6 @@ export const SignalReportArtefactTypeEnumApi = {
     SignalFinding: 'signal_finding',
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
-    Proposal: 'proposal',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
     Commit: 'commit',
@@ -2223,6 +2220,7 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `wizard` - Setup wizard
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2242,6 +2240,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Wizard: 'wizard',
 } as const
 
 /**
@@ -2259,6 +2258,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `setup_review` - Setup review
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2278,6 +2278,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    SetupReview: 'setup_review',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -2362,10 +2363,6 @@ export type SignalsReportsListParams = {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean
-    /**
-     * Filter reports by whether they are setup-improvement proposals (carry a 'proposal' artefact). 'true' keeps only proposals; 'false' excludes them.
-     */
-    has_proposal?: boolean
     /**
      * Number of results to return per page.
      */
