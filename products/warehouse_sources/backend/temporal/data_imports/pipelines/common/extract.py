@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.posthog_client import mark_skip_error_tracking
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
@@ -188,11 +189,12 @@ async def handle_non_retryable_error(
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
+    friendly_message: str | None = None,
 ) -> NoReturn:
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
+            raise NonRetryableException(friendly_message or error_msg) from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
@@ -204,10 +206,14 @@ async def handle_non_retryable_error(
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
+            # Keep the original type so Temporal still retries it a few times (in case it's
+            # transient), but flag it so the interceptor doesn't report each attempt to error
+            # tracking — it's already classified as customer-caused.
+            mark_skip_error_tracking(error)
             raise error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
+    raise NonRetryableException(friendly_message or error_msg) from error
 
 
 async def reset_rows_synced_if_needed(

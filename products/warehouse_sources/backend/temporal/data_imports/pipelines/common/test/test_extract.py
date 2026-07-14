@@ -1,4 +1,5 @@
 import uuid
+import contextlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,9 +15,11 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     report_heartbeat_timeout,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -60,6 +63,77 @@ class TestRunPreWriteDefensiveCompact:
 
         mock_capture.assert_called_once()
         logger.aexception.assert_awaited_once()
+
+
+class TestHandleNonRetryableError:
+    def _job_inputs(self) -> MagicMock:
+        return MagicMock(team_id=1, source_id=uuid.uuid4(), run_id="run-1")
+
+    def _patch_redis(self, client: MagicMock | None):
+        @contextlib.asynccontextmanager
+        async def _cm():
+            yield client
+
+        return patch(f"{_EXTRACT_MODULE}._get_redis", _cm)
+
+    @pytest.mark.asyncio
+    async def test_retry_phase_reraises_original_error_flagged_to_skip_error_tracking(self):
+        # Within the retry limit the original error is re-raised (so Temporal retries it a few times
+        # in case it's transient) but flagged skip_error_tracking, so the interceptor doesn't report
+        # every attempt — the per-retry noise (e.g. 403-on-list_snapshot) the fix removes.
+        error = RuntimeError("403 Client Error: Forbidden")
+        redis_client = MagicMock(incr=AsyncMock(return_value=1), expire=AsyncMock())
+
+        with self._patch_redis(redis_client):
+            with pytest.raises(RuntimeError) as exc_info:
+                await handle_non_retryable_error(
+                    self._job_inputs(), "403 Client Error", MagicMock(adebug=AsyncMock()), error, "Access denied."
+                )
+
+        assert exc_info.value is error
+        assert getattr(error, "skip_error_tracking", False) is True
+
+    @parameterized.expand(
+        [
+            # Retries exhausted (incr past the limit) → give up.
+            ("gives_up_after_limit", 4),
+            # Redis unavailable → give up immediately.
+            ("redis_unavailable", None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_wraps_in_non_retryable_with_friendly_message(self, _name: str, attempts: int | None):
+        # On give-up we wrap in NonRetryableException carrying the friendly per-source message (not an
+        # empty exception) and chained from the original error so the finalizer can still classify it.
+        error = RuntimeError("403 Client Error: Forbidden")
+        friendly = "Access denied. Check your Convex deploy key."
+        redis_client = (
+            None if attempts is None else MagicMock(incr=AsyncMock(return_value=attempts), expire=AsyncMock())
+        )
+
+        with self._patch_redis(redis_client):
+            with pytest.raises(NonRetryableException) as exc_info:
+                await handle_non_retryable_error(
+                    self._job_inputs(), "403 Client Error", MagicMock(adebug=AsyncMock()), error, friendly
+                )
+
+        assert str(exc_info.value) == friendly
+        assert exc_info.value.__cause__ is error
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_error_msg_when_no_friendly_message(self):
+        # Callers without a per-source friendly message (e.g. an unparseable config) still get an
+        # informative NonRetryableException rather than an empty one.
+        error = ValueError("invalid literal for int()")
+        redis_client = MagicMock(incr=AsyncMock(return_value=4), expire=AsyncMock())
+
+        with self._patch_redis(redis_client):
+            with pytest.raises(NonRetryableException) as exc_info:
+                await handle_non_retryable_error(
+                    self._job_inputs(), "invalid literal for int()", MagicMock(adebug=AsyncMock()), error
+                )
+
+        assert str(exc_info.value) == "invalid literal for int()"
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):

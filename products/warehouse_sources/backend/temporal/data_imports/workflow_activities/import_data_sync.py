@@ -322,7 +322,13 @@ async def _handle_import_error(
         non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
     )
     if is_non_retryable_error:
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        # Carry the source's friendly message through to the NonRetryableException wrap so the error
+        # we keep is informative, not empty.
+        friendly_message = next(
+            (friendly for key, friendly in non_retryable_errors.items() if key in error_msg and friendly),
+            None,
+        )
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error, friendly_message=friendly_message)
     else:
         await logger.aexception(error_msg)
         await logger.adebug("Error encountered during import_data_activity - re-raising")

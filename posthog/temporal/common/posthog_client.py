@@ -20,6 +20,31 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
 
+SKIP_ERROR_TRACKING_ATTR = "skip_error_tracking"
+
+
+class SkipsErrorTracking(Exception):
+    """Base for exceptions the PostHog Temporal activity interceptor deliberately does NOT report to
+    error tracking. An exception is skipped when it is an instance of this class or carries a truthy
+    ``skip_error_tracking`` attribute (see ``mark_skip_error_tracking``). Use it for failures we've
+    already classified as expected and customer-actionable — bad credentials, a revoked key, an
+    unenabled paid feature — where the caller already surfaces a friendly message and gives up on its
+    own, so an internal error-tracking issue would be pure noise. Skipped errors are logged instead."""
+
+    skip_error_tracking = True
+
+
+def mark_skip_error_tracking(error: BaseException) -> BaseException:
+    """Flag an existing (often third-party) exception so the interceptor skips reporting it, without
+    changing its type — useful when the error must keep its original type for Temporal's retry
+    classification. See :class:`SkipsErrorTracking` for when to use this."""
+    try:
+        setattr(error, SKIP_ERROR_TRACKING_ATTR, True)
+    except (AttributeError, TypeError):
+        # Exotic exceptions with __slots__ can't take new attributes; reporting the rare one is fine.
+        pass
+    return error
+
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
@@ -72,6 +97,16 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
                 raise
+            if getattr(e, SKIP_ERROR_TRACKING_ATTR, False):
+                # Already classified as expected and customer-actionable (bad credentials, revoked
+                # keys, an unenabled paid feature). The caller surfaces a friendly message and gives
+                # up on its own, so reporting it internally is pure noise. Log for observability.
+                await logger.ainfo(
+                    "Skipping error tracking for classified error in %s: %s",
+                    input.fn.__module__ + "." + input.fn.__qualname__,
+                    e,
+                )
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -106,6 +141,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if getattr(e, SKIP_ERROR_TRACKING_ATTR, False):
+                raise  # Already classified as expected & customer-actionable — reporting it is noise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
