@@ -11,7 +11,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import shared_task
+from celery import Task, shared_task
 from posthoganalytics import new_context, tag
 from prometheus_client import Counter, Histogram
 
@@ -1949,9 +1949,9 @@ def send_error_tracking_weekly_digest() -> None:
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
-@shared_task(**{**EMAIL_TASK_KWARGS, "max_retries": 5}, rate_limit="10/s")
+@shared_task(**{**EMAIL_TASK_KWARGS, "max_retries": 5}, rate_limit="10/s", bind=True)
 @skip_team_scope_audit
-def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
+def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
     """Send one combined weekly error tracking digest per user in an org via the delivery workflow"""
     from posthog.models.organization import Organization
 
@@ -2033,8 +2033,9 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         logger.info(f"Sent Error Tracking weekly digest to 0 members for org {org_id} (no subscribed recipients)")
         return
 
-    # Pass 2 — build digest data only for teams a recipient has enabled. A failing team is skipped so the
-    # rest of the org still gets its digest; the task re-raises at the end to trigger autoretry for it.
+    # Pass 2 — build digest data only for teams a recipient has enabled. A team whose build fails is
+    # recorded in failed_team_ids; recipients not subscribed to it are unaffected, while those who are
+    # get held back for the retry (see is_final_attempt below). The task re-raises at the end to autoretry.
     team_digest_data: dict[int, dict] = {}
     failed_team_ids: list[int] = []
     for team_id in needed_team_ids:
@@ -2054,14 +2055,27 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         len(all_org_teams) - len(team_ids_with_exceptions) + (len(needed_team_ids) - len(team_digest_data))
     )
 
+    # On non-final attempts, hold back a recipient whose digest is missing a team that failed to build
+    # this run. The retry re-runs the build, so a transient failure still delivers their full digest.
+    # Only once retries are exhausted do we fall back to sending the partial, so a permanently-broken
+    # team can't starve a recipient of their healthy teams. Recipients not subscribed to a failed team
+    # are unaffected and send immediately.
+    failed_team_id_set = set(failed_team_ids)
+    is_final_attempt = (getattr(self.request, "retries", 0) or 0) >= (self.max_retries or 0)
+
     sent_count = 0
     failed_count = 0
+    deferred_count = 0
 
     for membership, enabled_team_ids, disabled_team_names in recipients:
         user = membership.user
 
         user_team_sections = [team_digest_data[team_id] for team_id in enabled_team_ids if team_id in team_digest_data]
         if not user_team_sections:
+            continue
+
+        if not is_final_attempt and any(team_id in failed_team_id_set for team_id in enabled_team_ids):
+            deferred_count += 1
             continue
 
         user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
@@ -2099,11 +2113,13 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
     logger.info(
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams built, {len(failed_team_ids)} team builds failed, {failed_count} send failures)"
+        f"({len(team_digest_data)} teams built, {len(failed_team_ids)} team builds failed, "
+        f"{failed_count} send failures, {deferred_count} recipients deferred to retry)"
     )
 
     if failed_count or failed_team_ids:
-        # Trigger celery autoretry; already-sent recipients are skipped via MessagingRecord.
+        # Trigger celery autoretry; already-sent recipients are skipped via MessagingRecord, and
+        # recipients missing a failed team were deferred above so the retry can complete them.
         raise Exception(
             f"Error Tracking weekly digest failed for {failed_count} recipients "
             f"and {len(failed_team_ids)} team builds in org {org_id}"

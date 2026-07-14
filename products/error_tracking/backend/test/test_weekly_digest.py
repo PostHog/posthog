@@ -13,7 +13,8 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
 from posthog.tasks.email import send_error_tracking_weekly_digest_for_org
@@ -719,7 +720,85 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
         assert project_enabled == {str(team_b.pk): True}
 
     @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
-    def test_failing_team_build_does_not_block_other_teams(self):
+    def test_recipient_missing_a_failed_team_is_deferred_while_others_send(self):
+        # self.team's build fails this run; team_b's succeeds.
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        # Subscribed to both teams: their digest is incomplete this run, so it must be held for the retry
+        # rather than shipped as a partial that gets stamped and never completed.
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True, str(team_b.pk): True}
+        }
+        self.user.save()
+
+        # Subscribed to the healthy team only: unaffected by the unrelated failure, sends immediately.
+        other = User.objects.create_and_join(self.organization, "healthy-team-only@posthog.com", None)
+        other.partial_notification_settings = {"error_tracking_weekly_digest_project_enabled": {str(team_b.pk): True}}
+        other.save()
+
+        real_build = error_tracking_facade.build_team_digest_data
+
+        def build_or_fail(team):
+            if team.pk == self.team.pk:
+                raise Exception("ClickHouse query failed")
+            return real_build(team)
+
+        with (
+            patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_fail),
+            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+        ):
+            with pytest.raises(Exception, match="team builds"):
+                send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+        # Only the healthy-team-only recipient was sent; the incomplete recipient was deferred, not sent a partial.
+        recipients = [c.kwargs["json"]["digest"]["recipient_email"] for c in mock_post.call_args_list]
+        assert recipients == [other.email]
+        # The deferred recipient must not be stamped, so the retry can still deliver their complete digest.
+        assert not MessagingRecord.objects.filter(
+            campaign_key__contains=str(self.user.uuid), sent_at__isnull=False
+        ).exists()
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_deferred_recipient_gets_full_digest_when_build_recovers_on_retry(self):
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True, str(team_b.pk): True}
+        }
+        self.user.save()
+
+        real_build = error_tracking_facade.build_team_digest_data
+        fail_team_a = {"on": True}
+
+        def build_or_recover(team):
+            if team.pk == self.team.pk and fail_team_a["on"]:
+                raise Exception("ClickHouse query failed")
+            return real_build(team)
+
+        with (
+            patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_recover),
+            patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
+        ):
+            # Attempt 1: team A build fails, so the recipient is deferred and the task raises to retry.
+            with pytest.raises(Exception, match="team builds"):
+                send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+            assert mock_post.call_count == 0
+
+            # Attempt 2 (retry): team A now builds. Because attempt 1 never stamped the recipient, they
+            # are not deduped away and receive their complete digest — the whole point of the fix.
+            fail_team_a["on"] = False
+            send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+        assert mock_post.call_count == 1
+        sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
+        assert {s["team_name"] for s in sections} == {self.team.name, team_b.name}
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_final_attempt_sends_partial_to_recipient_with_permanently_failing_team(self):
         _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
         team_b = self._create_second_team_with_exception()
         flush_persons_and_events()
@@ -740,10 +819,10 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
             patch("posthog.tasks.email.error_tracking_api.build_team_digest_data", side_effect=build_or_fail),
             patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post,
         ):
-            with pytest.raises(Exception, match="team builds"):
-                send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+            # Retries exhausted (retries == max_retries): fall back to delivering the healthy teams rather
+            # than starving the recipient of a digest entirely. throw=False keeps the terminal raise eager.
+            send_error_tracking_weekly_digest_for_org.apply(args=[str(self.organization.id)], retries=5, throw=False)
 
-        # The healthy team's digest still went out despite the failing team.
         assert mock_post.call_count == 1
         sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
         assert [s["team_name"] for s in sections] == [team_b.name]
