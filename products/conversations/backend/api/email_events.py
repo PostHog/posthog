@@ -32,6 +32,10 @@ MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 MAX_FILENAME_LENGTH = 255
+# Ticket.email_from is an EmailField (254) and distinct_id a CharField(400); cap the parsed
+# sender to the tighter bound so a malformed, overlong From header can't overflow either column
+# and drop the inbound email.
+MAX_SENDER_EMAIL_LENGTH = 254
 _FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
 
 
@@ -336,6 +340,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # forwarding (e.g. Google Groups rewrites From to the group address for
     # senders whose domain has p=quarantine or p=reject).
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
+    sender_email = sender_email[:MAX_SENDER_EMAIL_LENGTH]
 
     # 6b. Parse CC recipients
     cc_header = request.POST.get("Cc", "")

@@ -6,7 +6,9 @@ from .ticket import Ticket
 
 
 class EmailMessageMapping(UUIDModel):
-    message_id = models.CharField(max_length=255, db_index=True)
+    # TextField (not CharField) so an unbounded inbound Message-Id header can't overflow the
+    # column and 500 the webhook, silently dropping the customer's email.
+    message_id = models.TextField(db_index=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
     comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE)
