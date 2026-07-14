@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -16,6 +17,9 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
 
     source_table_name = models.CharField(max_length=400, help_text="Name of the table the join starts from.")
     source_table_key = models.CharField(max_length=400, help_text="HogQL key expression on the source table.")
@@ -26,7 +30,12 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
         default=dict, blank=True, help_text="Extra join configuration (e.g. field mapping)."
     )
 
-    confidence = models.FloatField(null=True, blank=True, help_text="Discovery confidence in this join, 0-1.")
+    confidence = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+        help_text="Discovery confidence in this join, 0-1.",
+    )
     reasoning = models.TextField(blank=True, help_text="Why this join is proposed.")
     evidence = models.JSONField(default=dict, blank=True, help_text="Sampling evidence: match rates, sample values.")
 

@@ -9,7 +9,11 @@ import json
 import hashlib
 from typing import Optional
 
-from django.db import IntegrityError, transaction
+from django.db import (
+    IntegrityError,
+    connection as db_connection,
+    transaction,
+)
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -132,9 +136,10 @@ def accept_proposal(proposal: RelationshipProposal, user: Optional[User]) -> Rel
         if proposal.status == RelationshipStatus.REJECTED:
             raise ValidationError({"status": "This proposal was rejected and cannot be accepted."})
 
+        _acquire_accessor_lock(proposal)
+        existing_join = _get_exact_existing_join(proposal)
         _probe_join(proposal, user)
-        _enforce_field_name_unique(proposal)
-        join = _get_or_create_join(proposal, user)
+        join = existing_join or _create_join(proposal, user)
 
         proposal.status = RelationshipStatus.ACCEPTED
         proposal.reviewed_by = user
@@ -157,6 +162,11 @@ def _probe_join(proposal: RelationshipProposal, user: Optional[User]) -> None:
     try:
         source_table = database.get_table(proposal.source_table_name)
         joining_table = database.get_table(proposal.joining_table_name)
+        existing_field = source_table.fields.get(proposal.field_name)
+        if existing_field is not None and not isinstance(existing_field, LazyJoin):
+            raise ValidationError(
+                {"field_name": f"'{proposal.field_name}' is already a field on '{proposal.source_table_name}'."}
+            )
         source_table.fields["_catalog_probe"] = LazyJoin(
             from_field=from_field,
             to_field=to_field,
@@ -181,6 +191,8 @@ def _probe_join(proposal: RelationshipProposal, user: Optional[User]) -> None:
         execute_hogql_query(
             query=validation_query, team=proposal.team, context=HogQLContext(database=database, user=user)
         )
+    except ValidationError:
+        raise
     except ExposedHogQLError as e:
         raise ValidationError({"join": f"The join does not work: {e}"})
     except Exception as e:
@@ -188,36 +200,37 @@ def _probe_join(proposal: RelationshipProposal, user: Optional[User]) -> None:
         raise ValidationError({"join": "The join could not be validated against the data."})
 
 
-def _enforce_field_name_unique(proposal: RelationshipProposal) -> None:
-    clash = (
+def _acquire_accessor_lock(proposal: RelationshipProposal) -> None:
+    lock_key = f"data-catalog-relationship:{proposal.team_id}:{proposal.source_table_name}:{proposal.field_name}"
+    lock_id = int.from_bytes(hashlib.sha256(lock_key.encode()).digest()[:8], byteorder="big", signed=True)
+    with db_connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
+
+
+def _get_exact_existing_join(proposal: RelationshipProposal) -> Optional[DataWarehouseJoin]:
+    joins = list(
         DataWarehouseJoin.objects.filter(
             team_id=proposal.team_id, source_table_name=proposal.source_table_name, field_name=proposal.field_name
-        )
-        .exclude(deleted=True)
-        .exists()
+        ).exclude(deleted=True)
     )
-    if clash:
+    exact_matches = [
+        join
+        for join in joins
+        if join.source_table_key == proposal.source_table_key
+        and join.joining_table_name == proposal.joining_table_name
+        and join.joining_table_key == proposal.joining_table_key
+        and join.configuration == proposal.configuration
+    ]
+    if len(exact_matches) == len(joins):
+        return exact_matches[0] if exact_matches else None
+    if joins:
         raise ValidationError(
             {"field_name": f"'{proposal.field_name}' is already a join field on '{proposal.source_table_name}'."}
         )
+    return None
 
 
-def _get_or_create_join(proposal: RelationshipProposal, user: Optional[User]) -> DataWarehouseJoin:
-    # Explicit get-or-create (not create_if_missing, which returns None and races); the proposal row
-    # lock plus the one-proposal-per-pair constraint make this exactly-once.
-    existing = (
-        DataWarehouseJoin.objects.filter(
-            team_id=proposal.team_id,
-            source_table_name=proposal.source_table_name,
-            source_table_key=proposal.source_table_key,
-            joining_table_name=proposal.joining_table_name,
-            joining_table_key=proposal.joining_table_key,
-        )
-        .exclude(deleted=True)
-        .first()
-    )
-    if existing is not None:
-        return existing
+def _create_join(proposal: RelationshipProposal, user: Optional[User]) -> DataWarehouseJoin:
     return DataWarehouseJoin.objects.create(
         team=proposal.team,
         source_table_name=proposal.source_table_name,
@@ -231,13 +244,18 @@ def _get_or_create_join(proposal: RelationshipProposal, user: Optional[User]) ->
 
 
 def reject_proposal(proposal: RelationshipProposal, user: Optional[User], reason: str = "") -> RelationshipProposal:
-    if proposal.status == RelationshipStatus.REJECTED:
-        return proposal
-    proposal.status = RelationshipStatus.REJECTED
-    proposal.reviewed_by = user
-    proposal.reviewed_at = timezone.now()
-    proposal.rejection_reason = reason
-    proposal.save()
+    with transaction.atomic():
+        proposal = RelationshipProposal.objects.for_team(proposal.team_id).select_for_update().get(pk=proposal.pk)
+        if proposal.status == RelationshipStatus.REJECTED:
+            return proposal
+        if proposal.status != RelationshipStatus.PROPOSED:
+            raise ValidationError({"status": "Only proposed relationships can be rejected."})
+        proposal.status = RelationshipStatus.REJECTED
+        proposal.reviewed_by = user
+        proposal.reviewed_at = timezone.now()
+        proposal.rejection_reason = reason
+        proposal.save()
+
     _capture(user, proposal.team, "data catalog relationship rejected", proposal)
     return proposal
 

@@ -245,7 +245,9 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
     )
     configuration = _FreeJSONField(required=False, help_text="Extra join configuration, e.g. a field mapping.")
     evidence = _FreeJSONField(required=False, help_text="Sampling evidence: match rates, sample values.")
-    reviewed_by = UserBasicSerializer(read_only=True, help_text="User who accepted or rejected the proposal.")
+    reviewed_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who accepted or rejected the proposal."
+    )
 
     class Meta:
         model = RelationshipProposal

@@ -1,10 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from typing import Any
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
+from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
@@ -18,6 +22,7 @@ from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.exceptions import CatalogConflict
 from products.data_catalog.backend.logic.relationships import accept_proposal, propose_relationship, reject_proposal
 from products.data_catalog.backend.models import RelationshipProposal
+from products.data_catalog.backend.presentation.serializers import RelationshipProposalSerializer
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 # events and persons always exist in the HogQL database, so propose-time existence checks pass.
@@ -96,6 +101,21 @@ class TestAcceptProposal(BaseTest):
             with self.assertRaises(ValidationError):
                 accept_proposal(proposal, self.user)
 
+    def test_physical_field_name_collision_rejected(self) -> None:
+        proposal = propose_relationship(team=self.team, user=self.user, **{**_JOIN, "field_name": "timestamp"})
+        with patch.object(relationships, "execute_hogql_query"):
+            with self.assertRaises(ValidationError):
+                accept_proposal(proposal, self.user)
+
+    def test_exact_existing_join_is_reused(self) -> None:
+        join = DataWarehouseJoin.objects.create(team=self.team, configuration={}, **_JOIN)
+        proposal = self._propose()
+        with patch.object(relationships, "execute_hogql_query"):
+            accepted = accept_proposal(proposal, self.user)
+
+        assert accepted.created_join_id == join.id
+        assert DataWarehouseJoin.objects.filter(team_id=self.team.id, field_name=_JOIN["field_name"]).count() == 1
+
 
 class TestRejectProposal(BaseTest):
     def test_reject_persists_reason(self) -> None:
@@ -103,6 +123,87 @@ class TestRejectProposal(BaseTest):
         rejected = reject_proposal(proposal, self.user, "wrong keys")
         assert rejected.status == RelationshipStatus.REJECTED
         assert rejected.rejection_reason == "wrong keys"
+
+    def test_accepted_proposal_cannot_be_rejected(self) -> None:
+        proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
+        with patch.object(relationships, "execute_hogql_query"):
+            accepted = accept_proposal(proposal, self.user)
+
+        with self.assertRaises(ValidationError):
+            reject_proposal(accepted, self.user, "changed my mind")
+
+        accepted.refresh_from_db()
+        assert accepted.status == RelationshipStatus.ACCEPTED
+        assert accepted.created_join_id is not None
+        assert DataWarehouseJoin.objects.filter(pk=accepted.created_join_id, deleted=False).exists()
+
+
+class TestRelationshipConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _run_concurrently(self, operations: list[str], proposal_ids: list[str]) -> list[str]:
+        barrier = Barrier(len(operations))
+
+        def run(operation: str, proposal_id: str) -> str:
+            close_old_connections()
+            try:
+                proposal = RelationshipProposal.objects.for_team(self.team.id).get(pk=proposal_id)
+                barrier.wait()
+                if operation == "accept":
+                    accept_proposal(proposal, None)
+                else:
+                    reject_proposal(proposal, None, "not valid")
+                return operation
+            except ValidationError:
+                return "validation_error"
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=len(operations)) as executor:
+            futures = [
+                executor.submit(run, operation, proposal_id)
+                for operation, proposal_id in zip(operations, proposal_ids, strict=True)
+            ]
+            return [future.result() for future in futures]
+
+    def test_concurrent_accept_and_reject_leave_consistent_state(self) -> None:
+        proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
+        with patch.object(relationships, "execute_hogql_query"):
+            results = self._run_concurrently(["accept", "reject"], [str(proposal.id), str(proposal.id)])
+
+        proposal.refresh_from_db()
+        assert results.count("validation_error") == 1
+        assert proposal.status in {RelationshipStatus.ACCEPTED, RelationshipStatus.REJECTED}
+        assert DataWarehouseJoin.objects.filter(team_id=self.team.id, field_name=_JOIN["field_name"]).count() == (
+            1 if proposal.status == RelationshipStatus.ACCEPTED else 0
+        )
+
+    def test_concurrent_accepts_with_same_accessor_create_one_join(self) -> None:
+        first = propose_relationship(team=self.team, user=self.user, **_JOIN)
+        second = propose_relationship(
+            team=self.team,
+            user=self.user,
+            **{**_JOIN, "source_table_key": "uuid", "joining_table_key": "created_at"},
+        )
+        with patch.object(relationships, "execute_hogql_query"):
+            results = self._run_concurrently(["accept", "accept"], [str(first.id), str(second.id)])
+
+        assert results.count("accept") == 1
+        assert results.count("validation_error") == 1
+        assert DataWarehouseJoin.objects.filter(team_id=self.team.id, field_name=_JOIN["field_name"]).count() == 1
+
+
+class TestRelationshipProposalSerializer(SimpleTestCase):
+    @parameterized.expand([(0.0,), (1.0,)])
+    def test_confidence_boundaries_are_valid(self, confidence: float) -> None:
+        serializer = RelationshipProposalSerializer(data={**_JOIN, "confidence": confidence})
+        assert serializer.is_valid(), serializer.errors
+
+    @parameterized.expand([(-0.01,), (1.01,)])
+    def test_confidence_outside_range_is_invalid(self, confidence: float) -> None:
+        serializer = RelationshipProposalSerializer(data={**_JOIN, "confidence": confidence})
+        assert not serializer.is_valid()
+        assert "confidence" in serializer.errors
 
 
 class TestRelationshipAPI(APIBaseTest):
@@ -114,6 +215,10 @@ class TestRelationshipAPI(APIBaseTest):
         response = self.client.post(self.url, _JOIN, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["status"] == RelationshipStatus.PROPOSED
+
+    def test_create_proposal_rejects_invalid_confidence(self) -> None:
+        response = self.client.post(self.url, {**_JOIN, "confidence": 1.01}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_accept_requires_approval_scope(self) -> None:
         proposal = propose_relationship(team=self.team, user=self.user, **_JOIN)
