@@ -308,7 +308,10 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Lifecycle event key.\n\n\* `context_created` - context_created\n\* `context_md_building` - context_md_building'
             ),
-        payload: zod.unknown().optional().describe('Structured event data, e.g. {\"context_name\": \"mobile\"}.'),
+        payload: zod
+            .unknown()
+            .optional()
+            .describe('Structured event data, e.g. {\"context_name\": \"mobile\"}. At most 8 KB of JSON.'),
         created_at: zod.iso
             .datetime({ offset: true })
             .optional()
