@@ -4,6 +4,49 @@ Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHo
 
 Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
+#### Events-table performance: hard rules
+
+These are the most common slow-query mistakes on the `events` table, and every one is avoidable.
+Treat each as a hard constraint — do not emit a query that hits any of them.
+Each rule pairs the shape to avoid (❌) with the shape to use instead (✅).
+The **Querying guidelines** section below explains the reasoning; this is the checklist.
+
+1. **No positive leading-wildcard `LIKE` / `ILIKE`.**
+A pattern that starts with `%` (`'%signup%'`, `'%signup'`) defeats the index and forces a full column scan over the time range.
+Match an exact value, a prefix (`'signup%'` — a trailing wildcard is fine), or a token instead.
+Prefer `read-data-schema` (`event_property_values`) to find the exact value first, and `hasTokenCaseInsensitive(...)` for word matches.
+Negated forms (`NOT LIKE '%...'`, `NOT ILIKE '%...'`) are fine — they are not leading-wildcard filters.
+
+  ❌ `SELECT count() FROM events WHERE event ILIKE '%signup%' AND timestamp >= now() - INTERVAL 7 DAY`
+  ✅ `SELECT count() FROM events WHERE event = 'signup' AND timestamp >= now() - INTERVAL 7 DAY`
+  ✅ `SELECT count() FROM events WHERE event LIKE 'signup%' AND timestamp >= now() - INTERVAL 7 DAY`
+
+2. **Always bound `timestamp` in `WHERE`.**
+Every `FROM events` query — and every events subquery — needs an explicit `WHERE timestamp >= now() - INTERVAL <window>` bound.
+A window placed only inside an aggregate argument (`countIf(... AND timestamp > ...)`) filters nothing: every historical row is still read.
+
+  ❌ `SELECT count() FROM events WHERE event = 'signup'`
+  ✅ `SELECT count() FROM events WHERE event = 'signup' AND timestamp >= now() - INTERVAL 7 DAY`
+
+3. **Count users with `uniq(person_id)`, never `distinct_id`.**
+`uniq(distinct_id)`, `uniqExact(distinct_id)`, and `count(DISTINCT distinct_id)` overcount (one person has many distinct_ids) and are slower.
+
+  ❌ `SELECT uniq(distinct_id) AS users FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY`
+  ✅ `SELECT uniq(person_id) AS users FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY`
+
+4. **Never raw-`JOIN` the events table.**
+Correlate with a subquery filter, or fold the second pass into conditional aggregates (`countIf`, `uniqIf`, `argMax`) over a single scan — see **JOINs** below.
+
+  ❌ `SELECT ... FROM events AS a JOIN events AS b ON a.person_id = b.person_id WHERE ...`
+  ✅ `SELECT ... FROM events AS a WHERE a.person_id IN (SELECT person_id FROM events WHERE ... AND timestamp >= now() - INTERVAL 7 DAY) AND a.timestamp >= now() - INTERVAL 7 DAY`
+
+5. **Never serialize the whole properties blob.**
+`toString(properties)` and `toString(person.properties)` read and materialize every key on every row.
+Cherry-pick the specific keys you need.
+
+  ❌ `SELECT toString(properties) FROM events WHERE timestamp >= now() - INTERVAL 1 DAY`
+  ✅ `SELECT properties.$browser, properties.$os FROM events WHERE timestamp >= now() - INTERVAL 1 DAY`
+
 #### Search types
 
 Proactively use different search types depending on a task:
