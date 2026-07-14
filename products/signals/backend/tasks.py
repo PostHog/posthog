@@ -20,8 +20,10 @@ from products.signals.backend.models import SignalReportRefund
 logger = structlog.get_logger(__name__)
 
 # Bounded exponential backoff: 2m, 4m, 8m, ... capped at 1h, 8 retries ≈ 5h total. Deliberately
-# NOT unbounded — a sync drifting past the org's billing-period rollover would compute against
-# the wrong period (billing also guards this server-side, returning a $0 credit with a note).
+# NOT unbounded — a hard failure should land with the sweeper (and its 7-day horizon) rather
+# than retry forever. Rollover itself is survivable: the payload reports the period bounds
+# frozen on the refund row, and billing credits against that period as long as it is still the
+# customer's immediately-previous one.
 _REFUND_SYNC_MAX_RETRIES = 8
 _REFUND_SYNC_RETRY_BASE_SECONDS = 120
 _REFUND_SYNC_RETRY_MAX_SECONDS = 3600
@@ -32,12 +34,12 @@ _REFUND_SYNC_RETRY_MAX_SECONDS = 3600
 # syncs as already_processed on any later attempt).
 _REFUND_SYNC_SWEEP_MAX_AGE = timedelta(days=7)
 
-# Billing answered a handled $0 because the sync outran the billing period the refund was
-# accepted in. Terminal for automation: retrying can't help (the period won't un-roll), so the
-# sweeper skips these rows and recovery is the documented manual credit path.
-_OUT_OF_PERIOD_SYNC_ERROR = (
-    "billing: PR run outside the current billing period at sync time; credit needs manual recovery"
-)
+# Billing answered a handled $0 because it could no longer credit the period the refund was
+# accepted in — the sync outran billing's late-credit horizon (the frozen period is no longer
+# the customer's current or immediately-previous one), or the row predates the frozen period
+# bounds. Terminal for automation: retrying returns the same anchored $0, so the sweeper skips
+# these rows and recovery is the documented manual credit path.
+_OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync time; credit needs manual recovery"
 
 
 @shared_task(
@@ -101,7 +103,14 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
         return
 
     organization = refund.team.organization
-    period_start, period_end = current_billing_period_bounds(organization)
+    # Report the period bounds frozen at refund acceptance, so billing credits against the
+    # period the refund was accepted in even when this sync lands after rollover — recomputing
+    # bounds here is exactly the drift that loses the credit. The fallback covers rows created
+    # before the bounds were snapshotted.
+    if refund.period_start is not None and refund.period_end is not None:
+        period_start, period_end = refund.period_start, refund.period_end
+    else:
+        period_start, period_end = current_billing_period_bounds(organization)
     payload = {
         "refund_id": str(refund.id),
         "credits": refund.credits,
@@ -139,8 +148,9 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
         return
 
     if response.get("zero_reason") == "out_of_period":
-        # The $0 means the credit was lost to period rollover, not that it was legitimately free.
-        # Record a sync error instead of a synced $0 so the row surfaces for manual recovery.
+        # The $0 means billing could no longer credit the frozen refund period (see
+        # _OUT_OF_PERIOD_SYNC_ERROR), not that the refund was legitimately free. Record a sync
+        # error instead of a synced $0 so the row surfaces for manual recovery.
         recorded = (
             # nosemgrep: idor-lookup-without-team (id comes from the sanctioned unscoped lookup above; system task, no user input)
             SignalReportRefund.objects.unscoped()
@@ -199,7 +209,7 @@ def sync_pending_signals_refund_credits() -> None:
             billing_synced_at__isnull=True,
             created_at__gte=cutoff,
         )
-        # Rollover-lost credits are terminal for automation — replaying returns the same $0.
+        # Horizon-lost credits are terminal for automation — replaying returns the same $0.
         .exclude(billing_sync_error=_OUT_OF_PERIOD_SYNC_ERROR)
         .values_list("id", flat=True)
     )

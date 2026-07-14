@@ -957,10 +957,11 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     """One refund per report, ever — the user-facing "Refund" on a billed implementation PR.
 
     The row freezes everything billing-relevant at refund time: the `billing_path` (decided once
-    by the UTC-day rule in `billing.py`, never recomputed), the flat `credits` charge, and the
+    by the UTC-day rule in `billing.py`, never recomputed), the flat `credits` charge, the
     `pr_url` / `pr_run_created_at` snapshots that make eligibility auditable and the quota offset
-    a pure indexed filter on this table. The `report` OneToOne is the concurrency backstop — a
-    racing second refund hits its unique constraint.
+    a pure indexed filter on this table, and the billing period bounds the refund was accepted
+    in, which the credited-path sync reports to billing. The `report` OneToOne is the concurrency
+    backstop — a racing second refund hits its unique constraint.
     """
 
     class Reason(models.TextChoices):
@@ -1003,6 +1004,12 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     pr_url = models.TextField()
     # The first billable PR run's created_at — the billable moment this refund reverses.
     pr_run_created_at = models.DateTimeField()
+    # The org's billing period [start, end) the refund was accepted in, frozen at creation. The
+    # credited-path sync sends these bounds so billing can compute the credit against the accepted
+    # period even when the sync lands after rollover — recomputing bounds at sync time is exactly
+    # the drift that loses the credit. Null only on rows created before these fields existed.
+    period_start = models.DateTimeField(null=True, blank=True)
+    period_end = models.DateTimeField(null=True, blank=True)
     # Credited path only: what billing actually credited, written back by the sync task.
     # Null until billing responds ($0 is a legitimate synced outcome, e.g. free tier).
     credit_amount_usd = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
