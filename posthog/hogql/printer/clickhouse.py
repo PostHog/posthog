@@ -16,6 +16,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
+from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -82,6 +83,18 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 # 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
 INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
+
+# Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
+ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
 
 
 class ClickHousePrinter(BasePrinter):
@@ -550,6 +563,19 @@ class ClickHousePrinter(BasePrinter):
             return result
         return []
 
+    @staticmethod
+    def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
+        return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
+
+    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+        if node.type is None:
+            return False
+        try:
+            constant_type = node.type.resolve_constant_type(self.context)
+        except Exception:
+            return False
+        return isinstance(constant_type, ast.DateTimeType)
+
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
 
@@ -617,6 +643,17 @@ class ClickHousePrinter(BasePrinter):
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
         if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
+
+        # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
+        if node.op in ZONED_DATETIME_COERCIBLE_COMPARE_OPS:
+            if (
+                zoned_left := self._parse_zoned_datetime_constant(node.left)
+            ) is not None and self._resolves_to_datetime(node.right):
+                left = self._print_escaped_string(zoned_left)
+            elif (
+                zoned_right := self._parse_zoned_datetime_constant(node.right)
+            ) is not None and self._resolves_to_datetime(node.left):
+                right = self._print_escaped_string(zoned_right)
 
         constant_lambda = None
         value_if_one_side_is_null = False

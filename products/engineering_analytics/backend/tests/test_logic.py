@@ -358,6 +358,26 @@ class TestEndpointMapping(BaseTest):
         assert result.limit == 2
         assert len(result.items) == 2
 
+    def test_current_branch_health_counts_every_workflow(self) -> None:
+        workflow_rows = [(f"Workflow {index}", 1, 0) for index in range(100)]
+        workflow_rows.extend((f"Low-volume failure {index:02d}", 1, 1) for index in range(21))
+        workflow_rows.append(("Still running", 0, 0))
+
+        def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
+            if query_type == "engineering_analytics.default_branch":
+                return _resp([(0, 12)])
+            assert query_type == "engineering_analytics.current_branch_health"
+            assert "LIMIT" not in sql.upper()
+            return _resp(workflow_rows)
+
+        with mock.patch(_RUN_QUERY, side_effect=run):
+            health = api.get_current_branch_health(team=self.team)
+
+        assert health.default_branch == "main"
+        assert health.settled_workflows == 121
+        assert health.failing_workflows == 21
+        assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
+
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
         # completed_count, latest_failed, latest_conclusion, rerun_cycles.
@@ -400,14 +420,14 @@ class TestEndpointMapping(BaseTest):
 class TestCostPerMergeSeries(BaseTest):
     """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
     division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
-    Python fold — the runner-tier cost model, the bucket join, the empty-bucket handling — without
-    a warehouse. The tier multiplier stays server-side; only group columns cross the mock boundary."""
+    Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a
+    warehouse. Cost is aggregated in SQL over the shared cost source, so only the per-bucket dollar
+    figure crosses the mock boundary."""
 
     @staticmethod
     def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
         curated = mock.Mock()
-        curated.jobs_source.return_value = "px_github_workflow_jobs" if jobs_synced else None
-        curated.run_source.return_value = "px_github_workflow_runs"
+        curated.job_cost_source.return_value = "(cost_source)" if jobs_synced else None
         curated.pr_source.return_value = "px_github_pull_requests"
         # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
         curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
@@ -416,12 +436,12 @@ class TestCostPerMergeSeries(BaseTest):
     def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
         date_from = _dt("2026-06-01T00:00:00")
         date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
-        # Columns: bucket_start, labels, finished, elapsed, unfinished. depot-4 (4-core) bills at 2x, so
-        # 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        # Columns: bucket_start, billable_seconds, cost_sum, costed, unsettled, excluded — the SQL cost
+        # aggregates. depot-4 (4-core) bills at 2x, so 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
         cost_rows = [
-            (datetime(2026, 6, 2), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),
-            (datetime(2026, 6, 3), '["depot-ubuntu-22.04-4"]', 1, 60.0, 0),
-            (datetime(2026, 6, 6), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),  # cost but no merges below
+            (datetime(2026, 6, 2), 120.0, 0.016, 1, 0, 0),
+            (datetime(2026, 6, 3), 60.0, 0.008, 1, 0, 0),
+            (datetime(2026, 6, 6), 120.0, 0.016, 1, 0, 0),  # cost but no merges below
         ]
         # Columns: bucket_start, merges.
         merges_rows = [
@@ -627,6 +647,13 @@ class TestListGitHubSources(BaseTest):
     def test_repo_is_blank_without_a_repository_input(self) -> None:
         source = self._source(prefix="noinputs")
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
+
+    def test_repo_is_blank_when_job_inputs_is_not_a_dict(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; a non-dict must not crash
+        # the shared repository read (it backs every endpoint via resolve_github_tables), just yield "".
+        source = self._source(prefix="weird")
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
 
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)

@@ -959,6 +959,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
      * * `UserGroup` - UserGroup
@@ -1043,6 +1044,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',
@@ -1114,6 +1116,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
  * * `UserGroup` - UserGroup
@@ -1186,6 +1189,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
     UserGroup: 'UserGroup',

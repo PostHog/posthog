@@ -1941,15 +1941,17 @@ class FeatureFlagSerializer(
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
+                original_flag = request.data.get("original_flag", {})
                 conflicting_changes = self._get_conflicting_changes(
                     locked_instance,
                     validated_data,
-                    request.data.get("original_flag", {}),
+                    original_flag,
                 )
                 if len(conflicting_changes) > 0:
                     raise Conflict(
                         f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
                     )
+                validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
             # Continue with the update
             validated_data["version"] = locked_version + 1
@@ -2004,6 +2006,16 @@ class FeatureFlagSerializer(
             )
 
         return instance
+
+    def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
+        if not original_flag:
+            return validated_data
+
+        return {
+            field: new_value
+            for field, new_value in validated_data.items()
+            if field not in original_flag or new_value != original_flag[field]
+        }
 
     def _get_conflicting_changes(
         self,
@@ -3838,12 +3850,21 @@ class FeatureFlagViewSet(
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if not person or not distinct_ids:
-            identifier_type = "distinct_id" if distinct_id else "person_id"
-            identifier_value = distinct_id or person_id
-            return Response(
-                {"detail": f"Person not found for {identifier_type}: {identifier_value}"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            # A person may legitimately not exist yet. Server-to-server and webhook
+            # automations commonly evaluate with a synthetic distinct_id plus the
+            # ``groups`` param and never identify a person, so group-only and
+            # rollout-by-distinct_id conditions must still be evaluable. When the caller
+            # gave us a distinct_id, fall through with it (empty person properties);
+            # only fail when a person_id we couldn't resolve was supplied, since then
+            # there is no distinct_id to bucket on.
+            if distinct_id:
+                person = None
+                distinct_ids = [distinct_id]
+            else:
+                return Response(
+                    {"detail": f"Person not found for person_id: {person_id}"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
         # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
         # since rollout/variant assignment can depend on the exact distinct_id used.
@@ -3884,8 +3905,8 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
-            # Use current person properties
-            person_properties = person.properties or {}
+            # Use current person properties (empty when the identity has no person yet)
+            person_properties = (person.properties or {}) if person else {}
 
         # If timestamp is provided, reconstruct the flag at that point in time.
         # ``evaluation_filters`` is what we hand to _filter_person_properties_for_flag

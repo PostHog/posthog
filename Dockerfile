@@ -179,6 +179,7 @@ COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
+COPY common/alerting common/alerting/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -198,7 +199,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
 RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
         echo "sourcemaps uploaded — stripping .map files from the image"; \
-        find /code/staticfiles /code/frontend/dist -name '*.map' -delete; \
+        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
     else \
         echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
     fi
@@ -392,6 +393,7 @@ COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --chown=posthog:posthog common/alerting common/alerting/
 COPY --chown=posthog:posthog products products/
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
