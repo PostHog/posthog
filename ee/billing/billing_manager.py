@@ -446,6 +446,7 @@ class BillingManager:
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
