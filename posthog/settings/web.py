@@ -597,6 +597,9 @@ SPECTACULAR_SETTINGS = {
         # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
         # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
         "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
+        # The experiments freeze mode appears on both the freeze_exposure request (`freeze_mode`)
+        # and the freeze_exposure_check response (`recommended_freeze_mode`) — pin one shared name.
+        "ExperimentFreezeModeEnum": ["cohort", "property"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
