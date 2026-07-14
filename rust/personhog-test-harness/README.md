@@ -48,8 +48,12 @@ The invariant is unchanged: failed writes were never acked, but everything acked
 # Crash the busiest leader 5s in (SIGKILL + etcd lease revoke for instant detection)
 target/debug/personhog-test-harness gate --leaders 3 --duration 15s --kill-after 5s
 
-# Let the coordinator discover the crash via lease TTL expiry instead
-target/debug/personhog-test-harness gate --leaders 3 --duration 60s --kill-after 5s --kill-fast false
+# Let the coordinator discover the crash via lease TTL expiry instead.
+# --leader-lease-ttl shortens the lease (prod default 30s) so the dead
+# window fits in a short run; expect failures on the victim's partitions
+# for the full TTL — the coordinator is blind until the lease expires.
+target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
+  --leader-lease-ttl 5 --kill-after 4s --kill-fast false
 
 # Graceful shutdown: SIGTERM, drain, partitions hand off while traffic flows
 target/debug/personhog-test-harness gate --leaders 3 --duration 15s --shutdown-after 5s

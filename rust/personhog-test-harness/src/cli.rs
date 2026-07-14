@@ -223,6 +223,13 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 100_000)]
     pub cache_capacity: usize,
 
+    /// etcd lease TTL for spawned leaders, in seconds. The production
+    /// default is 30; lower it (5s works) so a TTL-expiry kill
+    /// (--kill-fast false) doesn't need a 30s+ outage window mid-run.
+    /// The heartbeat interval scales to a third of this.
+    #[arg(long, default_value_t = 30)]
+    pub leader_lease_ttl: i64,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]

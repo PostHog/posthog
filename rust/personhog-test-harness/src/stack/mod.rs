@@ -46,6 +46,9 @@ pub struct StackConfig {
     /// Leader in-memory cache capacity (entries). Lower it below the seeded
     /// person count to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
+    /// (unrevoked) leader stays the registered owner.
+    pub leader_lease_ttl: i64,
 }
 
 /// A locally-spawned personhog stack: replica, writer, N leaders, and M
@@ -220,12 +223,17 @@ impl Stack {
 
         let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
         let pod_name = format!("127.0.0.1:{grpc_port}");
+        // Heartbeats must land well inside the lease window or a healthy
+        // pod's lease expires between renewals.
+        let heartbeat_secs = (self.config.leader_lease_ttl / 3).max(1);
         let proc = ServiceProcess::spawn(
             &format!("leader-{index}"),
             &self.config.bin_dir.join("personhog-leader"),
             &[
                 ("GRPC_ADDRESS", pod_name.clone()),
                 ("POD_NAME", pod_name.clone()),
+                ("LEASE_TTL", self.config.leader_lease_ttl.to_string()),
+                ("HEARTBEAT_INTERVAL_SECS", heartbeat_secs.to_string()),
                 (
                     "CACHE_MEMORY_CAPACITY",
                     self.config.cache_memory_capacity.to_string(),
