@@ -21,6 +21,7 @@ import {
     InboxReportOpenMethod,
 } from './inboxAnalytics'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
+import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
@@ -187,6 +188,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
     connect(() => ({
+        // Mount inboxFiltersLogic with the scene so its URL sync (shareable filter params) applies on
+        // deep-link load, before the filter bar / list have rendered.
+        logic: [inboxFiltersLogic],
         values: [signalSourcesLogic, ['isSessionAnalysisRunning'], userLogic, ['user']],
         actions: [signalSourcesLogic, ['loadSourceConfigs']],
     })),

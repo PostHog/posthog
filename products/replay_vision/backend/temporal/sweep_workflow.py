@@ -168,7 +168,10 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     await wf.start_child_workflow(
                         PROCESS_VISION_ACTION_WORKFLOW_NAME,
                         ProcessVisionActionInputs(
-                            vision_action_id=d.vision_action_id, team_id=d.team_id, scheduled_at=d.scheduled_at
+                            vision_action_id=d.vision_action_id,
+                            team_id=d.team_id,
+                            scheduled_at=d.scheduled_at,
+                            mode=d.mode,
                         ),
                         id=build_process_vision_action_workflow_id(d.vision_action_id),
                         task_queue=settings.REPLAY_VISION_TASK_QUEUE,

@@ -2784,7 +2784,7 @@ export namespace Schemas {
       /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /** Properties specific to the trends insight */
@@ -9097,11 +9097,24 @@ export namespace Schemas {
       type: FunnelsAlertConfigType;
     }
 
+    export type MetricsAlertConfigType = typeof MetricsAlertConfigType[keyof typeof MetricsAlertConfigType];
+
+
+    export const MetricsAlertConfigType = {
+      MetricsAlertConfig: 'MetricsAlertConfig',
+    } as const;
+
+    export interface MetricsAlertConfig {
+      /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
+      check_ongoing_interval?: boolean | null;
+      type: MetricsAlertConfigType;
+    }
+
     /**
      * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
      * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
      */
-    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig;
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -9112,65 +9125,114 @@ export namespace Schemas {
       smooth_n?: number | null;
     }
 
+    export type ZScoreDetectorConfigType = typeof ZScoreDetectorConfigType[keyof typeof ZScoreDetectorConfigType];
+
+
+    export const ZScoreDetectorConfigType = {
+      Zscore: 'zscore',
+    } as const;
+
     export interface ZScoreDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: 'zscore';
+      type: ZScoreDetectorConfigType;
       /** Rolling window size for calculating mean/std (default: 30) */
       window?: number | null;
     }
+
+    export type MADDetectorConfigType = typeof MADDetectorConfigType[keyof typeof MADDetectorConfigType];
+
+
+    export const MADDetectorConfigType = {
+      Mad: 'mad',
+    } as const;
 
     export interface MADDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: 'mad';
+      type: MADDetectorConfigType;
       /** Rolling window size for calculating median/MAD (default: 30) */
       window?: number | null;
     }
+
+    export type IQRDetectorConfigType = typeof IQRDetectorConfigType[keyof typeof IQRDetectorConfigType];
+
+
+    export const IQRDetectorConfigType = {
+      Iqr: 'iqr',
+    } as const;
 
     export interface IQRDetectorConfig {
       /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: 'iqr';
+      type: IQRDetectorConfigType;
       /** Rolling window size for calculating quartiles (default: 30) */
       window?: number | null;
     }
+
+    export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
+
+
+    export const ThresholdDetectorConfigType = {
+      Threshold: 'threshold',
+    } as const;
 
     export interface ThresholdDetectorConfig {
       /** Lower bound - values below this are anomalies */
       lower_bound?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: 'threshold';
+      type: ThresholdDetectorConfigType;
       /** Upper bound - values above this are anomalies */
       upper_bound?: number | null;
     }
+
+    export type ECODDetectorConfigType = typeof ECODDetectorConfigType[keyof typeof ECODDetectorConfigType];
+
+
+    export const ECODDetectorConfigType = {
+      Ecod: 'ecod',
+    } as const;
 
     export interface ECODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'ecod';
+      type: ECODDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
+
+
+    export const COPODDetectorConfigType = {
+      Copod: 'copod',
+    } as const;
 
     export interface COPODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'copod';
+      type: COPODDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
+
+
+    export const IsolationForestDetectorConfigType = {
+      IsolationForest: 'isolation_forest',
+    } as const;
 
     export interface IsolationForestDetectorConfig {
       /** Number of trees in the forest (default: 100) */
@@ -9179,7 +9241,7 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'isolation_forest';
+      type: IsolationForestDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
@@ -9193,6 +9255,13 @@ export namespace Schemas {
       Median: 'median',
     } as const;
 
+    export type KNNDetectorConfigType = typeof KNNDetectorConfigType[keyof typeof KNNDetectorConfigType];
+
+
+    export const KNNDetectorConfigType = {
+      Knn: 'knn',
+    } as const;
+
     export interface KNNDetectorConfig {
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
@@ -9202,10 +9271,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'knn';
+      type: KNNDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
+
+
+    export const HBOSDetectorConfigType = {
+      Hbos: 'hbos',
+    } as const;
 
     export interface HBOSDetectorConfig {
       /** Number of histogram bins (default: 10) */
@@ -9214,10 +9290,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'hbos';
+      type: HBOSDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
+
+
+    export const LOFDetectorConfigType = {
+      Lof: 'lof',
+    } as const;
 
     export interface LOFDetectorConfig {
       /** Number of neighbors for LOF (default: 20) */
@@ -9226,10 +9309,17 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'lof';
+      type: LOFDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
+
+
+    export const OCSVMDetectorConfigType = {
+      Ocsvm: 'ocsvm',
+    } as const;
 
     export interface OCSVMDetectorConfig {
       /** SVM kernel type (default: "rbf") */
@@ -9240,17 +9330,24 @@ export namespace Schemas {
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'ocsvm';
+      type: OCSVMDetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
+
+    export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
+
+
+    export const PCADetectorConfigType = {
+      Pca: 'pca',
+    } as const;
 
     export interface PCADetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: 'pca';
+      type: PCADetectorConfigType;
       /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
@@ -9263,12 +9360,19 @@ export namespace Schemas {
       Or: 'or',
     } as const;
 
+    export type EnsembleDetectorConfigType = typeof EnsembleDetectorConfigType[keyof typeof EnsembleDetectorConfigType];
+
+
+    export const EnsembleDetectorConfigType = {
+      Ensemble: 'ensemble',
+    } as const;
+
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
       detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
-      type?: 'ensemble';
+      type: EnsembleDetectorConfigType;
     }
 
     /**
@@ -9394,6 +9498,76 @@ export namespace Schemas {
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+    }
+
+    /**
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed
+     */
+    export type AlertConfigFrequencyEnum = typeof AlertConfigFrequencyEnum[keyof typeof AlertConfigFrequencyEnum];
+
+
+    export const AlertConfigFrequencyEnum = {
+      EveryMatch: 'every_match',
+      OnBreach: 'on_breach',
+    } as const;
+
+    /**
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertMetricEnum = typeof VisionAlertMetricEnum[keyof typeof VisionAlertMetricEnum];
+
+
+    export const VisionAlertMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days
+     */
+    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
+
+
+    export const WindowDaysEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+    } as const;
+
+    /**
+     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+     * threshold over a rolling window and notifies on the transition into breach.
+     */
+    export interface AlertConfig {
+      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+       *
+       * * `every_match` - Every new match
+       * * `on_breach` - When a threshold is crossed */
+      frequency?: AlertConfigFrequencyEnum;
+      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
+       *
+       * * `count` - Count of matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      threshold?: number;
+      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
+       *
+       * * `1` - 1 day
+       * * `3` - 3 days
+       * * `7` - 7 days
+       * * `14` - 14 days
+       * * `30` - 30 days */
+      window_days?: WindowDaysEnum;
     }
 
     export interface AlertSimulate {
@@ -12984,6 +13158,49 @@ export namespace Schemas {
       GithubIssue: 'github_issue',
     } as const;
 
+    export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
+
+    /**
+     * Response shape for one system announcement in a channel's feed.
+     */
+    export interface ChannelFeedMessageDTO {
+      id: string;
+      channel: string;
+      author?: TaskUserBasicInfo | null;
+      author_kind: string;
+      event: string;
+      payload: ChannelFeedMessageDTOPayload;
+      content: string;
+      created_at: string;
+    }
+
+    /**
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building
+     */
+    export type EventEnum = typeof EventEnum[keyof typeof EventEnum];
+
+
+    export const EventEnum = {
+      ContextCreated: 'context_created',
+      ContextMdBuilding: 'context_md_building',
+    } as const;
+
+    /**
+     * Request body for posting a system announcement into a channel's feed.
+     */
+    export interface ChannelFeedMessageWrite {
+      /** Lifecycle event key.
+       *
+       * * `context_created` - context_created
+       * * `context_md_building` - context_md_building */
+      event: EventEnum;
+      /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+      payload?: unknown;
+      /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+      created_at?: string;
+    }
+
     /**
      * * `widget` - Widget
      * * `email` - Email
@@ -14339,6 +14556,8 @@ export namespace Schemas {
       active: boolean;
       /** Team ID the flag was copied to */
       team_id: number;
+      /** True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created */
+      updated_existing: boolean;
       /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
       flag_dependency_warnings?: string[];
       /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
@@ -14350,6 +14569,10 @@ export namespace Schemas {
       project_id?: number;
       /** Error message (present on failure) */
       error_message?: string;
+      /** True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved */
+      approval_pending?: boolean;
+      /** ID of the pending change request created in the target project (present when approval_pending is true) */
+      change_request_id?: string;
     }
 
     export interface CopyFlagsResponse {
@@ -14919,6 +15142,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `account` - account
+     * * `person` - person
+     */
+    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+
+
+    export const CustomPropertyDefinitionTargetType = {
+      Account: 'account',
+      Person: 'person',
+    } as const;
+
+    /**
      * * `preset-1` - preset-1
      * * `preset-2` - preset-2
      * * `preset-3` - preset-3
@@ -14983,15 +15218,26 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the custom property definition this source feeds. One source per definition. */
       definition: string;
-      /** UUID of the data-warehouse saved query (materialized view) to read values from. */
-      saved_query: string;
       /**
-         * Column in the view whose value is written to the property.
-         * @maxLength 400
+         * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+         * @nullable
          */
-      source_column: string;
+      saved_query?: string | null;
       /**
-         * Column in the view whose value matches an account's external_id.
+         * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * @nullable
+         */
+      external_data_schema?: string | null;
+      /**
+         * Account sources only: column in the view whose value is written to the property.
+         * @maxLength 400
+         * @nullable
+         */
+      source_column?: string | null;
+      /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+      column_property_map?: unknown;
+      /**
+         * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
          * @maxLength 400
          */
       key_column: string;
@@ -15059,6 +15305,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -18818,6 +19069,18 @@ export namespace Schemas {
       readonly team: number;
     }
 
+    /**
+     * * `events` - events
+     * * `persons` - persons
+     */
+    export type DatasetEnum = typeof DatasetEnum[keyof typeof DatasetEnum];
+
+
+    export const DatasetEnum = {
+      Events: 'events',
+      Persons: 'persons',
+    } as const;
+
     export interface DatasetItem {
       readonly id: string;
       dataset: string;
@@ -20676,6 +20939,8 @@ export namespace Schemas {
       readonly verified_by: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin: unknown;
     }
 
     export interface ErrorResponse {
@@ -26059,7 +26324,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived server-side for wizard-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -26108,6 +26373,7 @@ export namespace Schemas {
      * * `api` - api
      * * `mcp` - mcp
      * * `wizard` - wizard
+     * * `self_driving` - self_driving
      */
     export type ExternalDataSourceSerializersCreatedViaEnum = typeof ExternalDataSourceSerializersCreatedViaEnum[keyof typeof ExternalDataSourceSerializersCreatedViaEnum];
 
@@ -26117,6 +26383,7 @@ export namespace Schemas {
       Api: 'api',
       Mcp: 'mcp',
       Wizard: 'wizard',
+      SelfDriving: 'self_driving',
     } as const;
 
     /**
@@ -26127,12 +26394,13 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status: string;
       client_secret: string;
@@ -29973,9 +30241,10 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
-      /** Resolved harness labels seen for this exception, deduped and sorted. */
+      /** Resolved harness labels seen for this failure, deduped and sorted. */
       harnesses: string[];
       last_seen: string;
+      /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
     }
@@ -30007,7 +30276,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -33084,6 +33353,155 @@ export namespace Schemas {
       readonly duration_ms: number | null;
     }
 
+    /**
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown
+     */
+    export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
+
+
+    export const ManagedWarehouseReadinessStateEnum = {
+      NotConfigured: 'not_configured',
+      Waiting: 'waiting',
+      Backfilling: 'backfilling',
+      CatchingUp: 'catching_up',
+      UpToDate: 'up_to_date',
+      NeedsAttention: 'needs_attention',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ManagedWarehouseDatasetStatus {
+      /** Warehouse dataset represented by this status.
+       *
+       * * `events` - events
+       * * `persons` - persons */
+      dataset: DatasetEnum;
+      /** User-facing readiness state for this dataset.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of the current readiness state. */
+      detail: string;
+      /** Number of historical backfill partitions completed successfully. */
+      completed_partitions: number;
+      /**
+         * Expected historical partitions, or null while the range is being calculated.
+         * @nullable
+         */
+      total_partitions: number | null;
+      /**
+         * Partition currently running or requiring attention, when applicable.
+         * @nullable
+         */
+      current_partition: string | null;
+      /**
+         * When the durable backfill status last changed.
+         * @nullable
+         */
+      last_updated_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourceTableStatus {
+      /** Imported source schema identifier. */
+      schema_id: string;
+      /** Imported source connection identifier. */
+      source_id: string;
+      /** Display name for the imported source connection. */
+      source_name: string;
+      /** Type of the imported source connection. */
+      source_type: string;
+      /** Imported table name. */
+      table_name: string;
+      /** User-facing warehouse readiness state for this table.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of the table's readiness state. */
+      detail: string;
+      /** Backfill chunks already copied into the warehouse. */
+      completed_chunks: number;
+      /**
+         * Total backfill chunks, or null before the copy plan is ready.
+         * @nullable
+         */
+      total_chunks: number | null;
+      /**
+         * Imported batches waiting to be applied, or null when queue status is unavailable.
+         * @nullable
+         */
+      pending_batches: number | null;
+      /**
+         * Creation time of the oldest unapplied imported batch.
+         * @nullable
+         */
+      oldest_pending_at: string | null;
+      /**
+         * When an imported batch was most recently applied to the warehouse.
+         * @nullable
+         */
+      last_applied_at: string | null;
+      /**
+         * When PostHog most recently completed the upstream source import.
+         * @nullable
+         */
+      last_synced_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourcesStatus {
+      /** Rolled-up readiness state for imported source tables.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of imported source readiness. */
+      detail: string;
+      /** Per-table source backfill and live import application statuses. */
+      tables: ManagedWarehouseSourceTableStatus[];
+    }
+
+    export interface ManagedWarehouseDataStatusResponse {
+      /** Highest-priority readiness state across all warehouse datasets.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Events backfill readiness. */
+      events: ManagedWarehouseDatasetStatus;
+      /** Persons backfill readiness. */
+      persons: ManagedWarehouseDatasetStatus;
+      /** Imported source table readiness. */
+      sources: ManagedWarehouseSourcesStatus;
+      /** When this status snapshot was generated. */
+      generated_at: string;
+    }
+
     export interface MarkToleratedInput {
       /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
       snapshot_id: string;
@@ -34083,6 +34501,7 @@ export namespace Schemas {
      * * `delegated` - Delegated to teammate
      * * `later` - Skipped for later
      * * `other` - Other
+     * * `provisioned` - Account provisioned by a partner
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -34091,6 +34510,7 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+      Provisioned: 'provisioned',
     } as const;
 
     /**
@@ -34921,6 +35341,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChannelDTO[];
+    }
+
+    export interface PaginatedChannelFeedMessageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelFeedMessageDTO[];
     }
 
     export interface PaginatedClickhouseEventList {
@@ -38423,12 +38852,17 @@ export namespace Schemas {
       results: TaskSummaryDTO[];
     }
 
+    export type TaskThreadMessageDTOPayload = { [key: string]: unknown };
+
     /**
      * Response shape for one message in a task's thread.
      */
     export interface TaskThreadMessageDTO {
       id: string;
       task: string;
+      author_kind: string;
+      event: string;
+      payload: TaskThreadMessageDTOPayload;
       content: string;
       created_at: string;
       author?: TaskUserBasicInfo | null;
@@ -39085,6 +39519,11 @@ export namespace Schemas {
       readonly is_impersonated_until: string | null;
       /** @nullable */
       readonly is_impersonated_read_only: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
       readonly team: TeamBasic;
@@ -39234,6 +39673,7 @@ export namespace Schemas {
 
     /**
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation
      */
     export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
@@ -39241,6 +39681,7 @@ export namespace Schemas {
 
     export const VisionActionModeEnum = {
       GroupSummary: 'group_summary',
+      Alert: 'alert',
       PerObservation: 'per_observation',
     } as const;
 
@@ -39317,6 +39758,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -39325,6 +39767,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -40353,6 +40797,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -41042,6 +41491,8 @@ export namespace Schemas {
       readonly verified_by?: UserBasic;
       /** @nullable */
       hidden?: boolean | null;
+      /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+      readonly warehouse_origin?: unknown;
     }
 
     /**
@@ -41725,12 +42176,13 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
        * * `mcp` - mcp
-       * * `wizard` - wizard */
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
       created_via?: ExternalDataSourceSerializersCreatedViaEnum | null;
       readonly status?: string;
       client_secret?: string;
@@ -46451,6 +46903,11 @@ export namespace Schemas {
       readonly is_impersonated_until?: string | null;
       /** @nullable */
       readonly is_impersonated_read_only?: boolean | null;
+      /**
+         * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+         * @nullable
+         */
+      readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
       readonly team?: TeamBasic;
@@ -46604,6 +47061,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -46612,6 +47070,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -50518,6 +50978,49 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
+
+    export type QueryResponseAlternative62InsightItemItem = { [key: string]: unknown };
+
+    export type QueryResponseAlternative62Probability = {[key: string]: number};
+
+    export interface QueryResponseAlternative62 {
+      credible_intervals: QueryResponseAlternative62CredibleIntervals;
+      expected_loss: number;
+      funnels_query?: FunnelsQuery | null;
+      insight: QueryResponseAlternative62InsightItemItem[][];
+      kind?: 'ExperimentFunnelsQuery';
+      probability: QueryResponseAlternative62Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantFunnelsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export type QueryResponseAlternative63CredibleIntervals = {[key: string]: number[]};
+
+    export type QueryResponseAlternative63InsightItem = { [key: string]: unknown };
+
+    export type QueryResponseAlternative63Probability = {[key: string]: number};
+
+    export interface QueryResponseAlternative63 {
+      count_query?: TrendsQuery | null;
+      credible_intervals: QueryResponseAlternative63CredibleIntervals;
+      exposure_query?: TrendsQuery | null;
+      insight: QueryResponseAlternative63InsightItem[];
+      kind?: 'ExperimentTrendsQuery';
+      p_value: number;
+      probability: QueryResponseAlternative63Probability;
+      significance_code: ExperimentSignificanceCode;
+      significant: boolean;
+      stats_version?: number | null;
+      variants: ExperimentVariantTrendsBaseStats[];
+      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
     export interface QueryResponseAlternative64 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -51364,7 +51867,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
@@ -51540,13 +52043,13 @@ export namespace Schemas {
     }
 
     export interface RepoOverview {
-      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+      /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+      /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
-      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+      /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
@@ -51566,6 +52069,10 @@ export namespace Schemas {
       rerun_cycles: number;
       /** Re-run cycles over the previous window. */
       rerun_cycles_prev: number;
+      /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+      merged_pr_count: number;
+      /** Merged-PR count over the previous window. */
+      merged_pr_count_prev: number;
       /**
          * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
          * @nullable
@@ -67138,6 +67645,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -67225,6 +67733,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      Billing: 'Billing',
     } as const;
 
     /**
@@ -67298,6 +67807,7 @@ export namespace Schemas {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -67373,6 +67883,7 @@ export namespace Schemas {
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
+      Billing: 'Billing',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -69163,6 +69674,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -74100,6 +74615,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TaskChannelsFeedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type TaskMentionsListParams = {
     /**
      * Maximum number of mentions to return (newest first).
@@ -74118,6 +74644,10 @@ export namespace Schemas {
     };
 
     export type TasksListParams = {
+    /**
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     */
+    all_team_tasks?: boolean;
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
      *

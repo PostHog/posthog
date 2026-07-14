@@ -41,7 +41,7 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     return (
         context.product == POSTHOG_CODE_PRODUCT
         and not is_pro_plan(context.plan_key)
-        and context.seat_created_at is not None
+        and (context.seat_created_at is not None or context.seat_missing)
     )
 
 

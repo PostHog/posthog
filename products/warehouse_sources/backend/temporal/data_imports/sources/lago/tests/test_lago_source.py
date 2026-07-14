@@ -25,7 +25,6 @@ class TestLagoSource:
 
         assert config.name.value == "Lago"
         assert config.label == "Lago"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/lago.png"
 

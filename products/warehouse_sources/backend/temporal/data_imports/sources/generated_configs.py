@@ -445,7 +445,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BasetenSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1058,7 +1058,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DigitalOceanSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1369,7 +1369,8 @@ class FlowluSourceConfig(config.Config):
 
 @config.config
 class FlyIoSourceConfig(config.Config):
-    pass
+    api_token: str
+    organization_slug: str
 
 
 @config.config
@@ -1811,7 +1812,8 @@ class IlluminaBasespaceSourceConfig(config.Config):
 
 @config.config
 class ImaggaSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
