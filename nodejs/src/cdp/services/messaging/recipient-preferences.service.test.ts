@@ -497,6 +497,31 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBe(false)
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
+
+            it('keys the opt-out on the delivered-to person, not the triggering event', async () => {
+                // Delivery reads the device token from globals.person, so the opt-out must check that same
+                // person even when the triggering event distinct_id differs (e.g. a configured inputs.distinctId).
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                invocation.state.globals.person!.distinct_id = 'delivered-person'
+                invocation.state.globals.event!.distinct_id = 'trigger-person'
+
+                mockRecipientsManagerGet.mockResolvedValue(
+                    createRecipient('delivered-person', {
+                        '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                    })
+                )
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(true)
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'delivered-person',
+                })
+            })
         })
 
         describe('for other action types', () => {

@@ -43,9 +43,12 @@ export class RecipientPreferencesService {
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
         } else if (action.type === 'function_push') {
-            // Push has no email/phone "to" field — the recipient is addressed by distinct_id (the same id
-            // the device token was registered under), so opt-out preferences are keyed by distinct_id.
-            identifier = invocation.state.globals.event?.distinct_id
+            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
+            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
+            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
+            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
+            // has no resolved one.
+            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
         }
 
         if (!identifier) {
