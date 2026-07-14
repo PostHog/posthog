@@ -123,7 +123,6 @@ class ProductBrief(PulseModel):
     accountability = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
-    feedback = models.JSONField(default=dict)
     # Frozen GoalStatus snapshot (generation/goal.py) computed at synthesis: a brief is a
     # point-in-time artifact, so its goal figures are stored, never recomputed on read. Null for
     # config-less briefs and briefs generated from an empty gather; a QUIET brief with items still
@@ -140,6 +139,11 @@ class ProductBrief(PulseModel):
                 condition=models.Q(status="generating"),
             )
         ]
+
+    @property
+    def has_goal(self) -> bool:
+        """Whether the brief was generated for a config with a non-blank goal."""
+        return self.config is not None and bool(self.config.goal.strip())
 
 
 class Opportunity(PulseModel):
@@ -175,12 +179,47 @@ class Opportunity(PulseModel):
     # it otherwise).
     proposed_experiment = models.JSONField(null=True, blank=True)
     fingerprint = models.CharField(max_length=512)
-    feedback = models.JSONField(default=dict)
 
     class Meta(PulseModel.Meta):
         # Dedup race guard: concurrent persists can't double-insert a fingerprint (persist
         # bulk_creates with ignore_conflicts). The unique index doubles as the lookup index.
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="pulse_opp_team_fp_unique")]
+
+
+class FeedbackVote(PulseModel):
+    """A user's helpfulness vote on one brief or opportunity, with an optional free-text reason.
+
+    One vote per user per target, enforced by the partial unique constraints — a revote updates
+    the row, clearing the vote deletes it. Only the voter ever sees their own reason back; the API
+    exposes aggregate counts, never who voted or why.
+    """
+
+    # CASCADE: a vote is meaningless once its target is gone.
+    brief = models.ForeignKey(ProductBrief, on_delete=models.CASCADE, null=True, blank=True, related_name="votes")
+    opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE, null=True, blank=True, related_name="votes")
+    helpful = models.BooleanField()
+    reason = models.TextField(blank=True, default="", max_length=1000)
+
+    class Meta(PulseModel.Meta):
+        constraints = [
+            models.CheckConstraint(
+                name="pulse_vote_one_target",
+                check=(
+                    models.Q(brief__isnull=False, opportunity__isnull=True)
+                    | models.Q(brief__isnull=True, opportunity__isnull=False)
+                ),
+            ),
+            models.UniqueConstraint(
+                fields=["created_by", "brief"],
+                name="pulse_vote_brief_user_unique",
+                condition=models.Q(brief__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["created_by", "opportunity"],
+                name="pulse_vote_opp_user_unique",
+                condition=models.Q(opportunity__isnull=False),
+            ),
+        ]
 
 
 class ResourceLink(PulseModel):
