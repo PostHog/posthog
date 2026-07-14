@@ -74,7 +74,7 @@ def test_completed_transition_creates_event_definitions_once(team):
     event_plan = {"events": [{"name": "checkout_started", "description": "A checkout was started"}]}
     wizard_facade.upsert(_input(team.id, event_plan=event_plan))
 
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, event_plan=event_plan))
+    completed_session, _ = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
     wizard_facade.upsert(
         _input(
             team.id,
@@ -86,6 +86,7 @@ def test_completed_transition_creates_event_definitions_once(team):
     event_definition = EventDefinition.objects.get(team=team, project_id=team.project_id, name="checkout_started")
     assert event_definition.created_at is None
     assert event_definition.last_seen_at is None
+    assert completed_session.event_plan == event_plan
     assert EventDefinition.objects.filter(team=team, name="checkout_started").count() == 1
     assert not EventDefinition.objects.filter(name="completed_push_only").exists()
 
