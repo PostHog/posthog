@@ -849,9 +849,9 @@ function AnchorTimeField({
                 <div className="flex flex-col">
                     <span>Anchor time</span>
                     <span className="text-xs text-muted max-w-md">
-                        Pin the sync schedule so runs start at a predictable time each day (useful for coordinating
-                        with downstream jobs). The time is in UTC unless you switch to your project timezone. Only
-                        applies to intervals longer than one hour.
+                        Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
+                        downstream jobs). The time is in UTC unless you switch to your project timezone. Only applies to
+                        intervals longer than one hour.
                     </span>
                 </div>
                 {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
