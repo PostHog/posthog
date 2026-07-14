@@ -185,6 +185,30 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
+def _persons_migrations_current(database_url: str, migrations_path: str) -> bool:
+    """True when every migration file on disk is already recorded in _sqlx_migrations.
+
+    One short psycopg query instead of two sqlx subprocess spawns (~0.5s per pytest
+    session, and per xdist worker). Fail-open: any error means "not current" and the
+    real sqlx path runs.
+    """
+    import psycopg  # noqa: PLC0415 — deferred so conftest import stays cheap
+
+    try:
+        disk_versions = {
+            int(name.split("_", 1)[0])
+            for name in os.listdir(migrations_path)
+            if name.endswith(".sql") and name.split("_", 1)[0].isdigit()
+        }
+        if not disk_versions:
+            return False
+        with psycopg.connect(database_url, connect_timeout=3) as conn:
+            applied = {row[0] for row in conn.execute("SELECT version FROM _sqlx_migrations").fetchall()}
+        return disk_versions <= applied
+    except Exception:
+        return False
+
+
 def run_persons_sqlx_migrations(keepdb: bool = False):
     """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
@@ -212,6 +236,9 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
     # conftest.py is at posthog/conftest.py, go up one level to repo root
     migrations_path = os.path.join(os.path.dirname(__file__), "..", "rust", "persons_migrations")
     migrations_path = os.path.abspath(migrations_path)
+
+    if keepdb and _persons_migrations_current(database_url, migrations_path):
+        return
 
     env = {**os.environ, "DATABASE_URL": database_url}
 

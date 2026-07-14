@@ -206,12 +206,72 @@ def _cheapen_freezegun_module_hash() -> None:
     api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
+def _skip_noop_migrate() -> None:
+    # pytest-django runs `migrate` per session even on a reused, fully-migrated DB
+    # (--reuse-db / schema cache in CI), paying ~1.3s of graph building and project
+    # state rendering just to conclude there is nothing to apply. Short-circuit the
+    # bare invocation when every migration on disk is already recorded as applied —
+    # one recorder query plus load_disk, no graph, no state render, no signals.
+    # Any targeted/fancy invocation (app label, --fake, --run-syncdb, --check, ...)
+    # and any error falls through to the original handler, so a cold DB, a PR's
+    # unapplied migrations, and migration-framework tests behave exactly as before.
+    from django.core.management.commands import migrate as migrate_cmd  # noqa: PLC0415 — deferred import
+
+    orig_handle = migrate_cmd.Command.handle
+
+    def handle(self, *args, **options):
+        if not args and not options.get("app_label"):
+            passthrough_flags = ("migration_name", "fake", "fake_initial", "run_syncdb", "check_unapplied", "prune")
+            if not any(options.get(flag) for flag in passthrough_flags):
+                try:
+                    import pkgutil  # noqa: PLC0415
+                    import importlib  # noqa: PLC0415
+
+                    from django.apps import apps  # noqa: PLC0415
+                    from django.db import connections  # noqa: PLC0415
+                    from django.db.migrations.loader import MigrationLoader  # noqa: PLC0415
+                    from django.db.migrations.recorder import MigrationRecorder  # noqa: PLC0415
+
+                    # Discover on-disk migration names with pkgutil (same rule as
+                    # MigrationLoader.load_disk: skip subpackages and _/~ prefixes)
+                    # without importing every migration module (~1s for our tree).
+                    disk_migrations = set()
+                    for app_config in apps.get_app_configs():
+                        module_name, _explicit = MigrationLoader.migrations_module(app_config.label)
+                        if module_name is None:
+                            continue
+                        try:
+                            module = importlib.import_module(module_name)
+                        except ModuleNotFoundError:
+                            continue
+                        # Namespace/odd packages: defer to the real migrate rather than guessing.
+                        if not hasattr(module, "__path__"):
+                            raise LookupError(f"unexpected migrations module shape for {app_config.label}")
+                        for _finder, name, is_pkg in pkgutil.iter_modules(module.__path__):
+                            if not is_pkg and name[0] not in "_~":
+                                disk_migrations.add((app_config.label, name))
+
+                    connection = connections[options["database"]]
+                    recorder = MigrationRecorder(connection)
+                    if recorder.has_table() and disk_migrations <= recorder.applied_migrations().keys():
+                        if options.get("verbosity", 1) >= 1:
+                            self.stdout.write("All disk migrations already applied — skipping migrate.")
+                        return
+                except Exception:
+                    pass
+        return orig_handle(self, *args, **options)
+
+    handle.__wrapped__ = orig_handle  # exposes the original for the canary tests
+    migrate_cmd.Command.handle = handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
     _cheapen_freezegun_module_hash()
+    _skip_noop_migrate()
 
 
 def pytest_collection_finish() -> None:
