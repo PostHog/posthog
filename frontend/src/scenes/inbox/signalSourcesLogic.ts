@@ -23,8 +23,6 @@ import { captureSignalSourceConnected } from './inboxAnalytics'
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
-export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
-
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueCreated,
@@ -32,47 +30,75 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
-/** The GitHub warehouse tables the CI detectors read (SPEC: curated read layer). */
-export const CI_SIGNALS_REQUIRED_TABLES = ['workflow_runs', 'pull_requests', 'workflow_jobs']
+/** Warehouse-backed signal sources, keyed by roster source id. */
+export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
+
+type WarehouseSourceCompletion =
+    | {
+          kind: 'source_config'
+          sourceProduct: SignalSourceProduct
+          sourceType: SignalSourceType
+          enableErrorMessage: string
+      }
+    | { kind: 'ci_signals_bundle' }
 
 /**
- * Which signal source a data-warehouse setup flow was opened for — GitHub backs both
- * issue signals and CI signals, so completion must enable the right one.
+ * One registration per warehouse-backed signal source: the warehouse product that backs it, the
+ * tables its signals read (pre-selected in the wizard and forced to sync), and what enabling means
+ * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
  */
-export type DataSourceSetupIntent = 'issue_signals' | 'ci_signals'
-
-const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
-    DataWarehouseSource,
+export const WAREHOUSE_SOURCE_SETUP: Record<
+    WarehouseBackedSource,
     {
-        sourceProduct: SignalSourceProduct
-        sourceType: SignalSourceType
-        requiredTable: 'issues' | 'tickets'
-        enableErrorMessage: string
+        dwSourceType: ExternalDataSourceType
+        requiredTables: string[]
+        completion: WarehouseSourceCompletion
     }
 > = {
-    Github: {
-        sourceProduct: SignalSourceProduct.Github,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable GitHub Issues',
+    github: {
+        dwSourceType: 'Github',
+        requiredTables: ['issues'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Github,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable GitHub Issues',
+        },
     },
-    Linear: {
-        sourceProduct: SignalSourceProduct.Linear,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable Linear Issues',
+    linear: {
+        dwSourceType: 'Linear',
+        requiredTables: ['issues'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Linear,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable Linear Issues',
+        },
     },
-    Zendesk: {
-        sourceProduct: SignalSourceProduct.Zendesk,
-        sourceType: SignalSourceType.Ticket,
-        requiredTable: 'tickets',
-        enableErrorMessage: 'Failed to enable Zendesk Tickets',
+    zendesk: {
+        dwSourceType: 'Zendesk',
+        requiredTables: ['tickets'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Zendesk,
+            sourceType: SignalSourceType.Ticket,
+            enableErrorMessage: 'Failed to enable Zendesk Tickets',
+        },
     },
-    PgAnalyze: {
-        sourceProduct: SignalSourceProduct.Pganalyze,
-        sourceType: SignalSourceType.Issue,
-        requiredTable: 'issues',
-        enableErrorMessage: 'Failed to enable pganalyze',
+    pganalyze: {
+        dwSourceType: 'PgAnalyze',
+        requiredTables: ['issues', 'servers'],
+        completion: {
+            kind: 'source_config',
+            sourceProduct: SignalSourceProduct.Pganalyze,
+            sourceType: SignalSourceType.Issue,
+            enableErrorMessage: 'Failed to enable pganalyze',
+        },
+    },
+    engineering_analytics: {
+        dwSourceType: 'Github',
+        requiredTables: ['workflow_runs', 'pull_requests', 'workflow_jobs'],
+        completion: { kind: 'ci_signals_bundle' },
     },
 }
 
@@ -84,20 +110,23 @@ interface SignalSourcesLogicValuesForDw {
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
 }
 
-function getDataWarehouseSourceConfig(
+function getWarehouseSourceConfig(
     values: SignalSourcesLogicValuesForDw,
-    dwSource: DataWarehouseSource
+    source: WarehouseBackedSource
 ): SignalSourceConfig | null {
-    if (dwSource === 'Github') {
+    if (source === 'github') {
         return values.githubIssuesConfig
     }
-    if (dwSource === 'Linear') {
+    if (source === 'linear') {
         return values.linearIssuesConfig
     }
-    if (dwSource === 'PgAnalyze') {
+    if (source === 'pganalyze') {
         return values.pgAnalyzeIssuesConfig
     }
-    return values.zendeskTicketsConfig
+    if (source === 'zendesk') {
+        return values.zendeskTicketsConfig
+    }
+    return null
 }
 
 function toggleSourceConfigState(
@@ -148,14 +177,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openSessionAnalysisSetup: true,
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
-        toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => ({ dwSource }),
-        initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => ({ dwSource }),
-        openDataSourceSetup: (product: ExternalDataSourceType, intent?: DataSourceSetupIntent) => ({
-            product,
-            intent: intent ?? ('issue_signals' as DataSourceSetupIntent),
-        }),
+        toggleDataWarehouseSource: (source: WarehouseBackedSource) => ({ source }),
+        initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
+        openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
-        onDataSourceSetupComplete: (product: ExternalDataSourceType) => ({ product }),
+        onDataSourceSetupComplete: true,
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
@@ -205,18 +231,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSessionAnalysisSetup: () => false,
             },
         ],
-        dataSourceSetupProduct: [
-            null as ExternalDataSourceType | null,
+        dataSourceSetupSource: [
+            null as WarehouseBackedSource | null,
             {
-                openDataSourceSetup: (_, { product }) => product,
+                openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
                 closeSourcesModal: () => null,
-            },
-        ],
-        dataSourceSetupIntent: [
-            'issue_signals' as DataSourceSetupIntent,
-            {
-                openDataSourceSetup: (_, { intent }) => intent,
             },
         ],
         sourceConfigs: {
@@ -226,9 +246,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     SignalSourceProduct.SessionReplay,
                     SignalSourceType.SessionAnalysisCluster
                 ),
-            toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { dwSource }) => {
-                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                return toggleSourceConfigState(state, sourceProduct, sourceType)
+            toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { source }) => {
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind !== 'source_config') {
+                    return state
+                }
+                return toggleSourceConfigState(state, completion.sourceProduct, completion.sourceType)
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
@@ -453,47 +476,51 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // Load external data sources so we can check connectivity when user toggles a source
                 actions.loadSources()
             },
-            initiateDataWarehouseSourceToggle: async ({ dwSource }) => {
-                const { requiredTable, enableErrorMessage } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                const sourceConfig = getDataWarehouseSourceConfig(values, dwSource)
+            initiateDataWarehouseSourceToggle: async ({ source }) => {
+                const { dwSourceType, requiredTables, completion } = WAREHOUSE_SOURCE_SETUP[source]
+                const sourceConfig = getWarehouseSourceConfig(values, source)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
                     const hasSource =
                         values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === dwSource
+                            (s: ExternalDataSource) => s.source_type === dwSourceType
                         ) ?? false
                     if (!hasSource) {
-                        actions.openDataSourceSetup(dwSource)
+                        actions.openDataSourceSetup(source)
                         return
                     }
                     try {
-                        await ensureRequiredTableSyncing(dwSource, requiredTable)
+                        for (const table of requiredTables) {
+                            await ensureRequiredTableSyncing(dwSourceType, table)
+                        }
                     } catch (error: any) {
-                        lemonToast.error(error?.detail || error?.message || enableErrorMessage)
+                        const fallback =
+                            completion.kind === 'source_config'
+                                ? completion.enableErrorMessage
+                                : 'Failed to enable source'
+                        lemonToast.error(error?.detail || error?.message || fallback)
                         return
                     }
                 }
-                actions.toggleDataWarehouseSource(dwSource)
+                actions.toggleDataWarehouseSource(source)
             },
-            onDataSourceSetupComplete: ({ product }: { product: ExternalDataSourceType }) => {
-                if (product === 'Github' && values.dataSourceSetupIntent === 'ci_signals') {
-                    actions.toggleCiSignals(true)
-                    actions.closeDataSourceSetup()
+            onDataSourceSetupComplete: () => {
+                const source = values.dataSourceSetupSource
+                actions.closeDataSourceSetup()
+                if (source === null) {
                     return
                 }
-                const mapping: Partial<
-                    Record<ExternalDataSourceType, { sourceProduct: SignalSourceProduct; sourceType: SignalSourceType }>
-                > = {
-                    Github: { sourceProduct: SignalSourceProduct.Github, sourceType: SignalSourceType.Issue },
-                    Linear: { sourceProduct: SignalSourceProduct.Linear, sourceType: SignalSourceType.Issue },
-                    Zendesk: { sourceProduct: SignalSourceProduct.Zendesk, sourceType: SignalSourceType.Ticket },
-                    PgAnalyze: { sourceProduct: SignalSourceProduct.Pganalyze, sourceType: SignalSourceType.Issue },
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind === 'ci_signals_bundle') {
+                    actions.toggleCiSignals(true)
+                    return
                 }
-                const mapped = mapping[product]
-                if (mapped) {
-                    actions.toggleSignalSource({ ...mapped, enabled: true, viaSetupWizard: true })
-                }
-                actions.closeDataSourceSetup()
+                actions.toggleSignalSource({
+                    sourceProduct: completion.sourceProduct,
+                    sourceType: completion.sourceType,
+                    enabled: true,
+                    viaSetupWizard: true,
+                })
             },
             toggleSignalSource: async ({ params }, breakpoint) => {
                 const { sourceProduct, sourceType, enabled, config } = params
@@ -593,12 +620,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         ) ?? false
                     if (!hasGithubSource) {
                         actions.toggleCiSignalsComplete()
-                        actions.openDataSourceSetup('Github', 'ci_signals')
+                        actions.openDataSourceSetup('engineering_analytics')
                         return
                     }
                     try {
-                        for (const tableName of CI_SIGNALS_REQUIRED_TABLES) {
-                            await ensureRequiredTableSyncing('Github', tableName)
+                        const ciSetup = WAREHOUSE_SOURCE_SETUP.engineering_analytics
+                        for (const tableName of ciSetup.requiredTables) {
+                            await ensureRequiredTableSyncing(ciSetup.dwSourceType, tableName)
                         }
                     } catch (error: any) {
                         actions.toggleCiSignalsComplete()
@@ -673,14 +701,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled: desiredEnabled,
                 })
             },
-            toggleDataWarehouseSource: ({ dwSource }) => {
-                const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
-                const config = getDataWarehouseSourceConfig(values, dwSource)
-                const desiredEnabled = config?.enabled ?? true
+            toggleDataWarehouseSource: ({ source }) => {
+                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
+                if (completion.kind !== 'source_config') {
+                    return
+                }
+                const config = getWarehouseSourceConfig(values, source)
                 actions.toggleSignalSource({
-                    sourceProduct,
-                    sourceType,
-                    enabled: desiredEnabled,
+                    sourceProduct: completion.sourceProduct,
+                    sourceType: completion.sourceType,
+                    enabled: config?.enabled ?? true,
                 })
             },
             saveSessionAnalysisFilters: async ({ filters }) => {

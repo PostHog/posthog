@@ -4,6 +4,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { percentage } from 'lib/utils/numbers'
 import type { SignalNode } from 'scenes/debug/signals/types'
+import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 
 import type {
     EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi,
@@ -33,7 +34,7 @@ function hasRepoWorkflow(value: unknown): value is RepoWorkflowExtra {
 function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
     const extra = signal.extra
     switch (signal.source_type) {
-        case 'ci_flaky_check': {
+        case SignalSourceType.CiFlakyCheck: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIFlakyCheckSignalExtraApi
             return (
                 <LemonTag type="warning" size="small" icon={<IconWarning />}>
@@ -41,7 +42,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
                 </LemonTag>
             )
         }
-        case 'ci_broken_default_branch': {
+        case SignalSourceType.CiBrokenDefaultBranch: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
             return (
                 <LemonTag type="danger" size="small" icon={<IconWarning />}>
@@ -49,7 +50,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
                 </LemonTag>
             )
         }
-        case 'ci_duration_regression': {
+        case SignalSourceType.CiDurationRegression: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIDurationRegressionSignalExtraApi
             return (
                 <LemonTag type="warning" size="small" icon={<IconClock />}>
@@ -90,6 +91,6 @@ export function EngineeringAnalyticsSignalCard({ signal }: SignalCardProps): JSX
 
 export const engineeringAnalyticsSignalCardEntry: SignalCardEntry = {
     key: 'engineering_analytics',
-    matches: (signal: SignalNode) => signal.source_product === 'engineering_analytics',
+    matches: (signal: SignalNode) => signal.source_product === SignalSourceProduct.EngineeringAnalytics,
     Component: EngineeringAnalyticsSignalCard,
 }
