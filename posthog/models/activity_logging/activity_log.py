@@ -95,6 +95,8 @@ ActivityScope = Literal[
     "SignalScoutConfig",
     "StreamlitApp",
     "Metric",
+    "TableCertification",
+    "Billing",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -508,7 +510,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
-        "caching_states",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",

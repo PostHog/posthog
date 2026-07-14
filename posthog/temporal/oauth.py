@@ -16,6 +16,20 @@ POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 
+# Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
+# are only ever created server-side (never via the consent flow or personal API keys),
+# so a request bearing one provably originates from a sandbox run.
+SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        ARRAY_APP_CLIENT_ID_US,
+        ARRAY_APP_CLIENT_ID_EU,
+        ARRAY_APP_CLIENT_ID_DEV,
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+    }
+)
+
 McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
 

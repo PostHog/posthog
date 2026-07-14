@@ -589,7 +589,7 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
@@ -805,7 +805,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
@@ -825,7 +825,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
@@ -1821,12 +1821,23 @@ export type FunnelsFilter = {
     chartStyle?: ChartStyle
 }
 
+// Named separately from `FunnelsQuerySeriesNode` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricSourceUnion = ExperimentMetricSource`). The alias is
+// the public type — callers continue to use `FunnelsQuerySeriesNode`.
+/**
+ * @discriminator kind
+ */
+export type FunnelsQuerySeriesNodeUnion = EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode
+
+export type FunnelsQuerySeriesNode = FunnelsQuerySeriesNodeUnion
+
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
+    series: FunnelsQuerySeriesNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -4045,6 +4056,7 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'visual_review'
+    | 'code_review'
     | 'settings'
     | 'health'
     | 'inbox'
@@ -5049,8 +5061,10 @@ export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
-    format: string
-    url_pattern: string
+    /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
+    format?: string
+    /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
+    url_pattern?: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
     /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
@@ -5289,6 +5303,13 @@ export interface FunnelsAlertConfig {
     funnel_step?: integer | null
     metric: FunnelConversionMetric
     /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean
+}
+
+/** Alert config for metrics insights. Every series the query returns is evaluated; the alert fires if any breaches. */
+export interface MetricsAlertConfig {
+    type: 'MetricsAlertConfig'
+    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
 }
 
@@ -8043,6 +8064,7 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    REVIEW_HOG = 'review_hog',
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',

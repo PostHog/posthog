@@ -78,17 +78,25 @@ const deniedPatterns = [
 ]
 
 /**
- * The toolbar includes many parts of the main posthog app,
- * but we don't want to include everything in the toolbar bundle.
- * Partly because it would be too big, and partly because some things
- * in the main app cause problems for people using CSPs on their sites.
+ * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
+ * the toolbar must not ship: no tree shaking rescues it (no sideEffects annotations yet),
+ * and app code shouldn't contort itself for the toolbar. So imports are replaced at
+ * resolve time:
  *
- * It wasn't possible to tree-shake the dependencies out of the bundle,
- * and we don't want to change the app code significantly just for the toolbar.
+ * - Shimmed modules get swapped for lightweight stand-ins (kea logics satisfying connect()
+ *   contracts, and the parity-tested urls duplicate). These are intentional injection
+ *   points, not tech debt — the toolbar genuinely needs different answers (its own team
+ *   context, no scene routing) than the app.
+ * - Denied modules get replaced with an inert proxy. Every deny is load-bearing (verified
+ *   empirically, 2026-07): removing them all re-inlines 125 MiB of source via
+ *   PayGateMini -> scenes/billing, and even with billing still denied the lib-zone paths
+ *   (CodeSnippet -> monaco, Sparkline/LineGraph -> chart.js, replay player, query schema)
+ *   push the eager set from 1.5 MB to 8.8 MB. Retiring a deny requires first cutting its
+ *   import path at the source (.agents/toolbar-migration.md).
  *
- * So instead we replace some imports in the toolbar:
- * - Shimmed modules get swapped for lightweight kea logics (needed by connect())
- * - Denied modules get replaced with an inert proxy
+ * The enforced invariants live in bin/check-toolbar-size.mjs (eager-chunk budget, per-file
+ * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
+ * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
 function createToolbarModulePlugin(dirname) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's

@@ -8,12 +8,12 @@ from datetime import timedelta
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.db import connection
 from django.http import StreamingHttpResponse
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
@@ -34,6 +34,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
+    cloud_usage_limit_response,
+    code_access_required_response,
     get_posthog_code_usage,
 )
 from products.tasks.backend.logic.services.connection_token import (
@@ -2401,6 +2403,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("low",),
             ("medium",),
             ("high",),
+            # xhigh is load-bearing: ReviewHog pins it for its one-shot and review runs.
+            ("xhigh",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2428,17 +2432,18 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
-        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
-        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
-        # rejection capture also fires for a model that has some supported efforts.
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-4-6 supports low/medium/high but not xhigh (claude-sonnet-5 accepts the
+        # full set, ReviewHog pins its xhigh) - this pins the "Supported values: <non-empty list>"
+        # message and confirms the rejection capture also fires for a model with some supported
+        # efforts.
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
             },
             format="json",
@@ -2450,7 +2455,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
             ),
             "attr": "reasoning_effort",
         }
@@ -2462,11 +2467,11 @@ class TestTaskAPI(BaseTaskAPITest):
             event="task run reasoning effort rejected",
             properties={
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
                 "error": (
                     "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
                 ),
             },
             groups=ANY,
@@ -3339,6 +3344,27 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(automation.cron_expression, "0 9 * * *")
         mock_sync_schedule.assert_called_once_with(automation)
 
+    @patch("products.tasks.backend.automation_service.sync_automation_schedule")
+    def test_create_automation_requires_code_access(self, mock_sync_schedule):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(
+            "/api/projects/@current/task_automations/",
+            {
+                "name": "Daily PRs",
+                "prompt": "Check my GitHub PRs",
+                "repository": "posthog/posthog",
+                "cron_expression": "0 9 * * *",
+                "timezone": "Europe/London",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertFalse(TaskAutomation.objects.exists())
+        mock_sync_schedule.assert_not_called()
+
     def test_list_automations(self):
         automation = self.create_automation()
 
@@ -3451,6 +3477,25 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertFalse(automation.enabled)
         mock_sync_schedule.assert_called_once_with(automation)
 
+    @patch("products.tasks.backend.automation_service.sync_automation_schedule")
+    def test_enable_automation_requires_code_access(self, mock_sync_schedule):
+        automation = self.create_automation()
+        automation.enabled = False
+        automation.save(update_fields=["enabled", "updated_at"])
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.patch(
+            f"/api/projects/@current/task_automations/{automation.id}/",
+            {"enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        automation.refresh_from_db()
+        self.assertFalse(automation.enabled)
+        mock_sync_schedule.assert_not_called()
+
     @patch("products.tasks.backend.facade.api._sync_automation_schedule")
     def test_update_automation_rolls_back_automation_when_task_update_fails(self, mock_sync_schedule):
         automation = self.create_automation()
@@ -3488,6 +3533,17 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_run_task_automation.assert_called_once_with(str(automation.id))
+
+    @patch("products.tasks.backend.automation_service.run_task_automation")
+    def test_run_requires_code_access(self, mock_run_task_automation):
+        self.set_tasks_feature_flag(False)
+        automation = self.create_automation()
+
+        response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_run_task_automation.assert_not_called()
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -3728,17 +3784,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
+                "use_modal_vm_sandbox": False,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
+                "workflow_id": "wf-real",
+                "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
         # credential-propagation target at a sandbox they control, inflate the run's compute /
-        # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
+        # lifetime to provision an oversized, long-lived sandbox, turn the run into a wizard run
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
-        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
+        # decisions, change Modal resume snapshot metadata, repoint the run at another
+        # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
+        # scopes) via pending_dispatch. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3752,9 +3813,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
                     "use_modal_directory_resume_snapshots": False,
+                    "use_modal_vm_sandbox": True,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
+                    "workflow_id": "wf-another-teams-workflow",
+                    "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
                     "scratch": "ok",
                 }
             },
@@ -3771,9 +3835,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_directory_resume_snapshots"] is True
+        assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
+        assert run.state["workflow_id"] == "wf-real"
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -3785,9 +3852,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
+                    "use_modal_vm_sandbox",
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
+                    "workflow_id",
+                    "pending_dispatch",
                     "scratch",
                 ],
             },
@@ -3798,9 +3868,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
+        assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
+        assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -5999,6 +6072,208 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunCancelAPI(BaseTaskAPITest):
+    def _cancel_url(self, task, run) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/cancel/"
+
+    def _create_run(self, task, **kwargs) -> TaskRun:
+        kwargs.setdefault("status", TaskRun.Status.IN_PROGRESS)
+        kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
+        return TaskRun.objects.create(task=task, team=self.team, **kwargs)
+
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled")
+    def test_cancel_interrupts_turn_then_signals_workflow(
+        self, mock_signal, mock_send_cancel, _mock_token, mock_capture
+    ):
+        task = self.create_task()
+        run = self._create_run(task)
+        order = MagicMock()
+        order.attach_mock(mock_send_cancel, "send_cancel")
+        order.attach_mock(mock_signal, "signal")
+
+        response = self.client.post(self._cancel_url(task, run), {"reason": "changed my mind"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        direct_calls = [name for name, _args, _kwargs in order.mock_calls if name in ("send_cancel", "signal")]
+        self.assertEqual(direct_calls, ["send_cancel", "signal"])
+        self.assertEqual(mock_signal.call_args.args[1], TaskRun.Status.CANCELLED)
+        self.assertEqual(mock_signal.call_args.args[2], "changed my mind")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+        self.assertEqual(run.state.get("cancel_source"), "api")
+        self.assertIsNotNone(run.state.get("cancel_requested_at"))
+        self.assertEqual(run.state.get("cancel_requested_by_user_id"), self.user.id)
+
+        cancel_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_cancel_requested"]
+        self.assertEqual(len(cancel_events), 1)
+        self.assertEqual(cancel_events[0].kwargs["properties"]["cancel_source"], "api")
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_finalizes_run_when_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(
+            task,
+            status=TaskRun.Status.NOT_STARTED,
+            state={"sandbox_id": "sandbox-123"},
+        )
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                return_value=True,
+            ) as publish_complete,
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        publish_complete.assert_called_once_with(str(run.id), False)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertIsNotNone(run.completed_at)
+        self.assertEqual(run.error_message, "Stopped by user")
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_returns_503_when_workflow_gone_cleanup_fails(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+        sandbox.destroy.side_effect = RuntimeError("destroy failed")
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
+            ) as publish_complete,
+        ):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        publish_complete.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="workflow_gone")
+    def test_cancel_retry_repairs_stream_after_workflow_gone(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task, state={"sandbox_id": "sandbox-123"})
+        sandbox = MagicMock()
+        sandbox.stop_agent_server.return_value.exit_code = 0
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
+                side_effect=[False, True],
+            ) as publish_complete,
+        ):
+            first_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+            second_response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(first_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sandbox.method_calls, [call.stop_agent_server(), call.destroy()])
+        self.assertEqual(publish_complete.call_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.CANCELLED)
+        self.assertFalse(run.state["cancel_fallback_cleanup_complete"])
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    def test_cancel_preserves_terminal_status_when_workflow_closes_during_signal(self, mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        def close_workflow(*_args):
+            TaskRun.objects.filter(id=run.id).update(
+                status=TaskRun.Status.COMPLETED,
+                completed_at=django_timezone.now(),
+            )
+            return "workflow_gone"
+
+        with patch("products.tasks.backend.facade.cancellation._signal_complete_task", side_effect=close_workflow):
+            response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_cancel.assert_called_once()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
+    def test_cancel_already_terminal_is_idempotent(self, mock_signal, mock_send_cancel):
+        task = self.create_task()
+        run = self._create_run(task, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_signal.assert_not_called()
+        mock_send_cancel.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task")
+    def test_cancel_rejects_local_runs(self, mock_signal, _mock_send_cancel):
+        task = self.create_task()
+        run = self._create_run(task, environment=TaskRun.Environment.LOCAL)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_signal.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    @patch("products.tasks.backend.facade.api.create_sandbox_connection_token", return_value="token")
+    @patch("products.tasks.backend.facade.api.send_cancel")
+    @patch("products.tasks.backend.facade.cancellation._signal_complete_task", return_value="unavailable")
+    def test_cancel_returns_503_when_temporal_unavailable(self, _mock_signal, _mock_send_cancel, _mock_token):
+        task = self.create_task()
+        run = self._create_run(task)
+
+        response = self.client.post(self._cancel_url(task, run), {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    def test_cancel_unknown_run_returns_404(self):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{uuid.uuid4()}/cancel/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
 class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
     """Tests for the GET .../session_logs/ endpoint that returns filtered log entries."""
 
@@ -7102,6 +7377,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertTrue(data["result"]["queued"])
 
         mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_user_message_requires_code_access(self, mock_signal_followup):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_signal_followup.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
@@ -8229,6 +8520,39 @@ class TestCloudUsageGate(BaseTaskAPITest):
             status=status_value,
         )
 
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": "posthog/posthog", "github_integration": 123},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        mock_warm.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_gate.assert_not_called()
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
@@ -8410,6 +8734,28 @@ class TestGetPosthogCodeUsage(TestCase):
     def test_fails_open_when_no_gateway_url(self, mock_token):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
         mock_token.assert_not_called()
+
+
+class TestCloudUsageGateResponse(SimpleTestCase):
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access")
+    def test_missing_code_access_returns_403_before_usage_check(self, mock_access, mock_usage):
+        mock_access.return_value = False
+
+        response = cloud_usage_limit_response(MagicMock(), 1)
+
+        assert response is not None
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "code_access_required")
+        mock_usage.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
+    def test_code_access_required_response_is_structured(self, _mock_access):
+        response = code_access_required_response(MagicMock())
+
+        assert response is not None
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "code_access_required")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:
