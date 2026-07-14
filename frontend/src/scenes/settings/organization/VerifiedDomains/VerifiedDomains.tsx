@@ -90,6 +90,7 @@ function DomainsTable(): JSX.Element {
             render: (_, domain) => (
                 <LemonSwitch
                     checked={domain.jit_provisioning_enabled ?? false}
+                    bordered
                     disabled={updatingDomainLoading}
                     disabledReason={restrictionReason}
                     onChange={(checked) => updateDomain({ id: domain.id, jit_provisioning_enabled: checked })}

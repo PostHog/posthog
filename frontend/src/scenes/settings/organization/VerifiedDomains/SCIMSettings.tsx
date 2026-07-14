@@ -66,12 +66,13 @@ export function SCIMSettings(): JSX.Element {
                     </Link>
                 ) : (
                     <Form logic={verifiedDomainsLogic} formKey="scimConfig" enableFormOnSubmit className="space-y-4">
-                        <LemonField name="scim_enabled" label="Provisioning status">
+                        <LemonField name="scim_enabled">
                             {({ value, onChange }) => (
                                 <LemonSwitch
                                     checked={value || false}
                                     onChange={onChange}
                                     label="SCIM provisioning"
+                                    bordered
                                 />
                             )}
                         </LemonField>
