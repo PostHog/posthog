@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
+    HogFlowsDiscardDraftCreateParams,
     HogFlowsInvocationResultRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsInvocationResultsRetrieveQueryParams,
@@ -18,6 +19,8 @@ import {
     HogFlowsMetricsRetrieveQueryParams,
     HogFlowsPartialUpdateBody,
     HogFlowsPartialUpdateParams,
+    HogFlowsPublishCreateBody,
+    HogFlowsPublishCreateParams,
     HogFlowsRetrieveParams,
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
@@ -241,6 +244,48 @@ const workflowsPatchGraph = (): ToolBase<typeof WorkflowsPatchGraphSchema, Schem
     },
 })
 
+const WorkflowsPublishSchema = HogFlowsPublishCreateParams.omit({ project_id: true }).extend(
+    HogFlowsPublishCreateBody.shape
+)
+
+const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, WithPostHogUrl<Schemas.HogFlowPublishResponse>> =>
+    withUiApp('workflow', {
+        name: 'workflows-publish',
+        schema: WorkflowsPublishSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsPublishSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.confirm !== undefined) {
+                body['confirm'] = params.confirm
+            }
+            if (params.draft_updated_at !== undefined) {
+                body['draft_updated_at'] = params.draft_updated_at
+            }
+            const result = await context.api.request<Schemas.HogFlowPublishResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+        },
+    })
+
+const WorkflowsDiscardDraftSchema = HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
+
+const workflowsDiscardDraft = (): ToolBase<typeof WorkflowsDiscardDraftSchema, Schemas.HogFlow> =>
+    withUiApp('workflow', {
+        name: 'workflows-discard-draft',
+        schema: WorkflowsDiscardDraftSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsDiscardDraftSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.HogFlow>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/discard_draft/`,
+            })
+            return result
+        },
+    })
+
 const WorkflowsStatsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
     HogFlowsMetricsRetrieveQueryParams.shape
 )
@@ -383,6 +428,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-logs': workflowsLogs,
     'workflows-patch-graph': workflowsPatchGraph,
+    'workflows-publish': workflowsPublish,
+    'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
