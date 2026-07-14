@@ -10896,6 +10896,31 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
 
+    def test_integration_of_another_kind_is_rejected(self):
+        # Same team, so the (id, team_id) lookup each source does would accept it: only the kind check
+        # stops this Bing token from being sent to LinkedIn's API.
+        integration = self._bing_integration()
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
+
+    def test_integration_from_another_team_is_rejected(self):
+        other_team = Team.objects.create(organization=self.organization)
+        integration = Integration.objects.create(
+            team=other_team,
+            kind="linkedin-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="linkedin_other_team",
+        )
+        with patch(f"{self._LINKEDIN_MODULE}.linkedin_ads_client_for_integration") as client_for_integration:
+            response = self.client.get(self._url("LinkedinAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        client_for_integration.assert_not_called()
+
     @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
     def test_bing_success_returns_accounts(self):
         integration = self._bing_integration()
