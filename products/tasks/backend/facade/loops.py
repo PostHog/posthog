@@ -60,6 +60,14 @@ NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "needs_atten
 ALLOWED_GITHUB_TRIGGER_EVENTS = ("issues", "issue_comment", "pull_request", "push")
 MAX_LOOP_REPOSITORIES = 1
 
+# Abuse/DoS ceilings. Each schedule trigger mints one Temporal Schedule and each loop can fire
+# LOOP_RATE_CAP_PER_DAY times, so these two caps together bound a team's total schedule count
+# (MAX_LOOPS_PER_TEAM * MAX_TRIGGERS_PER_LOOP) and daily run volume. Keep them generous enough
+# for real use but low enough that a runaway script or leaked credential can't overwhelm the
+# scheduler. Raising them is a deliberate, per-request-to-support decision.
+MAX_LOOPS_PER_TEAM = 100
+MAX_TRIGGERS_PER_LOOP = 25
+
 DEFAULT_LOOP_RUN_PAGE_SIZE = 50
 MAX_LOOP_RUN_PAGE_SIZE = 100
 
@@ -87,6 +95,19 @@ class LoopPermissionError(Exception):
 
     Callers (the view layer) should catch this and translate to a 403.
     """
+
+
+class LoopLimitError(Exception):
+    """Raised when a write is rejected by an abuse/safety ceiling (loops per team, triggers per
+    loop). Carries a stable machine-readable `code` and the `limit` that was hit so the view can
+    return a structured response the frontend can articulate to the user, distinct from a
+    generic validation error. Callers translate to a 429."""
+
+    def __init__(self, code: str, limit: int, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.limit = limit
+        self.detail = detail
 
 
 # --- Contract types ---
@@ -440,6 +461,24 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
     data = dict(validated_data)
     trigger_payloads = data.pop("triggers", None) or []
 
+    if len(trigger_payloads) > MAX_TRIGGERS_PER_LOOP:
+        raise LoopLimitError(
+            code="max_triggers_per_loop",
+            limit=MAX_TRIGGERS_PER_LOOP,
+            detail=f"A loop can have at most {MAX_TRIGGERS_PER_LOOP} triggers.",
+        )
+
+    existing_loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False).count()
+    if existing_loops >= MAX_LOOPS_PER_TEAM:
+        raise LoopLimitError(
+            code="max_loops_per_team",
+            limit=MAX_LOOPS_PER_TEAM,
+            detail=(
+                f"This project has reached the limit of {MAX_LOOPS_PER_TEAM} loops. "
+                "Delete a loop to make room, or contact support to raise the limit."
+            ),
+        )
+
     with transaction.atomic():
         loop = Loop.objects.create(
             team_id=team_id,
@@ -528,6 +567,13 @@ def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
     deleted, so a crash between the two leaves an orphaned-but-recoverable state for the
     reconciliation sweep rather than a dangling Temporal schedule.
     """
+    if len(trigger_payloads) > MAX_TRIGGERS_PER_LOOP:
+        raise LoopLimitError(
+            code="max_triggers_per_loop",
+            limit=MAX_TRIGGERS_PER_LOOP,
+            detail=f"A loop can have at most {MAX_TRIGGERS_PER_LOOP} triggers.",
+        )
+
     existing_by_id: dict[UUID, LoopTrigger] = {trigger.id: trigger for trigger in loop.triggers.all()}
     seen_ids: set[UUID] = set()
     to_sync: list[LoopTrigger] = []
@@ -702,7 +748,10 @@ __all__ = [
     "LoopNotificationChannelDTO",
     "LoopNotificationsDTO",
     "LoopOverlapPolicy",
+    "LoopLimitError",
     "LoopPermissionError",
+    "MAX_LOOPS_PER_TEAM",
+    "MAX_TRIGGERS_PER_LOOP",
     "LoopPreviewDTO",
     "LoopRepositoryEntryDTO",
     "LoopRunDTO",

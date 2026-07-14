@@ -29,6 +29,9 @@ from products.tasks.backend.temporal.process_task.utils import get_default_model
 logger = logging.getLogger(__name__)
 
 LOOP_RATE_CAP_PER_DAY = 100
+# Aggregate ceiling across all of a team's loops, so N loops can't each spend the per-loop cap
+# and collectively swamp the run pipeline. Sits above the per-loop cap on purpose.
+LOOP_TEAM_RATE_CAP_PER_DAY = 500
 LOOP_AUTO_PAUSE_THRESHOLD = 5
 TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 
@@ -149,6 +152,11 @@ def fire_loop(
         dispatch_loop_event(loop, "needs_attention", {"reason": "rate_capped"})
         return LoopFireResult(created=False, reason="rate_capped", task_id=None, task_run_id=None)
 
+    if _team_rate_capped(loop):
+        observe_loop_fire(reason="team_rate_capped")
+        dispatch_loop_event(loop, "needs_attention", {"reason": "team_rate_capped"})
+        return LoopFireResult(created=False, reason="team_rate_capped", task_id=None, task_run_id=None)
+
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [str(loop.id)])
@@ -204,6 +212,12 @@ def _rate_capped(loop: Loop) -> bool:
         .count()
     )
     return fire_count >= LOOP_RATE_CAP_PER_DAY
+
+
+def _team_rate_capped(loop: Loop) -> bool:
+    since = django_timezone.now() - timedelta(hours=24)
+    fire_count = LoopFire.objects.for_team(loop.team_id, canonical=True).filter(created_at__gte=since).count()
+    return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
 def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:

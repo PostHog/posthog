@@ -13,6 +13,7 @@ from posthog.models.user import User
 from products.tasks.backend.logic.services.loop_runs import (
     LOOP_AUTO_PAUSE_THRESHOLD,
     LOOP_RATE_CAP_PER_DAY,
+    LOOP_TEAM_RATE_CAP_PER_DAY,
     TRIGGER_CONTEXT_MAX_BYTES,
     fire_loop,
     handle_loop_run_terminal,
@@ -195,6 +196,28 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "rate_capped")
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
         mock_dispatch.assert_called_once_with(loop, "needs_attention", {"reason": "rate_capped"})
+
+    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):
+        # Two loops each below the per-loop cap, but together over the team aggregate: the
+        # team cap must still stop the fire, or N loops would each spend the per-loop cap.
+        noisy = self.create_loop()
+        noisy_trigger = self.create_trigger(noisy)
+        fresh = self.create_loop()
+        fresh_trigger = self.create_trigger(fresh)
+        LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
+            [
+                LoopFire(team=self.team, loop_trigger=noisy_trigger, fire_key=f"team-seed-{i}")
+                for i in range(LOOP_TEAM_RATE_CAP_PER_DAY)
+            ]
+        )
+
+        with patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event") as mock_dispatch:
+            result = fire_loop(fresh, fresh_trigger, "team-over-cap", "ctx")
+
+        self.assertFalse(result.created)
+        self.assertEqual(result.reason, "team_rate_capped")
+        mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
 
     @parameterized.expand(
         [

@@ -14,6 +14,7 @@ from posthog.models import Organization, PersonalAPIKey, ProjectSecretAPIKey, Te
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
+from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
 
@@ -135,6 +136,42 @@ class LoopBehaviorsAPITest(LoopsAPITestCase):
         updated = self.owner_client.patch(self._loop_url(loop_id), {"behaviors": toggled_off}, format="json")
         self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.content)
         self.assertEqual(Loop.objects.unscoped().get(id=loop_id).behaviors, toggled_off)
+
+
+class LoopSafetyLimitAPITest(LoopsAPITestCase):
+    def test_too_many_triggers_rejected(self):
+        triggers = [
+            {"type": "schedule", "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"}}
+            for _ in range(loops_facade.MAX_TRIGGERS_PER_LOOP + 1)
+        ]
+        response = self.owner_client.post(self._loops_url(), self._valid_loop_payload(triggers=triggers), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        body = response.json()
+        self.assertEqual(body["code"], "max_length")
+        self.assertIn("triggers", body["attr"])
+        # No schedules should have been minted for a rejected create.
+        self.mock_sync_loop_trigger_schedule.assert_not_called()
+
+    def test_loops_per_team_cap_returns_structured_429(self):
+        with patch("products.tasks.backend.facade.loops.MAX_LOOPS_PER_TEAM", 2):
+            self._create_loop(self.owner_client)
+            self._create_loop(self.owner_client)
+            blocked = self.owner_client.post(self._loops_url(), self._valid_loop_payload(), format="json")
+
+        self.assertEqual(blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS, blocked.content)
+        body = blocked.json()
+        self.assertEqual(body["error"], "loop_safety_limit")
+        self.assertEqual(body["code"], "max_loops_per_team")
+        self.assertEqual(body["limit"], 2)
+        self.assertEqual(Loop.objects.unscoped().filter(team=self.team, deleted=False).count(), 2)
+
+    def test_soft_deleted_loops_do_not_count_toward_cap(self):
+        with patch("products.tasks.backend.facade.loops.MAX_LOOPS_PER_TEAM", 1):
+            first = self._create_loop(self.owner_client)["id"]
+            self.owner_client.delete(self._loop_url(first))
+            # The freed slot lets a new loop through.
+            allowed = self.owner_client.post(self._loops_url(), self._valid_loop_payload(), format="json")
+        self.assertEqual(allowed.status_code, status.HTTP_201_CREATED, allowed.content)
 
 
 class LoopVisibilityAPITest(LoopsAPITestCase):

@@ -35,6 +35,16 @@ from products.tasks.backend.presentation.serializers_loops import (
 MAX_LOOP_TRIGGER_PAYLOAD_BYTES = 64 * 1024
 
 
+def _loop_limit_response(exc: "loops_facade.LoopLimitError") -> Response:
+    """Structured 429 for abuse/safety ceilings. `error: "loop_safety_limit"` is the stable
+    marker the frontend keys off to tell the user they hit a limit (course-correct or contact
+    support) rather than showing a generic failure."""
+    return Response(
+        {"error": "loop_safety_limit", "code": exc.code, "limit": exc.limit, "detail": exc.detail},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
 class LoopsPagination(LimitOffsetPagination):
     default_limit = 50
     max_limit = 100
@@ -156,10 +166,20 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(LoopSerializer(loop).data)
 
-    @extend_schema(summary="Create a loop", request=LoopWriteSerializer, responses={201: LoopSerializer})
+    @extend_schema(
+        summary="Create a loop",
+        request=LoopWriteSerializer,
+        responses={
+            201: LoopSerializer,
+            429: OpenApiResponse(description="A per-team loop or per-loop trigger safety limit was reached"),
+        },
+    )
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data)
-        loop = loops_facade.create_loop(self.team_id, request.user, dict(serializer.validated_data))
+        try:
+            loop = loops_facade.create_loop(self.team_id, request.user, dict(serializer.validated_data))
+        except loops_facade.LoopLimitError as exc:
+            return _loop_limit_response(exc)
         return Response(LoopSerializer(loop).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -174,12 +194,15 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: LoopSerializer,
             403: OpenApiResponse(description="Not permitted to change these fields"),
             404: OpenApiResponse(description="Loop not found"),
+            429: OpenApiResponse(description="A per-loop trigger safety limit was reached"),
         },
     )
     def partial_update(self, request, pk=None, **kwargs):
         serializer = self._write_serializer(request.data, partial=True)
         try:
             loop = loops_facade.update_loop(pk, self.team_id, request.user, dict(serializer.validated_data))
+        except loops_facade.LoopLimitError as exc:
+            return _loop_limit_response(exc)
         except loops_facade.LoopPermissionError as exc:
             raise PermissionDenied(str(exc))
         if loop is None:

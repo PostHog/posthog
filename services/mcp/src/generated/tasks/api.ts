@@ -276,7 +276,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched.'
+                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
             ),
     })
     .describe(
@@ -541,7 +541,7 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched.'
+                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
             ),
     })
     .describe(
