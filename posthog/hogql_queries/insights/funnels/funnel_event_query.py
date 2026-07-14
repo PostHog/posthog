@@ -263,7 +263,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
         date_range = self._date_range()
-        where_exprs: list[ast.Expr] = [
+        where_exprs: list[ast.Expr | None] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
@@ -274,10 +274,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_range.date_to()),
             ),
+            self._day_of_week_filter_expr(ast.Field(chain=["timestamp"])),
         ]
-        day_of_week_filter = self._day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
-        if day_of_week_filter is not None:
-            where_exprs.append(day_of_week_filter)
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         if not skip_step_filter:
