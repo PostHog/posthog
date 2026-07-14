@@ -22,6 +22,13 @@ DESTINATION_TEMPLATE_IDS: dict[DestinationType, str] = {
     DestinationType.TEAMS: "template-microsoft-teams",
 }
 
+DESTINATION_REQUIRED_FIELDS: dict[DestinationType, tuple[str, ...]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.WEBHOOK: ("webhook_url",),
+    DestinationType.TEAMS: ("webhook_url",),
+}
+
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 

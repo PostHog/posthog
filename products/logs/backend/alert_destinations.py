@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, NotRequired, TypedDict
 
 from products.alerts.backend.destination_configs import (
+    DESTINATION_REQUIRED_FIELDS,
     DESTINATION_TEMPLATE_IDS,
     WEBHOOK_HEADERS,
     AlertDestinationConfig,
@@ -169,13 +170,6 @@ _SLACK_CONTEXT_ELEMENTS = (
 )
 
 
-REQUIRED_DESTINATION_FIELDS: dict[DestinationType, tuple[str, ...]] = {
-    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id"),
-    DestinationType.WEBHOOK: ("webhook_url",),
-    DestinationType.TEAMS: ("webhook_url",),
-}
-
-
 def validate_destination_data(data: AlertDestinationData) -> None:
     raw_destination_type = data.get("type")
     try:
@@ -190,7 +184,7 @@ def validate_destination_data(data: AlertDestinationData) -> None:
         choices = ", ".join(f"{choice.label} ({choice.value})" for choice in LOGS_DESTINATION_TYPES)
         raise AlertDestinationValidationError(f"Choose a supported destination type: {choices}.", field="type")
 
-    missing_fields = tuple(field for field in REQUIRED_DESTINATION_FIELDS[destination_type] if not data.get(field))
+    missing_fields = tuple(field for field in DESTINATION_REQUIRED_FIELDS[destination_type] if not data.get(field))
     if len(missing_fields) == 1:
         missing_field = missing_fields[0]
         raise AlertDestinationValidationError(
