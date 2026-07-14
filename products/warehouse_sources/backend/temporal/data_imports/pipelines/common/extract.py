@@ -263,10 +263,30 @@ async def handle_reset_or_full_refresh(
     schema: "ExternalDataSchema",
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
+    webhook_only: bool = False,
 ) -> None:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import (
+        ExternalDataSchema,
+        update_sync_type_config_keys,
+    )
 
-    if reset_pipeline and not should_resume:
+    if reset_pipeline and webhook_only:
+        # A webhook-only table's rows exist only as webhook-delivered events — the poll does
+        # no backfill, so a wipe could never be rebuilt. Consume the reset request by resuming
+        # webhook ingestion over the existing table: buffered webhook files drain this run, and
+        # any events lost while ingestion was off are unrecoverable either way. Only the flag is
+        # cleared; the incremental watermark and initial_sync_complete are kept since nothing
+        # was wiped.
+        await logger.adebug("Skipping table reset for webhook-only schema; resuming webhook ingestion")
+        await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id, schema.team_id, removes=["reset_pipeline"]
+        )
+        # Also drop it from the in-memory config: a later watermark save (update_incremental_field_values
+        # / V3 staging) persists this same schema's sync_type_config, which would otherwise write
+        # reset_pipeline back and leave every subsequent run treated as a reset.
+        if schema.sync_type_config:
+            schema.sync_type_config.pop("reset_pipeline", None)
+    elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
