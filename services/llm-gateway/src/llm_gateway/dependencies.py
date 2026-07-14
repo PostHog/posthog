@@ -13,7 +13,6 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
-    CreditBucket,
     check_product_access,
     get_product_config,
     resolve_product_alias,
@@ -164,20 +163,18 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for ai_credits-billed products) AI credits quota in parallel.
+    """Fetch plan info and (for bucket-billed products) the bucket's quota in parallel.
 
     Both calls are independent Django roundtrips on cache miss, so for products
-    billing into the ai_credits bucket we overlap them. Everything else — unbilled
-    products, and products billing into a bucket without gateway-side quota
-    enforcement (e.g. posthog_code_credits) — short-circuits the throttle stack
-    regardless of quota state, so we skip the resolver entirely rather than paying
-    for the Redis GET (and the HTTP fallback on cache miss).
+    billing into a credit bucket we overlap them. Unbilled products short-circuit
+    the throttle stack regardless of quota state, so we skip the resolver entirely
+    rather than paying for the Redis GET (and the HTTP fallback on cache miss).
     """
     product_config = get_product_config(product)
-    if product_config and product_config.credit_bucket is CreditBucket.AI_CREDITS:
+    if product_config and product_config.credit_bucket is not None:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id),
+            resolve_quota_status(request, team_id, product_config.credit_bucket.value),
         )
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)
@@ -213,7 +210,7 @@ async def enforce_throttles(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
-        ai_credits_exhausted=quota_status.limited,
+        credits_exhausted=quota_status.limited,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

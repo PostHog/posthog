@@ -830,6 +830,31 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         assert response.status_code == 200
 
+    def test_reimpersonating_same_user_read_write_clears_read_only(self):
+        self.login_as_other_user_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+
+        # Re-impersonating the same user reuses the session (Django only flushes on a user change),
+        # so the start must clear the prior read-only flag instead of silently forcing read-only.
+        self.login_as_other_user()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is False
+
+    def test_rejected_reimpersonation_preserves_read_only_and_reason(self):
+        self.login_as_other_user_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+
+        # An empty reason is rejected by loginas without changing the session (it redirects back to
+        # the referer). The rejected attempt must not clear the active read-only flag or its reason.
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": ""},
+            HTTP_REFERER="/some/page",
+        )
+
+        user = self.client.get("/api/users/@me/").json()
+        assert user["is_impersonated_read_only"] is True
+        assert user["is_impersonated_reason"] == "Test read-only impersonation"
+
     @parameterized.expand(
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
@@ -1468,6 +1493,10 @@ class TestUpgradeImpersonation(APIBaseTest):
         # Verify we're now in read-write mode
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is False
+
+    def test_start_exposes_reason_on_user_api(self):
+        self.login_as_read_only()
+        assert self.client.get("/api/users/@me/").json()["is_impersonated_reason"] == "Initial read-only impersonation"
 
     def test_upgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(

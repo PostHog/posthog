@@ -98,6 +98,14 @@ class WebhookSourceManager:
 
         return has_webhook_function
 
+    async def schema_is_webhook(self) -> bool:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        schema = await database_sync_to_async_pool(_db_read_with_retry)(
+            lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
+        )
+        return bool(schema.is_webhook)
+
     async def _list_webhook_parquet_files(self) -> list[str]:
         prefix = self._get_webhook_s3_prefix()
 
