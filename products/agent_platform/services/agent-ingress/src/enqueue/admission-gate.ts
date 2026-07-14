@@ -1,9 +1,11 @@
 /**
  * Edge admission wiring. Builds an `AdmissionService` for a revision from the
  * ingress's identity stores + the revision's declared providers/env. Returns
- * null when admission isn't configured (missing stores) or the agent declares
- * no authoritative provider (passthrough). Shared by the Slack trigger (resolve)
- * and the `/link/:provider/callback` route (complete).
+ * null only when the agent declares no authoritative provider (passthrough).
+ * The stores are required — the ingress always wires them — so a null return is
+ * unambiguously "passthrough", never "misconfigured" (which previously fell
+ * open). Shared by the Slack trigger (resolve) and the
+ * `/link/:provider/callback` route (complete).
  */
 
 import {
@@ -19,12 +21,12 @@ import {
 } from '@posthog/agent-shared'
 
 export interface AdmissionDepsBundle {
-    identities?: IdentityStore
-    identityLinks?: IdentityLinkStateStore
-    identityCredentials?: IdentityCredentialStore
-    transportBindings?: TransportBindingStore
-    envEncryption?: EncryptedFields
-    http?: HttpFetcher
+    identities: IdentityStore
+    identityLinks: IdentityLinkStateStore
+    identityCredentials: IdentityCredentialStore
+    transportBindings: TransportBindingStore
+    envEncryption: EncryptedFields
+    http: HttpFetcher
     posthogApiBaseUrl?: string
     publicBaseUrl?: string
 }
@@ -35,29 +37,25 @@ export function admissionRedirectUri(publicBaseUrl: string | undefined, provider
     return `${base}/link/${providerId}/callback`
 }
 
-/** Build an `AdmissionService` for a revision, or null if admission isn't wired
- *  or the agent has no authoritative provider. */
+/** Build an `AdmissionService` for a revision, or null when the agent declares
+ *  no authoritative provider (passthrough). */
 export function buildAdmission(deps: AdmissionDepsBundle, revision: AgentRevision): AdmissionService | null {
-    const { identities, identityLinks, identityCredentials, transportBindings, envEncryption, http } = deps
-    if (!identities || !identityLinks || !identityCredentials || !transportBindings || !envEncryption || !http) {
-        return null
-    }
     if (!revision.spec.authoritative_provider) {
         return null
     }
-    const env = envEncryption.decryptJsonEnv(revision.encrypted_env)
+    const env = deps.envEncryption.decryptJsonEnv(revision.encrypted_env)
     const registry = buildIdentityRegistry(revision.spec.identity_providers, {
-        links: identityLinks,
-        credentials: identityCredentials,
-        http,
+        links: deps.identityLinks,
+        credentials: deps.identityCredentials,
+        http: deps.http,
         secret: (name) => env[name],
         posthogBaseUrl: deps.posthogApiBaseUrl,
     })
     return new AdmissionService({
         registry,
-        identities,
-        bindings: transportBindings,
-        credentials: identityCredentials,
+        identities: deps.identities,
+        bindings: deps.transportBindings,
+        credentials: deps.identityCredentials,
         redirectUriFor: (p) => admissionRedirectUri(deps.publicBaseUrl, p),
     })
 }

@@ -471,7 +471,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
-        http: opts.http,
+        http: harnessHttp,
         // Wire the JWT gate so preview-mode tests exercise the real claim
         // verification (audience, signature, app/rev binding). Without this the
         // resolver short-circuits and a non-live revision routes without a

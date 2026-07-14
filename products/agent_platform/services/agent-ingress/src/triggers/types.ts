@@ -49,7 +49,7 @@ export interface TriggerDeps {
     authProvider?: AuthProvider
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SecretResolver
-    identities?: IdentityStore
+    identities: IdentityStore
     /**
      * Approval store — the Slack interactivity handler drives `principal`-type
      * tool-approval decisions through it (markApproving/markRejected + wake) via
@@ -69,18 +69,18 @@ export interface TriggerDeps {
      * entrypoint so the call dispatches through smokescreen in prod alongside
      * every other fetch.
      */
-    http?: HttpFetcher
+    http: HttpFetcher
     /** Routing mode + URL inputs the MCP connect-info endpoint advertises. */
     routingMode?: RoutingMode
     domainSuffix?: string
     publicBaseUrl?: string
-    /** Edge-admission stores (Slack trigger). When wired + the agent declares an
+    /** Edge-admission stores (Slack trigger). When the agent declares an
      *  authoritative_provider, an unauthenticated claim gets an auth link instead
      *  of a session. See `enqueue/admission-gate.ts`. */
-    identityLinks?: IdentityLinkStateStore
-    identityCredentials?: IdentityCredentialStore
-    transportBindings?: TransportBindingStore
-    envEncryption?: EncryptedFields
+    identityLinks: IdentityLinkStateStore
+    identityCredentials: IdentityCredentialStore
+    transportBindings: TransportBindingStore
+    envEncryption: EncryptedFields
     posthogApiBaseUrl?: string
 }
 
