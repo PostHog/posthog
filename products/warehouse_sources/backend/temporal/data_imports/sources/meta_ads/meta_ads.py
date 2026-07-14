@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.db import OperationalError, close_old_connections
 
+import structlog
 from requests import Response
 from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
@@ -24,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger(__name__)
 
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
@@ -362,6 +365,9 @@ class MetaAdsRateLimitError(Exception):
 # consent doesn't request (`ads_read` only), and Meta 400s the whole request when it's asked for.
 AD_ACCOUNT_FIELDS = "account_id,name,account_status"
 AD_ACCOUNT_PAGE_LIMIT = 100
+# This listing runs in the web request path, not a Temporal worker, so a cursor that never resolves
+# would pin a worker. Bound it rather than trusting Meta to end the chain.
+MAX_AD_ACCOUNT_PAGES = 100
 
 
 def list_ad_accounts(integration: Integration) -> list[dict]:
@@ -374,7 +380,7 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
         params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
     )
 
-    while True:
+    for _ in range(MAX_AD_ACCOUNT_PAGES):
         if response.status_code != 200:
             if _is_permanent_auth_error(response):
                 raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
@@ -392,6 +398,9 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
             return accounts
 
         response = _fetch_paging_url(_strip_access_token(next_url), access_token)
+
+    logger.warning("meta_ads_list_ad_accounts_page_limit_hit", pages=MAX_AD_ACCOUNT_PAGES)
+    return accounts
 
 
 def _iter_simple_pagination(
