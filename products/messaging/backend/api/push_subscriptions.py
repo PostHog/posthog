@@ -4,6 +4,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
 
@@ -20,7 +21,22 @@ from posthog.models.team.team import Team
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
+from products.messaging.backend.api.push_identity_tokens import verify_push_identity_token
+
 VALID_PLATFORMS = ("android", "ios")
+
+# Per-integration enforcement for the signed identity token (see push_identity_tokens.py). Rolled out
+# in three stages, mirroring Braze's SDK-Authentication rollout so it can be enabled without breaking
+# existing traffic:
+#   "disabled" — default; the token is ignored (current behavior).
+#   "optional" — the token is verified and the outcome recorded, but registration still succeeds.
+#                Lets a customer confirm their backend is minting valid tokens before enforcing.
+#   "required" — an unsigned or invalid registration for a distinct_id is rejected.
+PUSH_IDENTITY_VERIFICATION_COUNTER = Counter(
+    "push_subscription_identity_verification",
+    "Outcome of push subscription identity-token verification, by enforcement mode.",
+    labelnames=["mode", "outcome"],
+)
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
 # platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
@@ -41,7 +57,7 @@ def _find_integration(team_id: int, app_id: str) -> Integration | None:
     return (
         Integration.objects.filter(team_id=team_id)
         .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
-        .only("id")
+        .only("id", "config")
         .first()
     )
 
@@ -184,6 +200,32 @@ def push_subscriptions(request: Request):
                 status_code=status.HTTP_400_BAD_REQUEST,
             ),
         )
+
+    # A device token is a delivery address, not a credential — the public project token authenticates
+    # the project, never the person. Require a signed assertion (minted by the customer's backend with
+    # the project secret key) that the caller may bind this distinct_id, so an attacker with only the
+    # public token can't point a victim's notifications at their own device. See push_identity_tokens.py.
+    verification_mode = integration.config.get("push_identity_verification", "disabled")
+    if verification_mode in ("optional", "required"):
+        identity_token = data.get("identity_token")
+        verified = isinstance(identity_token, str) and verify_push_identity_token(
+            identity_token, team, distinct_id, app_id
+        )
+        PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
+            mode=verification_mode, outcome="verified" if verified else "unverified"
+        ).inc()
+        if not verified and verification_mode == "required":
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "push_subscriptions",
+                    "A valid identity token is required to register this device. Your backend must mint "
+                    "one for the signed-in user with the project's secret API key.",
+                    type="authentication_error",
+                    code="identity_verification_failed",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
 
     encrypted_token = _encrypted_fields.encrypt(device_token)
     property_key = f"$device_push_subscription_{app_id}"
