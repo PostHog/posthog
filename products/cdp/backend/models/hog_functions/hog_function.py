@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import models
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -255,12 +255,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
-        team_id = instance.team_id
-        hog_function_id = str(instance.id)
-        transaction.on_commit(
-            lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=[hog_function_id]),
-            robust=True,
-        )
+        reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
 @receiver(post_save, sender=Action)

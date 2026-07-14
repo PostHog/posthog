@@ -798,8 +798,11 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
+    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self, reload_hog_functions):
+    def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
+        self, signal_reload_hog_functions, alert_reload_hog_functions
+    ):
         self._sync_destination_templates()
         created = self._create_via_api()
         with self.captureOnCommitCallbacks(execute=True):
@@ -808,13 +811,13 @@ class TestLogsAlertAPI(APIBaseTest):
                 {"type": "webhook", "webhook_url": "https://example.com/hook"},
                 format="json",
             )
-            reload_hog_functions.assert_not_called()
+            assert signal_reload_hog_functions.call_count == 4
+            alert_reload_hog_functions.assert_not_called()
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ids = response.json()["hog_function_ids"]
         assert len(ids) == 4  # firing + resolved + broken + errored
-        assert reload_hog_functions.call_count == 4
-        assert {call.kwargs["hog_function_ids"][0] for call in reload_hog_functions.call_args_list} == set(ids)
+        alert_reload_hog_functions.assert_called_once_with(team_id=self.team.id, hog_function_ids=sorted(ids))
 
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:

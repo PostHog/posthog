@@ -52,8 +52,7 @@ class TestResaveHogFunctions(BaseTest):
     def test_resave_hog_functions(self, mock_reload):
         """Test that the command correctly identifies and resaves HogFunctions connected to integrations."""
 
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command("resave_hog_functions")
+        call_command("resave_hog_functions")
 
         # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
@@ -64,14 +63,6 @@ class TestResaveHogFunctions(BaseTest):
             any_order=True,
         )
         assert mock_reload.call_count == 2
-
-    @patch(
-        "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
-        side_effect=RuntimeError("boom"),
-    )
-    def test_reload_failure_does_not_fail_resave_command(self, _mock_reload):
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command("resave_hog_functions", silent=True)
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_only_resaves_enabled_non_deleted_functions(self, mock_reload):
@@ -98,8 +89,7 @@ class TestResaveHogFunctions(BaseTest):
                 inputs={"integration": {"value": str(self.integration2.id)}},
             )
 
-        with self.captureOnCommitCallbacks(execute=True):
-            call_command("resave_hog_functions")
+        call_command("resave_hog_functions")
 
         # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(

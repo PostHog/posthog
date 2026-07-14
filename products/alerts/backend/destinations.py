@@ -39,6 +39,7 @@ class AlertDestinationOwnershipError(Exception):
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
     created: list[HogFunction] = []
+    hog_function_ids_by_team: dict[int, list[UUID]] = {}
     with transaction.atomic():
         for config in configs:
             team = config.team
@@ -47,7 +48,11 @@ def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig]
                 context={"request": request, "get_team": lambda team=team: team, "is_create": True},
             )
             serializer.is_valid(raise_exception=True)
-            created.append(serializer.save(team=team))
+            hog_function = serializer.save(team=team)
+            created.append(hog_function)
+            hog_function_ids_by_team.setdefault(team.id, []).append(hog_function.id)
+        for team_id, hog_function_ids in hog_function_ids_by_team.items():
+            _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
     return created
 
 
