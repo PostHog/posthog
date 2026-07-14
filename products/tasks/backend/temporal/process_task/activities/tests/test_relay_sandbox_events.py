@@ -637,6 +637,40 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream_mock.mark_complete.assert_awaited_once()
         redis_stream_mock.mark_error.assert_not_awaited()
 
+    async def test_deferred_relay_leaves_terminal_stream_completion_to_workflow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
+        redis_stream = cast(TaskRunRedisStream, redis_stream_mock)
+
+        class StubTaskRunQuerySet:
+            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(status="cancelled")
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(
+                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
+                DoesNotExist=Exception,
+                objects=StubTaskRunQuerySet(),
+            ),
+        )
+
+        marked_complete = await _mark_error_unless_run_is_terminal(
+            redis_stream,
+            "run-id",
+            "late relay error",
+            finalize_stream=False,
+        )
+
+        assert marked_complete is True
+        redis_stream_mock.mark_complete.assert_not_awaited()
+        redis_stream_mock.mark_error.assert_not_awaited()
+
     async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
@@ -841,5 +875,6 @@ class TestRelaySandboxEventsWorkflowOptions:
         )
 
         assert execute_activity_mock.await_args is not None
-        _, kwargs = execute_activity_mock.await_args
+        args, kwargs = execute_activity_mock.await_args
+        assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT

@@ -917,11 +917,12 @@ def github_source(
     # i.e. workflow_jobs and reviews) would otherwise deadlock a fresh webhook schema: the
     # zero-row poll never creates a table, so initial_sync_complete is never set, so
     # webhook_enabled stays False forever and queued webhook files never drain. There
-    # is no backfill to lose for these, so activate webhook mode from the first run
-    # (skip the initial_sync_complete gate), the same way the Slack source does.
-    skip_initial_sync_complete_check = endpoint_config.initial_lookback_days == 0
+    # is no backfill to lose for these, so activate webhook mode from the first run, the same
+    # way the Slack source does; being webhook-first also means a requested pipeline reset must
+    # not force the poll path or wipe the table (see handle_reset_or_full_refresh).
+    webhook_only = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)(skip_initial_sync_complete_check)
+        async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
         if webhook_source_manager is not None
         else False
     )
@@ -992,6 +993,7 @@ def github_source(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        webhook_only=webhook_only,
     )
 
 
