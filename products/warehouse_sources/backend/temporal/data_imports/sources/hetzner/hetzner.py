@@ -41,9 +41,12 @@ class HetznerRetryableError(Exception):
 
 @dataclasses.dataclass
 class HetznerResumeConfig:
-    # Page number to (re)fetch on resume. We checkpoint the CURRENT page after yielding a batch, so a
-    # crash re-fetches that page and the merge dedupes the already-yielded rows on the primary key
-    # rather than skipping the un-yielded tail of the page.
+    # Page number to fetch first on resume. In-flight we checkpoint the CURRENT page after yielding a
+    # batch: a crash re-fetches that one page rather than skipping its un-yielded tail (dropping rows
+    # is worse than re-reading a page). On clean completion we advance the checkpoint PAST the last
+    # page so a spurious retry resumes onto an empty page instead of replaying. These tables are full
+    # refresh, so any rows a re-fetched page duplicates are bounded to that single page and are wiped
+    # by the next non-resumed run, which overwrites the table from scratch.
     page: int = 1
 
 
@@ -137,7 +140,11 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     there is no per-endpoint scope to check — a valid token can sync any table."""
     url = f"{HETZNER_BASE_URL}/ssh_keys?per_page=1"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        # redact_values masks the token in logged URLs / captured samples; allow_redirects=False keeps
+        # a redirect from ever replaying the Authorization header (or the token in a query param) to
+        # another host. Mirrors the hardened transport other warehouse sources use.
+        session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+        response = session.get(url, headers=_get_headers(api_token), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -161,22 +168,27 @@ def get_rows(
     config = HETZNER_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    # redact_values keeps the token out of tracked telemetry/samples; allow_redirects=False stops a
+    # redirect from ever forwarding the Authorization header to another host.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.page if resume is not None else 1
     if resume is not None:
         logger.debug(f"Hetzner: resuming {endpoint} from page {page}")
 
+    last_page = page
     while True:
         data = _fetch_page(session, _build_url(config, page), headers, logger)
         items = data.get(config.response_key) or []
         if not items:
             break
 
+        last_page = page
         next_page = data.get("meta", {}).get("pagination", {}).get("next_page")
-        # Checkpoint the CURRENT page: on resume we re-fetch it and the merge dedupes already-yielded
-        # rows, rather than jumping to next_page and dropping this page's un-yielded tail.
+        # Checkpoint the CURRENT page: on resume we re-fetch it rather than jumping to next_page and
+        # dropping this page's un-yielded tail. A re-fetch can re-yield rows already written, but that
+        # is bounded to one page and self-heals on the next full-refresh run.
         checkpoint_page = page
 
         for item in items:
@@ -191,6 +203,11 @@ def get_rows(
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+
+    # Every page is now written. Advance the checkpoint past the last page so a crash between this
+    # final write and the activity completing resumes onto an empty page (a no-op) instead of
+    # replaying already-written pages from the last in-flight checkpoint and appending duplicates.
+    resumable_source_manager.save_state(HetznerResumeConfig(page=last_page + 1))
 
 
 def hetzner_source(

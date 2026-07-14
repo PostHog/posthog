@@ -55,7 +55,7 @@ def _mock_response(status_code: int, headers: dict[str, str] | None = None, body
     response.text = "" if body is None else str(body)
     if not response.ok:
         response.raise_for_status.side_effect = requests.HTTPError(
-            f"{status_code} Client Error for url: {HETZNER_BASE_URL}/servers"
+            f"{status_code} Client Error for url: {HETZNER_BASE_URL}/servers", response=response
         )
     return response
 
@@ -183,9 +183,11 @@ class TestGetRows:
         rows = self._collect(_FakeResumableManager(HetznerResumeConfig(page=2)), responses)
         assert [r["id"] for r in rows] == [99]
 
-    def test_checkpoints_current_page_after_each_yield(self) -> None:
-        # Saving the CURRENT page (not next_page) means a crash re-fetches the page and merge dedupes,
-        # rather than jumping past the page's un-yielded tail and dropping rows.
+    def test_checkpoints_current_page_then_advances_past_end(self) -> None:
+        # In-flight we checkpoint the CURRENT page (not next_page) so a crash re-fetches that page
+        # instead of skipping its un-yielded tail and dropping rows. On completion we advance the
+        # checkpoint past the last page so a post-final-write crash resumes onto an empty page rather
+        # than replaying already-written pages into the full-refresh table.
         responses = {
             1: _servers_page([{"id": 1}, {"id": 2}], next_page=2),
             2: _servers_page([{"id": 3}], next_page=None),
@@ -194,8 +196,9 @@ class TestGetRows:
         with patch.object(hetzner, "Batcher", _OneRowBatcher):
             self._collect(manager, responses)
         saved_pages = [state.page for state in manager.saved]
-        # Page 1 yields twice (checkpoint 1), page 2 yields once (checkpoint 2).
-        assert saved_pages == [1, 1, 2]
+        # Page 1 yields twice (checkpoint 1), page 2 yields once (checkpoint 2), then the completion
+        # sentinel advances to page 3 (the empty page past the end).
+        assert saved_pages == [1, 1, 2, 3]
 
 
 class TestHetznerSourceResponse:
