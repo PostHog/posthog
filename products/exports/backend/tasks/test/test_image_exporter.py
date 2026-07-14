@@ -480,7 +480,7 @@ class TestImageExporter(APIBaseTest):
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:
-            assert "query_override" not in call_kwargs
+            assert call_kwargs["query_override"] is None
 
         if expected_query_override is not None:
             # When query_override is present, variables_override must be None —
