@@ -9396,6 +9396,76 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed
+     */
+    export type AlertConfigFrequencyEnum = typeof AlertConfigFrequencyEnum[keyof typeof AlertConfigFrequencyEnum];
+
+
+    export const AlertConfigFrequencyEnum = {
+      EveryMatch: 'every_match',
+      OnBreach: 'on_breach',
+    } as const;
+
+    /**
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertMetricEnum = typeof VisionAlertMetricEnum[keyof typeof VisionAlertMetricEnum];
+
+
+    export const VisionAlertMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days
+     */
+    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
+
+
+    export const WindowDaysEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+    } as const;
+
+    /**
+     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+     * threshold over a rolling window and notifies on the transition into breach.
+     */
+    export interface AlertConfig {
+      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+       *
+       * * `every_match` - Every new match
+       * * `on_breach` - When a threshold is crossed */
+      frequency?: AlertConfigFrequencyEnum;
+      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
+       *
+       * * `count` - Count of matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      threshold?: number;
+      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
+       *
+       * * `1` - 1 day
+       * * `3` - 3 days
+       * * `7` - 7 days
+       * * `14` - 14 days
+       * * `30` - 30 days */
+      window_days?: WindowDaysEnum;
+    }
+
     export interface AlertSimulate {
       /** Insight ID to simulate the detector on. */
       insight: number;
@@ -39329,6 +39399,7 @@ export namespace Schemas {
 
     /**
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation
      */
     export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
@@ -39336,6 +39407,7 @@ export namespace Schemas {
 
     export const VisionActionModeEnum = {
       GroupSummary: 'group_summary',
+      Alert: 'alert',
       PerObservation: 'per_observation',
     } as const;
 
@@ -39412,6 +39484,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -39420,6 +39493,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -46710,6 +46785,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -46718,6 +46794,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
