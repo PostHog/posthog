@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,6 +41,23 @@ const RESOURCE_FEATURE_REQUIREMENTS: Partial<Record<AccessControlResourceType, A
     [AccessControlResourceType.ActivityLog]: AvailableFeature.AUDIT_LOGS,
 }
 
+// Resources whose underlying product is still gated behind a rollout feature flag - hide the row
+// until the user has that product rolled out or has opted in, matching the product's own nav gating.
+export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlResourceType, string>> = {
+    [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+    [AccessControlResourceType.Endpoint]: FEATURE_FLAGS.ENDPOINTS,
+    [AccessControlResourceType.RevenueAnalytics]: FEATURE_FLAGS.REVENUE_ANALYTICS,
+    [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
+}
+
+export function isResourceRolledOut(
+    resource: AccessControlResourceType,
+    featureFlags: Record<string, boolean | string | undefined>
+): boolean {
+    const requiredFlag = RESOURCE_ROLLOUT_FLAG_REQUIREMENTS[resource]
+    return !requiredFlag || !!featureFlags[requiredFlag]
+}
+
 export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
     path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
     connect(() => ({
@@ -52,6 +70,8 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             ['sortedMembers'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -288,11 +308,12 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
         ],
 
         resources: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): APIScopeObject[] => {
+            (s) => [s.hasAvailableFeature, s.featureFlags],
+            (hasAvailableFeature, featureFlags): APIScopeObject[] => {
                 const allResources = [
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
+                    AccessControlResourceType.CustomerAnalytics,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.EarlyAccessFeature,
                     AccessControlResourceType.Endpoint,
@@ -310,14 +331,16 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Survey,
                     AccessControlResourceType.WebAnalytics,
                     AccessControlResourceType.Workflow,
+                    AccessControlResourceType.Tracing,
                 ]
 
                 return allResources.filter((resource) => {
                     const requiredFeature = RESOURCE_FEATURE_REQUIREMENTS[resource]
-                    if (!requiredFeature) {
-                        return true
+                    if (requiredFeature && !hasAvailableFeature(requiredFeature)) {
+                        return false
                     }
-                    return hasAvailableFeature(requiredFeature)
+
+                    return isResourceRolledOut(resource, featureFlags)
                 })
             },
         ],

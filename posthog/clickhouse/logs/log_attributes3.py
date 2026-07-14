@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_NAME = "log_attributes3"
 
@@ -32,3 +32,16 @@ SETTINGS
     deduplicate_merge_projection_mode = 'drop',
     index_granularity = 8192
 """
+
+
+def LOG_ATTRIBUTES3_DISTRIBUTED_TABLE_SQL():
+    return """
+CREATE OR REPLACE TABLE {database}.log_attributes_distributed AS {database}.{table_name} ENGINE = {engine}
+""".format(
+        engine=Distributed(
+            data_table=TABLE_NAME,
+            cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
+        ),
+        database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+        table_name=TABLE_NAME,
+    )

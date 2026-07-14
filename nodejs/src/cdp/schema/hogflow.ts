@@ -205,6 +205,18 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_push'),
+        config: z.object({
+            message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-native-push'),
+            inputs: z.record(z.string(), CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
+        }),
+    }),
     // Exit
     z.object({
         ..._commonActionFields,

@@ -445,7 +445,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BasetenSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1573,7 +1573,8 @@ class GoogleFormsSourceConfig(config.Config):
 
 @config.config
 class GooglePageSpeedInsightsSourceConfig(config.Config):
-    pass
+    api_key: str
+    urls: str
 
 
 @config.config
@@ -1807,7 +1808,8 @@ class IlluminaBasespaceSourceConfig(config.Config):
 
 @config.config
 class ImaggaSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -3123,7 +3125,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplicateSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3919,7 +3921,8 @@ class UpPromoteSourceConfig(config.Config):
 
 @config.config
 class UpstashSourceConfig(config.Config):
-    pass
+    email: str
+    api_key: str
 
 
 @config.config
@@ -4138,7 +4141,7 @@ class ZapSignSourceConfig(config.Config):
 
 @config.config
 class ZapierSupportedStorageSourceConfig(config.Config):
-    pass
+    secret: str
 
 
 @config.config

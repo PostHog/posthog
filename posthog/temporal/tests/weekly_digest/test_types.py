@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from posthog.temporal.weekly_digest.activities import DIGEST_ITEM_COUNT_THRESHOLD
 from posthog.temporal.weekly_digest.types import (
     DashboardList,
     Digest,
     DigestDashboard,
+    DigestErrorIssue,
     DigestEventDefinition,
     DigestExperiment,
     DigestExternalDataSource,
@@ -12,6 +14,7 @@ from posthog.temporal.weekly_digest.types import (
     DigestFilter,
     DigestProductSuggestion,
     DigestSurvey,
+    ErrorIssueList,
     EventDefinitionList,
     ExperimentList,
     ExternalDataSourceList,
@@ -21,6 +24,8 @@ from posthog.temporal.weekly_digest.types import (
     RecordingCount,
     SurveyList,
     TeamDigest,
+    UsageTrendMetric,
+    UsageTrends,
     UserDigestContext,
     UserSpecificDigest,
 )
@@ -132,6 +137,36 @@ def test_team_digest_count_items():
     )
 
     assert digest.count_items() == 3  # dashboards, event_definitions, feature_flags
+
+
+def test_error_issues_count_toward_digest_threshold_but_usage_trends_do_not():
+    # An org whose only activity is new error issues must cross DIGEST_ITEM_COUNT_THRESHOLD;
+    # usage trends are ambient context and must not count.
+    team = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
+        surveys_launched=SurveyList(root=[]),
+        usage_trends=UsageTrends(metrics=[UsageTrendMetric(label="Events", current=100)]),
+    )
+    org = OrganizationDigest(id=uuid4(), name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+
+    assert org.count_items() == 0
+    assert org.is_empty() is True
+
+    team.error_issues = ErrorIssueList(
+        root=[DigestErrorIssue(name=f"Error {i}", id=uuid4()) for i in range(DIGEST_ITEM_COUNT_THRESHOLD)]
+    )
+
+    assert org.is_empty() is False
+    assert org.count_items() >= DIGEST_ITEM_COUNT_THRESHOLD
 
 
 def test_team_digest_render_payload():
