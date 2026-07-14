@@ -1102,8 +1102,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Set false to skip the chart series (cost_series, time_to_green_series, "
-                "success_rate_series, open_to_merge_series return empty) and their query cost — for "
-                "headline-only consumers like the weekly digest. Defaults to true.",
+                "success_rate_series, open_to_merge_series, merged_pr_series return empty) and their "
+                "query cost — for headline-only consumers like the weekly digest. Defaults to true.",
             ),
             _SOURCE_ID,
         ],

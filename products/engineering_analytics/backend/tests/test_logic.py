@@ -777,10 +777,10 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
 
     def test_repo_overview_headlines_and_series_toggle(self) -> None:
         # The weekly digest's whole read path: headline aggregates with include_series=False must
-        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
-        # included: the merge population that triggered the spend) while the median keeps the
-        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
-        # chart series empty. The default call keeps the series for the UI.
+        # still carry every number the digest renders (merged counts over ALL merged PRs, bots
+        # included: the merge population that triggered the spend; the median keeps the locked
+        # bots/drafts-excluded recipe; job-backed billable minutes) with every chart series
+        # empty. The default call keeps the series for the UI.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -819,11 +819,17 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert overview.time_to_green_series == []
         assert overview.success_rate_series == []
         assert overview.open_to_merge_series == []
+        assert overview.merged_pr_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
         assert len(with_series.success_rate_series) > 0
+        # Merge throughput is keyed on merged_at (not created_at) over ALL merged PRs: the bot PR 81
+        # counts, 82 merged before the window doesn't, and the series sums to the headline tile.
+        assert sum(b.merged_count for b in with_series.merged_pr_series) == overview.merged_pr_count
+        merged_days = {b.bucket_start.date() for b in with_series.merged_pr_series if b.merged_count}
+        assert merged_days == {_dt(_ago(2)).date(), _dt(_ago(3)).date()}
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()

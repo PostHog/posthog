@@ -164,8 +164,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 </div>
             )}
             <LemonBanner type="info" dismissKey="engineering-analytics-teams-scope">
-                Teams aggregate the code surfaces they own (via products/*/product.yaml and CODEOWNERS). Nothing on this
-                page ranks or aggregates individual authors.
+                Teams aggregate the code surfaces they own (via products/*/product.yaml and CODEOWNERS).
             </LemonBanner>
         </div>
     )

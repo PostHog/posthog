@@ -924,6 +924,19 @@ class OpenToMergeBucket:
 
 
 @dataclass(frozen=True)
+class MergedPRBucket:
+    """One time bucket of merge throughput: pull requests merged in this bucket, all authors and bots
+    included (the same population as the overview's headline ``merged_pr_count``, so the series sums to
+    the tile). Zero-filled: a bucket where nothing merged is a true 0, not a gap.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # PRs merged in this bucket, all authors and bots included. 0 when nothing merged.
+    merged_count: int
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -973,6 +986,11 @@ class RepoOverview:
     open_to_merge_series: list[OpenToMergeBucket]
     # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     open_to_merge_series_granularity: str
+    # Merge-throughput trend: PRs merged per bucket (all authors, bots included; the headline
+    # `merged_pr_count` population), oldest first, zero-filled, bucketed by `merged_pr_series_granularity`.
+    merged_pr_series: list[MergedPRBucket]
+    # Bucket width of `merged_pr_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    merged_pr_series_granularity: str
 
 
 @dataclass(frozen=True)

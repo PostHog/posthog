@@ -110,6 +110,8 @@ def _repo_overview() -> contracts.RepoOverview:
         success_rate_series_granularity="day",
         open_to_merge_series=[],
         open_to_merge_series_granularity="day",
+        merged_pr_series=[contracts.MergedPRBucket(bucket_start=datetime(2026, 1, 20, tzinfo=UTC), merged_count=42)],
+        merged_pr_series_granularity="day",
     )
 
 

@@ -760,6 +760,13 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface MergedPRBucketApi {
+    /** Bucket start, aligned to merged_pr_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /** PRs merged in this bucket, all authors and bots included (the headline merged_pr_count population). 0 when nothing merged; a true zero, not a gap. */
+    merged_count: number
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
@@ -769,6 +776,8 @@ export interface RepoOverviewApi {
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** PRs merged per bucket across the window (all authors, bots included; the headline merged_pr_count population), oldest first, zero-filled, bucketed by merged_pr_series_granularity. Empty when include_series=false. */
+    merged_pr_series: MergedPRBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -833,6 +842,8 @@ export interface RepoOverviewApi {
     success_rate_series_granularity: string
     /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
     open_to_merge_series_granularity: string
+    /** Bucket width of the merged_pr_series trend: 'hour', 'day', or 'week'. */
+    merged_pr_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -1305,7 +1316,7 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     date_to?: string
     /**
-     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series, merged_pr_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
      */
     include_series?: boolean
     /**
