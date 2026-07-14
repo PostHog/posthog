@@ -26,6 +26,10 @@ export function isAlphaPlanKey(planKey: string | null | undefined): boolean {
     return planKey === CODE_PLAN_ALPHA_PRO
 }
 
+export function canCancelSeat(seat: Pick<SeatData, 'status'>, isAdmin: boolean): boolean {
+    return isAdmin && seat.status === 'active'
+}
+
 // TODO: Replace with `seat.price` once billing exposes it via SeatSerializer
 export function seatPriceFromPlanKey(planKey: string): number {
     if (isFreePlanKey(planKey)) {

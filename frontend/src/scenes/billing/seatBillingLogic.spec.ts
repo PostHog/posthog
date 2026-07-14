@@ -1,4 +1,4 @@
-import { isAlphaPlanKey, isFreePlanKey, isProPlanKey, seatPriceFromPlanKey } from './seatBillingLogic'
+import { canCancelSeat, isAlphaPlanKey, isFreePlanKey, isProPlanKey, seatPriceFromPlanKey } from './seatBillingLogic'
 
 describe('seatBillingLogic plan key helpers', () => {
     describe('isProPlanKey', () => {
@@ -56,6 +56,17 @@ describe('seatBillingLogic plan key helpers', () => {
             ['unrecognized-plan', 0],
         ])('seatPriceFromPlanKey(%p) === %p', (planKey, expected) => {
             expect(seatPriceFromPlanKey(planKey)).toBe(expected)
+        })
+    })
+
+    describe('canCancelSeat', () => {
+        it.each([
+            ['active', true, true],
+            ['active', false, false],
+            ['canceling', true, false],
+            ['expired', true, false],
+        ] as const)('canCancelSeat({ status: %p }, %p) === %p', (status, isAdmin, expected) => {
+            expect(canCancelSeat({ status }, isAdmin)).toBe(expected)
         })
     })
 })

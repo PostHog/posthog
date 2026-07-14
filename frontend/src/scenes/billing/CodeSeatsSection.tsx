@@ -6,8 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { billingLogic } from './billingLogic'
-import { isAlphaPlanKey, isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
+import { canCancelSeat, isAlphaPlanKey, isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
 import type { SeatData, SeatStatus } from './types'
 
 function planLabel(planKey: string): string {
@@ -49,7 +48,6 @@ export function CodeSeatsSection(): JSX.Element {
     const { displaySeats, orgSeatsLoading, isAdmin, members, activeCount, cancelingCount, monthlyTotal } =
         useValues(seatBillingLogic)
     const { adminCancelSeat } = useActions(seatBillingLogic)
-    const { billing } = useValues(billingLogic)
 
     function getUserInfo(seat: SeatData): { name: string; email: string } | null {
         if (!members) {
@@ -159,12 +157,7 @@ export function CodeSeatsSection(): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: (_, seat: SeatData) => {
-                            if (!billing?.has_active_subscription || !isAdmin) {
-                                return null
-                            }
-                            const canCancel = seat.status === 'active'
-
-                            if (!canCancel) {
+                            if (!canCancelSeat(seat, isAdmin)) {
                                 return null
                             }
 
