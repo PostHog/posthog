@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -232,6 +233,43 @@ class TestPageEndpoints:
             incremental_field="createdAt",
         )
         assert fetched == list(pages)
+
+
+class TestSensitiveValueScrubbing:
+    def test_auth_material_redacted_before_batching(self, monkeypatch: Any) -> None:
+        pages = {
+            "https://api.vapi.ai/assistant?limit=2": [
+                {
+                    "id": "a1",
+                    "createdAt": "2026-01-01T00:00:00.000Z",
+                    "credentials": [{"provider": "openai", "apiKey": "sk-live"}],
+                    "credentialIds": ["550e8400"],
+                    "server": {"url": "https://example.com/hook", "secret": "hook-secret", "headers": {"x": "y"}},
+                    "model": {"provider": "openai", "model": "gpt-4o"},
+                },
+            ],
+        }
+        _patch_fetch(monkeypatch, pages)
+        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="assistants")
+
+        row = rows[0]
+        # Nested objects come back JSON-encoded after the Arrow round trip.
+        server = json.loads(row["server"]) if isinstance(row["server"], str) else row["server"]
+        model = json.loads(row["model"]) if isinstance(row["model"], str) else row["model"]
+        credential_ids = (
+            json.loads(row["credentialIds"]) if isinstance(row["credentialIds"], str) else row["credentialIds"]
+        )
+
+        assert row["credentials"] == "[REDACTED]"
+        assert server["secret"] == "[REDACTED]"
+        assert server["headers"] == "[REDACTED]"
+        # No secret survives anywhere in the row, however it was serialized.
+        assert "sk-live" not in str(row)
+        assert "hook-secret" not in str(row)
+        # Non-secret data survives untouched, including credential ID references.
+        assert credential_ids == ["550e8400"]
+        assert server["url"] == "https://example.com/hook"
+        assert model == {"provider": "openai", "model": "gpt-4o"}
 
 
 class TestUnpaginatedEndpoints:

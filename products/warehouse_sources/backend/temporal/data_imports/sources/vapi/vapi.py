@@ -22,6 +22,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.setti
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+REDACTED_VALUE = "[REDACTED]"
+
+# Vapi list responses embed auth material inside otherwise-analytical rows: assistant/call
+# `credentials` arrays (provider API keys), tool and server `headers` (commonly Authorization),
+# webhook `secret`s, and Twilio auth fields on phone numbers. Redact them by key before rows
+# reach the warehouse — anyone with warehouse read access can query synced columns. Bare
+# `credentialId`/`credentialIds` are UUID references, not secrets, and are kept.
+_SENSITIVE_EXACT_KEYS = frozenset({"credentials", "headers"})
+_SENSITIVE_KEY_SUBSTRINGS = ("secret", "password", "authtoken", "apikey")
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return lowered in _SENSITIVE_EXACT_KEYS or any(part in lowered for part in _SENSITIVE_KEY_SUBSTRINGS)
+
+
+def _scrub_sensitive_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: REDACTED_VALUE if _is_sensitive_key(k) else _scrub_sensitive_values(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_sensitive_values(item) for item in value]
+    return value
+
 
 class VapiRetryableError(Exception):
     pass
@@ -204,7 +227,7 @@ def get_rows(
     if config.pagination == "none":
         rows = _fetch(session, f"{VAPI_BASE_URL}{config.path}", logger)
         if isinstance(rows, list) and rows:
-            batcher.batch(rows)
+            batcher.batch(_scrub_sensitive_values(rows))
         yield from _drain(batcher, resumable_source_manager, save_resume_state=False, include_incomplete_chunk=True)
         return
 
@@ -220,7 +243,7 @@ def get_rows(
         if not incremental_active:
             # Full walk (initial sync or full refresh) — resumable via the createdAtLt cursor.
             for rows in _fetch_created_at_desc_pages(session, config, logger, {}, resume_cursor):
-                batcher.batch(rows)
+                batcher.batch(_scrub_sensitive_values(rows))
                 yield from _drain(batcher, resumable_source_manager, save_resume_state=True)
             yield from _drain(batcher, resumable_source_manager, save_resume_state=True, include_incomplete_chunk=True)
             return
@@ -233,14 +256,14 @@ def get_rows(
             earliest = _format_datetime_param(db_incremental_field_earliest_value)
             logger.debug(f"Vapi: {endpoint} backfilling {cursor_field}Lt={earliest}")
             for rows in _fetch_created_at_desc_pages(session, config, logger, {f"{cursor_field}Lt": earliest}, None):
-                batcher.batch(rows)
+                batcher.batch(_scrub_sensitive_values(rows))
                 yield from _drain(batcher, resumable_source_manager, save_resume_state=False)
 
         if db_incremental_field_last_value is not None:
             last = _format_datetime_param(db_incremental_field_last_value)
             logger.debug(f"Vapi: {endpoint} fetching {cursor_field}Gt={last}")
             for rows in _fetch_created_at_desc_pages(session, config, logger, {f"{cursor_field}Gt": last}, None):
-                batcher.batch(rows)
+                batcher.batch(_scrub_sensitive_values(rows))
                 yield from _drain(batcher, resumable_source_manager, save_resume_state=False)
 
         yield from _drain(batcher, resumable_source_manager, save_resume_state=False, include_incomplete_chunk=True)
@@ -258,7 +281,7 @@ def get_rows(
         base_params["createdAtGt"] = effective_gt
 
     for rows in _fetch_ascending_pages(session, config, logger, base_params):
-        batcher.batch(rows)
+        batcher.batch(_scrub_sensitive_values(rows))
         yield from _drain(batcher, resumable_source_manager, save_resume_state=True)
     yield from _drain(batcher, resumable_source_manager, save_resume_state=True, include_incomplete_chunk=True)
 
