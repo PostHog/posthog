@@ -20,8 +20,7 @@ from products.engineering_analytics.backend.logic.sources import (
 )
 from products.signals.backend.facade.api import set_signal_source_types_enabled, signal_source_types_state
 from products.signals.backend.models import SignalSourceConfig
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_FLAKY_CHECK,
@@ -33,13 +32,17 @@ CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFL
 AUTHORIZED_SOURCES_CONFIG_KEY = "github_source_ids"
 
 
-def get_ci_signals_config(*, team: Team) -> CISignalsConfig:
+def get_ci_signals_config(*, team: Team, user_access_control: UserAccessControl | None = None) -> CISignalsConfig:
     state = signal_source_types_state(
         team_id=team.id,
         source_product=SOURCE_PRODUCT,
         source_types=CI_SIGNAL_SOURCE_TYPES,
     )
-    return CISignalsConfig(configured=state.configured, enabled=state.all_enabled, sync_status=_sync_status(team.id))
+    return CISignalsConfig(
+        configured=state.configured,
+        enabled=state.all_enabled,
+        sync_status=_sync_status(team, user_access_control),
+    )
 
 
 def update_ci_signals_config(
@@ -64,7 +67,7 @@ def update_ci_signals_config(
         created_by_id=created_by_id,
         config=config,
     )
-    return get_ci_signals_config(team=team)
+    return get_ci_signals_config(team=team, user_access_control=user_access_control)
 
 
 @dataclass(frozen=True)
@@ -93,7 +96,7 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     if not isinstance(snapshot, list) or not snapshot:
         return []
     user = User.objects.filter(id=row.created_by_id, is_active=True).first()
-    if user is None:
+    if user is None or not user.organization_memberships.filter(organization_id=team.organization_id).exists():
         return []
     access_control = UserAccessControl(user=user, team=team)
     accessible = {source.id for source in list_github_sources(team=team, user_access_control=access_control)}
@@ -104,20 +107,15 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     ]
 
 
-def _sync_status(team_id: int) -> CISignalsSyncStatus | None:
-    source_ids: set[UUID] = set(
-        ExternalDataSource.objects.filter(
-            team_id=team_id,
-            source_type=ExternalDataSourceType.GITHUB,
-        )
-        .exclude(deleted=True)
-        .values_list("id", flat=True)
-    )
+def _sync_status(team: Team, user_access_control: UserAccessControl | None) -> CISignalsSyncStatus | None:
+    source_ids: set[UUID] = {
+        UUID(source.id) for source in list_github_sources(team=team, user_access_control=user_access_control)
+    }
     if not source_ids:
         return None
     schemas = list(
         ExternalDataSchema.objects.filter(
-            team_id=team_id,
+            team_id=team.id,
             source_id__in=source_ids,
             name__in=CI_SIGNAL_REQUIRED_SCHEMAS,
             should_sync=True,

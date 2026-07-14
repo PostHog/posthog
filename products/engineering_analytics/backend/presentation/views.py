@@ -216,7 +216,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], url_path="ci-signals-config", pagination_class=None)
     def ci_signals_config(self, request: Request, **kwargs) -> Response:
-        result = api.get_ci_signals_config(team=self.team)
+        result = api.get_ci_signals_config(team=self.team, user_access_control=self.user_access_control)
         return Response(CISignalsConfigSerializer(instance=result).data)
 
     @validated_request(

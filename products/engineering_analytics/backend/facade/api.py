@@ -65,8 +65,8 @@ def _authorized_source(
     return logic.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
 
 
-def get_ci_signals_config(*, team: Team) -> CISignalsConfig:
-    return logic.get_ci_signals_config(team=team)
+def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
+    return logic.get_ci_signals_config(team=team, user_access_control=user_access_control)
 
 
 def update_ci_signals_config(

@@ -34,7 +34,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.tests.test_views import create_github_source
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
-from products.signals.backend.facade.api import validate_signal_input
+from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -157,8 +157,24 @@ class TestCISignalSourceAuthorization(BaseTest):
         second.save()
         assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {str(first.id)}
 
+        # Re-enabling without a config payload must not wipe the stored snapshot.
+        set_signal_source_types_enabled(
+            team_id=self.team.id,
+            source_product=SOURCE_PRODUCT,
+            source_types=CI_SIGNAL_SOURCE_TYPES,
+            enabled=True,
+            created_by_id=self.user.id,
+        )
+        assert {source.source_id for source in list_authorized_ci_signal_sources(team=self.team)} == {str(first.id)}
+
         self.user.is_active = False
         self.user.save()
+        assert list_authorized_ci_signal_sources(team=self.team) == []
+        self.user.is_active = True
+        self.user.save()
+
+        # An authorizer removed from the organization no longer authorizes anything.
+        self.user.organization_memberships.all().delete()
         assert list_authorized_ci_signal_sources(team=self.team) == []
 
     def test_rows_without_a_snapshot_authorize_nothing(self) -> None:

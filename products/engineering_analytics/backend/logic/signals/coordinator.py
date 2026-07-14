@@ -138,7 +138,7 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
                 weight=finding.weight,
                 extra=finding.extra,
                 remediation=finding.remediation,
-                idempotency_key=f"{SOURCE_PRODUCT}:{finding.source_type}:{finding.source_id}",
+                idempotency_key=finding.source_id,
             )
             emitted += 1
         except Exception:
