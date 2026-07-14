@@ -370,15 +370,21 @@ def _reconfirm_emptied_projects_against_primary(
     Projects that read empty with no last-known-good are treated as genuinely having no
     group types (the common case). They are not re-confirmed, so this adds no primary
     load on the hot path unless a real drop is detected. The write-side guard remains the
-    backstop for that cold-cache edge.
+    backstop for that cold-cache edge. When the primary confirms a project is genuinely
+    empty, its stale key is cleared so a later outage can't resurrect the deleted data
+    and so the project stops being flagged as a suspect on every subsequent read.
     """
-    suspect_ids = [
-        pid
-        for pid in project_ids
-        if not result.get(pid) and get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}") is not None
-    ]
-    if not suspect_ids:
+    suspect_stale: dict[int, list[dict[str, Any]]] = {}
+    for pid in project_ids:
+        if result.get(pid):
+            continue
+        stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
+        if stale is not None:
+            suspect_stale[pid] = stale
+    if not suspect_stale:
         return result
+
+    suspect_ids = list(suspect_stale.keys())
 
     try:
         client = require_personhog_client()
@@ -392,13 +398,11 @@ def _reconfirm_emptied_projects_against_primary(
         # Primary confirmation failed. Serve each project's last-known-good rather than
         # the replica's unconfirmed empty, so we never hand back a silent [] over data
         # we know was populated.
-        for pid in suspect_ids:
-            stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
-            if stale:
-                result[pid] = stale
-                GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
-                    operation="get_group_types_for_projects", outcome="primary_unavailable_used_stale"
-                ).inc()
+        for pid, stale in suspect_stale.items():
+            result[pid] = stale
+            GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
+                operation="get_group_types_for_projects", outcome="primary_unavailable_used_stale"
+            ).inc()
         return result
 
     for pid in suspect_ids:
@@ -414,6 +418,7 @@ def _reconfirm_emptied_projects_against_primary(
                 row_count=len(primary_rows),
             )
         else:
+            safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}")
             GROUP_TYPES_REPLICA_EMPTY_DISCREPANCIES.labels(
                 operation="get_group_types_for_projects", outcome="confirmed_empty"
             ).inc()

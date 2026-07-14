@@ -321,6 +321,10 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
             result = get_group_types_for_projects(self.project_ids)
 
         assert result[self.populated_pid] == []
+        # The now-outdated last-known-good is cleared so it can't resurrect the deleted
+        # group types on a later personhog outage, and so this project stops being
+        # flagged as a suspect on every subsequent read.
+        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.populated_pid}") is None
 
     def test_primary_reconfirm_failure_serves_stale_not_empty(self):
         # If the primary confirmation itself fails, serve the last-known-good rather than
