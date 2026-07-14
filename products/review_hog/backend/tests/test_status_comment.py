@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -28,16 +29,17 @@ _PAGINATED = f"{_MODULE}.github_api_get_paginated"
 _INTEGRATION = f"{_MODULE}.GitHubIntegration"
 
 
+_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
+    (None, "Step 1/6 · Preparing the diff"),
+    ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
+    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Reviewing chunks · 7/18"),
+    ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
+]
+
+
 class TestRenderInProgressBody:
-    @parameterized.expand(
-        [
-            (None, "Step 1/6 · Preparing the diff"),
-            ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
-            ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Reviewing chunks · 7/18"),
-            ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
-        ]
-    )
-    def test_renders_the_stage_line_and_marker(self, progress, expected_line) -> None:
+    @parameterized.expand(_STAGE_LINE_CASES)
+    def test_renders_the_stage_line_and_marker(self, progress: dict[str, Any] | None, expected_line: str) -> None:
         body = render_in_progress_body("rid", progress)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
@@ -250,6 +252,7 @@ class TestMaybeRefreshStatusComment(BaseTest):
         _wire_auth(mock_integration)
         report = self._report(comment_id=555, edited_ago=timedelta(minutes=5))
         before = report.status_comment_edited_at
+        assert before is not None
 
         maybe_refresh_status_comment(self.team.id, str(report.id))
 
