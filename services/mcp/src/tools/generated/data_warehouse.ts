@@ -314,7 +314,7 @@ const viewMaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql/?open_view=${params.id}`)
     },
 })
 
@@ -363,7 +363,7 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql/?open_view=${params.id}`)
     },
 })
 
@@ -378,7 +378,7 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql/?open_view=${params.id}`)
     },
 })
 
@@ -430,7 +430,7 @@ const viewUnmaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql/?open_view=${params.id}`)
     },
 })
 
