@@ -40,7 +40,7 @@
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', '') AS `properties___$bool_prop`
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', '') AS properties___$bool_prop
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -51,7 +51,7 @@
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))), and(equals(e.event, 'sign up'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                                                                                                                                                                                                                                                                                                  (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                   FROM cohortpeople
-                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(e__person.`properties___$bool_prop`, 'x'), 0))
+                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 2))))), ifNull(equals(e__person.properties___$bool_prop, 'x'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -1288,7 +1288,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                        ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1299,7 +1299,7 @@
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  LEFT JOIN
                    (SELECT person.id AS id,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
+                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
                     FROM person
                     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -1368,7 +1368,7 @@
               FROM
                 (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                        ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                        ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
                  FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1379,7 +1379,7 @@
                     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  LEFT JOIN
                    (SELECT person.id AS id,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
+                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
                     FROM person
                     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -2286,8 +2286,8 @@
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS properties___$os,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS properties___$browser
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -2295,7 +2295,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__person.properties___$os, 'android'), 0), ifNull(equals(e__person.properties___$browser, 'safari'), 0))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -2351,8 +2351,8 @@
            LEFT JOIN
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS properties___$os,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS properties___$browser
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -2360,7 +2360,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-07-01 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.properties___$os, 'android'), 0), ifNull(equals(e__person.properties___$browser, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -2438,7 +2438,7 @@
            HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -2446,7 +2446,7 @@
                                                           WHERE equals(person.team_id, 99999)
                                                           GROUP BY person.id
                                                           HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__person.`properties___$some_prop`, 'some_val'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__person.properties___$some_prop, 'some_val'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -2483,7 +2483,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2494,7 +2494,7 @@
               HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -2546,7 +2546,7 @@
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2557,7 +2557,7 @@
               HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -3699,7 +3699,7 @@
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -3716,7 +3716,7 @@
                  GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
               LEFT JOIN
                 (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version
@@ -3767,7 +3767,7 @@
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
-                     ifNull(nullIf(leftUTF8(toString(e__person.`properties___$some_prop`), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                     ifNull(nullIf(leftUTF8(toString(e__person.properties___$some_prop), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events AS e
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -3784,7 +3784,7 @@
                  GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
               LEFT JOIN
                 (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS properties___$some_prop
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version

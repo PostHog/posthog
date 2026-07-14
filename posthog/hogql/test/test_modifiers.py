@@ -241,9 +241,7 @@ class TestModifiers(BaseTest):
             pretty=False,
         )
         assert response.clickhouse is not None
-        assert (
-            "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
-        )
+        assert "SELECT nullIf(nullIf(events.mat_$browser, ''), 'null') AS `$browser` FROM events" in response.clickhouse
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
@@ -252,9 +250,7 @@ class TestModifiers(BaseTest):
             pretty=False,
         )
         assert response.clickhouse is not None
-        assert (
-            "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
-        )
+        assert "SELECT nullIf(nullIf(events.mat_$browser, ''), 'null') AS `$browser` FROM events" in response.clickhouse
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
@@ -263,7 +259,7 @@ class TestModifiers(BaseTest):
             pretty=False,
         )
         assert response.clickhouse is not None
-        assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
+        assert "SELECT nullIf(events.mat_$browser, '') AS `$browser` FROM events" in response.clickhouse
 
         response = execute_hogql_query(
             "SELECT properties.$browser FROM events",
