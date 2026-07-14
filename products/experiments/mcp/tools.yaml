@@ -1032,6 +1032,9 @@ tools:
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
         enabled: false
+    experiments-freeze-exposure-check-retrieve:
+        operation: experiments_freeze_exposure_check_retrieve
+        enabled: false
     experiments-freeze-exposure-create:
         operation: experiments_freeze_exposure_create
         enabled: false

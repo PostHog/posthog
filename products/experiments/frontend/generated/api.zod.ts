@@ -990,6 +990,78 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Freeze exposure on a running experiment while metrics keep flowing.
+ *
+ * In the default cohort mode, snapshots the already-exposed users into a
+ * static cohort and narrows the linked feature flag so only those users keep
+ * matching — new users can no longer enter the experiment. In the property
+ * mode (``freeze_mode="property"``), ANDs the given ``property_conditions``
+ * into every release condition instead — locally evaluable and instant, but
+ * only correct when enrollment is gated on those properties (use
+ * ``freeze_exposure_check`` to see which mode fits). Either way, ``end_date``
+ * is left null so long-term metrics (revenue/LTV/renewals/retention) keep
+ * accumulating. Enrolled users keep their assigned variant. The serialized
+ * status becomes 'exposure_frozen'.
+ *
+ * Returns 400 if the experiment is not running, exposure is already frozen,
+ * the experiment is group-aggregated in cohort mode (group flags cannot be
+ * frozen with a person cohort), or the exposed set is too large to snapshot
+ * synchronously in cohort mode.
+ */
+export const experimentsFreezeExposureCreateBodyFreezeModeDefault = `cohort`
+export const experimentsFreezeExposureCreateBodyPropertyConditionsItemTypeDefault = `person`
+export const experimentsFreezeExposureCreateBodyPropertyConditionsItemOperatorDefault = `exact`
+
+export const ExperimentsFreezeExposureCreateBody = /* @__PURE__ */ zod.object({
+    freeze_mode: zod
+        .enum(['cohort', 'property'])
+        .describe('\* `cohort` - cohort\n\* `property` - property')
+        .default(experimentsFreezeExposureCreateBodyFreezeModeDefault)
+        .describe(
+            "How to narrow the flag's release conditions. `cohort` (default) snapshots the already-exposed users into a static cohort — exact, but not resolvable by SDKs doing server-side local evaluation and capped in size. `property` ANDs the given property conditions into each release condition instead — locally evaluable and instant, but only correct when enrollment is gated on those properties (e.g. a signup-date cutoff).\n\n\* `cohort` - cohort\n\* `property` - property"
+        ),
+    property_conditions: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe(
+                        'Key of the property the freeze condition matches on, e.g. `created_at`. Under server-side local evaluation only properties the SDK caller passes in are visible, so pick one your code already sends.'
+                    ),
+                type: zod
+                    .string()
+                    .default(experimentsFreezeExposureCreateBodyPropertyConditionsItemTypeDefault)
+                    .describe(
+                        'Condition type: `person` for person-aggregated flags, `group` for group-aggregated flags. Cohort, flag-dependency, and behavioral conditions are not locally evaluable and are rejected.'
+                    ),
+                operator: zod
+                    .string()
+                    .default(experimentsFreezeExposureCreateBodyPropertyConditionsItemOperatorDefault)
+                    .describe('Property filter operator, e.g. `is_date_before`, `exact`, `lt`.'),
+                value: zod
+                    .union([
+                        zod.string(),
+                        zod.number(),
+                        zod.boolean(),
+                        zod.array(zod.union([zod.string(), zod.number()])),
+                    ])
+                    .optional()
+                    .describe(
+                        'Value the condition compares against, e.g. an ISO date for `is_date_before`. Optional only for `is_set` \/ `is_not_set` operators.'
+                    ),
+                group_type_index: zod
+                    .number()
+                    .nullish()
+                    .describe("For `group` conditions: must match the feature flag's aggregation group type index."),
+            })
+        )
+        .nullish()
+        .describe(
+            'Property conditions to AND into every release condition. Required when `freeze_mode` is `property`, rejected otherwise.'
+        ),
+})
+
+/**
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is

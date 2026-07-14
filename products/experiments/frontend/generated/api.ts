@@ -25,6 +25,8 @@ import type {
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
+    FreezeExposureApi,
+    FreezeExposureCheckApi,
     PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentSavedMetricListApi,
@@ -549,24 +551,60 @@ export const getExperimentsFreezeExposureCreateUrl = (projectId: string, id: num
 /**
  * Freeze exposure on a running experiment while metrics keep flowing.
  *
- * Snapshots the already-exposed users into a static cohort and narrows the
- * linked feature flag so only those users keep matching — new users can no
- * longer enter the experiment. ``end_date`` is left null so long-term metrics
- * (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
- * their assigned variant. The serialized status becomes 'exposure_frozen'.
+ * In the default cohort mode, snapshots the already-exposed users into a
+ * static cohort and narrows the linked feature flag so only those users keep
+ * matching — new users can no longer enter the experiment. In the property
+ * mode (``freeze_mode="property"``), ANDs the given ``property_conditions``
+ * into every release condition instead — locally evaluable and instant, but
+ * only correct when enrollment is gated on those properties (use
+ * ``freeze_exposure_check`` to see which mode fits). Either way, ``end_date``
+ * is left null so long-term metrics (revenue/LTV/renewals/retention) keep
+ * accumulating. Enrolled users keep their assigned variant. The serialized
+ * status becomes 'exposure_frozen'.
  *
  * Returns 400 if the experiment is not running, exposure is already frozen,
- * the experiment is group-aggregated (group flags cannot be frozen with a
- * person cohort), or the exposed set is too large to snapshot synchronously.
+ * the experiment is group-aggregated in cohort mode (group flags cannot be
+ * frozen with a person cohort), or the exposed set is too large to snapshot
+ * synchronously in cohort mode.
  */
 export const experimentsFreezeExposureCreate = async (
     projectId: string,
     id: number,
+    freezeExposureApi?: FreezeExposureApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsFreezeExposureCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(freezeExposureApi),
+    })
+}
+
+export const getExperimentsFreezeExposureCheckRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/freeze_exposure_check/`
+}
+
+/**
+ * Recommend a freeze mode for the experiment, without freezing anything.
+ *
+ * The cohort mode silently degrades for feature flags evaluated by
+ * server-side local-evaluation SDKs — static cohorts are excluded from the
+ * local-evaluation flag definitions, so those SDKs fall back to /decide (or
+ * to the default under only_evaluate_locally) — and it cannot freeze
+ * group-aggregated flags. This endpoint detects both cases (local evaluation
+ * via the recent share of $feature_flag_called events with
+ * locally_evaluated=true) so the freeze UI can steer the user to the
+ * property-based freeze before they freeze.
+ */
+export const experimentsFreezeExposureCheckRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FreezeExposureCheckApi> => {
+    return apiMutator<FreezeExposureCheckApi>(getExperimentsFreezeExposureCheckRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

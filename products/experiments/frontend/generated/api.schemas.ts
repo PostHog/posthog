@@ -1698,6 +1698,74 @@ export interface EndExperimentApi {
 }
 
 /**
+ * * `cohort` - cohort
+ * * `property` - property
+ */
+export type ExperimentFreezeModeEnumApi = (typeof ExperimentFreezeModeEnumApi)[keyof typeof ExperimentFreezeModeEnumApi]
+
+export const ExperimentFreezeModeEnumApi = {
+    Cohort: 'cohort',
+    Property: 'property',
+} as const
+
+export interface FreezePropertyConditionApi {
+    /** Key of the property the freeze condition matches on, e.g. `created_at`. Under server-side local evaluation only properties the SDK caller passes in are visible, so pick one your code already sends. */
+    key: string
+    /** Condition type: `person` for person-aggregated flags, `group` for group-aggregated flags. Cohort, flag-dependency, and behavioral conditions are not locally evaluable and are rejected. */
+    type?: string
+    /** Property filter operator, e.g. `is_date_before`, `exact`, `lt`. */
+    operator?: string
+    /** Value the condition compares against, e.g. an ISO date for `is_date_before`. Optional only for `is_set` / `is_not_set` operators. */
+    value?: string | number | boolean | (string | number)[]
+    /**
+     * For `group` conditions: must match the feature flag's aggregation group type index.
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface FreezeExposureApi {
+    /** How to narrow the flag's release conditions. `cohort` (default) snapshots the already-exposed users into a static cohort — exact, but not resolvable by SDKs doing server-side local evaluation and capped in size. `property` ANDs the given property conditions into each release condition instead — locally evaluable and instant, but only correct when enrollment is gated on those properties (e.g. a signup-date cutoff).
+     *
+     * * `cohort` - cohort
+     * * `property` - property */
+    freeze_mode?: ExperimentFreezeModeEnumApi
+    /**
+     * Property conditions to AND into every release condition. Required when `freeze_mode` is `property`, rejected otherwise.
+     * @nullable
+     */
+    property_conditions?: FreezePropertyConditionApi[] | null
+}
+
+/**
+ * * `local_evaluation` - local_evaluation
+ * * `group_aggregated` - group_aggregated
+ */
+export type ReasonsEnumApi = (typeof ReasonsEnumApi)[keyof typeof ReasonsEnumApi]
+
+export const ReasonsEnumApi = {
+    LocalEvaluation: 'local_evaluation',
+    GroupAggregated: 'group_aggregated',
+} as const
+
+export interface FreezeExposureCheckApi {
+    /** Freeze mode the caller should offer. `property` when the cohort mode would not work for this experiment; `cohort` otherwise.
+     *
+     * * `cohort` - cohort
+     * * `property` - property */
+    recommended_freeze_mode: ExperimentFreezeModeEnumApi
+    /** Why the cohort mode is unsafe: `local_evaluation` (the flag is predominantly evaluated by server-side local-evaluation SDKs, which cannot resolve static cohorts) and/or `group_aggregated` (the flag targets groups, which a person cohort cannot hold). Empty when the cohort mode is fine. */
+    reasons: ReasonsEnumApi[]
+    /**
+     * Share (0–1) of the flag's recent $feature_flag_called events with locally_evaluated=true. Null when the flag emitted too few events to classify (e.g. send_feature_flag_events disabled).
+     * @nullable
+     */
+    local_evaluation_share: number | null
+    /** Number of $feature_flag_called events for the flag in the detection window. */
+    flag_called_event_count: number
+}
+
+/**
  * * `manual` - Manual
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
