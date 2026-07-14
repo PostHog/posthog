@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     MetaAdsAuthError,
+    MetaAdsRateLimitError,
     MetaAdsResumeConfig,
     MetaAdsTokenRefreshError,
     get_integration_by_id,
@@ -65,7 +66,8 @@ ACCOUNT_STATUS_LABELS = {
 
 
 def _status_badges(account: dict) -> tuple[str, ...]:
-    label = ACCOUNT_STATUS_LABELS.get(account.get("account_status", 0))
+    status = account.get("account_status")
+    label = ACCOUNT_STATUS_LABELS.get(status) if status is not None else None
     return (label,) if label else ()
 
 
@@ -182,7 +184,6 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             fields=cast(
                 list[FieldType],
                 [
-                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
                         label="Meta Ads account",
@@ -219,7 +220,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = get_integration_by_id(integration_id, team_id)
         except Integration.DoesNotExist as e:
@@ -235,6 +239,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             raise IntegrationAccountListingError(
                 f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
             ) from e
+        except MetaAdsRateLimitError as e:
+            # Throttling is not a bug: surface it as an actionable 400 the user can retry, rather
+            # than a 500 that pages us.
+            raise IntegrationAccountListingError(str(e)) from e
 
         return [
             IntegrationAccount(

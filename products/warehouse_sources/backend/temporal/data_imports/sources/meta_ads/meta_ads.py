@@ -163,7 +163,6 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
 
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
-    """Get the Meta Ads integration."""
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
@@ -294,9 +293,32 @@ def _is_timeout_error(response: Response) -> bool:
 META_AUTH_ERROR_CODES = {102, 190}
 META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
+# Meta throttling codes. The request was rejected for its volume, not for being malformed, so the
+# call is fine and the only fix is waiting — never a bug on our side.
+#   4 — application request limit reached (our app, across all users).
+#   17 — user request limit reached.
+#   32 — page request limit reached.
+#   613 — custom-level rate limit reached.
+# https://developers.facebook.com/docs/graph-api/overview/rate-limiting
+META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
+
+META_RATE_LIMIT_ERROR_MESSAGE = (
+    "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
+)
+
+
+def _meta_error_code(response: Response) -> int | None:
+    """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, int) else None
 
 
 def _is_permanent_auth_error(response: Response) -> bool:
@@ -306,14 +328,13 @@ def _is_permanent_auth_error(response: Response) -> bool:
     permission denials. These are terminal: retrying the sync keeps failing
     until the user reconnects the integration.
     """
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
-        return False
-    code = error.get("code")
-    if not isinstance(code, int):
-        return False
+    code = _meta_error_code(response)
     return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+
+
+def _is_rate_limit_error(response: Response) -> bool:
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
@@ -333,22 +354,18 @@ class MetaAdsAuthError(Exception):
     """Meta rejected the credentials or the permissions they carry (see `_is_permanent_auth_error`)."""
 
 
+class MetaAdsRateLimitError(Exception):
+    """Meta throttled the request (see `_is_rate_limit_error`) — retrying later is the only fix."""
+
+
 # No `business{name}`: reading it needs the `business_management` scope, which the Meta OAuth
 # consent doesn't request (`ads_read` only), and Meta 400s the whole request when it's asked for.
 AD_ACCOUNT_FIELDS = "account_id,name,account_status"
 AD_ACCOUNT_PAGE_LIMIT = 100
-# Guards against a `paging.next` chain that never terminates. 100 pages is far past any real
-# Business Manager, so exhausting it means Meta is looping us, not that the user has that many
-# accounts — raise rather than silently return a truncated list.
-MAX_AD_ACCOUNT_PAGES = 100
 
 
 def list_ad_accounts(integration: Integration) -> list[dict]:
-    """Every ad account the connected Meta user can access.
-
-    Follows `paging.next` to the end: `/me/adaccounts` pages at 25 by default, so reading only the
-    first response would silently hide accounts from anyone with more than a page of them.
-    """
+    """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
     session = make_tracked_session()
     accounts: list[dict] = []
@@ -357,10 +374,12 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
         params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
     )
 
-    for _ in range(MAX_AD_ACCOUNT_PAGES):
+    while True:
         if response.status_code != 200:
             if _is_permanent_auth_error(response):
                 raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
+            if _is_rate_limit_error(response):
+                raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
             _raise_meta_api_error(response)
 
         body = response.json()
@@ -373,8 +392,6 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
             return accounts
 
         response = _fetch_paging_url(_strip_access_token(next_url), access_token)
-
-    raise Exception(f"Meta returned more than {MAX_AD_ACCOUNT_PAGES} pages of ad accounts")
 
 
 def _iter_simple_pagination(
