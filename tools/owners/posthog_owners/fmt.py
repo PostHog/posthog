@@ -510,6 +510,7 @@ class _InMemoryResolver(OwnersResolver):
     def __init__(self, repo_root: Path, files: dict[str, OwnersFile]) -> None:
         self.repo_root = repo_root
         self._dir_cache = {}
+        self._teams_cache = None
         self._files = files
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:  # type: ignore[override]

@@ -10,7 +10,7 @@ from posthog_owners.cli import _consolidation_suggestions, _reserved_location_er
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
 from posthog_owners.matcher import path_matches_pattern
 from posthog_owners.resolver import OwnersResolver
-from posthog_owners.schema import parse_owners_file
+from posthog_owners.schema import is_simple_owners_file, parse_owners_file
 
 
 @pytest.mark.parametrize(
@@ -137,6 +137,82 @@ def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
 )
 def test_resolver_slack_derivation_and_fallthrough(resolver_repo: Path, path: str, slack: str) -> None:
     assert OwnersResolver(repo_root=resolver_repo).resolve(path).slack == slack
+
+
+@pytest.fixture
+def registry_repo(tmp_path: Path) -> Path:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: []\nteams:\n"
+        "  team-registry:\n    slack: '#registry-chan'\n"
+        "  team-silent:\n    slack: false\n",
+    )
+    _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
+    _write(
+        tmp_path,
+        "reg/override/owners.yaml",
+        "version: 1\nowners: [team-registry]\ncontact:\n  slack: '#override'\n",
+    )
+    _write(
+        tmp_path,
+        "reg/off/owners.yaml",
+        "version: 1\nowners: [team-registry]\ncontact:\n  slack: false\n",
+    )
+    _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
+    _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
+    _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "path,slack",
+    [
+        ("reg/x.py", "#registry-chan"),  # registry hit beats derived
+        ("reg/override/x.py", "#override"),  # contact.slack beats registry
+        ("reg/off/x.py", None),  # contact.slack false suppresses everything
+        ("silent/x.py", None),  # registry false suppresses derivation
+        ("derive/x.py", "#team-nonreg"),  # no registry entry: derive from primary owner
+        ("indiv/x.py", None),  # primary owner is an @handle: registry ignored, no derive
+    ],
+)
+def test_slack_registry_precedence(registry_repo: Path, path: str, slack: str | None) -> None:
+    assert OwnersResolver(repo_root=registry_repo).resolve(path).slack == slack
+
+
+def test_teams_registry_is_root_only(tmp_path: Path) -> None:
+    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+    _, sub_errors = parse_owners_file(text, path=tmp_path / "sub/owners.yaml", directory="sub")
+    assert any("only allowed in the repo-root" in e for e in sub_errors)
+    root, root_errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert root_errors == []
+    assert root is not None and root.teams == {"team-a": "#a"}
+
+
+@pytest.mark.parametrize(
+    "teams_yaml,needle",
+    [
+        ("teams: [team-a]\n", "'teams' must be a mapping"),
+        ("teams:\n  team-a:\n    slack: 'no-hash'\n", "must be a string starting with '#' or false"),
+        ("teams:\n  team-a:\n    channel: '#a'\n", "unknown field 'channel'"),
+        ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
+        ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
+        ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
+    ],
+)
+def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
+    text = "version: 1\nowners: []\n" + teams_yaml
+    file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert any(needle in e for e in errors)
+    assert file is not None  # a bad registry entry doesn't make the file unusable
+
+
+def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
+    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+    file, _ = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert file is not None
+    assert is_simple_owners_file(file) is False
+    assert is_simple_owners_file(file, allow_anchored_rules=True) is False
 
 
 @pytest.mark.parametrize(

@@ -131,6 +131,33 @@ Checked all 31 team slugs in use (CODEOWNERS + soft + product.yaml) against live
 
 So the derived default is right for ~87% of teams and the rest write one line. Guarding against a derived channel that doesn't exist is lint's job, not a per-file flag: `owners:lint` gets an opt-in Slack-API check mirroring the existing opt-in live GitHub-team validation.
 
+#### The `teams:` registry (repo-root only)
+
+A team that owns paths across many files would otherwise repeat its `contact.slack` override in each.
+Instead, the **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to a single `slack` value, validated exactly like `contact.slack` (a string starting with `#`, or `false` to mean "no channel, don't derive"):
+
+```yaml
+# owners.yaml (repo root only)
+teams:
+  team-posthog-code:
+    slack: '#team-code'
+  team-data-stack:
+    slack: '#group-data-stack'
+  hogql:
+    slack: false
+```
+
+`teams:` in any non-root `owners.yaml` is a schema error, and `product.yaml` aliases never carry it.
+
+The effective Slack channel for a path is resolved by this precedence chain, first match wins:
+
+1. the resolved per-path/per-file `contact.slack` (including an explicit `false`, which suppresses the channel);
+2. the registry entry for the **primary owner** (`owners[0]`), but only when it is a team slug (not an `@handle`) — a `false` entry suppresses derivation;
+3. the derived `#<owners[0]>` when the primary owner is a team slug;
+4. otherwise `None`.
+
+The registry only changes how the resolver computes the channel; the wire format is unchanged — `slack` still flows through as the final string or `null`.
+
 ### Individuals, no alias layer
 
 There is no `OWNERS_ALIASES` file. `owners:` takes GitHub team slugs or `@handles` directly — the same convention `product.yaml` already uses for `user_interviews`. Lint validates handles against org membership the same way it validates team slugs. The auto-assigner requests individual reviewers through the API's `reviewers` field (it currently skips `@`-entries entirely, so individuals only work via `CODEOWNERS-soft` today — this closes that gap and lets the soft-file wiring die with the file).

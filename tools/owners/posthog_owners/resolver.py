@@ -103,6 +103,7 @@ class OwnersResolver:
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
+        self._teams_cache: dict[str, str | bool] | None = None
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
@@ -210,17 +211,30 @@ class OwnersResolver:
 
         return self._build_resolution(norm, merged)
 
-    @staticmethod
-    def _effective_slack(value: str | bool | _Unset, owners: list[str] | None) -> str | None:
-        if isinstance(value, _Unset):
-            # Derive `#<primary owner>` when the first owner is a team slug.
-            if owners and not owners[0].startswith("@"):
-                return f"#{owners[0]}"
-            return None
-        if isinstance(value, bool):
+    def _teams_registry(self) -> dict[str, str | bool]:
+        """The root file's ``teams:`` Slack registry (team slug -> channel or False),
+        loaded once. Empty when there is no root file or it declares none."""
+        if self._teams_cache is None:
+            root = self._load_dir_file("")
+            self._teams_cache = dict(root.teams) if root is not None else {}
+        return self._teams_cache
+
+    def _effective_slack(self, value: str | bool | _Unset, owners: list[str] | None) -> str | None:
+        # An explicit per-path/per-file contact.slack (string or `false`) wins outright.
+        if not isinstance(value, _Unset):
             # Schema only admits `slack: false`; any bool means "no channel".
-            return None
-        return value
+            return None if isinstance(value, bool) else value
+        # Unset: consult the registry for the primary owner, then derive `#<slug>`.
+        # Only a team slug (not an `@handle`) carries a channel.
+        if owners and not owners[0].startswith("@"):
+            primary = owners[0]
+            registry = self._teams_registry()
+            if primary in registry:
+                entry = registry[primary]
+                # Schema only admits `slack: false`; any bool means "no channel".
+                return entry if isinstance(entry, str) else None
+            return f"#{primary}"
+        return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:
         unowned_by_design = merged.owners is None

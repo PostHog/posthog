@@ -18,10 +18,11 @@ VALID_STATUSES = ("active", "deprecated", "generated", "vendored")
 CHANGEME_SLUG = "team-CHANGEME"
 
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
-# and `rules`, plus the required `match`.
-_TOP_LEVEL_KEYS = {"version", "owners", "contact", "status", "inherit", "rules"}
+# and `rules`, plus the required `match`. `teams` is root-only (see parse).
+_TOP_LEVEL_KEYS = {"version", "owners", "contact", "status", "inherit", "rules", "teams"}
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
 _CONTACT_KEYS = {"slack"}
+_TEAMS_ENTRY_KEYS = {"slack"}
 
 
 class _Unset:
@@ -65,6 +66,9 @@ class OwnersFile:
     inherit: bool = True
     rules: list[OwnersRule] = field(default_factory=list)
     is_alias: bool = False
+    # Root-only Slack registry: team slug -> slack (string or False). Empty everywhere
+    # but the repo-root file; lets a team declare its channel once instead of per file.
+    teams: dict[str, str | bool] = field(default_factory=dict)
 
 
 def normalize_product_owners(owners: list[str]) -> list[str]:
@@ -98,6 +102,36 @@ def _validate_contact(value: object, where: str, errors: list[str]) -> str | boo
         else:
             errors.append(f"{where}: 'contact.slack' must be a string starting with '#' or false")
     return slack
+
+
+def _validate_teams(value: object, errors: list[str]) -> dict[str, str | bool]:
+    """Validate the root-only ``teams:`` registry — a mapping of team slug to a
+    single ``slack`` value, validated exactly like ``contact.slack``."""
+    registry: dict[str, str | bool] = {}
+    if not isinstance(value, dict):
+        errors.append("'teams' must be a mapping of team slug to {slack: ...}")
+        return registry
+    for slug, entry in value.items():
+        where = f"teams['{slug}']"
+        if not isinstance(slug, str):
+            errors.append(f"teams: slug must be a string, got {slug!r}")
+            continue
+        if slug.startswith("@"):
+            errors.append(f"{where}: registry keys are team slugs, not @handles")
+            continue
+        if not isinstance(entry, dict):
+            errors.append(f"{where}: entry must be a mapping with a 'slack' key")
+            continue
+        for key in entry:
+            if key not in _TEAMS_ENTRY_KEYS:
+                errors.append(f"{where}: unknown field '{key}'")
+        if "slack" in entry:
+            raw = entry["slack"]
+            if raw is False or (isinstance(raw, str) and raw.startswith("#")):
+                registry[slug] = raw
+            else:
+                errors.append(f"{where}: 'slack' must be a string starting with '#' or false")
+    return registry
 
 
 def _validate_status(value: object, where: str, errors: list[str]) -> str | _Unset:
@@ -182,6 +216,14 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         inherit = _validate_inherit(data["inherit"], "inherit", errors)
         file.inherit = True if isinstance(inherit, _Unset) else inherit
 
+    if "teams" in data:
+        # The registry is a single repo-wide lookup, so it only makes sense at the
+        # root; a nested file carrying it would silently do nothing.
+        if directory != "":
+            errors.append("'teams' is only allowed in the repo-root owners.yaml")
+        else:
+            file.teams = _validate_teams(data["teams"], errors)
+
     if "rules" in data:
         raw_rules = data["rules"]
         if not isinstance(raw_rules, list):
@@ -224,8 +266,9 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
     Both callers agree that contact/status/``inherit: false`` (and being a
-    ``product.yaml`` alias) disqualify a file. So does any rule carrying more
-    than match+owners: relocation only preserves owners, so rule-level
+    ``product.yaml`` alias) disqualify a file. So does a ``teams:`` registry:
+    it is root-only content relocation would strand. So does any rule carrying
+    more than match+owners: relocation only preserves owners, so rule-level
     ``status``/``inherit`` must pin the file. They differ on rules:
 
     - lint's consolidation suggestions (``allow_anchored_rules=False``) only fold
@@ -235,7 +278,7 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """
     if parsed is None or parsed.is_alias:
         return False
-    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET:
+    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET or parsed.teams:
         return False
     if any(r.status is not UNSET or r.inherit is not UNSET for r in parsed.rules):
         return False

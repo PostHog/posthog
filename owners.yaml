@@ -55,6 +55,8 @@ rules:
       owners: [team-devex]
     - match: '/tools/hogli/'
       owners: [team-devex]
+    - match: '/tools/owners/'
+      owners: [team-devex]
     - match: '/tools/phrocs/'
       owners: [team-devex]
     - match: '/tools/pr-approval-agent/'
