@@ -46,6 +46,20 @@ function createMockResults(ok = true): {
     }
 }
 
+// A real HogInvocationResultsService over a fake producer — exercises the actual
+// give-up row build (buildLifecycleRow + serialization), which the mock skips.
+// This is the Postgres-rung guard for the invalid-date RangeError class.
+function createRealResults(): { service: HogInvocationResultsService; produce: jest.Mock } {
+    const produce = jest.fn().mockResolvedValue(undefined)
+    const service = new HogInvocationResultsService({ produce } as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
+    return { service, produce }
+}
+
+function parseProducedResult(produce: jest.Mock): Record<string, any> {
+    const value = produce.mock.calls[0][1].value as Buffer
+    return JSON.parse(value.toString('utf-8'))
+}
+
 function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {
     return new CyclotronV2Janitor(
         {
@@ -1648,6 +1662,57 @@ describe('Cyclotron V2', () => {
             expect(stalled.status).toBe('available')
         })
 
+        it.each(['hogflow', 'email'])(
+            'builds and produces a valid failed hog_flow result for a poisoned %s-queue job',
+            async (queueName) => {
+                // Realistic parked-mid-flow state; the scheduled/created columns come
+                // back from pg as ISO strings — the give-up row build must parse them
+                // without throwing (the RangeError this guards against).
+                const id = uuidv7()
+                const functionId = uuidv7()
+                const state = Buffer.from(
+                    JSON.stringify({
+                        state: {
+                            event: { uuid: uuidv7(), distinct_id: 'd1' },
+                            actionStepCount: 1,
+                            variables: { foo: 'bar' },
+                            currentAction: { id: 'wait_1', startedAtTimestamp: 1 },
+                        },
+                    })
+                )
+                await insertRawJob({
+                    id,
+                    function_id: functionId,
+                    queue_name: queueName,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: 5,
+                    state,
+                })
+
+                const { service, produce } = createRealResults()
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.poisonedIds).toEqual([id])
+                // The row was actually built + produced — where the invalid-date
+                // RangeError used to throw and leave the job undeleted.
+                expect(produce).toHaveBeenCalledTimes(1)
+                const row = parseProducedResult(produce)
+                expect(row.status).toBe('failed')
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.function_id).toBe(functionId)
+                expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+                // Timestamps must be real ISO microsecond strings, never NaN/"Invalid".
+                expect(row.scheduled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                expect(row.finished_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                // Recorded first, then deleted.
+                await expect(queryJob(id)).rejects.toThrow()
+            }
+        )
+
         describe('fleet-health gating', () => {
             // Each row here is a poison pill (stale + over maxTouchCount). On a
             // healthy fleet they would all be given up on; the gate must pause
@@ -1706,6 +1771,33 @@ describe('Cyclotron V2', () => {
                 expect(result.poisoned).toBe(1)
                 expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
                 await expect(queryJob(id)).rejects.toThrow()
+            })
+
+            it('does not pause when stalls are a small fraction of throughput (saturation, not outage)', async () => {
+                // ≥ fleetMinStalledCount stalled, but completions dominate the window —
+                // a healthy, busy fleet with a few genuinely bad jobs, not an outage.
+                // The gate must give up (isolated bad jobs), not pause.
+                const old = new Date(Date.now() - 60_000)
+                for (let i = 0; i < 20; i++) {
+                    await insertRawJob({ id: uuidv7(), status: 'completed', last_transition: old })
+                }
+                const poison = await seedPoisonPills(6)
+
+                const { service, recordTerminalFailureDurably } = createMockResults(true)
+                const janitor = createJanitor(
+                    { stallTimeoutMs: 1_000, maxTouchCount: 2, fleetMinStalledCount: 5, fleetStallRatioThreshold: 0.5 },
+                    service
+                )
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                // 6 / (6 + 20) ≈ 0.23 < 0.5 threshold → healthy → give up.
+                expect(result.poisoningPaused).toBe(false)
+                expect(result.poisoned).toBe(6)
+                expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(6)
+                for (const id of poison) {
+                    await expect(queryJob(id)).rejects.toThrow()
+                }
             })
         })
 
