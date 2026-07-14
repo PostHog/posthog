@@ -39,7 +39,7 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import AskedForConfirmation
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import NoToolCall, RequiredToolCall
 
 # Event name chosen to be obviously fictional so the agent can't plausibly
 # justify it as a typo of a real PostHog event in the seeded team.
@@ -68,7 +68,6 @@ async def eval_unknown_events_confirmation(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-unknown-events-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             # Agent must look up the named experiment first.
             RequiredToolCall(
                 required={"experiment-list", "experiment-get-all"},

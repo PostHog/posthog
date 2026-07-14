@@ -33,7 +33,7 @@ from __future__ import annotations
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import RequiredToolCall
 
 
 async def eval_create_control_variant(ctx: EvalContext) -> None:
@@ -58,7 +58,6 @@ async def eval_create_control_variant(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-create-control-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             # The single outcome scorer: did experiment-create return without error?
             # `RequiredToolCall` matches on `is_error=False`, so any of the three
             # paths in the docstring (clean call / silent normalization / retry

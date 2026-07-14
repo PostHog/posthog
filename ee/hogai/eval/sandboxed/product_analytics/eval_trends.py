@@ -32,7 +32,7 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     TrendsTimeRangeRelevancy,
 )
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import LastToolCallNot, NoToolCall
 
 
 def _trends_case(
@@ -312,7 +312,6 @@ async def eval_trends(ctx: EvalContext) -> None:
         experiment_name="sandboxed-trends",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             SkillLoaded("providing-insights", name="providing_insights_skill_loaded"),

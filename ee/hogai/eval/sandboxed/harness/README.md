@@ -18,7 +18,7 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 
 | Module             | Role                                                                                                                 |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `__main__.py`      | Entry point. Parses args, configures Django, then hands off to `lifecycle`.                                          |
+| `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                   |
 | `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                           |
 | `env_preflight.py` | Loads the repo-root `.env` (dotenv, shell wins) and validates required env vars via a pydantic model.                |
 | `ports.py`         | The six port constants. Deliberately free of Django imports.                                                         |
@@ -32,6 +32,7 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 | `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                            |
 | `context.py`       | `EvalContext`, the single object every suite receives.                                                               |
 | `reporting.py`     | `ProgressReporter`, the final summary table, and the quiet Braintrust reporter.                                      |
+| `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                        |
 | `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                               |
 
 ## Boot sequence
@@ -40,7 +41,7 @@ Discovery happens first, before anything is provisioned, so a typo'd selector co
 
 The bootstrap is deliberately synchronous and runs before any event loop exists, because it is ORM-heavy and Django's async-safety guard rejects sync ORM calls from an async context:
 
-1. `__main__` loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals:sandboxed` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, then `django.setup()` and `setup_test_environment()`.
+1. `__main__` creates the run transcript, then loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals:sandboxed` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, then `django.setup()` and `setup_test_environment()`.
    The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
@@ -54,6 +55,17 @@ The async phase then starts the Temporal dev server on the main loop, applies th
 
 Teardown unwinds an `ExitStack` and an `AsyncExitStack` in reverse.
 `atexit` hooks and the subprocess manager's signal handlers cover the Ctrl-C path, where neither stack unwinds.
+The final summary renders after teardown, logging is flushed, and the transcript path is emitted last.
+
+## Output model
+
+The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.
+`START` marks work entering flight, `DONE` marks successful completion, and `TIMEOUT`, `ERROR`, or `CRASH` name exceptional outcomes.
+Only the final overall run status uses `PASS` or `FAIL`.
+
+Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
+The transcript and terminal both end with that log's unlabeled absolute path, and `logs/harness/latest.log` points to it.
+Discovery-only `--list` invocations and argument errors do not write transcripts.
 
 ## Concurrency model
 

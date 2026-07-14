@@ -80,18 +80,60 @@ class SandboxedEvalHarness:
                 print(suite.id)  # noqa: T201
             return 0
 
-        validate_eval_env(self.options.agent_runtime)
-        self._validate_agent_options()
-        self.provider.preflight()
-        ensure_personhog_binaries()
+        reporter = ProgressReporter(total_suites=len(suites))
+        reporter.print_run_header(
+            provider=self.options.provider,
+            agent_runtime=self.options.agent_runtime,
+            agent_model=self.options.agent_model,
+            max_sandboxes=self.options.max_sandboxes,
+            trials=self.options.trials,
+        )
+
+        started = time.monotonic()
+        results: list[SuiteRunResult] | None = None
+        interrupted = False
         try:
+            validate_eval_env(self.options.agent_runtime)
+            self._validate_agent_options()
+            self.provider.preflight()
+            ensure_personhog_binaries()
             self._bootstrap()
-            return asyncio.run(self._run_suites(suites))
+            results = asyncio.run(self._run_suites(suites, reporter))
         except KeyboardInterrupt:
             logger.warning("Interrupted, tearing down")
-            return 130
+            interrupted = True
         finally:
-            self._stack.close()
+            try:
+                self._stack.close()
+            finally:
+                atexit.unregister(stop_all_subprocesses)
+                atexit.unregister(self.provider.cleanup)
+
+        duration_seconds = time.monotonic() - started
+        if interrupted:
+            reporter.print_incomplete_summary(status="INTERRUPTED", duration_seconds=duration_seconds)
+            return 130
+        if results is None:
+            raise RuntimeError("Sandboxed eval run finished without suite results")
+
+        exit_code = self._exit_code(results, reporter)
+        reporter.print_final_summary(
+            results,
+            exit_code=exit_code,
+            fail_under=self.options.fail_under,
+            duration_seconds=duration_seconds,
+        )
+        return exit_code
+
+    def _exit_code(self, results: Sequence[SuiteRunResult], reporter: ProgressReporter) -> int:
+        if any(result.status == "crashed" for result in results):
+            return 1
+        if self.options.fail_under is None:
+            return 0
+        mean = reporter.mean_score()
+        if mean is None or mean < self.options.fail_under:
+            return 1
+        return 0
 
     def _validate_agent_options(self) -> None:
         """Validate runtime/model/effort with the tasks helpers, which need Django loaded.
@@ -149,7 +191,7 @@ class SandboxedEvalHarness:
             sandbox_timeout_seconds=self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds),
         )
 
-    async def _run_suites(self, suites: Sequence[EvalSuite]) -> int:
+    async def _run_suites(self, suites: Sequence[EvalSuite], reporter: ProgressReporter) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
             temporal_env = await start_temporal_env()
             stack.push_async_callback(temporal_env.shutdown)
@@ -183,7 +225,7 @@ class SandboxedEvalHarness:
             worker.start()
             stack.callback(worker.stop)
 
-            ctx = self._build_context(len(suites))
+            ctx = self._build_context(reporter)
 
             logger.info(
                 "Running %d suite(s) on provider=%s with %d sandbox slot(s)",
@@ -192,26 +234,9 @@ class SandboxedEvalHarness:
                 self.options.max_sandboxes,
             )
             results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
+        return results
 
-            ctx.reporter.print_final_summary(results, ctx.log_dirs)
-            exit_code = 0 if all(result.status == "passed" for result in results) else 1
-
-            if self.options.fail_under is not None:
-                mean = ctx.reporter.mean_score()
-                if mean is None:
-                    ctx.reporter.print_line(
-                        f"\nFAIL   no scores to check against --fail-under {self.options.fail_under:.2f}"
-                    )
-                    exit_code = 1
-                elif mean < self.options.fail_under:
-                    ctx.reporter.print_line(
-                        f"\nFAIL   mean score {mean * 100:.1f}% is below --fail-under {self.options.fail_under * 100:.1f}%"
-                    )
-                    exit_code = 1
-
-        return exit_code
-
-    def _build_context(self, suite_count: int) -> EvalContext:
+    def _build_context(self, reporter: ProgressReporter) -> EvalContext:
         if self._demo_data is None:
             raise RuntimeError("_bootstrap() must run before the eval context is built")
         return EvalContext(
@@ -225,7 +250,7 @@ class SandboxedEvalHarness:
             posthog_client=self._posthog_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes),
             team_setup_slots=asyncio.Semaphore(TEAM_SETUP_CONCURRENCY),
-            reporter=ProgressReporter(total_suites=suite_count),
+            reporter=reporter,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
         )

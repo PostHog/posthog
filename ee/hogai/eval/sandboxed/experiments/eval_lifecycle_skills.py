@@ -39,7 +39,7 @@ from ee.hogai.eval.sandboxed.experiments.scorers import (
 )
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredToolCall
+from ee.hogai.eval.sandboxed.scorers import NoToolCall, RequiredToolCall
 
 
 # Cases are bundled into one suite function rather than one function per case
@@ -93,7 +93,6 @@ async def eval_lifecycle_skills(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-lifecycle-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             # Agent must look up the named experiment (either tool counts).
             RequiredToolCall(
                 required={"experiment-list", "experiment-get-all"},

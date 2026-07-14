@@ -8,7 +8,7 @@ Verify a change with `python -m ee.hogai.eval.sandboxed.harness --list` (imports
 ## Import ordering
 
 `__main__.py` calls `setup_django()` **before** importing `lifecycle`, and `lifecycle` is what pulls in everything that touches Django settings, the ORM, or the `products.tasks` facade.
-Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, `env_preflight.py`, and `django_env.py` itself.
+Anything reachable from `__main__`'s top-level imports must therefore stay Django-free: today that is `cli.py`, `providers.py`, `tunnels.py`, `ports.py`, `env_preflight.py`, `transcript.py`, `log_sink.py`, and `django_env.py` itself.
 
 This is why the port constants live in `ports.py` rather than in `services.py`, which imports Django.
 If you add an import to one of those modules, check that `--list` still runs.
@@ -24,12 +24,20 @@ If you add an import to one of those modules, check that `--list` still runs.
 
 ## Terminal output
 
-`ProgressReporter` owns stdout and holds a lock, because suites run concurrently and would otherwise interleave.
-Do not add bare `print` calls to `base.py` or the harness; route them through the reporter.
+`ProgressReporter` owns formatted harness messages and holds a lock, because suites run concurrently and would otherwise interleave.
+Do not add bare `print` calls to `base.py` or the run lifecycle; route them through the reporter.
 The same lock guards the `eval_results.jsonl` append, where concurrent writes would tear a line in half.
 
 `QUIET_REPORTER` exists so each Braintrust experiment does not dump its own score table into the shared stream.
 Its callbacks are called synchronously by `EvalAsync` and must not be coroutines.
+
+`RunTranscript` owns the outer stdout/stderr tee for every real run.
+It must contain the complete plain-text terminal stream, and both the terminal and transcript must end with the same unlabeled absolute transcript path.
+Keep final summary rendering after suite teardown and call `logging.shutdown()` before `RunTranscript.finish()`, so cleanup or buffered logging cannot write after the path.
+`--list` and argparse errors intentionally bypass transcript creation.
+
+Only the final overall status may say `PASS` or `FAIL`.
+Successful cases, experiments, and suites say `DONE`; `TIMEOUT`, `ERROR`, and `CRASH` keep outcome and infrastructure failures distinct.
 
 ## Suites
 
@@ -43,6 +51,9 @@ A crashing suite must never take down the others: `lifecycle._run_suite` catches
 Do not widen that to `BaseException`, which would swallow `CancelledError` and `KeyboardInterrupt`.
 
 ## Scorers
+
+`base.py` adds `ExitCodeZero` to every experiment before optional tracing wraps the scorers.
+Suites must not declare it themselves, and the constructor rejects an explicit duplicate.
 
 Every scorer implements exactly one branch — never both `_run_eval_sync` and `_run_eval_async`.
 Braintrust's `EvalAsync` always dispatches through `eval_async`, and the base `Scorer`'s default `_run_eval_async` already delegates to `_run_eval_sync`, so a second branch is either dead code or a silently divergent copy.

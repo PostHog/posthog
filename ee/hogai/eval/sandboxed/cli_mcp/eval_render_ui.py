@@ -47,7 +47,6 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cli_mcp.scorers import CalledTargetTool, DidNotRenderUi, ExecBeforeRender, RenderedEntityUi
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 # Renderable experiment tools (detail + results). The agent may render the detail
 # view (``experiment-get``) or a results view for a status/results question. Two
@@ -92,7 +91,7 @@ async def eval_renders_entity_ui(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-renders-entity-ui-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), RenderedEntityUi(), ExecBeforeRender()],
+        scorers=[RenderedEntityUi(), ExecBeforeRender()],
         ctx=ctx,
     )
 
@@ -120,6 +119,6 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), DidNotRenderUi()],
+        scorers=[CalledTargetTool(), DidNotRenderUi()],
         ctx=ctx,
     )

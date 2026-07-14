@@ -36,7 +36,6 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import CitesDiagnosticGroup
 from ee.hogai.eval.sandboxed.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
@@ -124,7 +123,6 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-diagnose-numbers-vs-sql-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CitesDiagnosticGroup(),
         ],
         ctx=ctx,

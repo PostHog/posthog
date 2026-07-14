@@ -3,12 +3,14 @@ import datetime as dt
 from types import SimpleNamespace
 from typing import Any, cast
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
 from products.demo.backend.logic.products.hedgebox.taxonomy import (
@@ -17,6 +19,11 @@ from products.demo.backend.logic.products.hedgebox.taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    WarehouseColumnAnnotation,
 )
 
 
@@ -245,6 +252,129 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
             person_properties={},
             person_created_at=timestamp,
         )
+
+
+@override_settings(
+    OBJECT_STORAGE_ACCESS_KEY_ID="warehouse-access-key",
+    OBJECT_STORAGE_SECRET_ACCESS_KEY="warehouse-access-secret",
+    OBJECT_STORAGE_BUCKET="warehouse-bucket",
+)
+class TestHedgeboxMatrixDemoWarehouseClone(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.target_team = self.organization.teams.create(name="Warehouse clone target")
+        self.source_credential = DataWarehouseCredential.objects.create(
+            team=self.team,
+            access_key="warehouse-access-key",
+            access_secret="warehouse-access-secret",
+        )
+        self.source_tables = self._create_source_warehouse()
+
+    def test_clone_creates_isolated_metadata_for_the_target_team(self) -> None:
+        HedgeboxMatrix.clone_demo_data_warehouse(self.team, self.target_team, self.user)
+
+        target_tables = list(DataWarehouseTable.raw_objects.filter(team=self.target_team).order_by("name"))
+        assert [table.name for table in target_tables] == sorted(HedgeboxMatrix.DEMO_DATA_WAREHOUSE_TABLE_NAMES)
+        assert {table.credential_id for table in target_tables} != {self.source_credential.id}
+        assert len({table.credential_id for table in target_tables}) == 1
+        assert target_tables[0].credential is not None
+        assert target_tables[0].credential.team_id == self.target_team.id
+
+        source_tables_by_name = {table.name: table for table in self.source_tables}
+        for target_table in target_tables:
+            source_table = source_tables_by_name[target_table.name]
+            assert target_table.id != source_table.id
+            assert target_table.url_pattern == source_table.url_pattern
+            assert target_table.columns == source_table.columns
+            assert target_table.column_order == source_table.column_order
+            assert target_table.options == source_table.options
+            assert target_table.row_count == source_table.row_count
+            assert target_table.size_in_s3_mib == source_table.size_in_s3_mib
+
+        target_annotations = list(WarehouseColumnAnnotation.objects.for_team(self.target_team.id).all())
+        assert len(target_annotations) == 1
+        assert target_annotations[0].table.team_id == self.target_team.id
+        assert target_annotations[0].column_name == "amount_usd"
+        assert target_annotations[0].description == "Amount paid in US dollars"
+
+        target_join = DataWarehouseJoin.objects.get(team=self.target_team)
+        assert target_join.source_table_name == "persons"
+        assert target_join.source_table_key == "properties.email"
+        assert target_join.joining_table_name == HedgeboxMatrix.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE
+        assert target_join.joining_table_key == "email"
+        assert target_join.field_name == HedgeboxMatrix.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE
+        assert target_join.configuration == {"type": "left"}
+
+        assert DataWarehouseTable.raw_objects.filter(team=self.team).count() == len(
+            HedgeboxMatrix.DEMO_DATA_WAREHOUSE_TABLE_NAMES
+        )
+        assert DataWarehouseJoin.objects.filter(team=self.team).count() == 1
+
+    @parameterized.expand([("missing_table",), ("missing_join",)])
+    def test_clone_rejects_an_incomplete_source_without_writing_target_metadata(self, missing_part: str) -> None:
+        if missing_part == "missing_table":
+            self.source_tables[0].delete()
+        else:
+            DataWarehouseJoin.objects.filter(team=self.team).delete()
+
+        with self.assertRaises(RuntimeError):
+            HedgeboxMatrix.clone_demo_data_warehouse(self.team, self.target_team, self.user)
+
+        assert not DataWarehouseTable.raw_objects.filter(team=self.target_team).exists()
+        assert not DataWarehouseCredential.objects.filter(team=self.target_team).exists()
+        assert not DataWarehouseJoin.objects.filter(team=self.target_team).exists()
+        assert not WarehouseColumnAnnotation.objects.for_team(self.target_team.id).exists()
+
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.head_object")
+    def test_readiness_requires_every_master_csv(self, mock_head_object: MagicMock) -> None:
+        mock_head_object.return_value = {}
+        assert HedgeboxMatrix.demo_data_warehouse_is_ready(self.team)
+
+        missing_key = HedgeboxMatrix._demo_data_warehouse_object_key(
+            HedgeboxMatrix.DEMO_DATA_WAREHOUSE_SIGNUPS_TABLE, self.team.id
+        )
+        mock_head_object.side_effect = lambda *, file_key, bucket: None if file_key == missing_key else {}
+        assert not HedgeboxMatrix.demo_data_warehouse_is_ready(self.team)
+
+    def _create_source_warehouse(self) -> list[DataWarehouseTable]:
+        tables = [
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=table_name,
+                format=DataWarehouseTable.TableFormat.CSVWithNames,
+                url_pattern=f"https://warehouse.test/master/{table_name}/*.csv",
+                queryable_folder=f"master/{table_name}",
+                credential=self.source_credential,
+                columns={"id": "Int64", "value": "String"},
+                column_order=["id", "value"],
+                options={"csv_allow_double_quotes": True},
+                row_count=10,
+                size_in_s3_mib=1.5,
+                created_by=self.user,
+            )
+            for table_name in HedgeboxMatrix.DEMO_DATA_WAREHOUSE_TABLE_NAMES
+        ]
+        paid_bills_table = next(
+            table for table in tables if table.name == HedgeboxMatrix.DEMO_DATA_WAREHOUSE_PAID_BILLS_TABLE
+        )
+        WarehouseColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            table=paid_bills_table,
+            column_name="amount_usd",
+            description="Amount paid in US dollars",
+            description_source=WarehouseColumnAnnotation.DescriptionSource.CANONICAL,
+            ai_model="warehouse-test-model",
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=HedgeboxMatrix.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+            joining_table_key="email",
+            field_name=HedgeboxMatrix.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+            configuration={"type": "left"},
+        )
+        return tables
 
 
 class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):

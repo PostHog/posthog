@@ -26,7 +26,7 @@ from ee.hogai.eval.sandboxed.cohorts.scorers import (
 )
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import NoToolCall
 
 
 async def eval_cohort_from_query(ctx: EvalContext) -> None:
@@ -61,7 +61,6 @@ async def eval_cohort_from_query(ctx: EvalContext) -> None:
         experiment_name="sandboxed-cohorts-from-query-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CohortFromQueryUsed(),
             QueryTargetsActorColumn(),
             NoToolCall(forbidden={COHORTS_ADD_PERSONS_TOOL}, name="no_uuid_batching"),

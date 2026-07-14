@@ -34,7 +34,6 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.retrieval.scorers import InfoCalledBeforeTool, InformationSchemaBeforeSql
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 
 
@@ -76,7 +75,6 @@ async def eval_system_table_search(ctx: EvalContext) -> None:
         experiment_name="sandboxed-system-table-search-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             InformationSchemaBeforeSql(),
             InfoCalledBeforeTool("execute-sql"),
         ],

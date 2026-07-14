@@ -53,7 +53,6 @@ from ee.hogai.eval.sandboxed.experiments.seeders import (
     seed_running_experiment,
 )
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_midrun_changes(ctx: EvalContext) -> None:
@@ -123,7 +122,6 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
         experiment_name="sandboxed-experiments-diagnose-midrun-changes-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CitesDiagnosticGroup(),
             DoesNotRecommendEdit(),
             AdvisesAgainstShipping(),

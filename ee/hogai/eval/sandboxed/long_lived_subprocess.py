@@ -318,6 +318,7 @@ class LongLivedSubprocessManager:
             self._stops.append(stop)
 
     def _unregister(self, stop: StopCallback) -> None:
+        atexit.unregister(stop)
         with self._stops_lock:
             try:
                 self._stops.remove(stop)

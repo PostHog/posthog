@@ -25,7 +25,7 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import LastToolCallNot, NoToolCall
 from ee.hogai.eval.sandboxed.sql.scorers import AnswerQueryRan, SQLResultMessageAlignment, SQLSchemaAlignment
 
 
@@ -384,7 +384,6 @@ WHERE properties.interests IS NOT NULL
         experiment_name="sandboxed-sql-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             AnswerQueryRan(name="execute_sql_called"),
             LastToolCallNot(

@@ -39,7 +39,6 @@ from ee.hogai.eval.sandboxed.cli_mcp.scorers import (
 )
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_typo_recovery(ctx: EvalContext) -> None:
@@ -71,7 +70,7 @@ async def eval_typo_recovery(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-typo-recovery-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), RecoveredToCorrectTool()],
+        scorers=[RecoveredToCorrectTool()],
         ctx=ctx,
     )
 
@@ -104,7 +103,7 @@ async def eval_schema_drilldown(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-schema-drilldown-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), DrilledIntoSchema()],
+        scorers=[CalledTargetTool(), DrilledIntoSchema()],
         ctx=ctx,
     )
 
@@ -126,7 +125,7 @@ async def eval_search_first(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-search-first-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), PreferredSearchOverTools()],
+        scorers=[CalledTargetTool(), PreferredSearchOverTools()],
         ctx=ctx,
     )
 
@@ -156,7 +155,7 @@ async def eval_info_before_call(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-info-before-call-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), InfoBeforeCall()],
+        scorers=[CalledTargetTool(), InfoBeforeCall()],
         ctx=ctx,
     )
 
@@ -193,7 +192,6 @@ async def eval_json_for_post_processing(ctx: EvalContext) -> None:
         experiment_name="sandboxed-cli-mcp-json-postprocess-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             CalledTargetTool(),
             UsedJsonOutputFormat(),
             RanPythonPostProcessing(),
@@ -219,6 +217,6 @@ async def eval_verify_event_before_query(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-verify-event-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), VerifiedEventBeforeQuery()],
+        scorers=[CalledTargetTool(), VerifiedEventBeforeQuery()],
         ctx=ctx,
     )

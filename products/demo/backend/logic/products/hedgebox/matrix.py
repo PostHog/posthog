@@ -2,15 +2,16 @@ import csv
 import uuid
 import datetime as dt
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from posthog.schema import (
     ActionsNode,
@@ -82,7 +83,11 @@ from products.experiments.backend.models.experiment import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    WarehouseColumnAnnotation,
+    get_or_create_datawarehouse_credential,
+)
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -198,6 +203,19 @@ class HedgeboxMatrix(Matrix):
     CLUSTER_CLASS = HedgeboxCluster
     PERSON_CLASS = HedgeboxPerson
 
+    DEMO_DATA_WAREHOUSE_PAID_BILLS_TABLE: ClassVar[str] = "paid_bills"
+    DEMO_DATA_WAREHOUSE_SIGNUPS_TABLE: ClassVar[str] = "signups"
+    DEMO_DATA_WAREHOUSE_UPLOADED_FILES_TABLE: ClassVar[str] = "uploaded_files"
+    DEMO_DATA_WAREHOUSE_PLAN_CHANGES_TABLE: ClassVar[str] = "plan_changes"
+    DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE: ClassVar[str] = "extended_properties"
+    DEMO_DATA_WAREHOUSE_TABLE_NAMES: ClassVar[tuple[str, ...]] = (
+        DEMO_DATA_WAREHOUSE_PAID_BILLS_TABLE,
+        DEMO_DATA_WAREHOUSE_SIGNUPS_TABLE,
+        DEMO_DATA_WAREHOUSE_UPLOADED_FILES_TABLE,
+        DEMO_DATA_WAREHOUSE_PLAN_CHANGES_TABLE,
+        DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+    )
+
     onboarding_experiment_start: dt.datetime
     onboarding_experiment_end: dt.datetime
     file_engagement_experiment_start: dt.datetime
@@ -245,7 +263,7 @@ class HedgeboxMatrix(Matrix):
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
 
-    def set_project_up(self, team: "Team", user: "User"):
+    def set_project_up(self, team: "Team", user: "User", *, setup_demo_data_warehouse: bool = True) -> None:
         super().set_project_up(team, user)
         team.autocapture_web_vitals_opt_in = True
         team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
@@ -1450,7 +1468,8 @@ class HedgeboxMatrix(Matrix):
             created_at=bias_warning_flag.created_at,
         )
 
-        self._set_up_demo_data_warehouse_tables(team, user)
+        if setup_demo_data_warehouse:
+            self._set_up_demo_data_warehouse_tables(team, user)
 
         # Endpoints
         try:
@@ -2159,10 +2178,156 @@ class HedgeboxMatrix(Matrix):
         except Exception as err:
             capture_exception(err)
 
+    @classmethod
+    def demo_data_warehouse_is_ready(cls, team: "Team") -> bool:
+        tables = list(
+            DataWarehouseTable.raw_objects.filter(
+                team=team,
+                name__in=cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES,
+                deleted=False,
+                external_data_source__isnull=True,
+                credential__isnull=False,
+            )
+        )
+        if len(tables) != len(cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES):
+            return False
+        if {table.name for table in tables} != set(cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES):
+            return False
+
+        joins = DataWarehouseJoin.objects.filter(
+            team=team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=cls.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+            joining_table_key="email",
+            field_name=cls.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+            deleted=False,
+        )
+        if joins.count() != 1:
+            return False
+
+        return all(
+            object_storage.head_object(
+                file_key=cls._demo_data_warehouse_object_key(table_name, team.pk),
+                bucket=settings.OBJECT_STORAGE_BUCKET,
+            )
+            is not None
+            for table_name in cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES
+        )
+
+    @classmethod
+    def clone_demo_data_warehouse(cls, source_team: "Team", target_team: "Team", target_user: "User") -> None:
+        source_tables = list(
+            DataWarehouseTable.raw_objects.filter(
+                team=source_team,
+                name__in=cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES,
+                deleted=False,
+                external_data_source__isnull=True,
+                credential__isnull=False,
+            )
+        )
+        if len(source_tables) != len(cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES) or {
+            table.name for table in source_tables
+        } != set(cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES):
+            raise RuntimeError(
+                "The Hedgebox source team must have exactly one active direct warehouse table with credentials for "
+                + ", ".join(cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES)
+            )
+
+        source_joins = list(
+            DataWarehouseJoin.objects.filter(
+                team=source_team,
+                source_table_name="persons",
+                source_table_key="properties.email",
+                joining_table_name=cls.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+                joining_table_key="email",
+                field_name=cls.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+                deleted=False,
+            )
+        )
+        if len(source_joins) != 1:
+            raise RuntimeError("The Hedgebox source team must have exactly one active extended_properties person join")
+
+        source_annotations = list(
+            WarehouseColumnAnnotation.objects.for_team(source_team.pk).filter(
+                table_id__in=[table.id for table in source_tables]
+            )
+        )
+        access_key = settings.OBJECT_STORAGE_ACCESS_KEY_ID
+        access_secret = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+        if not access_key or not access_secret:
+            raise RuntimeError("Object storage credentials are required to clone Hedgebox warehouse tables")
+
+        with transaction.atomic():
+            if DataWarehouseTable.raw_objects.filter(
+                team=target_team, name__in=cls.DEMO_DATA_WAREHOUSE_TABLE_NAMES
+            ).exists():
+                raise RuntimeError("The Hedgebox target team already has a demo warehouse table")
+
+            if DataWarehouseJoin.objects.filter(
+                team=target_team,
+                source_table_name="persons",
+                field_name=cls.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE,
+                deleted=False,
+            ).exists():
+                raise RuntimeError("The Hedgebox target team already has an extended_properties person join")
+
+            target_credential = get_or_create_datawarehouse_credential(
+                team_id=target_team.pk,
+                access_key=access_key,
+                access_secret=access_secret,
+            )
+            target_tables = [
+                DataWarehouseTable(
+                    team=target_team,
+                    name=source_table.name,
+                    format=source_table.format,
+                    url_pattern=source_table.url_pattern,
+                    queryable_folder=source_table.queryable_folder,
+                    credential=target_credential,
+                    columns=deepcopy(source_table.columns),
+                    column_order=deepcopy(source_table.column_order),
+                    options=deepcopy(source_table.options),
+                    row_count=source_table.row_count,
+                    size_in_s3_mib=source_table.size_in_s3_mib,
+                    created_by=target_user,
+                )
+                for source_table in source_tables
+            ]
+            DataWarehouseTable.raw_objects.bulk_create(target_tables)
+
+            target_tables_by_name = {table.name: table for table in target_tables}
+            source_tables_by_id = {table.id: table for table in source_tables}
+            WarehouseColumnAnnotation.objects.for_team(target_team.pk).bulk_create(
+                [
+                    WarehouseColumnAnnotation(
+                        team_id=target_team.pk,
+                        table=target_tables_by_name[source_tables_by_id[annotation.table_id].name],
+                        column_name=annotation.column_name,
+                        description=annotation.description,
+                        description_source=annotation.description_source,
+                        ai_model=annotation.ai_model,
+                        is_user_edited=annotation.is_user_edited,
+                    )
+                    for annotation in source_annotations
+                ]
+            )
+
+            source_join = source_joins[0]
+            DataWarehouseJoin.objects.create(
+                team=target_team,
+                source_table_name=source_join.source_table_name,
+                source_table_key=source_join.source_table_key,
+                joining_table_name=source_join.joining_table_name,
+                joining_table_key=source_join.joining_table_key,
+                field_name=source_join.field_name,
+                configuration=deepcopy(source_join.configuration),
+            )
+
     def _demo_data_warehouse_table_specs(self) -> tuple[DemoDataWarehouseTableSpec, ...]:
         return (
             DemoDataWarehouseTableSpec(
-                name="paid_bills",
+                name=self.DEMO_DATA_WAREHOUSE_PAID_BILLS_TABLE,
                 columns={
                     "id": "Int64",
                     "distinct_id": "String",
@@ -2174,7 +2339,7 @@ class HedgeboxMatrix(Matrix):
                 row_builder=self._paid_bill_row,
             ),
             DemoDataWarehouseTableSpec(
-                name="signups",
+                name=self.DEMO_DATA_WAREHOUSE_SIGNUPS_TABLE,
                 columns={
                     "id": "Int64",
                     "distinct_id": "String",
@@ -2185,7 +2350,7 @@ class HedgeboxMatrix(Matrix):
                 row_builder=self._signup_row,
             ),
             DemoDataWarehouseTableSpec(
-                name="uploaded_files",
+                name=self.DEMO_DATA_WAREHOUSE_UPLOADED_FILES_TABLE,
                 columns={
                     "id": "Int64",
                     "distinct_id": "String",
@@ -2199,7 +2364,7 @@ class HedgeboxMatrix(Matrix):
                 row_builder=self._uploaded_file_row,
             ),
             DemoDataWarehouseTableSpec(
-                name="plan_changes",
+                name=self.DEMO_DATA_WAREHOUSE_PLAN_CHANGES_TABLE,
                 columns={
                     "id": "Int64",
                     "distinct_id": "String",
@@ -2301,7 +2466,7 @@ class HedgeboxMatrix(Matrix):
         return rows
 
     def _upsert_demo_extended_person_properties_table(self, team: "Team", user: "User", credential) -> None:
-        table_name = "extended_properties"
+        table_name = self.DEMO_DATA_WAREHOUSE_EXTENDED_PROPERTIES_TABLE
         rows = self._collect_demo_extended_person_rows()
         self._upsert_demo_data_warehouse_table_contents(
             team=team,
@@ -2370,7 +2535,7 @@ class HedgeboxMatrix(Matrix):
         rows: list[tuple[Any, ...]],
     ) -> None:
         s3_prefix = f"data-warehouse/demo_{table_name}/team_{team.pk}"
-        object_key = f"{s3_prefix}/{table_name}.csv"
+        object_key = self._demo_data_warehouse_object_key(table_name, team.pk)
         object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(columns.keys())))
 
         url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
@@ -2400,6 +2565,10 @@ class HedgeboxMatrix(Matrix):
             options={"csv_allow_double_quotes": True},
             created_by=user,
         )
+
+    @staticmethod
+    def _demo_data_warehouse_object_key(table_name: str, team_id: int) -> str:
+        return f"data-warehouse/demo_{table_name}/team_{team_id}/{table_name}.csv"
 
     @classmethod
     def _paid_bill_row(cls, event: SimEvent, row_id: int) -> tuple[int, str, str, float, str]:

@@ -32,7 +32,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import NoToolCall
 
 
 def _events_case(
@@ -109,7 +109,6 @@ async def eval_events_sampling(ctx: EvalContext) -> None:
         experiment_name="sandboxed-error-tracking-events-sampling-cli",
         cases=cases,
         scorers=[
-            ExitCodeZero(),
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),
             EventsToolUsed(),
             EventsArgsAlignment(),

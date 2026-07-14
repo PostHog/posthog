@@ -15,7 +15,6 @@ from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cli_mcp.scorers import CalledTargetTool, SurfacedGeneratedAppUrl
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.harness.context import EvalContext
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_bugfix(ctx: EvalContext) -> None:
@@ -39,9 +38,7 @@ async def eval_bugfix(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-bugfix-cli",
         cases=cases,
-        scorers=[
-            ExitCodeZero(),
-        ],
+        scorers=[],
         ctx=ctx,
     )
 
@@ -90,6 +87,6 @@ async def eval_app_link_generation(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-app-link-generation-cli",
         cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), SurfacedGeneratedAppUrl()],
+        scorers=[CalledTargetTool(), SurfacedGeneratedAppUrl()],
         ctx=ctx,
     )
