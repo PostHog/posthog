@@ -1,3 +1,18 @@
+# The k3s integration tests each boot a privileged single-node Kubernetes
+# cluster in docker. Their #[serial] attributes only lock within a process,
+# and nextest runs one process per test, so without this group the clusters
+# boot concurrently and starve each other (and the runner) — the K8s-aware
+# assignment paths then stall on a slow API server and time out. max-threads
+# serializes them across processes; threads-required keeps the rest of the
+# suite from saturating the runner while a cluster is up.
+[test-groups]
+k3s = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary(k3s_integration)'
+test-group = 'k3s'
+threads-required = 4
+
 # CI profile: emits JUnit XML (target/nextest/ci/junit.xml) so test results can be
 # uploaded to Trunk for flaky-test detection.
 [profile.ci]
