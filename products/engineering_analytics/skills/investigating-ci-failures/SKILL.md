@@ -119,14 +119,14 @@ threshold aren't recorded, so there is no honest denominator.
 
 ## Choosing a surface
 
-| Question                               | Use                                                                    |
-| -------------------------------------- | ---------------------------------------------------------------------- |
-| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
-| "Who broke master / when did X start?" | The two views, workflow above                                          |
-| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |
+| Question                               | Use                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)                             |
+| "Who broke master / when did X start?" | The two views, workflow above                                                                     |
+| "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                                                   |
 | "What's failing on master right now?"  | The novelty scan (query 4) over `ci_failures`; `workflow-health` (branch `master`) for non-pytest |
-| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                        |
-| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                |
+| "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                                                   |
+| "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                                           |
 
 ## Output expectations
 
