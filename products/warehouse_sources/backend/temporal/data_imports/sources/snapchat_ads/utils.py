@@ -10,6 +10,9 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
     BASE_URL,
@@ -26,30 +29,69 @@ SNAPCHAT_DATE_FORMAT = "%Y-%m-%dT00:00:00"
 RETRYABLE_STATUS_CODES = [429, 500, 503]
 
 
-def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
-    """Every ad account across the organizations the connected user can reach, each paired with its
-    owning organization's name.
+AD_ACCOUNTS_PAGE_LIMIT = 50
+# Guards against a malformed/looping `next_link`; far above any real org count.
+MAX_AD_ACCOUNT_PAGES = 100
 
-    Snapchat nests them: `organizations[].organization.ad_accounts[]`, with a per-organization
+
+def _raise_for_in_body_failure(body: dict) -> None:
+    """Snapchat can report failure in a 200 body via `request_status`, so `raise_for_status()` alone
+    would let it through and leave the user with a silently empty picker."""
+    request_status = body.get("request_status")
+    if request_status is None or request_status == "SUCCESS":
+        return
+    message = body.get("debug_message") or body.get("display_message") or "Unknown API error"
+    raise IntegrationAccountListingError(f"Snapchat could not list your ad accounts: {message}")
+
+
+def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
+    """Snapchat nests them: `organizations[].organization.ad_accounts[]`, with a per-organization
     `sub_request_status` we skip unless it succeeded.
     """
-    response = make_tracked_session().get(
-        f"{BASE_URL}/me/organizations",
-        headers={"Authorization": f"Bearer {access_token}"},
-        params={"with_ad_accounts": "true"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    body = response.json()
+    session = make_tracked_session()
+    url = f"{BASE_URL}/me/organizations"
+    params: dict | None = {"with_ad_accounts": "true", "limit": AD_ACCOUNTS_PAGE_LIMIT}
 
     accounts: list[tuple[dict, str | None]] = []
-    for wrapper in body.get("organizations") or []:
-        if wrapper.get("sub_request_status") != "SUCCESS":
-            continue
-        organization = wrapper.get("organization") or {}
-        organization_name = organization.get("name")
-        for account in organization.get("ad_accounts") or []:
-            accounts.append((account, organization_name))
+    saw_organization = False
+    saw_successful_organization = False
+
+    for _ in range(MAX_AD_ACCOUNT_PAGES):
+        response = session.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        _raise_for_in_body_failure(body)
+
+        for wrapper in body.get("organizations") or []:
+            saw_organization = True
+            if wrapper.get("sub_request_status") != "SUCCESS":
+                continue
+            saw_successful_organization = True
+            organization = wrapper.get("organization") or {}
+            organization_name = organization.get("name")
+            for account in organization.get("ad_accounts") or []:
+                accounts.append((account, organization_name))
+
+        next_link = (body.get("paging") or {}).get("next_link")
+        if not next_link:
+            break
+        # next_link is an absolute URL that already carries the cursor and the original query.
+        url, params = next_link, None
+    else:
+        logger.warning("snapchat_ads_list_ad_accounts_page_limit_hit", pages=MAX_AD_ACCOUNT_PAGES)
+
+    if saw_organization and not saw_successful_organization:
+        # Every org failed, so an empty list here means "we couldn't read them", not "you have none".
+        raise IntegrationAccountListingError(
+            "Snapchat could not return the ad accounts for any of your organizations. "
+            "Please make sure the connected account can access them and try again."
+        )
+
     return accounts
 
 

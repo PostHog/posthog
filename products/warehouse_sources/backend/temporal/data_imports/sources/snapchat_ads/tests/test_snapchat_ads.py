@@ -2,10 +2,14 @@ from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any, Optional
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
     SnapchatResumeConfig,
@@ -13,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
+    AD_ACCOUNTS_PAGE_LIMIT,
     SnapchatDateRangeManager,
     format_stats_day_boundary,
     list_ad_accounts,
@@ -443,4 +448,87 @@ class TestListAdAccounts:
             ("acc-1", "PostHog"),
             ("acc-2", "PostHog"),
         ]
-        assert session.get.call_args.kwargs["params"] == {"with_ad_accounts": "true"}
+        assert session.get.call_args.kwargs["params"] == {
+            "with_ad_accounts": "true",
+            "limit": AD_ACCOUNTS_PAGE_LIMIT,
+        }
+
+    @staticmethod
+    def _organizations_page(name: str, account_id: str, next_link: str | None = None) -> dict:
+        page: dict = {
+            "request_status": "SUCCESS",
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {"name": name, "ad_accounts": [{"id": account_id, "name": account_id}]},
+                }
+            ],
+        }
+        if next_link:
+            page["paging"] = {"next_link": next_link}
+        return page
+
+    def _session_returning(self, *bodies: dict) -> MagicMock:
+        responses = []
+        for body in bodies:
+            response = MagicMock()
+            response.json.return_value = body
+            responses.append(response)
+        session = MagicMock()
+        session.get.side_effect = responses
+        return session
+
+    def test_follows_next_link_until_exhausted(self) -> None:
+        # A single page would silently truncate the picker for an org with more accounts than fit
+        # in one page — the user's account just wouldn't be there, with no error.
+        next_link = "https://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "Agency"),
+        ]
+        assert session.get.call_count == 2
+        # The second request follows next_link verbatim: it already carries the cursor and the query.
+        assert session.get.call_args_list[1].args[0] == next_link
+        assert session.get.call_args_list[1].kwargs["params"] is None
+
+    def test_in_body_failure_raises_actionable_error(self) -> None:
+        # A 200 whose body reports failure would otherwise fall through to an empty picker.
+        session = self._session_returning(
+            {"request_status": "ERROR", "debug_message": "Invalid scope", "display_message": "Something went wrong"}
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="Invalid scope"),
+        ):
+            list_ad_accounts("token")
+
+    def test_all_organizations_failing_raises_instead_of_returning_empty(self) -> None:
+        session = self._session_returning(
+            {
+                "request_status": "SUCCESS",
+                "organizations": [
+                    {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": []}}
+                ],
+            }
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+    def test_no_organizations_returns_empty_list(self) -> None:
+        session = self._session_returning({"request_status": "SUCCESS", "organizations": []})
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            assert list_ad_accounts("token") == []

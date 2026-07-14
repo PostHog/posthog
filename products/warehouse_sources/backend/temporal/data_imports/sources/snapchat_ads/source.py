@@ -83,7 +83,6 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             fields=cast(
                 list[FieldType],
                 [
-                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="snapchat_integration_id",
                         label="Snapchat Ads account",
@@ -96,7 +95,6 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
                         integrationField="snapchat_integration_id",
                         integrationKind="snapchat",
                         required=True,
-                        placeholder="Your Snapchat Ads ad account ID",
                     ),
                 ],
             ),
@@ -112,7 +110,10 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
             ],
         )
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Snapchat ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
