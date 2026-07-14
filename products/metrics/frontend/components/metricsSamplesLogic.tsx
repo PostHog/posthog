@@ -1,11 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
+import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
+import { type ExemplarMarker, exemplarMarkersFromSamples } from './exemplarMarkers'
 import type { metricsSamplesLogicType } from './metricsSamplesLogicType'
 import { formatSeriesName, seriesColor } from './metricsSeries'
 import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
@@ -37,9 +40,12 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
     })),
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
+        setExemplarsEnabled: (enabled: boolean) => ({ enabled }),
+        exemplarClicked: (marker: ExemplarMarker) => ({ marker }),
     }),
     reducers({
         activeTab: ['aggregates' as MetricsPanelTab, { setActiveTab: (_, { activeTab }) => activeTab }],
+        exemplarsEnabled: [false, { setExemplarsEnabled: (_, { enabled }) => enabled }],
     }),
     loaders(({ values }) => ({
         samples: [
@@ -68,6 +74,16 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         ],
     })),
     selectors({
+        // Dots for the chart overlay: traced samples snapped onto the current
+        // series' bucket grid, so a dot sits where its emission was recorded.
+        exemplarMarkers: [
+            (s) => [s.samples, s.queryResults],
+            (samples: _MetricEventSampleApi[], queryResults: MetricsViewerSeries[]): ExemplarMarker[] =>
+                exemplarMarkersFromSamples(
+                    samples,
+                    (queryResults[0]?.points ?? []).map((point) => point.time)
+                ),
+        ],
         // Rows for the Aggregates tab, derived from the chart's series so both
         // views always describe the same query (colors match the chart legend).
         aggregateRows: [
@@ -86,28 +102,40 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setActiveTab: ({ activeTab }) => {
-            if (activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        // The viewer's filters are the samples' filters: any change that redraws
-        // the chart refreshes the visible samples too, but only when they're shown.
-        setMetricName: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        setDateFrom: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        setDateTo: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-    })),
+    listeners(({ actions, values }) => {
+        const samplesVisible = (): boolean => values.activeTab === 'samples' || values.exemplarsEnabled
+        return {
+            setActiveTab: ({ activeTab }) => {
+                if (activeTab === 'samples') {
+                    actions.loadSamples({})
+                }
+            },
+            setExemplarsEnabled: ({ enabled }) => {
+                if (enabled) {
+                    actions.loadSamples({})
+                }
+            },
+            exemplarClicked: ({ marker }) => {
+                router.actions.push(traceUrl({ traceId: marker.traceId, spanId: marker.spanId, ts: marker.timestamp }))
+            },
+            // The viewer's filters are the samples' filters: any change that redraws
+            // the chart refreshes the visible samples too, but only when they're shown
+            // (samples tab open, or exemplar dots overlaid on the chart).
+            setMetricName: () => {
+                if (samplesVisible()) {
+                    actions.loadSamples({})
+                }
+            },
+            setDateFrom: () => {
+                if (samplesVisible()) {
+                    actions.loadSamples({})
+                }
+            },
+            setDateTo: () => {
+                if (samplesVisible()) {
+                    actions.loadSamples({})
+                }
+            },
+        }
+    }),
 ])

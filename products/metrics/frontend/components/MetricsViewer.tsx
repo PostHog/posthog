@@ -105,6 +105,8 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
+    const { exemplarsEnabled, exemplarMarkers } = useValues(metricsSamplesLogic())
+    const { setExemplarsEnabled, exemplarClicked } = useActions(metricsSamplesLogic())
     const {
         metricName,
         aggregation,
@@ -293,6 +295,15 @@ export const MetricsViewer = (): JSX.Element => {
                     bordered
                     data-attr="metrics-viewer-live-toggle"
                 />
+                <LemonSwitch
+                    label="Exemplars"
+                    checked={exemplarsEnabled}
+                    onChange={setExemplarsEnabled}
+                    tooltip="Overlay trace-linked samples on the chart. Click a dot to open its trace."
+                    bordered
+                    disabledReason={hasMetricName ? undefined : 'Pick a metric first'}
+                    data-attr="metrics-viewer-exemplars-toggle"
+                />
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -353,6 +364,15 @@ export const MetricsViewer = (): JSX.Element => {
                                 className="w-full h-full"
                                 withXScale={withXScale}
                                 renderLabel={renderLabel}
+                                markers={
+                                    exemplarsEnabled
+                                        ? exemplarMarkers.map((marker) => ({
+                                              index: marker.index,
+                                              value: marker.value,
+                                              onClick: () => exemplarClicked(marker),
+                                          }))
+                                        : undefined
+                                }
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

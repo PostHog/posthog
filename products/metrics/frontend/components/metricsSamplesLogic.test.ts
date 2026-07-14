@@ -90,4 +90,39 @@ describe('metricsSamplesLogic', () => {
         await expectLogic(logic).delay(10)
         expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
     })
+
+    // Exemplar dots: the chart overlay needs samples without the samples tab being open.
+    it('enabling exemplars fetches samples and filter changes refetch while enabled', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        logic.actions.setExemplarsEnabled(true)
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+
+        metricsViewerLogic.actions.setDateFrom('-30m')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+    })
+
+    it('derives exemplar markers positioned on the chart buckets from traced samples', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        logic.actions.setExemplarsEnabled(true)
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([
+            {
+                labels: {},
+                metricName: 'demo_checkout_duration_ms',
+                clause: 'a',
+                points: [
+                    { time: '2026-07-09T05:46:00+00:00', value: 1 },
+                    { time: '2026-07-09T05:47:00+00:00', value: 2 },
+                ],
+            },
+        ] as any)
+
+        expect(logic.values.exemplarMarkers).toEqual([
+            expect.objectContaining({ index: 0, traceId: SAMPLE.trace_id, value: SAMPLE.value }),
+        ])
+    })
 })

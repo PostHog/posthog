@@ -41,7 +41,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'fetchQueryResultsFailure',
             ],
             metricsSamplesLogic,
-            ['setActiveTab as samplesPanelTabChanged', 'loadSamplesSuccess'],
+            ['setActiveTab as samplesPanelTabChanged', 'loadSamplesSuccess', 'setExemplarsEnabled', 'exemplarClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -55,6 +55,12 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
     listeners(({ actions, values, cache }) => ({
         sceneTabChanged: ({ activeTab }) => {
             posthog.capture('metrics tab changed', { tab: activeTab })
+        },
+        setExemplarsEnabled: ({ enabled }) => {
+            posthog.capture('metrics viewer exemplars toggled', { enabled })
+        },
+        exemplarClicked: () => {
+            posthog.capture('metrics exemplar trace pivot clicked', { source: 'chart' })
         },
         setMetricName: ({ metricName }) => {
             if (metricName.trim()) {
