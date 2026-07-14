@@ -241,7 +241,7 @@ class UsageReportCounters:
     node_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
-    mcp_events_count_in_period: int
+    mcp_tool_call_events_count_in_period: int
 
     # SDK usage (continued)
     openclaw_events_count_in_period: int
@@ -776,7 +776,6 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
-    metric_filter_conditions.append("event = '$mcp_tool_call'")
     metric_filter = "\n            OR ".join(metric_filter_conditions)
     # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
     # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
@@ -795,11 +794,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             multiIf(
                 {metric_expression}
             ) AS metric,
-            count(1) as count,
-            uniqExactIf(
-                tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)),
-                event = '$mcp_tool_call'
-            ) AS mcp_events_count
+            count(1) as count
         FROM events
         PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
         WHERE (
@@ -820,7 +815,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "web_events": {},
             "web_lite_events": {},
             "node_events": {},
-            "mcp_events": {},
+            "mcp_tool_call_events": {},
             "openclaw_events": {},
             "posthog_pi_events": {},
             "posthog_ai_events": {},
@@ -843,15 +838,12 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         # Process each result set
         for results in results_list:
-            for team_id, metric, count, mcp_events_count in results:
+            for team_id, metric, count in results:
                 if metric in metrics:  # Make sure the metric exists in our dictionary
                     if team_id in metrics[metric]:
                         metrics[metric][team_id] += count
                     else:
                         metrics[metric][team_id] = count
-                if mcp_events_count:
-                    team_mcp_events = metrics["mcp_events"]
-                    team_mcp_events[team_id] = team_mcp_events.get(team_id, 0) + mcp_events_count
 
         # Convert to the expected format
         result = {}
@@ -868,6 +860,22 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             params={},
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
+        )
+        # This query stays unsplit so one billing deduplication key cannot be counted in multiple time windows.
+        metrics["mcp_tool_call_events"] = sync_execute(
+            """
+            SELECT
+                team_id,
+                uniqExact(tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))) AS count
+            FROM events
+            PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE event = '$mcp_tool_call'
+            GROUP BY team_id
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
         ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
             begin=begin,
@@ -2322,7 +2330,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_web_events_count_in_period": all_metrics["web_events"],
         "teams_with_web_lite_events_count_in_period": all_metrics["web_lite_events"],
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
-        "teams_with_mcp_events_count_in_period": all_metrics["mcp_events"],
+        "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
         "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
@@ -2690,7 +2698,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
-        mcp_events_count_in_period=all_data["teams_with_mcp_events_count_in_period"].get(team.id, 0),
+        mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
+            team.id, 0
+        ),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
         posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
