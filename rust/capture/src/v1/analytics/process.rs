@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use common_pipelines::{ChunkStep, StepError, StepResult};
+use common_pipelines::{ChunkStep, Step, StepError, StepResult};
 use metrics::histogram;
 use uuid::Uuid;
 
@@ -88,7 +89,15 @@ pub async fn process_batch(
         super::pipeline::run_in_place(&pipeline, &mut events).await;
     }
 
-    apply_historical_rerouting(&state.historical_cfg, context, &mut events);
+    {
+        let pipeline = CapturePipeline::builder()
+            .step(ApplyHistoricalRerouting::new(
+                state.historical_cfg,
+                Arc::new(RequestContext::clone(context)),
+            ))
+            .build();
+        super::pipeline::run_in_place(&pipeline, &mut events).await;
+    }
 
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
@@ -476,6 +485,38 @@ fn normalize_timestamp(
         return now;
     }
     adjusted
+}
+
+/// Framework step wrapping [`apply_historical_rerouting`]. Sync and per-event.
+/// Holds an `Arc<RequestContext>` snapshot so the unchanged slice-based function
+/// can be applied to one event via [`std::slice::from_mut`].
+pub struct ApplyHistoricalRerouting {
+    cfg: router::HistoricalConfig,
+    ctx: Arc<RequestContext>,
+}
+
+impl ApplyHistoricalRerouting {
+    pub fn new(cfg: router::HistoricalConfig, ctx: Arc<RequestContext>) -> Self {
+        Self { cfg, ctx }
+    }
+}
+
+impl Step<WrappedEvent, CaptureFx> for ApplyHistoricalRerouting {
+    type Out = WrappedEvent;
+    type Outputs = CaptureOutputs;
+
+    fn apply(
+        &self,
+        mut event: WrappedEvent,
+        _fx: &mut CaptureFx,
+    ) -> Result<StepResult<WrappedEvent, CaptureOutputs>, StepError> {
+        apply_historical_rerouting(&self.cfg, &self.ctx, std::slice::from_mut(&mut event));
+        Ok(StepResult::Continue(event))
+    }
+
+    fn name(&self) -> &'static str {
+        "apply_historical_rerouting"
+    }
 }
 
 fn apply_historical_rerouting(
