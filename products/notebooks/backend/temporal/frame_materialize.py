@@ -134,8 +134,21 @@ FRAME_OBJECT_BYTES_HISTOGRAM = Histogram(
 )
 FRAME_MATERIALIZE_SECONDS_HISTOGRAM = Histogram(
     "posthog_notebooks_frame_materialize_seconds",
-    "Wall-clock duration of a successful materialize (ClickHouse execution + upload).",
+    "End-to-end wall-clock duration of a successful materialize (print + ClickHouse + upload).",
     buckets=[1, 5, 15, 30, 60, 120, 300, 600],
+)
+# The relay is a single-pass pipeline, so these two are complementary slices of its wall
+# clock: which side the thread was blocked on tells us whether ClickHouse production or
+# object-store ingestion is the bottleneck.
+FRAME_CLICKHOUSE_SECONDS_HISTOGRAM = Histogram(
+    "posthog_notebooks_frame_clickhouse_seconds",
+    "Time a successful materialize spent blocked on ClickHouse (response headers plus body reads).",
+    buckets=[0.5, 1, 5, 15, 30, 60, 120, 300, 600],
+)
+FRAME_UPLOAD_SECONDS_HISTOGRAM = Histogram(
+    "posthog_notebooks_frame_upload_seconds",
+    "Time a successful materialize spent blocked on the object-store side of the relay (part handoff and S3 backpressure).",
+    buckets=[0.5, 1, 5, 15, 30, 60, 120, 300, 600],
 )
 
 
@@ -251,15 +264,20 @@ class _ArrowTailReader:
     """File-like relay that remembers the final bytes of the stream it forwards.
 
     Lets the upload stay a bounded-memory passthrough while still allowing an
-    end-of-stream integrity check once the body is fully drained.
+    end-of-stream integrity check once the body is fully drained. Also accumulates the
+    time spent blocked in reads, so the ClickHouse and upload halves of the relay's wall
+    clock can be reported separately.
     """
 
     def __init__(self, fileobj: IO[bytes]) -> None:
         self._fileobj = fileobj
         self.tail = b""
+        self.read_seconds = 0.0
 
     def read(self, size: int = -1) -> bytes:
+        read_started = time.perf_counter()
         chunk = self._fileobj.read(size)
+        self.read_seconds += time.perf_counter() - read_started
         if chunk:
             self.tail = (self.tail + chunk)[-len(_ARROW_STREAM_EOS_MARKER) :]
         return chunk
@@ -352,12 +370,14 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     output_format_arrow_string_as_string="true",
                     cancel_http_readonly_queries_on_client_close=1,
                 )
+                query_started = time.perf_counter()
                 with client.post_query(
                     printed_sql,
                     query_parameters=context_values,
                     query_id=ch_query_id,
                     timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, _STREAM_READ_TIMEOUT_SECONDS),
                 ) as response:
+                    headers_received = time.perf_counter()
                     # A torn stream aborts the multipart upload (upload_fileobj), so no
                     # partial object is ever left behind — nothing to clean up on failure.
                     # The key is deterministic per (team, notebook, user, query), so we must
@@ -365,6 +385,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     # successful run's still-live status/presigned URL points at.
                     relay = _ArrowTailReader(response.raw)
                     object_bytes = frame_store.write_stream(key, relay)
+                    relay_seconds = time.perf_counter() - headers_received
                     if relay.tail != _ARROW_STREAM_EOS_MARKER:
                         # ClickHouse failed mid-stream but closed the body cleanly (or an
                         # intermediary truncated it at a batch boundary): the bytes we just
@@ -408,15 +429,23 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
 
     _finalize_status(manager, inputs, results={"object_key": key})
+    # ClickHouse time = waiting for response headers plus every blocking body read; upload
+    # time = the rest of the relay's wall clock (part handoff and S3 backpressure).
+    clickhouse_seconds = (headers_received - query_started) + relay.read_seconds
+    upload_seconds = max(0.0, relay_seconds - relay.read_seconds)
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded").inc()
     FRAME_OBJECT_BYTES_HISTOGRAM.observe(object_bytes)
     FRAME_MATERIALIZE_SECONDS_HISTOGRAM.observe((dt.datetime.now(dt.UTC) - started_at).total_seconds())
+    FRAME_CLICKHOUSE_SECONDS_HISTOGRAM.observe(clickhouse_seconds)
+    FRAME_UPLOAD_SECONDS_HISTOGRAM.observe(upload_seconds)
     logger.info(
         "notebook_frame_materialized",
         team_id=inputs.team_id,
         notebook_short_id=inputs.notebook_short_id,
         query_id=inputs.query_id,
         object_bytes=object_bytes,
+        clickhouse_seconds=round(clickhouse_seconds, 3),
+        upload_seconds=round(upload_seconds, 3),
     )
     return key
 
