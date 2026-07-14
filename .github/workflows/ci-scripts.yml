@@ -62,3 +62,6 @@ jobs:
 
             - name: PR title labeler tests (Node)
               run: node --test .github/scripts/label-pr-from-title.test.js
+
+            - name: Turbo-discover dependent-cascade tests (Node)
+              run: node --test .github/scripts/turbo-discover-cascade.test.js

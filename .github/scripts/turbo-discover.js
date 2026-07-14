@@ -219,6 +219,109 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
+// --- Dependent cascade (tach.toml) ---
+// When a product's contract changes, Turbo's graph has no edges to the
+// products that depend on it (no workspace deps, no `dependsOn`), so those
+// dependents never get retested — see #70556. tach.toml is the graph we
+// actually have: `tach check --dependencies` runs in CI, so it can't drift
+// from what's importable. Reuse it to compute who transitively depends on a
+// changed product's contract.
+const TACH_TOML_FILE = 'tach.toml'
+const TACH_MODULE_PREFIX = 'products.'
+
+// Parse tach.toml's [[modules]] blocks into product -> [products it depends
+// on]. Keys/values are tach names with the "products." prefix stripped
+// (underscores preserved) — callers normalize to/from Turbo's dashed names.
+//
+// Only products.* modules become nodes or edges. posthog/ee (and the
+// common.* utility modules) are dropped on both sides deliberately: they
+// aren't products.* so they fall out of the startsWith filter for free. See
+// tachDependents for why routing through them would be wrong, not just
+// inconvenient.
+function parseTachModules(tomlText) {
+    const graph = new Map()
+    // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
+    // before the next block starts — split on the marker and take the first
+    // match of each within a block. depends_on entries are plain quoted
+    // strings with no nested brackets, so a non-greedy scan to the first `]`
+    // is safe even across multi-line lists or lists split across shared lines.
+    const blocks = tomlText.split('[[modules]]').slice(1)
+    for (const block of blocks) {
+        const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
+        const dependsMatch = block.match(/depends_on\s*=\s*\[([\s\S]*?)\]/)
+        if (!pathMatch || !dependsMatch) {continue}
+        const modulePath = pathMatch[1]
+        if (!modulePath.startsWith(TACH_MODULE_PREFIX)) {continue}
+        const product = modulePath.slice(TACH_MODULE_PREFIX.length)
+        const deps = [...dependsMatch[1].matchAll(/"([^"]+)"/g)]
+            .map((m) => m[1])
+            .filter((d) => d.startsWith(TACH_MODULE_PREFIX))
+            .map((d) => d.slice(TACH_MODULE_PREFIX.length))
+        graph.set(product, deps)
+    }
+    return graph
+}
+
+// Reverse transitive closure over the product graph: who (transitively)
+// depends on any of `changedProducts`? Input/output are Turbo-style names
+// (dashes); moduleGraph keys/values are tach-style (underscores) — convert
+// at the boundary in both directions, since a mismatch here doesn't error,
+// it just silently returns nothing (a false negative — exactly the bug this
+// is fixing).
+//
+// Deliberately never traverses through posthog/ee (moduleGraph has already
+// dropped them as nodes): routing through core degenerates the cascade to
+// "every product" — most products depend on core and core depends on most
+// products, so any path through it reaches the whole graph. Core's own tests
+// aren't at risk either way — a contract change already forces runLegacy so
+// the full Django suite runs. The accepted gap is the mediated path (product
+// A -> a core wrapper -> product X's facade); measurement showed it's mostly
+// either unreachable (no product imports the file) or funnels through a few
+// composition-root hubs where "imports Team" doesn't mean "depends on a
+// product's behavior" — the residual after excluding those is a handful of
+// narrow wrappers reaching at most a few products each.
+function tachDependents(changedProducts, moduleGraph) {
+    const toTach = (p) => p.replace(/-/g, '_')
+    const toTurbo = (p) => p.replace(/_/g, '-')
+
+    const reverse = new Map()
+    for (const [product, deps] of moduleGraph) {
+        for (const dep of deps) {
+            if (!reverse.has(dep)) {reverse.set(dep, [])}
+            reverse.get(dep).push(product)
+        }
+    }
+
+    const changedSet = new Set(changedProducts.map(toTach))
+    const visited = new Set()
+    const queue = [...changedSet]
+    while (queue.length > 0) {
+        const current = queue.shift()
+        for (const dependent of reverse.get(current) || []) {
+            if (visited.has(dependent) || changedSet.has(dependent)) {continue}
+            visited.add(dependent)
+            queue.push(dependent)
+        }
+    }
+    return [...visited].map(toTurbo)
+}
+
+function loadTachModuleGraph() {
+    let text
+    try {
+        text = fs.readFileSync(TACH_TOML_FILE, 'utf-8')
+    } catch (e) {
+        console.error(`::warning::Could not read ${TACH_TOML_FILE} (${e.message}) — dependent cascade disabled for this run`)
+        return null
+    }
+    try {
+        return parseTachModules(text)
+    } catch (e) {
+        console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — dependent cascade disabled for this run`)
+        return null
+    }
+}
+
 function loadTestDurations() {
     let parsed
     try {
@@ -500,7 +603,16 @@ function buildMatrix(products, durations) {
 }
 
 // Exported for unit tests only — not part of the public API.
-module.exports = { collectTestFiles, checkProductStaleness, productPrefix, productEffectiveCost, STALENESS_COVERAGE_THRESHOLD, STALENESS_FALLBACK_SECONDS_PER_FILE }
+module.exports = {
+    collectTestFiles,
+    checkProductStaleness,
+    productPrefix,
+    productEffectiveCost,
+    STALENESS_COVERAGE_THRESHOLD,
+    STALENESS_FALLBACK_SECONDS_PER_FILE,
+    parseTachModules,
+    tachDependents,
+}
 
 // --- Main ---
 if (require.main === module) {
@@ -526,6 +638,7 @@ try {
     process.exit(1)
 }
 const allProducts = getAllProducts(allTestTasks)
+const allProductSet = new Set(allProducts)
 
 let products
 let runLegacy
@@ -559,11 +672,21 @@ if (legacyChanged) {
         if (affectedContracts.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
+            const tachGraph = loadTachModuleGraph()
+            const dependents = tachGraph
+                ? tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
+                : []
+            if (dependents.length > 0) {
+                console.error(
+                    `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                )
+            }
+            products = [...new Set([...affectedProducts, ...dependents])].sort()
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
             runLegacy = false
+            products = affectedProducts
         }
-        products = affectedProducts
     } else {
         console.error('No product changes detected')
         products = []
