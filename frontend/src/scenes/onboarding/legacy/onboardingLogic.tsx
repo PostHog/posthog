@@ -16,6 +16,7 @@ import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVarian
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { setQuickstartAsDefaultHomepageOnce } from 'scenes/quickstart/quickstartHomepage'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -578,6 +579,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
+            setQuickstartAsDefaultHomepageOnce(values.currentTeam?.has_completed_onboarding_for)
             const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
@@ -613,6 +615,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
             // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
             // and sceneLogic could bounce a not-yet-ingested team straight back here.
+            setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
             const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
             for (const productKey of products) {
                 completedMap[productKey] = true
