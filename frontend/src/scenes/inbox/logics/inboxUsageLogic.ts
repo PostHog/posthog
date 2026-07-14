@@ -65,6 +65,9 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // contains credited-refunded PRs (the money comes back as an invoice credit, not lower
         // usage), so the widget subtracts these to show the net PR count. Excluded-path refunds
         // never reach billing usage and need no adjustment.
+        // TODO(signals): usage + refund summary are org-wide (billing allocates the free PR tier
+        // per org), but this widget renders on a project-routed page where the number can read as
+        // project usage — label it org-wide, or revisit if billing ever splits usage per project.
         refundSummary: [
             null as SignalReportRefundSummaryResponseApi | null,
             {
