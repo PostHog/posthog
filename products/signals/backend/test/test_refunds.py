@@ -33,6 +33,11 @@ def _make_refund(
     *,
     billing_path: str = SignalReportRefund.BillingPath.CREDITED,
     pr_run_created_at: datetime | None = None,
+    # None models a row created before the frozen period bounds existed.
+    period: tuple[datetime, datetime] | None = (
+        datetime(2026, 6, 1, tzinfo=UTC),
+        datetime(2026, 7, 1, tzinfo=UTC),
+    ),
 ) -> SignalReportRefund:
     return SignalReportRefund.objects.create(
         team=report.team,
@@ -42,6 +47,8 @@ def _make_refund(
         credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
         pr_url="https://github.com/x/y/pull/1",
         pr_run_created_at=pr_run_created_at or datetime(2026, 6, 10, tzinfo=UTC),
+        period_start=period[0] if period else None,
+        period_end=period[1] if period else None,
     )
 
 
@@ -88,6 +95,10 @@ class TestSignalReportRefundAPI(APIBaseTest):
         refund = report.refund
         assert refund.billing_path == SignalReportRefund.BillingPath.CREDITED
         assert refund.pr_run_created_at == datetime(2026, 6, 10, 9, 30, tzinfo=UTC)
+        # The accepted billing period is frozen on the row — the sync payload reports these
+        # bounds, so a sync landing after rollover still credits the right period.
+        assert refund.period_start == datetime(2026, 6, 1, tzinfo=UTC)
+        assert refund.period_end == datetime(2026, 7, 1, tzinfo=UTC)
         assert refund.created_by_id == self.user.id
         assert refund.note == "does not fix the bug"
 
@@ -366,7 +377,10 @@ class TestSyncSignalsRefundCredit(BaseTest):
         return _make_refund(report)
 
     def test_success_records_credit_and_contract_payload(self):
-        self.organization.usage = {"period": _PERIOD}
+        # The org's billing period has rolled over since the refund was accepted: the payload
+        # must report the bounds frozen on the refund row, not the current period — recomputing
+        # at sync time is the drift that loses post-rollover credits.
+        self.organization.usage = {"period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"]}
         self.organization.save()
         refund = self._credited_refund()
         with patch(
@@ -383,7 +397,7 @@ class TestSyncSignalsRefundCredit(BaseTest):
         organization, payload = mock_dispute.call_args.args
         assert organization.id == self.organization.id
         # The frozen cross-repo contract shape — billing keys idempotency on refund_id and
-        # re-checks period membership from metadata.pr_run_created_at.
+        # credits against the accepted period carried in metadata.period_start/period_end.
         assert payload == {
             "refund_id": str(refund.id),
             "credits": 1500,
@@ -396,6 +410,21 @@ class TestSyncSignalsRefundCredit(BaseTest):
                 "period_end": "2026-07-01T00:00:00+00:00",
             },
         }
+
+    def test_payload_falls_back_to_current_period_for_rows_without_frozen_bounds(self):
+        # Rows created before the frozen bounds existed must still sync (with sync-time bounds)
+        # rather than crash on the null fields.
+        self.organization.usage = {"period": _PERIOD}
+        self.organization.save()
+        refund = _make_refund(_make_report(self.team), period=None)
+        with patch(
+            "ee.billing.billing_manager.BillingManager.dispute_signals_pr",
+            return_value={"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False},
+        ) as mock_dispute:
+            sync_signals_refund_credit(str(refund.id))
+        metadata = mock_dispute.call_args.args[1]["metadata"]
+        assert metadata["period_start"] == "2026-06-01T00:00:00+00:00"
+        assert metadata["period_end"] == "2026-07-01T00:00:00+00:00"
 
     def test_zero_credit_outcome_still_marks_synced(self):
         # "0.00" is a legitimate business outcome (free tier / free plan) — the row must complete.
@@ -410,8 +439,9 @@ class TestSyncSignalsRefundCredit(BaseTest):
         assert refund.billing_synced_at is not None
 
     def test_out_of_period_zero_records_error_instead_of_synced(self):
-        # A $0 with zero_reason=out_of_period means the credit was lost to period rollover —
-        # the row must surface as a sync error for manual recovery, not close as a synced $0.
+        # A $0 with zero_reason=out_of_period means billing could no longer credit the frozen
+        # refund period — the row must surface as a sync error for manual recovery, not close
+        # as a synced $0.
         refund = self._credited_refund()
         with patch(
             "ee.billing.billing_manager.BillingManager.dispute_signals_pr",
@@ -428,7 +458,7 @@ class TestSyncSignalsRefundCredit(BaseTest):
         refund.refresh_from_db()
         assert refund.billing_synced_at is None
         assert refund.credit_amount_usd is None
-        assert "outside the current billing period" in (refund.billing_sync_error or "")
+        assert refund.billing_sync_error == _OUT_OF_PERIOD_SYNC_ERROR
         assert mock_capture.call_args.kwargs["event"] == "signals_pr_refund_credit_failed"
 
     def test_already_synced_refund_is_not_resent(self):

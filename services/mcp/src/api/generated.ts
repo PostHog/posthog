@@ -14945,6 +14945,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `account` - account
+     * * `person` - person
+     */
+    export type CustomPropertyDefinitionTargetType = typeof CustomPropertyDefinitionTargetType[keyof typeof CustomPropertyDefinitionTargetType];
+
+
+    export const CustomPropertyDefinitionTargetType = {
+      Account: 'account',
+      Person: 'person',
+    } as const;
+
+    /**
      * * `preset-1` - preset-1
      * * `preset-2` - preset-2
      * * `preset-3` - preset-3
@@ -15009,15 +15021,26 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the custom property definition this source feeds. One source per definition. */
       definition: string;
-      /** UUID of the data-warehouse saved query (materialized view) to read values from. */
-      saved_query: string;
       /**
-         * Column in the view whose value is written to the property.
-         * @maxLength 400
+         * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+         * @nullable
          */
-      source_column: string;
+      saved_query?: string | null;
       /**
-         * Column in the view whose value matches an account's external_id.
+         * Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * @nullable
+         */
+      external_data_schema?: string | null;
+      /**
+         * Account sources only: column in the view whose value is written to the property.
+         * @maxLength 400
+         * @nullable
+         */
+      source_column?: string | null;
+      /** Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person. */
+      column_property_map?: unknown;
+      /**
+         * Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources.
          * @maxLength 400
          */
       key_column: string;
@@ -15085,6 +15108,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -40449,6 +40477,11 @@ export namespace Schemas {
        * * `boolean` - boolean
        * * `select` - select */
       display_type?: CustomPropertyDisplayTypeEnum;
+      /** What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).
+       *
+       * * `account` - account
+       * * `person` - person */
+      target_type?: CustomPropertyDefinitionTargetType;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
       /**
@@ -63069,6 +63102,10 @@ export namespace Schemas {
      */
     integration_id: number;
     /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
+    /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */
     source_type: string;
@@ -70134,6 +70171,10 @@ export namespace Schemas {
      * The OAuth integration id whose accounts should be listed.
      */
     integration_id: number;
+    /**
+     * Optional case-insensitive filter over account name/value, for sources whose resource list is large (e.g. GitHub repositories).
+     */
+    search?: string;
     /**
      * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
      */

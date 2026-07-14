@@ -1712,11 +1712,15 @@ class SignalReportViewSet(
             # Same decision the serializer's `refund_ineligibility_reason` field renders from,
             # so the UI's button state and this endpoint's 400s can never disagree.
             billable_run = first_billable_pr_run(report.id)
+            # Computed once and frozen onto the refund row below: the credited-path sync must
+            # report the period the refund was accepted in, not whatever period is current when
+            # the Celery task eventually reaches billing.
+            period_start, period_end = current_billing_period_bounds(self.organization)
             ineligibility = refund_ineligibility_reason(
                 has_refund=False,  # the idempotent 200 above already handled existing refunds
                 billing_exempt=bool(report.billing_exempt_reason),
                 billable_run_at=billable_run.created_at if billable_run else None,
-                period=current_billing_period_bounds(self.organization),
+                period=(period_start, period_end),
             )
             if ineligibility is not None:
                 return Response(
@@ -1750,6 +1754,8 @@ class SignalReportViewSet(
                         credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
                         pr_url=billable_run.pr_url,
                         pr_run_created_at=billable_run.created_at,
+                        period_start=period_start,
+                        period_end=period_end,
                     )
             except IntegrityError:
                 existing = SignalReportRefund.objects.filter(report_id=report.id).first()
