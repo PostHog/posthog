@@ -1,6 +1,7 @@
 import uuid
 import datetime
 import dataclasses
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,6 +35,7 @@ from products.pulse.backend.temporal.activities import (
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
     MarkBriefQuietInputs,
+    MissionBundleDict,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -283,8 +285,9 @@ async def test_prepare_mission_refuses_without_ai_consent(team, user) -> None:
 
 
 @sync_to_async
-def _bundle_dict(team, brief) -> dict:
-    return build_general_brief_mission(team=team, brief=brief, config=None, items=[]).model_dump(mode="json")
+def _bundle_dict(team, brief) -> MissionBundleDict:
+    bundle = build_general_brief_mission(team=team, brief=brief, config=None, items=[])
+    return cast(MissionBundleDict, bundle.model_dump(mode="json"))
 
 
 async def test_run_agent_activity_stores_session_ref_and_transcript_on_brief(team, user) -> None:

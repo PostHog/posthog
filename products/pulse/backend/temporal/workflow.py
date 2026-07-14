@@ -1,4 +1,4 @@
-import datetime as dt
+from typing import cast
 
 import temporalio.common
 import temporalio.workflow
@@ -16,13 +16,26 @@ from products.pulse.backend.temporal.activities import (
     validate_and_persist_activity,
 )
 from products.pulse.backend.temporal.inputs import (
+    GATHER_BRIEF_ATTEMPTS,
+    GATHER_BRIEF_TIMEOUT,
     GENERATE_BRIEF_WORKFLOW_NAME,
+    MARK_STATUS_ATTEMPTS,
+    MARK_STATUS_TIMEOUT,
     MISSION_GOAL_STATUS_KEY,
     MISSION_SEED_ITEMS_KEY,
+    PREPARE_MISSION_ATTEMPTS,
+    PREPARE_MISSION_TIMEOUT,
     QUIET_BRIEF_STATUS,
+    RUN_AGENT_ATTEMPTS,
+    RUN_AGENT_TIMEOUT,
+    SYNTHESIZE_ATTEMPTS,
+    SYNTHESIZE_TIMEOUT,
+    VALIDATE_PERSIST_ATTEMPTS,
+    VALIDATE_PERSIST_TIMEOUT,
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
     MarkBriefQuietInputs,
+    MissionBundleDict,
     RunAgentInputs,
     SynthesizeActivityInputs,
     ValidatePersistInputs,
@@ -51,8 +64,8 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 mark_brief_failed_activity,
                 MarkBriefFailedInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, error=_error_message(exc)),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=MARK_STATUS_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=MARK_STATUS_ATTEMPTS),
             )
             raise
 
@@ -60,23 +73,26 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
         items: list[dict] = await temporalio.workflow.execute_activity(
             gather_brief_inputs_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+            start_to_close_timeout=GATHER_BRIEF_TIMEOUT,
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=GATHER_BRIEF_ATTEMPTS),
         )
         return await temporalio.workflow.execute_activity(
             synthesize_brief_activity,
             SynthesizeActivityInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, items=items),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            # A failed synthesis is not retried: retrying double-spends LLM calls.
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            start_to_close_timeout=SYNTHESIZE_TIMEOUT,
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=SYNTHESIZE_ATTEMPTS),
         )
 
     async def _run_agent_engine(self, inputs: GenerateBriefWorkflowInputs) -> str:
-        bundle: dict = await temporalio.workflow.execute_activity(
-            prepare_mission_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+        # prepare returns the full serialized bundle; narrow to the keys this workflow reads.
+        bundle = cast(
+            MissionBundleDict,
+            await temporalio.workflow.execute_activity(
+                prepare_mission_activity,
+                inputs,
+                start_to_close_timeout=PREPARE_MISSION_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=PREPARE_MISSION_ATTEMPTS),
+            ),
         )
         if not bundle.get(MISSION_SEED_ITEMS_KEY):
             # Quiet-week cheap path: no seeds -> no sandbox, no LLM spend.
@@ -87,16 +103,15 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
                     brief_id=inputs.brief_id,
                     reason=f"No significant activity in the last {inputs.period_days} days, so there's nothing to report yet.",
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=MARK_STATUS_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=MARK_STATUS_ATTEMPTS),
             )
             return QUIET_BRIEF_STATUS
         result: dict = await temporalio.workflow.execute_activity(
             run_agent_activity,
             RunAgentInputs(team_id=inputs.team_id, brief_id=inputs.brief_id, bundle=bundle),
-            start_to_close_timeout=dt.timedelta(minutes=30),
-            # One sandbox lifetime; a retry double-spends an entire agent run.
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            start_to_close_timeout=RUN_AGENT_TIMEOUT,
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=RUN_AGENT_ATTEMPTS),
         )
         return await temporalio.workflow.execute_activity(
             validate_and_persist_activity,
@@ -109,10 +124,9 @@ class GenerateProductBriefWorkflow(PostHogWorkflow):
                 seed_items=bundle.get(MISSION_SEED_ITEMS_KEY, []),
                 has_goal=bundle.get(MISSION_GOAL_STATUS_KEY) is not None,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            # Unlike synthesize, a retry here is cheap and worth it: the expensive agent run is
-            # already captured in `result`, so a transient persist failure shouldn't waste it.
-            # persist is fingerprint-idempotent; a post-commit crash-retry re-emits no signals and
-            # at worst double-counts one product_brief_generated event (count=0) — accepted.
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+            start_to_close_timeout=VALIDATE_PERSIST_TIMEOUT,
+            # persist is fingerprint-idempotent, so the retry (unlike synthesize) is safe: a
+            # post-commit crash-retry re-emits no signals and at worst double-counts one
+            # product_brief_generated event (count=0) — accepted.
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=VALIDATE_PERSIST_ATTEMPTS),
         )
