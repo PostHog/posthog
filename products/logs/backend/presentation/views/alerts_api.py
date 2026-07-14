@@ -31,7 +31,6 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, DestinationType
 from products.alerts.backend.destinations import (
-    AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -907,23 +906,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        try:
-            with transaction.atomic():
-                alert = self._get_locked_alert()
-                soft_delete_alert_destinations(
-                    team_id=self.team_id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                    hog_function_ids=hog_function_ids,
-                )
-        except AlertDestinationOwnershipError as error:
-            invalid_ids = ", ".join(str(hog_function_id) for hog_function_id in error.invalid_hog_function_ids)
-            raise ValidationError(
-                {
-                    "hog_function_ids": [
-                        f"These HogFunctions do not belong to this alert: {invalid_ids}. Refresh the alert and try again."
-                    ]
-                }
+        with transaction.atomic():
+            alert = self._get_locked_alert()
+            soft_delete_alert_destinations(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                hog_function_ids=hog_function_ids,
             )
 
         report_user_action(

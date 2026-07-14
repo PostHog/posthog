@@ -78,16 +78,6 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
-        const discordHf = (id: string, url: string, enabled = true): HogFunctionType =>
-            ({
-                id,
-                name: `discord-${id}`,
-                enabled,
-                template: { id: 'template-discord' },
-                inputs: { webhookUrl: { value: url } },
-                filters: {},
-            }) as unknown as HogFunctionType
-
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -133,22 +123,6 @@ describe('logsAlertUtils', () => {
                 key: `teams:${teamsUrl}`,
                 type: 'teams',
                 label: `Microsoft Teams ${teamsUrl}`,
-            })
-            expect(groups[0].hogFunctions).toHaveLength(2)
-        })
-
-        it('classifies Discord by template id instead of treating its webhookUrl input as Teams', () => {
-            const discordUrl = 'https://discord.com/api/webhooks/123/token'
-            const groups = groupLogsAlertDestinations(
-                [discordHf('hf-1', discordUrl), discordHf('hf-2', discordUrl)],
-                resolveSlack
-            )
-
-            expect(groups).toHaveLength(1)
-            expect(groups[0]).toMatchObject({
-                key: `discord:${discordUrl}`,
-                type: 'discord',
-                label: 'Discord',
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })

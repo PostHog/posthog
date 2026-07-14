@@ -12,6 +12,7 @@ from django.db.models import Q
 
 import structlog
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
@@ -29,12 +30,6 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
 )
-
-
-class AlertDestinationOwnershipError(Exception):
-    def __init__(self, invalid_hog_function_ids: set[UUID]) -> None:
-        self.invalid_hog_function_ids = tuple(sorted(invalid_hog_function_ids, key=str))
-        super().__init__()
 
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
@@ -79,7 +74,14 @@ def soft_delete_alert_destinations(
         )
         invalid_ids = unique_ids - owned_ids
         if invalid_ids:
-            raise AlertDestinationOwnershipError(invalid_ids)
+            formatted_ids = ", ".join(str(hog_function_id) for hog_function_id in sorted(invalid_ids, key=str))
+            raise ValidationError(
+                {
+                    "hog_function_ids": [
+                        f"These HogFunctions do not belong to this alert: {formatted_ids}. Refresh the alert and try again."
+                    ]
+                }
+            )
         HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(deleted=True, enabled=False)
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
 

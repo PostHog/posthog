@@ -1,8 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from rest_framework.exceptions import ValidationError
+
 from products.alerts.backend.destinations import (
-    AlertDestinationOwnershipError,
     alert_internal_event_delivered,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -49,7 +50,7 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
         destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
         other = self._make_hog_function(template_id="template-webhook", alert_id="alert-1", event_id="$unrelated_event")
 
-        with self.assertRaises(AlertDestinationOwnershipError) as error:
+        with self.assertRaises(ValidationError) as error:
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -57,7 +58,9 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
                 hog_function_ids=[destination.id, other.id],
             )
 
-        assert error.exception.invalid_hog_function_ids == (other.id,)
+        assert str(error.exception.detail["hog_function_ids"][0]) == (
+            f"These HogFunctions do not belong to this alert: {other.id}. Refresh the alert and try again."
+        )
         for hog_function in (destination, other):
             hog_function.refresh_from_db()
             assert hog_function.deleted is False

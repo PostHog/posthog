@@ -33,6 +33,12 @@ import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
+const DESTINATION_TAGS = [
+    { type: NotificationDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
+    { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
+    { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+] as const
+
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
@@ -45,24 +51,12 @@ export function LogsAlertDestinationTags({
 }): JSX.Element {
     return (
         <div className="flex gap-1">
-            {types.includes(NotificationDestinationTypeEnumApi.Slack) && (
-                <LemonTag>
-                    <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
-                    Slack
+            {DESTINATION_TAGS.filter(({ type }) => types.includes(type)).map(({ type, label, icon }) => (
+                <LemonTag key={type}>
+                    <img src={icon} alt="" className="h-3 w-3 object-contain" />
+                    {label}
                 </LemonTag>
-            )}
-            {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (
-                <LemonTag>
-                    <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
-                    Webhook
-                </LemonTag>
-            )}
-            {types.includes(NotificationDestinationTypeEnumApi.Teams) && (
-                <LemonTag>
-                    <img src={IconMicrosoftTeams} alt="" className="h-3 w-3 object-contain" />
-                    Teams
-                </LemonTag>
-            )}
+            ))}
         </div>
     )
 }
