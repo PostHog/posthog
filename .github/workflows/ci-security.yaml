@@ -310,6 +310,7 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
+                      # Match semgrep-python parallelism without changing scan coverage or timeout.
                       --jobs 4 \
                       --timeout 300 \
                       --exclude ./cli/ \
