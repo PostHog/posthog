@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+venv="$repo_root/.flox/cache/venv"
+agent_env_file="$repo_root/.flox/cache/agent-env"
+
+if [[ ! -x "$venv/bin/python" || ! -f "$agent_env_file" ]]; then
+    exec "$repo_root/bin/setup-worktree-env" "$repo_root/bin/phrocs-mcp"
+fi
+
+# shellcheck disable=SC1090
+source "$agent_env_file"
+export PATH="$venv/bin:${PATH:-}"
+export VIRTUAL_ENV="$venv"
+export UV_PROJECT_ENVIRONMENT="$venv"
+cd "$repo_root"
+exec "$venv/bin/python" "$repo_root/tools/phrocs/mcp_server.py"

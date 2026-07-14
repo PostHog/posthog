@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+common_git_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)"
+source_tree_path="$(dirname "$common_git_dir")"
+agent_env_file="$repo_root/.flox/cache/agent-env"
+
+if [[ "$source_tree_path" != "$repo_root" ]]; then
+    for filename in .env .env.local; do
+        source_file="$source_tree_path/$filename"
+        destination_file="$repo_root/$filename"
+
+        if [[ -f "$source_file" && ! -L "$source_file" && ! -e "$destination_file" && ! -L "$destination_file" ]]; then
+            cp -p "$source_file" "$destination_file"
+        fi
+    done
+fi
+
+if ! flox_env_snapshot=$("$repo_root/bin/with-flox" printenv) || [[ -z "$flox_env_snapshot" ]]; then
+    echo "error: failed to capture the worktree's Flox environment" >&2
+    exit 1
+fi
+
+env_content=""
+while IFS='=' read -r key value; do
+    case "$key" in
+        PATH | FLOX_ACTIVATE_START_SERVICES | FLOX_CONFIG_DIR | FLOX_ENV | FLOX_ENV_CACHE | FLOX_ENV_DESCRIPTION | FLOX_ENV_DIRS | FLOX_ENV_PROJECT | _FLOX_ACTIVE_ENVIRONMENTS | UV_PROJECT_ENVIRONMENT | OPENSSL_ROOT_DIR | OPENSSL_LIB_DIR | OPENSSL_INCLUDE_DIR | LDFLAGS | CPPFLAGS | RUST_LOG | RUST_SRC_PATH | LIBRARY_PATH | MANPATH | DOTENV_FILE | DEBUG | POSTHOG_SKIP_MIGRATION_CHECKS | FLAGS_REDIS_URL | RUSTC_WRAPPER)
+            printf -v quoted_value '%q' "$value"
+            env_content+="export $key=$quoted_value"$'\n'
+            ;;
+    esac
+done <<< "$flox_env_snapshot"
+
+mkdir -p "$(dirname "$agent_env_file")"
+temp_env_file=$(mktemp "$agent_env_file.XXXXXX")
+chmod 600 "$temp_env_file"
+printf '%s' "$env_content" > "$temp_env_file"
+mv -f "$temp_env_file" "$agent_env_file"
+
+if (($#)); then
+    # shellcheck disable=SC1090
+    source "$agent_env_file"
+    exec "$@"
+fi

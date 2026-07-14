@@ -20,14 +20,14 @@ All paths below are relative to the repo root.
 ## Launch
 
 ```bash
-hogli dev:setup          # first time only — interactive wizard picks which workers to run
-hogli up -d -y           # start the stack detached under phrocs
-hogli services:ready -y  # wait for Docker services (Postgres, CH, Kafka, Redis)
-hogli wait -y            # wait for phrocs-managed units (Django, Vite, Celery, plugin-server)
-hogli doctor             # optional: stale migrations, zombie phrocs, disk pressure
+bin/hogli dev:setup          # first time only — interactive wizard picks which workers to run
+bin/hogli up -d -y           # start the stack detached under phrocs
+bin/hogli services:ready -y  # wait for Docker services (Postgres, CH, Kafka, Redis)
+bin/hogli wait -y            # wait for phrocs-managed units (Django, Vite, Celery, plugin-server)
+bin/hogli doctor             # optional: stale migrations, zombie phrocs, disk pressure
 ```
 
-First boot is 60-90s while Django imports and Vite warms. Stop with `hogli down -y` (leaves Docker services running for fast restart).
+First boot is 60-90s while Django imports and Vite warms. Stop with `bin/hogli down -y` (leaves Docker services running for fast restart).
 
 ## Is the stack ready?
 
@@ -52,13 +52,13 @@ Plus these `phrocs` units `ready:true`: `backend`, `frontend`, `nodejs`, `captur
 - `mcp__phrocs__get_process_status` (no args) — all units, with `ready`, `exit_code`, memory, CPU.
 - `mcp__phrocs__get_process_status process="frontend"` — single unit.
 - `mcp__phrocs__get_process_logs process="backend"` — tail recent stdout/stderr.
-- `mcp__phrocs__toggle_process process="<unit>"` — restart one unit. **Auto-mode blocks this on shared stacks** (treated as restart-of-shared-infra). If blocked, ask the user to approve, or run `phrocs stop && hogli up -d` for a full clean restart.
+- `mcp__phrocs__toggle_process process="<unit>"` — restart one unit. **Auto-mode blocks this on shared stacks** (treated as restart-of-shared-infra). If blocked, ask the user to approve, or run `bin/hogli down -y && bin/hogli up -d -y` for a full clean restart.
 
 ## Drive the UI for /verify
 
 Every empty PostHog scene looks broken because no events exist. To verify a UI change, you need a workspace with realistic data. The canonical path is the same one the Playwright suite uses: `POST /api/setup_test/organization_with_team/`. Gated on `DEBUG=True | E2E_TESTING | CI | TEST`, all of which local dev satisfies via `DEBUG=True`. Implementation: `posthog/api/playwright_setup.py` + `posthog/test/playwright_setup_functions.py:create_organization_with_team` — 3 clusters via `HedgeboxMatrix`, ~5-10s end to end. Reference call site: `playwright/utils/playwright-setup.ts:251`.
 
-Avoid `hogli dev:demo-data` for /run and /verify — it calls `generate_demo_data` with `n_clusters=500` (default at `posthog/management/commands/generate_demo_data.py:59`) and takes 5-30 minutes. It exists for humans who want a big realistic dataset to play with; it's the wrong tool for automated launch-and-screenshot.
+Avoid `bin/hogli dev:demo-data` for /run and /verify — it calls `generate_demo_data` with `n_clusters=500` (default at `posthog/management/commands/generate_demo_data.py:59`) and takes 5-30 minutes. It exists for humans who want a big realistic dataset to play with; it's the wrong tool for automated launch-and-screenshot.
 
 The full browser-MCP recipe:
 
@@ -118,19 +118,18 @@ Canonical sources to grep when the path isn't obvious:
 
 ## Gotchas
 
-- **`migrate-clickhouse` and `migrate-persons-db` often crash on a cold `hogli up -d` due to a startup race.** They start in parallel with `migrate-postgres`, and if Postgres isn't ready yet they crash. This is the hard prereq for `POST /api/setup_test/...` and for HogQL-backed scenes (insights, dashboards, web analytics) — but **not** for `/run`. Don't fix it unless the task needs HogQL/`setup_test`. When you do need to fix it, the canonical sequence is: wait for `migrate-postgres` to show `status:"done"` via `mcp__phrocs__get_process_status`, then restart the crashed migrations. `mcp__phrocs__toggle_process` is the surgical tool but auto-mode blocks it on shared stacks — fall back to `phrocs stop && hogli up -d` which re-runs everything in order, or run `python manage.py migrate_clickhouse` directly (you'll need `set -a; source .env.services; set +a` first so `CLICKHOUSE_DATABASE=posthog`, otherwise it targets `default`). If neither works (corrupted CH replica state in ZooKeeper from a partial run), `hogli dev:reset` is the only path — it wipes Docker volumes, destructive.
-- **`hogli wait` exits 0 even when phrocs is unreachable.** Don't trust its return code as ground truth — confirm with `mcp__phrocs__get_process_status` or the `curl` probes.
+- **`migrate-clickhouse` and `migrate-persons-db` often crash on a cold `bin/hogli up -d` due to a startup race.** They start in parallel with `migrate-postgres`, and if Postgres isn't ready yet they crash. This is the hard prereq for `POST /api/setup_test/...` and for HogQL-backed scenes (insights, dashboards, web analytics) — but **not** for `/run`. Don't fix it unless the task needs HogQL/`setup_test`. When you do need to fix it, the canonical sequence is: wait for `migrate-postgres` to show `status:"done"` via `mcp__phrocs__get_process_status`, then restart the crashed migrations. `mcp__phrocs__toggle_process` is the surgical tool but auto-mode blocks it on shared stacks — fall back to `bin/hogli down -y && bin/hogli up -d -y` which re-runs everything in order, or run `python manage.py migrate_clickhouse` directly (you'll need `set -a; source .env.services; set +a` first so `CLICKHOUSE_DATABASE=posthog`, otherwise it targets `default`). If neither works (corrupted CH replica state in ZooKeeper from a partial run), `bin/hogli dev:reset` is the only path — it wipes Docker volumes, destructive.
 - **Vite serves on `:8234`, not the URL you browse.** You browse `http://localhost:8010` (the Envoy-style proxy). The proxy reverse-proxies Vite for `/static/*` and Django for everything else. Hitting `:8234/` directly returns 404 because Vite has no index route at the dev-server root.
-- **Worktrees share Docker containers but compete for ports.** All worktrees on the same machine resolve to the same `posthog-clickhouse-1` / `posthog-db-1` containers, so DB state is global. But ports 8000/8010/8234 can only be held by one worktree at a time — kill the granian/vite/phrocs of the other worktree before `hogli up -d` here.
+- **Worktrees share Docker containers but compete for ports.** All worktrees on the same machine resolve to the same `posthog-clickhouse-1` / `posthog-db-1` containers, so DB state is global. But application ports can only be held by one worktree at a time. Identify the owning worktree before `bin/hogli up -d -y`; do not stop another worktree's processes without user approval.
 - **CSP warnings and 401s in the browser console are normal pre-auth.** The preflight/login page tries to fetch `/api/projects/@current`, `/api/users/@me/`, and PostHog.js remote config — all 401 until you sign up. WASM/CSP "Report Only" warnings come from the dev CSP.
 - **Direct `curl -X POST /api/login/` returns 403 (CSRF).** Session login must run in-page via `browser_evaluate` so cookies and CSRF tokens flow. For non-browser API calls, use the `personal_api_key` from the `setup_test` response as `Authorization: Bearer <key>` — no CSRF on token auth.
 - **`.env.local` may use 1Password refs.** Without `op` installed, refs become literal strings (e.g. `OPENAI_API_KEY=op://...`) and downstream services fail with cryptic auth errors. Install `op` or replace with literals.
 
 ## Troubleshooting
 
-- **`hogli up -d` exits with `Another instance of bin/start is already running`** — previous run still active or crashed without cleanup. `mcp__phrocs__get_process_status` shows what's there; if nothing's running, `rm bin/start.lock` and retry.
+- **`bin/hogli up -d` exits with `Another instance of bin/start is already running`** — previous run still active or crashed without cleanup. `mcp__phrocs__get_process_status` shows what's there; if nothing's running, `rm bin/start.lock` and retry.
 - **`docker info` fails with `dial unix /Users/<you>/.orbstack/run/docker.sock: ... no such file`** — OrbStack is stopped. `open -a OrbStack`.
-- **`/api/projects/@current` returns 500 instead of 401** — Postgres or ClickHouse unreachable. `docker ps | grep posthog-` and look for unhealthy containers; `hogli services:ready` waits for all of them.
+- **`/api/projects/@current` returns 500 instead of 401** — Postgres or ClickHouse unreachable. `docker ps | grep posthog-` and look for unhealthy containers; `bin/hogli services:ready -y` waits for all of them.
 - **`POST /api/login/` returns 400 `invalid_credentials`** — you're logging in as a user the `setup_test` workspace didn't actually create (CH crash usually). Check the response of the setup_test call; if it 500'd, fix CH first (see the `migrate-clickhouse` gotcha).
 - **`POST /api/setup_test/organization_with_team/` returns 404** — `DEBUG`, `E2E_TESTING`, `CI`, and `TEST` are all false. Local dev has `DEBUG=True` by default; if it's not set, `.env.local` is missing or `DJANGO_SETTINGS_MODULE` points at a prod-like settings module.
 - **`POST /api/setup_test/organization_with_team/` returns 500 `Table posthog.person does not exist`** — `migrate-clickhouse` crashed during boot. See the gotcha above.

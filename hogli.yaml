@@ -13,10 +13,12 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
-        # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
-        # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
-        # regenerating a stub entry on every hogli run.
+        # Infrastructure entrypoints, not user-facing hogli commands. Exclude them
+        # from auto-discovery so hogli does not generate hidden stub commands.
         - phrocs
+        - phrocs-mcp
+        - setup-worktree-env
+        - with-flox
     env:
         files:
             - .env.development

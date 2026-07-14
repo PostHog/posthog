@@ -320,11 +320,9 @@ func (p *Process) AppendLine(line string) {
 
 func ptr[T any](v T) *T { return &v }
 
-// Returns a consistent point-in-time view of the process.
-// If the process is running, metrics are sampled on the spot.
+// Snapshot returns a consistent point-in-time view of the process using the
+// most recently sampled metrics.
 func (p *Process) Snapshot() Snapshot {
-	p.sampleMetrics()
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -355,8 +353,20 @@ func (p *Process) Snapshot() Snapshot {
 	return snap
 }
 
+// SnapshotWithMetrics samples resource usage before returning the snapshot.
+func (p *Process) SnapshotWithMetrics() Snapshot {
+	p.sampleMetrics()
+	return p.Snapshot()
+}
+
 // sampleMetrics collects resource usage for the process tree and stores it.
 func (p *Process) sampleMetrics() {
+	allProcs, _ := gops.Processes()
+	p.sampleMetricsFrom(allProcs)
+}
+
+// sampleMetricsFrom collects resource usage using a shared process list.
+func (p *Process) sampleMetricsFrom(allProcs []*gops.Process) {
 	p.mu.Lock()
 	pid := 0
 	if p.cmd != nil && p.cmd.Process != nil {
@@ -374,7 +384,7 @@ func (p *Process) sampleMetrics() {
 		return
 	}
 
-	all := collectProcessTree(ps)
+	all := collectProcessTreeFrom(ps, allProcs)
 
 	var rssBytes uint64
 	var cpuPct, cpuTime float64
@@ -886,7 +896,10 @@ func collectProcessTree(root *gops.Process) []*gops.Process {
 	if err != nil {
 		return []*gops.Process{root}
 	}
+	return collectProcessTreeFrom(root, allProcs)
+}
 
+func collectProcessTreeFrom(root *gops.Process, allProcs []*gops.Process) []*gops.Process {
 	// Build parent → children index
 	byPID := make(map[int32]*gops.Process, len(allProcs))
 	childrenOf := make(map[int32][]*gops.Process)

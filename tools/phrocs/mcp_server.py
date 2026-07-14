@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Local MCP server for PostHog dev environment process observability.
 
-Both tools query phrocs directly over a Unix domain socket whose path is
+The tools query phrocs directly over a Unix domain socket whose path is
 derived from the workspace root (CWD), matching the socket phrocs binds.
 No file-based intermediary — phrocs tracks status, metrics, and logs in-memory.
 
-Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
-  uv run python tools/phrocs/mcp_server.py
+Run through the checked-in MCP client configurations:
+  bin/phrocs-mcp
 """
 
 from __future__ import annotations

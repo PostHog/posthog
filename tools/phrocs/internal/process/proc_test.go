@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -131,8 +132,18 @@ func TestSnapshot_initialState(t *testing.T) {
 
 func TestSnapshot_withMetrics(t *testing.T) {
 	p := NewProcess("worker", config.ProcConfig{Shell: "echo hi"}, 1000, "")
+	cmd := exec.Command("sleep", "5")
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
 
 	someTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	p.status = StatusRunning
+	p.cmd = cmd
 	p.startedAt = someTime
 	p.metrics = &Metrics{
 		MemRSSMB:   42.5,

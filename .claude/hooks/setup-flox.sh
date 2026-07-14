@@ -39,10 +39,8 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   fi
 fi
 
-# Slow path: capture the flox activation environment
-FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
-
-if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+# Slow path: provision this worktree and capture its Flox environment.
+if ! FLOX_ENV_SNAPSHOT=$("$PROJECT_DIR/bin/setup-worktree-env" printenv 2>/dev/null) || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
   exit 0
 fi
@@ -50,7 +48,7 @@ fi
 ENV_CONTENT=""
 while IFS='=' read -r key value; do
   ENV_CONTENT="${ENV_CONTENT}$(printf 'export %s=%q\n' "$key" "$value")"$'\n'
-done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=")
+done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_ACTIVATE_START_SERVICES|FLOX_CONFIG_DIR|FLOX_ENV|FLOX_ENV_CACHE|FLOX_ENV_DESCRIPTION|FLOX_ENV_DIRS|FLOX_ENV_PROJECT|_FLOX_ACTIVE_ENVIRONMENTS|UV_PROJECT_ENVIRONMENT|OPENSSL_ROOT_DIR|OPENSSL_LIB_DIR|OPENSSL_INCLUDE_DIR|LDFLAGS|CPPFLAGS|RUST_LOG|RUST_SRC_PATH|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER)=")
 
 if [ -d "$VENV_DIR/bin" ]; then
   ENV_CONTENT="${ENV_CONTENT}export PATH=\"${VENV_DIR}/bin:\$PATH\""$'\n'

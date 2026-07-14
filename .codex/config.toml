@@ -1,0 +1,24 @@
+[sandbox_workspace_write]
+# Dependency managers keep mutable indexes outside the checkout. Limit Codex to
+# those caches instead of granting broad home-directory access.
+writable_roots = [
+    "~/.cache/flox",
+    "~/.cache/node",
+    "~/.cache/uv",
+    "~/.local/share/flox",
+    "~/.local/share/pnpm",
+    "~/Library/pnpm",
+]
+network_access = false
+
+[shell_environment_policy]
+# pytest-rerunfailures opens a loopback socket whenever xdist is loaded, even
+# without `-n`. Codex keeps network access disabled, so skip the unused plugin.
+set = { PYTEST_ADDOPTS = "-p no:xdist" }
+
+[mcp_servers.phrocs]
+command = "./bin/phrocs-mcp"
+startup_timeout_sec = 120
+
+[mcp_servers.posthog-local]
+url = "http://localhost:8787/mcp"

@@ -10,13 +10,14 @@
 ## Commands
 
 - Environment:
-  - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
-    - Never use `flox activate` in interactive sessions (it hangs if you try)
+  - Agents must invoke repo tooling through `bin/hogli`. It selects the current worktree's environment and provisions it on first use.
+  - Run `bin/setup-worktree-env` once when a new worktree needs all dependencies. Do not wrap individual commands in `flox activate`.
+  - Interactive shells use direnv/Flox activation and can use bare `hogli`.
 - Tests:
-  - Universal: `hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
-  - Single test: `hogli test path/to/test.py::TestClass::test_method`
-  - Watch mode: `hogli test path/to/test.py --watch`
-  - Changed files only: `hogli test --changed`
+  - Universal: `bin/hogli test <file_or_directory>` — auto-detects test type (Python, Jest, Playwright, Rust, Go)
+  - Single test: `bin/hogli test path/to/test.py::TestClass::test_method`
+  - Watch mode: `bin/hogli test path/to/test.py --watch`
+  - Changed files only: `bin/hogli test --changed`
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
@@ -24,12 +25,12 @@
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
-  - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
-- OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
+  - Start dev: `./bin/start` or `bin/hogli start` (interactive TUI). Detached mode: `bin/hogli up -d` paired with `bin/hogli wait` / `bin/hogli down`
+- OpenAPI/types: `bin/hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
-- Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
-  **Agents must use it too**: when a hogli command or dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Agent-sent feedback is tagged as such, and it's the fastest signal the devex team gets, so use it liberally rather than suffering friction silently.
+- Dev experience feedback: `bin/hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
+  Agents should diagnose and fix in-scope tooling problems first. Send feedback only for a reproducible repository tooling issue that remains unresolved, with a concise reproduction and error. Do not send feedback for expected sandbox approvals or for issues fixed in the current change.
 
 ## Commits and Pull Requests
 

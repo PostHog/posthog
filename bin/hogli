@@ -4,19 +4,47 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_CMD="python"
+SCRIPT_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CURRENT_REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 
-if [ -z "${VIRTUAL_ENV:-}" ]; then
-    for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
-        if [ -d "$venv" ]; then
-            source "$venv/bin/activate"
-            PYTHON_CMD="$venv/bin/python"
-            break
-        fi
-    done
+# A bare `hogli` may resolve through another worktree's venv. Prefer the
+# checkout containing the caller so commands never read dependencies or state
+# from a different worktree.
+if [[ -x "$CURRENT_REPO_ROOT/bin/hogli" && -d "$CURRENT_REPO_ROOT/tools/hogli" ]]; then
+    REPO_ROOT="$CURRENT_REPO_ROOT"
 else
+    REPO_ROOT="$SCRIPT_REPO_ROOT"
+fi
+
+LOCAL_VENV=""
+AGENT_ENV_FILE="$REPO_ROOT/.flox/cache/agent-env"
+for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
+    if [[ -x "$venv/bin/python" ]]; then
+        LOCAL_VENV="$venv"
+        break
+    fi
+done
+
+if [[ ( -z "$LOCAL_VENV" || ! -f "$AGENT_ENV_FILE" ) && -z "${POSTHOG_HOGLI_REEXEC:-}" && -x "$REPO_ROOT/bin/setup-worktree-env" ]] && command -v flox >/dev/null 2>&1; then
+    export POSTHOG_HOGLI_REEXEC=1
+    exec "$REPO_ROOT/bin/setup-worktree-env" "$REPO_ROOT/bin/hogli" "$@"
+fi
+
+if [[ -n "$LOCAL_VENV" ]]; then
+    if [[ -f "$AGENT_ENV_FILE" ]]; then
+        # shellcheck disable=SC1090
+        source "$AGENT_ENV_FILE"
+    fi
+    export PATH="$LOCAL_VENV/bin:${PATH:-}"
+    export VIRTUAL_ENV="$LOCAL_VENV"
+    export UV_PROJECT_ENVIRONMENT="$LOCAL_VENV"
+    export FLOX_ENV_PROJECT="$REPO_ROOT"
+    export FLOX_ENV_CACHE="$REPO_ROOT/.flox/cache"
+    PYTHON_CMD="$LOCAL_VENV/bin/python"
+elif [[ -x "${VIRTUAL_ENV:-}/bin/python" ]]; then
     PYTHON_CMD="$VIRTUAL_ENV/bin/python"
+else
+    PYTHON_CMD="$(command -v python3 || command -v python)"
 fi
 
 # Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
@@ -30,7 +58,7 @@ error: the `hogli` package is not importable from your active venv.
 It recently moved to tools/hogli/ (framework) + tools/hogli-commands/ (commands).
 Your venv has stale paths — re-sync it:
 
-    flox activate            # recommended (flox auto-runs uv sync)
+    bin/setup-worktree-env   # recommended (Flox auto-runs uv sync)
     uv sync --active         # or sync directly
 
 Then rerun your hogli command.

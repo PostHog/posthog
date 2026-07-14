@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if (($# == 0)); then
+    echo "usage: bin/with-flox <command> [args...]" >&2
+    exit 2
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+flox_bin="$(command -v flox || true)"
+
+if [[ -z "$flox_bin" ]]; then
+    echo "error: Flox is required to provision the PostHog development environment" >&2
+    exit 127
+fi
+
+# Codex and other agent hosts can inherit an activated parent checkout. Flox
+# uses these values to detect nesting, so clear them before selecting this repo.
+exec env \
+    -u FLOX_ACTIVATE_START_SERVICES \
+    -u FLOX_ENV \
+    -u FLOX_ENV_CACHE \
+    -u FLOX_ENV_DESCRIPTION \
+    -u FLOX_ENV_DIRS \
+    -u FLOX_ENV_PROJECT \
+    -u UV_PROJECT_ENVIRONMENT \
+    -u VIRTUAL_ENV \
+    -u VIRTUAL_ENV_DISABLE_PROMPT \
+    -u VIRTUAL_ENV_PROMPT \
+    -u _FLOX_ACTIVE_ENVIRONMENTS \
+    -u _FLOX_HOOK_DIFF \
+    -u _FLOX_INVOCATION_TYPE \
+    "$flox_bin" activate --dir "$repo_root" -- "$@"
