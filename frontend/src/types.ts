@@ -2954,6 +2954,7 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    ScatterPlot = 'ScatterPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',

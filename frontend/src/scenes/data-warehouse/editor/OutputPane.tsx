@@ -46,6 +46,7 @@ import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDe
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { ScatterPlot } from '~/queries/nodes/DataVisualization/Components/Charts/Scatter/ScatterPlot'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -967,6 +968,8 @@ function InternalDataTableVisualization(
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        component = <ScatterPlot />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

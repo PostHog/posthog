@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
@@ -14,6 +16,7 @@ interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'di
 export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
 
@@ -35,6 +38,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
         [ChartDisplayType.BoxPlot]: 'Box plot',
         [ChartDisplayType.SlopeGraph]: 'Slope graph',
+        [ChartDisplayType.ScatterPlot]: 'Scatter plot',
     }
 
     const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
@@ -113,6 +117,17 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
                 },
+                ...(featureFlags[FEATURE_FLAGS.SCATTER_PLOT_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.ScatterPlot,
+                              icon: <IconScatter />,
+                              label: 'Scatter plot',
+                              disabledReason:
+                                  numericalColumns.length < 2 ? 'Requires at least two numeric columns' : undefined,
+                          },
+                      ]
+                    : []),
             ],
         },
     ]
