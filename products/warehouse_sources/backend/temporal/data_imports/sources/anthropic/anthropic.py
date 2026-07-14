@@ -132,7 +132,8 @@ def _row_id(*parts: Any) -> str:
     get restated between runs keeps the same id and merge updates it in place rather than inserting a
     duplicate.
     """
-    joined = "|".join("" if p is None else str(p) for p in parts)
+    # Use a sentinel for None so a missing dimension can never collide with an empty-string value.
+    joined = "|".join("\x00" if p is None else str(p) for p in parts)
     return hashlib.sha256(joined.encode()).hexdigest()
 
 

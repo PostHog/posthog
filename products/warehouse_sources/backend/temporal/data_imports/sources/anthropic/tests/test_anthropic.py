@@ -74,7 +74,9 @@ class TestRowId:
         assert a != b
 
     def test_none_and_empty_string_distinguished_positionally(self) -> None:
-        # Padding None to "" per-part keeps positions aligned so distinct dimension tuples don't collide.
+        # A missing dimension (None) must not collide with an empty-string value at the same position,
+        # and positions stay aligned so distinct dimension tuples never collide either.
+        assert _row_id(None, "x") != _row_id("", "x")
         assert _row_id(None, "x") != _row_id("x", None)
 
 
