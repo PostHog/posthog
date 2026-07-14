@@ -34,6 +34,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
+    WorkflowChangedError,
     actionIdForLogging,
     ensureCurrentAction,
     findContinueAction,
@@ -493,13 +494,40 @@ export class HogFlowExecutorService {
                     this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
-                // Add logs and metric specifically for this action
-                this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.trackActionMetric(result, currentAction, 'failed')
+                // A WorkflowChangedError is not this action failing — the graph moved underneath the
+                // run — so it skips the failure log/metric and is classified by the outer catch.
+                if (!(err instanceof WorkflowChangedError)) {
+                    // Add logs and metric specifically for this action
+                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                    this.trackActionMetric(result, currentAction, 'failed')
+                }
 
                 throw err
             }
         } catch (err) {
+            // The workflow was edited underneath this run and its current step (or that step's next
+            // edge) no longer exists. That's a user action, not a defect: finish the run as a
+            // deliberate exit — no result.error, so it doesn't count towards the workflow's failure
+            // rate — with its own metric so exits are attributable per workflow.
+            if (err instanceof WorkflowChangedError) {
+                result.finished = true
+                this.log(
+                    result,
+                    'info',
+                    `Workflow exited: the workflow was edited and this run's current step no longer exists (${err.message})`
+                )
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                    instance_id: invocation.state.currentAction?.id,
+                    metric_kind: 'other',
+                    metric_name: 'exited_workflow_changed',
+                    count: 1,
+                })
+
+                return result
+            }
+
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
