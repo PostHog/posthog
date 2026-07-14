@@ -2162,47 +2162,6 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.43
   '''
-  SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
-         "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."last_refresh",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."breakdown_colors",
-         "posthog_dashboard"."data_color_theme_id",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."quick_filter_ids",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id" AS "dashboard_id"
-            FROM "posthog_dashboardtile" U0
-            INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
-            WHERE (NOT (U0."deleted"
-                        AND U0."deleted" IS NOT NULL)
-                   AND NOT (U1."deleted")))
-         AND "posthog_dashboardtile"."insight_id" IN (1,
-                                                      2,
-                                                      3,
-                                                      4,
-                                                      5 /* ... */))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.44
-  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -2232,7 +2191,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.45
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.44
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -2258,6 +2217,38 @@
   FROM "posthog_dashboard"
   WHERE ("posthog_dashboard"."id") IN ((1,
                                         2)/* ... */)
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.45
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.46
@@ -9018,38 +9009,28 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
   '''
-  SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
-         "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."last_refresh",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."breakdown_colors",
-         "posthog_dashboard"."data_color_theme_id",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."quick_filter_ids",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id" AS "dashboard_id"
-            FROM "posthog_dashboardtile" U0
-            INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
-            WHERE (NOT (U0."deleted"
-                        AND U0."deleted" IS NOT NULL)
-                   AND NOT (U1."deleted")))
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" IN (1,
                                                       2,
                                                       3,
@@ -9104,33 +9085,30 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.180
   '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" IN (1,
-                                                      2,
-                                                      3,
-                                                      4,
-                                                      5 /* ... */))
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE ("posthog_dashboard"."id") IN ((1,
+                                        2)/* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
@@ -9157,8 +9135,12 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE ("posthog_dashboard"."id") IN ((1,
-                                        2)/* ... */)
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.182
