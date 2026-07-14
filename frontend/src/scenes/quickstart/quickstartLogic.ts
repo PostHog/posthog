@@ -445,10 +445,16 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 (setupModalProductKey && products.find((product) => product.key === setupModalProductKey)) || null,
         ],
     }),
-    listeners(({ actions }) => ({
-        enableProduct: ({ productKey }) => {
+    listeners(() => ({
+        enableProduct: async ({ productKey }) => {
             const definition = QUICKSTART_PRODUCT_DEFINITIONS[productKey]
             if (!definition?.optInPayload) {
+                return
+            }
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam(definition.optInPayload)
+            } catch {
+                // The opt-in didn't apply, so don't record an enable that never happened
                 return
             }
             posthog.capture('quickstart product enabled', { product_key: productKey })
@@ -456,7 +462,6 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 product_type: productKey,
                 intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
             })
-            actions.updateCurrentTeam(definition.optInPayload)
         },
     })),
     afterMount(({ actions, values }) => {

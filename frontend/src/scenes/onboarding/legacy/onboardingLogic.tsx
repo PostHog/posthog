@@ -502,7 +502,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
         },
-        completeOnboarding: ({ redirectUrlOverride }) => {
+        completeOnboarding: async ({ redirectUrlOverride }) => {
             // Idempotency guard. Without this, a double-click on Finish, a re-render
             // calling advance() twice, or back-then-forward into the last step plus
             // pressing Finish again all fire duplicate product-intent writes,
@@ -584,12 +584,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
-            setQuickstartAsDefaultHomepageOnce(values.currentTeam?.has_completed_onboarding_for)
-            const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
+            const previouslyOnboardedMap = values.currentTeam?.has_completed_onboarding_for
+            const completedMap: Record<string, boolean> = { ...previouslyOnboardedMap }
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
             }
-            teamLogic.actions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+            try {
+                await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                setQuickstartAsDefaultHomepageOnce(previouslyOnboardedMap)
+            } catch {
+                // The completion update failed, so leave the user's homepage untouched
+            }
         },
         completeContextOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
@@ -620,13 +625,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // sceneLogic stops redirecting back into onboarding. Await the PATCH before navigating —
             // updateCurrentTeam is NOT optimistic, so leaving early would race a still-stale currentTeam
             // and sceneLogic could bounce a not-yet-ingested team straight back here.
-            setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
             const completedMap: Record<string, boolean> = { ...team?.has_completed_onboarding_for }
             for (const productKey of products) {
                 completedMap[productKey] = true
             }
             try {
                 await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
+                setQuickstartAsDefaultHomepageOnce(team?.has_completed_onboarding_for)
                 router.actions.push(
                     getRelativeNextPath(router.values.searchParams['next'], window.location) ??
                         (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] ? urls.quickstart() : urls.default())
