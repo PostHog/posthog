@@ -151,11 +151,16 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-30d` or ISO8601).
 
-### Exposed warehouse view
+### Exposed warehouse views
 
-One warehouse view is exposed so insights, subscriptions, other products, and agents (via
-`execute-sql`) can query per-job CI cost directly — the only surface where the curated read layer
+Three warehouse views are exposed so insights, subscriptions, other products, and agents (via
+`execute-sql`) can query the curated CI substrate directly — the only surface where the read layer
 is reachable as data rather than through the named endpoints.
+All three share one gate: a team gets them only when it has a GitHub source with **both** the
+`workflow_runs` and `workflow_jobs` endpoints synced (`resolve_job_cost_source_pairs`), so they
+appear together or not at all, and `get_expected_warehouse_views` stays coherent.
+
+#### `engineering_analytics_job_costs`
 
 - **Name:** `engineering_analytics_job_costs`, provisioned per-team as a `DataWarehouseSavedQuery`
   (the revenue-analytics managed-viewset mechanism, kind `engineering_analytics`).
@@ -183,6 +188,64 @@ is reachable as data rather than through the named endpoints.
   pass-through columns for windowing/branch filters — and aggregate `billable_seconds` /
   `estimated_cost_usd` in ClickHouse. Cost is therefore computed exactly once, in one place; there is
   no separate Python cost rollup for the endpoints to drift from the view.
+
+#### `engineering_analytics_ci_job_history`
+
+The per-job-attempt history with commit attribution — the stable substrate for green/red boundary
+analysis ("master went red at SHA X, authored by Y, via PR Z"). Composes the same
+`workflow_jobs` LEFT JOIN `workflow_runs` shape as `job_costs`, unioned across qualifying sources.
+
+- **Grain:** one row per job attempt (a retry appears once per attempt). Jobs whose run row is
+  missing (the LEFT JOIN) are kept, not dropped; ClickHouse fills the unmatched run side with type
+  defaults (empty repo/sha, `pr_number` 0) rather than NULL, so a missing run reads as empty
+  attribution.
+- **Columns:** `repo_owner`, `repo_name`, `workflow_name`, `job_name`, `run_id`, `run_attempt`,
+  `head_branch`, `head_sha` (the run's), `status`, `conclusion`, `created_at`, `started_at`,
+  `completed_at`, `duration_seconds`, `pr_number`, `commit_author_name`, `commit_author_email`,
+  `commit_message`, `commit_pr_number`. Column order is the locked contract (it fixes the UNION ALL
+  order and the saved-query schema).
+- **Two PR keys, by design (SPEC §7):** `pr_number` is the runs builder's association-derived
+  number — kept as `0` when the run has no `pull_requests` association (master pushes, fork PRs),
+  not nulled. `commit_pr_number` is parsed from the head commit's squash-merge suffix via
+  `accurateCastOrNull(regexpExtract(commit_message, '(?m)[(]#([0-9]+)[)]$'), 'Int64')` — anchored to a
+  line end so a revert's quoted inner `(#N)` never wins over the reverting PR's own suffix. This is
+  how a **master push run** gets PR attribution at all, since its `pull_requests` association is
+  empty. On an unjoined run, `pr_number` reads 0 (type default) and `commit_pr_number` NULL.
+- **Commit attribution rule:** `commit_author_name` / `commit_author_email` / `commit_message` come
+  from the run's `head_commit` Nullable-JSON column (`ifNull(head_commit, '{}')`, then
+  `JSONExtractString(…, 'author', 'name')` / `('author', 'email')` / `('message')`). The shared
+  `workflow_runs` builder deliberately does **not** surface commit fields (other embedders don't
+  need them); this view reads them through its own minimal projection over the raw runs table,
+  LEFT-JOINed on `run_id` alone, rather than widening the shared builder. Joining on `run_attempt`
+  too would blank attribution for earlier-attempt jobs after a re-run: the runs snapshot upserts by
+  `id`, so only the newest attempt's row exists, and attribution is attempt-invariant anyway (a
+  re-run is the same commit). `head_commit` is a new Nullable(String) column on
+  `WORKFLOW_RUNS_COLUMNS`.
+
+#### `engineering_analytics_ci_failures`
+
+Row-level fingerprinted CI failure lines from the **Logs** product (`logs` table, not the
+warehouse), for a failure index over the green/red boundary. Team-global (logs aren't
+source-scoped), so no per-source resolution — one view, still gated on the qualifying GitHub source
+above so it appears with `ci_job_history`.
+
+- **Grain:** one row per pytest `FAILED <nodeid>` line —
+  `FROM logs WHERE service_name = 'github-ci-logs' AND regexpExtract(body, 'FAILED ([^[:space:]]+::[^[:space:]]+)') != ''`.
+  The `::` requirement is the pytest discriminator: real CI logs contain `FAILED` in other contexts
+  (env dumps, stage markers) that would otherwise produce junk fingerprints. (HogQL string literals
+  reject `\s`/`\d` escapes, so the regexes use POSIX/char classes instead.)
+- **Columns:** `timestamp`, `test_id` (the `FAILED` node id), `error_signature`, `fingerprint`,
+  `branch`, `head_sha`, `repo`, `workflow_name`, `job_name`, `run_id`, `job_id`, `run_attempt`,
+  `conclusion`. The attribute-map fields ride the emitted log record; `run_id` / `job_id` are
+  `accurateCastOrNull(…, 'Int64')`-cast so they join `ci_job_history` and the raw `github_*` tables.
+- **Fingerprint recipe:** `error_signature` is the trailing `" - <detail>"` with volatile bits
+  normalized — `replaceRegexpAll(…, '[0-9a-fA-F-]{8,}|[0-9]+', 'N')`, truncated to 200 — so two runs of
+  the same failure share it (NULL when there's no trailing detail). `fingerprint` is
+  `concat(test_id, ' | ', <normalized signature>)`, the group key.
+- **pytest-only v1 caveat:** the recipe only matches pytest `FAILED` lines; jest / playwright /
+  cargo failure lines are **not** fingerprinted yet. The recipe lives in code (not a stored
+  materialization) on purpose, so it can evolve by PR as more runners are covered and re-render into
+  a team's view on the next sync.
 
 ## 6. Delivery shape
 
