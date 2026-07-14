@@ -49,7 +49,12 @@ describe('inboxFiltersLogic', () => {
                     sortField: 'created_at',
                     sortDirection: 'desc',
                 },
-                { scope: 'entire-project', source: 'error_tracking,github', priority: 'P0,P2', sort: 'created_at:desc' },
+                {
+                    scope: 'entire-project',
+                    source: 'error_tracking,github',
+                    priority: 'P0,P2',
+                    sort: 'created_at:desc',
+                },
             ],
             [
                 'teammate scope only',

@@ -20,8 +20,8 @@ import {
     InboxReportCloseMethod,
     InboxReportOpenMethod,
 } from './inboxAnalytics'
-import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
+import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import { scratchpadLogic } from './logics/scratchpadLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
