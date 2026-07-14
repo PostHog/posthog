@@ -26878,7 +26878,8 @@
                 "apns",
                 "postgresql",
                 "aws-s3",
-                "s3-compatible"
+                "s3-compatible",
+                "snowflake"
             ],
             "type": "string"
         },
