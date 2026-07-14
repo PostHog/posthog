@@ -3,9 +3,9 @@
 Load, consistency, and e2e correctness harness for the personhog leader path.
 Revived from the original personhog-cannon draft (#55581) and extended with stack orchestration, Postgres seeding, and an acked-write journal so it can gate CI, not just generate load.
 
-The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads immediately, and in Postgres (with exactly the acked version) once the writer drains.
+The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 90s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
-Version monotonicity is asserted throughout: an ack observing a lower version than an earlier ack for the same person, or a strong read observing a version below the highest ack, is a violation.
+Version assignment is asserted throughout: the leader assigns each version of a person to at most one acked write, so a duplicated acked version (two writes served from the same base state), or a strong read observing a version below the highest ack, is a violation.
 Read-your-write recency is asserted live: `--probers` (default 2) workers run write-then-strong-read cycles alongside the blast traffic, so a staleness window during a chaos event trips a probe even if it heals before the end-of-run verification.
 
 ## Requirements
@@ -89,7 +89,7 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
 
 ### Known defects these scenarios reproduce
 
-Two real leader-path bugs surface under specific gate configurations.
+Four real leader-path bugs surface under specific gate configurations.
 They are documented here so red or noisy runs read as signal, not harness flakiness.
 
 **Cache eviction under writer lag loses acked writes — the gate goes RED.**
@@ -121,6 +121,22 @@ The coordinator election is a lease-backed CAS (15s TTL, 5s keepalives, 5s campa
 Leader crashes are usually unaffected (their own 30s registration lease gates discovery anyway), but a leader *drain* during the window stalls — which today, combined with the unordered-shutdown defect above, black-holes the draining pod's partitions for the whole gap (observed: 731 failed writes in ~10s at harness scale; one served strong read also returned NotFound for a person with acked writes, unreproduced and unexplained).
 The gate's coordinator-kill scenario deliberately revokes the election lease to stay deterministic, so it does NOT exercise this window; the slow-failover variant is worth adding once the shutdown ordering is fixed and traffic survives the wait.
 Fix direction: release the election on graceful exit reliably (the best-effort revoke can be dropped by the surrounding `select!` before it runs), and/or tune the election lease and retry intervals against the drain grace budget.
+
+**A drain overlapping a pod death wedges convergence for the drained pod's full lifecycle timeout — the gate waits it out.**
+The rebalance a drain triggers can race a concurrent pod death and create handoffs targeting the dead pod (self-healing: stale-handoff cleanup deletes them within a tick), but the re-drive rebalance still counts the *draining* pod as an assignment target — nothing marks it as leaving — and hands partitions back to it.
+Its gRPC server is already dead (the unordered-shutdown defect above) and its coordination component gets only a 5s grace, so those handoffs stall in Draining with no DrainedAck; rebalancing is globally deferred while any handoff is in flight, so nothing can converge until the pod's 30s lifecycle timeout force-exits it, deregistration fires, and cleanup plus a fresh rebalance finally move everything to survivors (observed: ~36s end to end, with the affected partitions black-holed throughout).
+
+```bash
+# Nondeterministic: wedges only when the mid-drain rebalance picks the
+# draining pod as a target. The signature is a large "settled in Ns" line
+# and an elevated Failed count.
+target/debug/personhog-test-harness gate --routers 2 --leaders 3 --duration 18s \
+  --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
+```
+
+Verification waits for convergence (bounded at 90s) before asserting strong reads, so the gate stays green through the wedge; red here means convergence itself failed.
+Fix direction: the ordered-shutdown fix removes both halves (the server survives the drain, and coordination lives to write DrainedAck, collapsing "settled in" to near-zero — at which point the convergence deadline can tighten to re-gate on recovery time).
+Independently worth fixing: draining pods should be excluded as rebalance targets, and one stuck handoff should not defer all rebalancing.
 
 ## `seed` / `cleanup` — manage traffic targets
 

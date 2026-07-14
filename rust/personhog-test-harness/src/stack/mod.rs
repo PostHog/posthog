@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -449,6 +449,56 @@ impl Stack {
             .map(|(name, _)| name)
             .max_by_key(|name| (counts.get(name.as_str()).copied().unwrap_or(0), *name));
         Ok(busiest.expect("leaders is non-empty").clone())
+    }
+
+    /// Wait until coordination has converged after chaos: no handoffs in
+    /// flight and every partition assigned to a leader whose process is
+    /// actually running. Owners are checked against the stack's live
+    /// process list rather than etcd registrations — a draining pod stays
+    /// registered (with a dead gRPC server) until its lifecycle timeout,
+    /// and a briefly-empty handoff list mid-re-drive would otherwise read
+    /// as converged. Returns how long convergence took; an already-settled
+    /// stack returns immediately. Timing out fails the run: a protocol
+    /// that cannot converge is itself a violation, independent of any
+    /// data-visibility check.
+    pub async fn wait_converged(&mut self, deadline: Duration) -> Result<Duration> {
+        let start = Instant::now();
+        let mut last_report = String::new();
+
+        loop {
+            self.check_alive()?;
+
+            let assignments = self.store.list_assignments().await.unwrap_or_default();
+            let handoffs = self.store.list_handoffs().await.unwrap_or_default();
+            let live: HashSet<&str> = self.leaders.iter().map(|(name, _)| name.as_str()).collect();
+            let dead_owned = assignments
+                .iter()
+                .filter(|a| !live.contains(a.owner.as_str()))
+                .count();
+
+            if handoffs.is_empty()
+                && assignments.len() as u32 == self.config.partitions
+                && dead_owned == 0
+            {
+                return Ok(start.elapsed());
+            }
+
+            let report = format!(
+                "partitions assigned {}/{} ({} on dead pods), handoffs in flight {}",
+                assignments.len(),
+                self.config.partitions,
+                dead_owned,
+                handoffs.len()
+            );
+            if report != last_report {
+                tracing::info!("waiting for coordination to converge: {report}");
+                last_report = report;
+            }
+            if start.elapsed() > deadline {
+                bail!("coordination did not converge within {deadline:?}: {last_report}");
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
 
     /// One-line snapshot of coordination state, for chaos event logging.

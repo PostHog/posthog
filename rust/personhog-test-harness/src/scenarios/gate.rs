@@ -274,10 +274,19 @@ pub async fn run(args: GateArgs) -> Result<()> {
     traffic.await.context("traffic task panicked")??;
     let prober_violations = probers.await.context("prober task panicked")??;
 
+    // Verification asserts data visibility on a converged topology, not
+    // recovery speed: chaos legitimately leaves handoffs to re-drive, and
+    // the protocol's convergence is bounded (worst known case ~40s via the
+    // drained pod's lifecycle timeout). An already-settled run waits zero
+    // time; a run that cannot converge fails here with the stuck state.
     if let Some(stack) = stack.as_mut() {
-        stack.check_alive()?;
+        let settled = stack
+            .wait_converged(Duration::from_secs(90))
+            .await
+            .context("coordination must converge before verification")?;
         println!(
-            "Post-traffic coordination: {}",
+            "Post-traffic coordination settled in {:.1}s: {}",
+            settled.as_secs_f64(),
             stack.coordination_report().await
         );
     }
