@@ -12,6 +12,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.hypercache import (
     DEFAULT_CACHE_MISS_TTL,
@@ -190,7 +191,7 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
 
     def test_batch_get_from_cache_redis_error_degrades_to_all_miss(self):
         hc = self.hypercache
-        teams = [Mock(id=1), Mock(id=2)]
+        teams = [Team(id=1), Team(id=2)]
 
         with patch.object(hc.cache_client, "get_many", side_effect=ConnectionInterrupted(connection=None)):
             results = hc.batch_get_from_cache(teams)
