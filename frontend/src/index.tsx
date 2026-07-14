@@ -3,7 +3,7 @@ import '~/styles'
 import './buffer-polyfill'
 
 import { Suspense, lazy } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 
 import { retryImport } from 'lib/utils/retryImport'
 
@@ -24,13 +24,23 @@ const App = lazy(() =>
     )
 )
 
+declare global {
+    interface Window {
+        __posthogAppRoot?: Root
+    }
+}
+
 function renderApp(): void {
-    const root = document.getElementById('root')
-    if (!root) {
+    const rootElement = document.getElementById('root')
+    if (!rootElement) {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
         return
     }
-    createRoot(root).render(
+    // Vite 8 can serve this entry module twice after an HMR invalidation reaches it (the script
+    // tag's bare URL plus a timestamped copy), and a second createRoot on an already-rooted
+    // container crashes React. Reuse one root so a repeat execution re-renders instead.
+    const root = (window.__posthogAppRoot ??= createRoot(rootElement))
+    root.render(
         <RootErrorBoundary>
             {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
                 errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}
