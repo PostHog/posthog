@@ -292,7 +292,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.general == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 20
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
