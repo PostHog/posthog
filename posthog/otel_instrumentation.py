@@ -2,6 +2,8 @@ import os
 import typing
 import logging
 
+from django.http import HttpRequest, HttpResponse
+
 import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -16,13 +18,14 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Span
 from opentelemetry.util.http import sanitize_method
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
 
 
-def _otel_django_request_hook(span, request):
+def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
     if span and span.is_recording():
         actual_path = request.path
         http_method = request.method
@@ -31,7 +34,7 @@ def _otel_django_request_hook(span, request):
         # span.update_name(f"{http_method} {actual_path}") # Use with caution - high cardinality
 
 
-def _otel_django_response_hook(span, request, response):
+def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpResponse) -> None:
     if span and span.is_recording():
         span.set_attribute("http.status_code", response.status_code)
         resolver_match = getattr(request, "resolver_match", None)
