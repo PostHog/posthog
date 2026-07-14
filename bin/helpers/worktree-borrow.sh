@@ -81,10 +81,6 @@ posthog_worktree_borrow() {
                 PATH="$_ph_main_venv/bin:$PATH"
                 echo "worktree: borrowing venv from $_ph_main (lockfiles match)" >&2
             else
-                # Exported so child processes (bin/hogli) don't re-check and
-                # re-warn about the same mismatch.
-                POSTHOG_UV_LOCK_MISMATCH=1
-                export POSTHOG_UV_LOCK_MISMATCH
                 echo "worktree: uv.lock differs from $_ph_main, skipping venv borrow -- run 'flox activate'" >&2
             fi
         fi
