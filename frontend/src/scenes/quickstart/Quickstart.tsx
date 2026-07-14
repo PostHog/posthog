@@ -15,12 +15,15 @@ import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
+import { NotFound } from 'lib/components/NotFound'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import {
     AIObservabilitySDKInstructions,
@@ -685,7 +688,12 @@ export function Quickstart(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
+
+    if (!featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]) {
+        return <NotFound object="page" />
+    }
 
     return (
         <div className="flex flex-col gap-8 py-4">

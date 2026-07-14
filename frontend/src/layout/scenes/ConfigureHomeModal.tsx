@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -27,6 +29,8 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quickstartEnabled = !!featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
 
     const isUsingProjectDefault = !homepage
     const isUsingQuickstart = homepage?.sceneId === Scene.Quickstart
@@ -159,12 +163,16 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     'data-attr': 'configure-home-modal-set-launchpad',
                                     tooltip: 'An AI-powered home with quick actions and recent items',
                                 },
-                                {
-                                    value: 'quickstart' as const,
-                                    label: 'Quickstart',
-                                    'data-attr': 'configure-home-modal-set-quickstart',
-                                    tooltip: 'A getting-started hub with setup status and all products',
-                                },
+                                ...(quickstartEnabled
+                                    ? [
+                                          {
+                                              value: 'quickstart' as const,
+                                              label: 'Quickstart',
+                                              'data-attr': 'configure-home-modal-set-quickstart',
+                                              tooltip: 'A getting-started hub with setup status and all tools',
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     value: 'search' as const,
                                     label: 'Search',

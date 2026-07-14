@@ -603,9 +603,16 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to the quickstart page', () => {
+        it('experiments falls through to home, or quickstart when the flag is on', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
+            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
+                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: true,
+            })
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
+
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         })
 
         it('redirect override takes precedence over the per-product URL', () => {

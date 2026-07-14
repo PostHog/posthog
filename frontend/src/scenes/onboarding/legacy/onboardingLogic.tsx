@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
@@ -426,17 +426,22 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.featureFlags],
+            (
+                productKey: ProductKey | null,
+                onCompleteOnboardingRedirectUrlOverride: string | null,
+                featureFlags: Record<string, string | boolean | undefined>
+            ): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
                 // Without a product-specific destination, land on Quickstart rather than the
                 // AI home: fresh teams have no events yet, so the home input is a dead end.
+                const fallbackUrl = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] ? urls.quickstart() : urls.default()
                 if (!productKey) {
-                    return urls.quickstart()
+                    return fallbackUrl
                 }
-                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.quickstart()
+                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? fallbackUrl
             },
         ],
     }),
@@ -623,7 +628,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             try {
                 await teamLogic.asyncActions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
                 router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.quickstart()
+                    getRelativeNextPath(router.values.searchParams['next'], window.location) ??
+                        (values.featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] ? urls.quickstart() : urls.default())
                 )
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
