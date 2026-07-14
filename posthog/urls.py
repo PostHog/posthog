@@ -141,7 +141,7 @@ def _dispatch_installation_event(
 
 
 def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
-    from products.tasks.backend.loop_github_events import handle_github_event_for_loops
+    from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
 
     handle_github_event_for_loops(event_type, payload, delivery_id)
     return None

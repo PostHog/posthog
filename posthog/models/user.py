@@ -659,7 +659,7 @@ def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwar
     if not was_active:
         return
 
-    from products.tasks.backend.loop_lifecycle import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
+    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
         pause_loops_for_deactivated_user,
     )
 

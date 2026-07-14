@@ -70,66 +70,11 @@ def _pause_loops_referencing_integrations(integrations: list[Integration], insta
         return
 
     try:
-        from django.db.models import (
-            Q,  # noqa: PLC0415 (keeps the loops/Temporal dependency off this module's import path)
+        from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps the loops/Temporal dependency off this module's import path)
+            pause_loops_referencing_integrations,
         )
-
-        from products.tasks.backend.loop_notifications import dispatch_loop_event
-        from products.tasks.backend.loop_service import pause_loop_schedules
-        from products.tasks.backend.models import Loop, LoopTrigger
     except Exception:
         logger.exception("github_installation_webhook_loop_import_failed", installation_id=installation_id)
         return
 
-    for integration in integrations:
-        try:
-            triggered_loop_ids = set(
-                LoopTrigger.objects.for_team(integration.team_id)
-                .filter(
-                    Q(config__github_integration_id=integration.id)
-                    | Q(config__github_integration_id=str(integration.id))
-                )
-                .values_list("loop_id", flat=True)
-            )
-            references_integration = Q(repositories__contains=[{"github_integration_id": integration.id}]) | Q(
-                repositories__contains=[{"github_integration_id": str(integration.id)}]
-            )
-            loops = list(
-                Loop.objects.for_team(integration.team_id)
-                .filter(enabled=True, deleted=False)
-                .filter(references_integration | Q(id__in=triggered_loop_ids))
-            )
-        except Exception:
-            logger.exception(
-                "github_installation_webhook_loop_lookup_failed",
-                installation_id=installation_id,
-                integration_id=integration.id,
-            )
-            continue
-
-        for loop in loops:
-            try:
-                loop.enabled = False
-                loop.save(update_fields=["enabled", "updated_at"])
-                pause_loop_schedules(loop)
-                dispatch_loop_event(
-                    loop,
-                    "needs_attention",
-                    {
-                        "reason": "github_integration_disconnected",
-                        "installation_id": installation_id,
-                        "body": (
-                            f'The GitHub integration "{integration.display_name}" was disconnected '
-                            "and this loop has been paused."
-                        ),
-                    },
-                )
-                logger.info(
-                    "github_installation_webhook_loop_paused", loop_id=str(loop.id), installation_id=installation_id
-                )
-            except Exception:
-                logger.exception(
-                    "github_installation_webhook_loop_pause_failed",
-                    loop_id=str(loop.id),
-                    installation_id=installation_id,
-                )
+    pause_loops_referencing_integrations(integrations, installation_id)

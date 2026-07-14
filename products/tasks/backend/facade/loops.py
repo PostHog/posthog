@@ -39,6 +39,7 @@ from posthog.models.organization import OrganizationMembership
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.logic.services import loop_runs
+from products.tasks.backend.loop_lifecycle import pause_loops_for_deactivated_user, pause_loops_referencing_integrations
 from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, TaskRun
 
 # --- Enum re-exports ---
@@ -718,6 +719,8 @@ __all__ = [
     "github_integration_ids_for_team",
     "list_loop_runs",
     "list_loops",
+    "pause_loops_for_deactivated_user",
+    "pause_loops_referencing_integrations",
     "preview_loop",
     "sandbox_environment_queryset",
     "soft_delete_loop",

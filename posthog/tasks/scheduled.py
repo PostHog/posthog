@@ -102,8 +102,10 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
-from products.tasks.backend.facade.tasks import refresh_stale_sandbox_custom_images_task
-from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
+from products.tasks.backend.facade.tasks import (
+    refresh_stale_sandbox_custom_images_task,
+    sweep_loop_task_retention_task,
+)
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
