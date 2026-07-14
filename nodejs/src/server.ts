@@ -107,18 +107,23 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
-            capabilities.cdpRerunWorker ||
-            // The janitor records poison-pill give-ups as failed invocation
-            // results, so it needs the CDP producer registry + outputs.
-            capabilities.cdpCyclotronV2Janitor
+            capabilities.cdpRerunWorker
         )
+        // The janitor records poison-pill give-ups as failed invocation results,
+        // so it needs the Kafka producer registry — but NOT createCdpSharedServices
+        // (persons/geoip/integrations), which the minimal janitor deployment isn't
+        // provisioned for (DATABASE_URL=NOT_REQUIRED, personhog off). Gate only the
+        // producer on the janitor capability.
+        const needsCdpProducer = needsCdp || capabilities.cdpCyclotronV2Janitor
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
-        if (needsCdp) {
+        if (needsCdpProducer) {
             this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        }
+        if (needsCdp) {
             cdpServices = await this.createCdpSharedServices()
         }
 
