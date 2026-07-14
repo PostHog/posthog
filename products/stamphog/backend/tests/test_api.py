@@ -61,6 +61,18 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["provider"] == "github"
         assert body["enabled"] is False
 
+    def test_blank_installation_does_not_reserve_repo_across_teams(self) -> None:
+        # A manual placeholder carries a blank installation and proves no ownership, so it must not
+        # globally reserve a repo. Two teams can each hold their own unsynced placeholder for the same
+        # repository; only a real synced installation is exclusive (partial unique constraint).
+        self.client.post(self.url, {"repository": "PostHog/posthog"}, format="json")
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/posthog", installation_id=""
+        )
+        both = StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/posthog", installation_id="")
+        assert both.count() == 2
+
     def test_list_excludes_other_teams_configs(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         self.client.post(self.url, {"repository": "PostHog/posthog", "installation_id": "1"}, format="json")

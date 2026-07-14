@@ -45,8 +45,13 @@ class StamphogRepoConfig(ProductTeamModel):
             # identifies exactly one repo under one team — two teams can't legitimately share it. This
             # backs the perform_create guard at the DB level (closes the check-then-act race) and its
             # unique index doubles as the webhook-resolution index for (provider, installation_id, repository).
+            # Restricted to non-empty installation_id: a manually-created config before it's synced carries
+            # a blank installation and proves no ownership, so blank rows must not globally reserve a repo —
+            # otherwise one team's placeholder blocks every other team from creating the same one.
             models.UniqueConstraint(
-                fields=["provider", "installation_id", "repository"], name="unique_stamphog_installation_repo"
+                fields=["provider", "installation_id", "repository"],
+                name="unique_stamphog_installation_repo",
+                condition=~Q(installation_id=""),
             ),
         ]
 

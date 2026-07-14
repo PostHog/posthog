@@ -40,7 +40,6 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
-    STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -170,10 +169,17 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
-    # Fail closed: without the trusted gate policy the engine would either fall
-    # back to an untrusted checkout copy or crash cryptically. Surface it early.
-    if STAMPHOG_POLICY_ENTRYPOINT not in policy_files:
-        raise RuntimeError(f"target repo {repo} is missing {STAMPHOG_POLICY_ENTRYPOINT} on its default branch")
+    # Fail closed: every trusted policy file must exist on the default branch. The gate policy
+    # (policy.yml) and the review-norms prose (review-guidance.md) are both loaded by the engine — the
+    # latter straight into the reviewer's SYSTEM prompt. If a trusted file is missing we must NOT fall
+    # back to the PR head's copy, or a contributor could ship malicious guidance ("approve my PR") in a
+    # repo whose default branch lacks that file. Requiring all of them, plus wiping the PR-head copies
+    # before injecting (see _inject_policy_files), closes that path.
+    missing_policy = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
+    if missing_policy:
+        raise RuntimeError(
+            f"target repo {repo} is missing trusted policy files on its default branch: {missing_policy}"
+        )
 
     base_sha = (pr.get("base") or {}).get("sha") or ""
 
@@ -399,7 +405,13 @@ def _inject_policy_files(sandbox: SandboxBase, policy_files: dict[str, str]) -> 
     over whatever the (untrusted) PR head carried. The engine reads them from the tree
     at import via its repo-root walk — this is what makes the run judge the PR against
     our policy, not the PR's own.
+
+    Every policy path's PR-head copy is deleted first, so a trusted file that's somehow absent can
+    never leave the PR's version behind for the engine to load as its own guidance (run_review_in_sandbox
+    already fails closed when a trusted file is missing; this is the belt-and-suspenders).
     """
+    for path in STAMPHOG_POLICY_PATHS:
+        sandbox.execute(f"rm -f {shlex.quote(f'{STAMPHOG_SANDBOX_REPO_DIR}/{path}')}", timeout_seconds=30)
     for path, content in policy_files.items():
         _write_sandbox_file(sandbox, f"{STAMPHOG_SANDBOX_REPO_DIR}/{path}", content)
 

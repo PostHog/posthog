@@ -141,6 +141,9 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     runs as production code.
     """
     recorder = fakes.GitHubRecorder()
+    # review-guidance.md is a required trusted policy file — run_review_in_sandbox fails closed without
+    # it — so seed it for the whole chain; individual tests still set/override policy.yml as they need.
+    recorder.policy_files[".stamphog/review-guidance.md"] = "Review PostHog PRs against the repo's norms.\n"
     fake_slack = fakes.FakeSlackIntegration
     fake_slack.reset(channels=[])
     fake_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())

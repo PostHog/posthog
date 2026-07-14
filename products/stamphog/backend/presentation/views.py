@@ -100,7 +100,10 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         already_claimed_error = ValidationError(
             {"repository": "This repository is already configured under this GitHub installation by another team."}
         )
-        already_claimed = (
+        # A blank installation proves no ownership, so a manual placeholder never claims a repo across
+        # teams (the DB constraint is likewise restricted to non-empty installation_id). Only a real,
+        # synced installation can already be owned elsewhere.
+        already_claimed = bool(installation_id) and (
             StamphogRepoConfig.objects.unscoped()
             .filter(provider=provider, installation_id=installation_id, repository=repository)
             .exclude(team_id=self.team_id)

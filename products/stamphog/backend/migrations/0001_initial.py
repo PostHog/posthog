@@ -138,6 +138,7 @@ class Migration(migrations.Migration):
                         name="unique_stamphog_repo_per_team",
                     ),
                     models.UniqueConstraint(
+                        condition=models.Q(("installation_id", ""), _negated=True),
                         fields=("provider", "installation_id", "repository"),
                         name="unique_stamphog_installation_repo",
                     ),
