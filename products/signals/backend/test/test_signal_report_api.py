@@ -22,8 +22,8 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
-from products.signals.backend.temporal.signal_queries import ReportSignalMeta
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun

@@ -24,6 +24,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -65,6 +66,7 @@ export function ReportDetailBadges({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
         </>
     )
 }
@@ -128,6 +130,7 @@ function ReportDetailMeta({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
                     <span key={i} className="flex items-center gap-2 min-w-0">
@@ -304,7 +307,7 @@ export function InboxDetailFrame({
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : undefined,
+        disabledReason: action.loading ? 'Working…' : action.disabledReason,
         onClick: action.onClick,
     }))
 
@@ -415,7 +418,9 @@ export function InboxDetailFrame({
                                     size="small"
                                     icon={action.icon}
                                     loading={action.loading}
-                                    tooltip={action.tooltip}
+                                    // A disabled action explains only why it's unavailable — not what it would do.
+                                    tooltip={action.disabledReason ? undefined : action.tooltip}
+                                    disabledReason={action.disabledReason}
                                     onClick={action.onClick}
                                 >
                                     {action.label}

@@ -59,6 +59,14 @@ class CopyFlagsRequestSerializer(serializers.Serializer):
 class CopyFlagsResultSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(required=False, help_text="Project ID (present on failure)")
     error_message = serializers.CharField(required=False, help_text="Error message (present on failure)")
+    approval_pending = serializers.BooleanField(
+        required=False,
+        help_text="True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved",
+    )
+    change_request_id = serializers.CharField(
+        required=False,
+        help_text="ID of the pending change request created in the target project (present when approval_pending is true)",
+    )
 
 
 class CopyFlagsSuccessItemSerializer(serializers.Serializer):
@@ -67,6 +75,9 @@ class CopyFlagsSuccessItemSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the feature flag")
     active = serializers.BooleanField(help_text="Whether the flag is active")
     team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+    updated_existing = serializers.BooleanField(
+        help_text="True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created"
+    )
     flag_dependency_warnings = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -332,6 +343,26 @@ class OrganizationFeatureFlagView(
                 )
                 continue
 
+            # Being able to see a team isn't the same as being able to write flags into it. Check
+            # editor access against the specific flag when one already exists at this key (an
+            # overwrite), or against the feature_flag resource type in general when this would be a
+            # fresh copy (no object to check access against yet).
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team__project_id=target_project_id).first()
+            target_user_access_control = UserAccessControl(request.user, target_team)
+            target_has_access = (
+                target_user_access_control.check_access_level_for_object(existing_flag, "editor")
+                if existing_flag is not None
+                else target_user_access_control.check_access_level_for_resource("feature_flag", required_level="editor")
+            )
+            if not target_has_access:
+                failed_projects.append(
+                    {
+                        "project_id": target_project_id,
+                        "error_message": "You do not have permission to create or edit feature flags in this project.",
+                    }
+                )
+                continue
+
             # get all linked cohorts, sorted by creation order
             seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
@@ -456,7 +487,6 @@ class OrganizationFeatureFlagView(
                 "is_remote_configuration": flag_to_copy.is_remote_configuration,
                 "has_encrypted_payloads": flag_to_copy.has_encrypted_payloads,
             }
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team__project_id=target_project_id).first()
 
             context = {
                 "request": request,
@@ -500,11 +530,27 @@ class OrganizationFeatureFlagView(
                         schedule_copy_error = str(e)
 
                 result = feature_flag_serializer.data
+                # FeatureFlagSerializer doesn't expose team_id, but callers need to know which
+                # target each success item belongs to, and whether it overwrote an existing flag.
+                result["team_id"] = saved_flag.team_id
+                result["updated_existing"] = existing_flag is not None
                 if schedule_copy_error:
                     result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
                 if flag_dependency_warnings:
                     result["flag_dependency_warnings"] = flag_dependency_warnings
                 successful_projects.append(result)
+            except ApprovalRequired as e:
+                # The target project's approval policy gated this write: the copy hasn't been applied,
+                # but a change request was already created and will apply it once approved. Report it
+                # structurally so callers can distinguish "pending approval" from a hard failure.
+                failed_entry = {
+                    "project_id": target_project_id,
+                    "error_message": e.message,
+                    "approval_pending": True,
+                }
+                if e.change_request is not None:
+                    failed_entry["change_request_id"] = str(e.change_request.id)
+                failed_projects.append(failed_entry)
             except Exception as e:
                 failed_projects.append(
                     {
