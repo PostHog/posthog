@@ -5252,6 +5252,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-control-plane"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-database",
+ "common-metrics",
+ "common-types",
+ "dashmap 6.1.0",
+ "envconfig",
+ "futures",
+ "hdrhistogram",
+ "health",
+ "http-body-util",
+ "k8s-openapi",
+ "kube",
+ "rdkafka",
+ "reqwest 0.12.28",
+ "rustls 0.23.37",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,39 @@
+[package]
+name = "ingestion-control-plane"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+common-database = { path = "../common/database" }
+common-metrics = { path = "../common/metrics" }
+common-types = { path = "../common/types" }
+dashmap = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+hdrhistogram = { workspace = true }
+health = { path = "../common/health" }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client"] }
+rdkafka = { workspace = true }
+reqwest = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+tower = { workspace = true }
+
+[lints]
+workspace = true
