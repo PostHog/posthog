@@ -165,15 +165,15 @@ class CISignalsCoordinatorWorkflow(PostHogWorkflow):
         )
         targets: list[CISignalTarget] = []
         for start in range(0, len(team_ids), TEAM_ACTIVITY_BATCH_SIZE):
-            batch = team_ids[start : start + TEAM_ACTIVITY_BATCH_SIZE]
-            target_groups = await asyncio.gather(*(_execute_discovery_activity(team_id) for team_id in batch))
+            team_id_batch = team_ids[start : start + TEAM_ACTIVITY_BATCH_SIZE]
+            target_groups = await asyncio.gather(*(_execute_discovery_activity(team_id) for team_id in team_id_batch))
             for target_group in target_groups:
                 targets.extend(target_group)
 
         emitted = 0
         for start in range(0, len(targets), TEAM_ACTIVITY_BATCH_SIZE):
-            batch = targets[start : start + TEAM_ACTIVITY_BATCH_SIZE]
-            results = await asyncio.gather(*(_execute_target_activity(target) for target in batch))
+            target_batch = targets[start : start + TEAM_ACTIVITY_BATCH_SIZE]
+            results = await asyncio.gather(*(_execute_target_activity(target) for target in target_batch))
             for result in results:
                 if result is None:
                     continue

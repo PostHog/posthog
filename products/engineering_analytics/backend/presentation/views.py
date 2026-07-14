@@ -12,7 +12,7 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
 
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -23,6 +23,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade import api
@@ -229,7 +230,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         result = api.update_ci_signals_config(
             team=self.team,
             enabled=request.validated_data["enabled"],
-            created_by_id=int(request.user.id),
+            # Must be authenticated to reach this endpoint, so this is a real User, not AnonymousUser.
+            created_by_id=cast(User, request.user).id,
         )
         return Response(CISignalsConfigSerializer(instance=result).data)
 
