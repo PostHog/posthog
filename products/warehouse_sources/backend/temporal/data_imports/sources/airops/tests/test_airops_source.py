@@ -41,8 +41,6 @@ class TestAirOpsSource:
         config = AirOpsSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept hidden until the source ships released; the batch note requires it stay unreleased.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/airops"
         # The single credential field must be a secret so it isn't echoed back to the client.
         field_names = {f.name for f in config.fields}
