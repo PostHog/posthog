@@ -23,7 +23,7 @@ import datetime as dt
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from typing import IO
+from typing import IO, cast
 
 from django.conf import settings
 
@@ -397,7 +397,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     # NOT delete it on generic error: that would destroy an object an earlier
                     # successful run's still-live status/presigned URL points at.
                     relay = _ArrowTailReader(response.raw)
-                    object_bytes = frame_store.write_stream(key, relay)
+                    # boto3's upload_fileobj duck-types read(); the relay is not a full IO[bytes].
+                    object_bytes = frame_store.write_stream(key, cast("IO[bytes]", relay))
                     relay_seconds = time.perf_counter() - headers_received
                     if relay.tail != _ARROW_STREAM_EOS_MARKER:
                         # ClickHouse failed mid-stream but closed the body cleanly (or an

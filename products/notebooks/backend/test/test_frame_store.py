@@ -1,5 +1,6 @@
 import io
 import urllib.request
+from typing import IO, cast
 
 from posthog.test.base import APIBaseTest
 
@@ -82,5 +83,5 @@ class TestFrameStoreObjects(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True):
             with self.assertRaises(ObjectStorageError):
-                frame_store.write_stream(self.KEY, _TornStream())
+                frame_store.write_stream(self.KEY, cast("IO[bytes]", _TornStream()))
             self.assertIsNone(object_storage.head_object(self.KEY))
