@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.logic.services import sandbox as sandbox_module
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -70,6 +71,22 @@ class TestSandboxProviderGuard:
                 get_sandbox_class()
         else:
             assert get_sandbox_class() is DockerSandbox
+
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_sandbox_symbol_access_defers_provider_guard(self, mock_settings):
+        # `Sandbox` is a lazy proxy: holding the symbol must not resolve the class. The sandbox
+        # package is reachable from posthog/urls.py, so eager resolution would trip the dev-only
+        # guard during URL loading and crash every management command whenever a leaked
+        # SANDBOX_PROVIDER=MODAL_DOCKER reaches a non-DEBUG/TEST env.
+        mock_settings.SANDBOX_PROVIDER = "MODAL_DOCKER"
+        mock_settings.DEBUG = False
+        mock_settings.TEST = False
+
+        proxy = sandbox_module.Sandbox  # binding the symbol must not run the guard
+
+        # The guard still fires on genuine use — laziness deferred it, didn't remove it.
+        with pytest.raises(RuntimeError, match="for local development only"):
+            _ = proxy.get_by_id
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
