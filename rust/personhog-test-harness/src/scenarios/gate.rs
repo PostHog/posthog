@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{env, fmt};
 
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::cli::GateArgs;
-use crate::client::CannonClient;
+use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::scenarios::blast;
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
-use crate::state::{ExpectedPerson, PersonState};
+use crate::state::{verify_properties, ExpectedPerson, PersonState};
 use crate::stats::StatsCollector;
 
 /// How long to wait for the writer to drain acked writes into Postgres
@@ -33,8 +34,8 @@ enum ChaosEvent {
     RouterKill,
 }
 
-impl std::fmt::Display for ChaosEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ChaosEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ChaosEvent::Kill { fast: true } => write!(f, "kill (fast lease revoke)"),
             ChaosEvent::Kill { fast: false } => write!(f, "kill (lease TTL expiry)"),
@@ -111,7 +112,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
         None => {
             let bin_dir = match &args.bin_dir {
                 Some(dir) => dir.clone(),
-                None => std::env::current_exe()
+                None => env::current_exe()
                     .context("resolving current executable")?
                     .parent()
                     .context("executable has no parent directory")?
@@ -140,7 +141,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
         (None, Some(stack)) => stack.router_url.clone(),
         (None, None) => unreachable!(),
     };
-    let client = CannonClient::connect(&router_url).await?;
+    let client = HarnessClient::connect(&router_url).await?;
 
     let pool = PgPool::connect(&args.persons_db_url)
         .await
@@ -176,7 +177,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 person_ids,
                 duration,
                 concurrency,
-                "cannon_gate_",
+                "harness_gate_",
                 &collector,
                 &state,
             )
@@ -343,7 +344,7 @@ async fn verify_postgres(
         for (person_id, expected) in journal {
             match by_id.get(person_id) {
                 Some((props, version)) => {
-                    violations.extend(crate::state::verify_properties(
+                    violations.extend(verify_properties(
                         *person_id,
                         &expected.written_properties,
                         props,

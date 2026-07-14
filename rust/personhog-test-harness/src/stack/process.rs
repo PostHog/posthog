@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command as StdCommand, Stdio};
 use std::time::Duration;
+use std::{env, fs};
 
 use anyhow::{Context, Result};
 use tokio::process::{Child, Command};
@@ -17,7 +18,7 @@ struct ServiceSpec {
 impl ServiceSpec {
     fn spawn(&self) -> Result<Child> {
         // Append so a respawned service continues its predecessor's log.
-        let log_file = std::fs::File::options()
+        let log_file = fs::File::options()
             .create(true)
             .append(true)
             .open(&self.log_path)
@@ -29,7 +30,7 @@ impl ServiceSpec {
             .env_clear()
             // PATH and HOME survive so the binaries can resolve tools and
             // dotfiles (librdkafka, DNS, etc.) the way they do in dev.
-            .envs(std::env::vars().filter(|(k, _)| k == "PATH" || k == "HOME"))
+            .envs(env::vars().filter(|(k, _)| k == "PATH" || k == "HOME"))
             .env("RUST_BACKTRACE", "1")
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log_file))
@@ -110,7 +111,7 @@ impl ServiceProcess {
         };
         // tokio's Child only exposes SIGKILL; other signals go through
         // kill(1) to avoid pulling in a signals dependency.
-        if let Err(e) = std::process::Command::new("kill")
+        if let Err(e) = StdCommand::new("kill")
             .args([signal, &pid.to_string()])
             .status()
         {
@@ -168,7 +169,7 @@ impl ServiceProcess {
 
     /// Return the last `lines` lines of the service's log, for error reports.
     pub fn log_tail(&self, lines: usize) -> String {
-        let Ok(content) = std::fs::read_to_string(&self.spec.log_path) else {
+        let Ok(content) = fs::read_to_string(&self.spec.log_path) else {
             return String::new();
         };
         let all: Vec<&str> = content.lines().collect();

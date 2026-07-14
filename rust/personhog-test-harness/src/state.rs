@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -25,7 +26,7 @@ struct Journal {
 }
 
 pub struct ExpectedPerson {
-    /// Only tracks keys the cannon wrote — other properties are ignored
+    /// Only tracks keys the harness wrote — other properties are ignored
     /// during verification.
     pub written_properties: HashMap<String, serde_json::Value>,
     /// Highest version the leader acked for this person.
@@ -75,7 +76,7 @@ impl PersonState {
 
     /// Ack-version regressions observed while journaling.
     pub async fn take_regressions(&self) -> Vec<ConsistencyViolation> {
-        std::mem::take(&mut self.inner.write().await.regressions)
+        mem::take(&mut self.inner.write().await.regressions)
     }
 
     /// Verify a strong read against the journal: every acked property must
@@ -111,7 +112,7 @@ impl PersonState {
     /// Drain the journal into a plain map for offline (Postgres) verification.
     pub async fn snapshot(&self) -> HashMap<i64, ExpectedPerson> {
         let mut journal = self.inner.write().await;
-        std::mem::take(&mut journal.persons)
+        mem::take(&mut journal.persons)
     }
 }
 

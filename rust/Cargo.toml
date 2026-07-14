@@ -49,7 +49,6 @@ members = [
   "kafka-assigner-proto",
   "ingestion-consumer",
   "kafka-deduplicator",
-  "personhog-cannon",
   "personhog-common",
   "personhog-coordination",
   "personhog-leader",
@@ -58,6 +57,7 @@ members = [
   "personhog-replica",
   "personhog-router",
   "personhog-stateright",
+  "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
 ]

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -25,7 +26,7 @@ const ROUTER_METRICS_BASE_PORT: u16 = 51154;
 const LEADER_METRICS_BASE_PORT: u16 = 51160;
 const MAX_ROUTERS: u32 = 4;
 
-const ETCD_PREFIX: &str = "/personhog-cannon/";
+const ETCD_PREFIX: &str = "/personhog-test-harness/";
 const READY_DEADLINE: Duration = Duration::from_secs(90);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
@@ -79,9 +80,9 @@ impl Stack {
         }
 
         let run_id = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-        let topic = format!("personhog_cannon_{run_id}");
-        let log_dir = config.bin_dir.join("cannon-logs").join(&run_id);
-        std::fs::create_dir_all(&log_dir)
+        let topic = format!("personhog_test_harness_{run_id}");
+        let log_dir = config.bin_dir.join("harness-logs").join(&run_id);
+        fs::create_dir_all(&log_dir)
             .with_context(|| format!("creating log dir {}", log_dir.display()))?;
 
         let binaries = [
@@ -136,7 +137,7 @@ impl Stack {
                 ("KAFKA_TOPIC", topic.clone()),
                 (
                     "KAFKA_CONSUMER_GROUP",
-                    "personhog-cannon-writer".to_string(),
+                    "personhog-test-harness-writer".to_string(),
                 ),
                 ("PG_TARGET_TABLE", config.pg_target_table.clone()),
                 (
@@ -150,7 +151,7 @@ impl Stack {
 
         let mut routers = Vec::new();
         for i in 0..config.routers {
-            let name = format!("cannon-router-{i}");
+            let name = format!("harness-router-{i}");
             let proc = ServiceProcess::spawn(
                 &name,
                 &config.bin_dir.join("personhog-router"),
@@ -441,7 +442,7 @@ impl Stack {
     }
 
     async fn wait_ready(&mut self, partitions: u32, leaders: u32) -> Result<()> {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let mut last_report = String::new();
 
         loop {
@@ -533,7 +534,7 @@ impl Stack {
 }
 
 async fn wait_tcp(addr: &str, deadline: Duration) -> Result<()> {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     loop {
         if tokio::net::TcpStream::connect(addr).await.is_ok() {
             return Ok(());

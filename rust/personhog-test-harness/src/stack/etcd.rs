@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_coordination::store::PersonhogStore;
 
@@ -57,7 +57,7 @@ async fn revoke_registration_lease(store: &PersonhogStore, key_suffix: &str) -> 
 
     let lease_id = kv.lease();
     if lease_id == 0 {
-        anyhow::bail!("{key} has no lease attached");
+        bail!("{key} has no lease attached");
     }
 
     store

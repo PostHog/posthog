@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 
 /// Seed `count` persons for `team_id` directly in Postgres and return their
@@ -67,7 +67,7 @@ pub async fn cleanup_target_table(pool: &PgPool, table: &str, team_id: i64) -> R
 
 pub fn validate_table_name(table: &str) -> Result<()> {
     if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        anyhow::bail!("invalid table name: {table}");
+        bail!("invalid table name: {table}");
     }
     Ok(())
 }

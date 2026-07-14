@@ -6,12 +6,12 @@ use anyhow::{bail, Result};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 
 use crate::cli::ConsistencyArgs;
-use crate::client::CannonClient;
+use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::stats::StatsCollector;
 
 pub async fn run(args: ConsistencyArgs) -> Result<()> {
-    let client = CannonClient::connect(&args.router_url).await?;
+    let client = HarnessClient::connect(&args.router_url).await?;
     let person_ids = Arc::new(args.person_ids.clone());
 
     println!(
@@ -40,7 +40,7 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
             for i in 0..iterations {
                 let person_id = person_ids[(worker_id + i as usize) % person_ids.len()];
                 let marker = uuid::Uuid::new_v4().to_string();
-                let key = format!("cannon_consistency_{marker}");
+                let key = format!("harness_consistency_{marker}");
 
                 let write_start = Instant::now();
                 let write_result = client

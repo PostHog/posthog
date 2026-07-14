@@ -541,20 +541,20 @@ jobs:
                   sqlx migrate run --source persons_migrations/
 
             - name: Build the personhog stack and harness
-              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-cannon
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
 
             - name: Run the e2e gate
               env:
                   RUST_BACKTRACE: 1
               run: |
-                  ./target/debug/personhog-cannon gate \
+                  ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
 
             - name: Run the e2e gate under chaos
               env:
                   RUST_BACKTRACE: 1
               run: |
-                  ./target/debug/personhog-cannon gate \
+                  ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 15s \
                     --kill-after 5s --scale-up-after 8s
 
@@ -569,8 +569,8 @@ jobs:
               if: failure()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: personhog-cannon-logs
-                  path: rust/target/debug/cannon-logs/
+                  name: personhog-test-harness-logs
+                  path: rust/target/debug/harness-logs/
                   if-no-files-found: ignore
 
     linting:

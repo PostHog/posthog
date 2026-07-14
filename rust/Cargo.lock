@@ -7399,30 +7399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "personhog-cannon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assignment-coordination",
- "chrono",
- "clap",
- "futures",
- "hdrhistogram",
- "humantime",
- "personhog-coordination",
- "personhog-proto",
- "rand 0.8.5",
- "rdkafka",
- "serde_json",
- "sqlx",
- "tokio",
- "tonic 0.12.3",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
@@ -7583,6 +7559,30 @@ dependencies = [
  "clap",
  "personhog-coordination",
  "stateright",
+]
+
+[[package]]
+name = "personhog-test-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assignment-coordination",
+ "chrono",
+ "clap",
+ "futures",
+ "hdrhistogram",
+ "humantime",
+ "personhog-coordination",
+ "personhog-proto",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

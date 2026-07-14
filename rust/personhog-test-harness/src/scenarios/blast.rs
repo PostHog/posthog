@@ -7,13 +7,13 @@ use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 
 use crate::cli::BlastArgs;
-use crate::client::CannonClient;
+use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
 
 pub async fn run(args: BlastArgs) -> Result<()> {
-    let client = CannonClient::connect(&args.router_url).await?;
+    let client = HarnessClient::connect(&args.router_url).await?;
     let person_ids = Arc::new(args.person_ids.clone());
 
     println!(
@@ -61,7 +61,7 @@ pub async fn run(args: BlastArgs) -> Result<()> {
 /// duration elapses, journaling every acked write into `state`.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_traffic(
-    client: &CannonClient,
+    client: &HarnessClient,
     team_id: i64,
     person_ids: Arc<Vec<i64>>,
     duration: Duration,
@@ -126,7 +126,7 @@ pub async fn run_traffic(
 /// person is gone, and a read error (retried once, since verification can
 /// race a settling handoff) means visibility cannot be asserted at all.
 pub async fn verify_strong(
-    client: &CannonClient,
+    client: &HarnessClient,
     collector: &StatsCollector,
     state: &PersonState,
     team_id: i64,

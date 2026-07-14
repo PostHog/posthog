@@ -36,7 +36,7 @@ pub fn print_report(
     let elapsed = write_snap.elapsed.max(read_snap.elapsed);
 
     println!();
-    println!("=== personhog-cannon {title} results ===");
+    println!("=== personhog-test-harness {title} results ===");
     println!(
         "  Duration: {:.2}s | Team: {} | Persons: {}",
         elapsed.as_secs_f64(),

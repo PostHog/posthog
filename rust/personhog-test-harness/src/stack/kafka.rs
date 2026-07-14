@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
+use rdkafka::types::RDKafkaErrorCode;
 
 fn admin_client(kafka_hosts: &str) -> Result<AdminClient<DefaultClientContext>> {
     ClientConfig::new()
@@ -29,7 +30,7 @@ pub async fn create_topic(kafka_hosts: &str, topic: &str, partitions: u32) -> Re
     for result in results {
         match result {
             Ok(_) => {}
-            Err((name, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {
+            Err((name, RDKafkaErrorCode::TopicAlreadyExists)) => {
                 bail!(
                     "topic {name} already exists — a previous run may not have torn down; \
                      delete it or pass a different --topic"
@@ -54,7 +55,7 @@ pub async fn delete_topic(kafka_hosts: &str, topic: &str) -> Result<()> {
 
     for result in results {
         match result {
-            Ok(_) | Err((_, rdkafka::types::RDKafkaErrorCode::UnknownTopicOrPartition)) => {}
+            Ok(_) | Err((_, RDKafkaErrorCode::UnknownTopicOrPartition)) => {}
             Err((name, code)) => bail!("failed to delete topic {name}: {code}"),
         }
     }

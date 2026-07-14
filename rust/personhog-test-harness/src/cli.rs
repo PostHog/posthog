@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
@@ -10,7 +11,7 @@ pub const DEV_STACK_ROUTER_URL: &str = "http://127.0.0.1:50054";
 
 #[derive(Parser)]
 #[command(
-    name = "personhog-cannon",
+    name = "personhog-test-harness",
     about = "Load, consistency, and e2e correctness harness for the personhog leader path"
 )]
 pub struct Cli {
@@ -73,7 +74,7 @@ pub struct BlastArgs {
     pub duration: Duration,
 
     /// Prefix for generated property keys.
-    #[arg(long, default_value = "cannon_")]
+    #[arg(long, default_value = "harness_")]
     pub property_prefix: String,
 
     /// Read back each person with STRONG consistency after the blast and
@@ -234,5 +235,5 @@ pub struct GateArgs {
     /// Directory to build service binaries from / find them in. Defaults to
     /// the directory containing this binary (the cargo target dir).
     #[arg(long)]
-    pub bin_dir: Option<std::path::PathBuf>,
+    pub bin_dir: Option<PathBuf>,
 }

@@ -20,11 +20,11 @@ const PERSON_ID_HEADER: &str = "x-person-id";
 const READ_CONSISTENCY_HEADER: &str = "x-read-consistency";
 
 #[derive(Clone)]
-pub struct CannonClient {
+pub struct HarnessClient {
     inner: PersonHogServiceClient<Channel>,
 }
 
-impl CannonClient {
+impl HarnessClient {
     pub async fn connect(url: &str) -> Result<Self> {
         let channel = Channel::from_shared(url.to_string())
             .context("invalid router URL")?
