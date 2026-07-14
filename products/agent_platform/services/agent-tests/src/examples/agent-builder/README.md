@@ -11,9 +11,9 @@ all acting under the user's PostHog OAuth principal.
 current platform. The pieces this bundle leans on have shipped:
 `kind: "client"` tool support is in the spec schema (and exercised by
 the `focus_*` / `set_secret` entries), the runner opens the clients
-declared in `spec.mcps`, and the `@posthog/agent-applications-*`
-authoring surface is a set of native in-process tools resolved through
-the registry.
+declared in `spec.mcps`, and the `agent-applications-*` authoring
+surface is reached through the one declared PostHog MCP, authed by
+the `posthog` identity provider as the asking user.
 
 ## What it does
 
@@ -43,8 +43,8 @@ the user to review and promote themselves. `auditing-the-fleet` is a
 kernel skill, injected at freeze — see
 [`backend/kernel_skills/auditing-the-fleet/SKILL.md`](../../../../../backend/kernel_skills/auditing-the-fleet/SKILL.md).
 
-For each mode, the Agent Builder calls the same `agent-applications-*`
-native tools that the authoring AI uses,
+For each mode, the Agent Builder calls the `agent-applications-*`
+tools on the PostHog MCP,
 acting under the connected user's principal so every write shows
 up in the activity log as **the user**, not as the Agent Builder.
 
@@ -79,12 +79,12 @@ agent-builder/
 
 ## Tool surface
 
-| Class              | Tool                                                                                                                     | Class semantics                                                                                                                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation.                                     |
-| Native (telemetry) | `@posthog/query`                                                                                                         | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence — see `querying-ai-observability`. |
-| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`                                                | Durable output of a fleet audit — persist the report to memory.                                                                                                                                          |
-| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive PostHog Code's read panel + read the user's current view. No-op outside PostHog Code.                                                                                                              |
+| Class            | Tool                                                                                                                                    | Class semantics                                                                                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP (authoring)  | `agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)                                   | The bulk of its work — read + write agent state as the connected user, via the one `spec.mcps` entry (PostHog MCP, `posthog` identity provider). Curated `tools[]` allow-list; `promote` / `archive` / `destroy` are approval-gated. |
+| MCP (telemetry)  | `execute-sql`, `insight-query`, `get-llm-total-costs-for-project`                                                                       | HogQL / insights over the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence.                                               |
+| Native (runtime) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/web-search`                                        | The agent's own runtime tools — durable memory (persist a fleet-audit report) and web search.                                                                                                                                        |
+| Client           | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret`, `connect_mcp` | Drive PostHog Code's read panel + read the user's current view. No-op outside PostHog Code.                                                                                                                                          |
 
 ## Auth model
 
@@ -111,15 +111,15 @@ These are platform-side, not bundle-side — and they're in place:
    accepts `kind: "client"`; the bundle's `focus_*`, `toast`, and
    `set_secret` entries parse and validate.
 2. **Runtime MCP support** — the runner opens the clients declared in
-   `spec.mcps` at session start. (The Agent Builder declares none —
-   `spec.mcps` is empty — because its authoring surface is native, not
-   a remote MCP server.)
+   `spec.mcps` at session start. (The Agent Builder declares exactly
+   one — the PostHog MCP, authed by the `posthog` identity provider —
+   which carries its whole authoring surface.)
 3. **OAuth principal threading** — the session principal threads
    through every tool call, so writes attribute to the user.
-4. **The native authoring tools** — `@posthog/agent-applications-*`
-   are native in-process tools resolved through the tool registry
-   (not a separate MCP server), including the draft-edit + validate
-   verbs the Agent Builder uses.
+4. **The MCP authoring tools** — the `agent-applications-*` verbs
+   (including draft-edit + validate) are served by the PostHog MCP,
+   scoped by the entry's curated `tools[]` allow-list, with the
+   destructive verbs approval-gated.
 
 ## Deploying
 

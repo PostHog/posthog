@@ -36,11 +36,16 @@ concurrency:
     group: cd-agent-builder-seed
     cancel-in-progress: false
 
+permissions:
+    contents: read
+
 jobs:
     seed:
         name: Seed agent-builder to US prod
-        # Production mutation runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
+        # Production mutation runs only from the canonical deploy repo
+        # (CD_DEPLOY_ENABLED) and only from master — workflow_dispatch can target
+        # any ref, and an unmerged branch must never run with the prod PAT.
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         runs-on: ubuntu-latest
         timeout-minutes: 15
         env:
