@@ -34,6 +34,11 @@ class TestSourceConfig:
         # docsUrl filename must match the posthog.com doc (fly-io).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/fly-io"
 
+    def test_org_slug_requires_credential_reentry(self) -> None:
+        # Changing which org the token points at must re-require the token, so a preserved token
+        # can't be retargeted at another org it happens to reach.
+        assert FlyIoSource().connection_host_fields == ["organization_slug"]
+
     def test_config_fields(self) -> None:
         fields = {f.name: f for f in FlyIoSource().get_source_config.fields}
         assert set(fields) == {"api_token", "organization_slug"}

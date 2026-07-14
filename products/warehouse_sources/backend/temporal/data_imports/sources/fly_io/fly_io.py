@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -37,7 +37,9 @@ def _build_url(config: FlyIoEndpointConfig, org_slug: str, params: dict[str, Any
     """Build the request URL for an endpoint. Org-scoped endpoints carry the org in the path;
     the apps endpoint takes it as a required query param instead."""
     if "{org_slug}" in config.path:
-        path = config.path.format(org_slug=org_slug)
+        # Encode the slug so a reserved character (e.g. `/`) can't retarget the request to a
+        # different API path than the one credential validation checked.
+        path = config.path.format(org_slug=quote(org_slug, safe=""))
         query = dict(params)
     else:
         path = config.path
@@ -77,9 +79,12 @@ def _fetch_page(
         response.raise_for_status()
 
     data = response.json()
-    # Every list endpoint we sync wraps its rows in an object ({"apps": [...]} etc.); a bare list
-    # or scalar would be an unexpected shape, so normalize to an empty object rather than crash.
-    return data if isinstance(data, dict) else {}
+    # Every list endpoint we sync wraps its rows in an object ({"apps": [...]} etc.). A bare list
+    # or scalar is an unexpected shape: fail loudly rather than silently syncing zero rows, which
+    # would look like a successful-but-empty sync if Fly.io ever changed the wrapper.
+    if not isinstance(data, dict):
+        raise ValueError(f"Fly.io API returned an unexpected response shape: {type(data).__name__}")
+    return data
 
 
 def validate_credentials(api_token: str, org_slug: str) -> tuple[bool, str | None]:

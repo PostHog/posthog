@@ -37,6 +37,13 @@ class FlyIoSource(SimpleSource[FlyIoSourceConfig]):
         return ExternalDataSourceType.FLYIO
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored token is scoped to an org, but the slug decides which org's apps/machines/volumes
+        # get synced. Changing it must re-require the token so an editor can't retarget the preserved
+        # token at another org it happens to reach.
+        return ["organization_slug"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FLY_IO,

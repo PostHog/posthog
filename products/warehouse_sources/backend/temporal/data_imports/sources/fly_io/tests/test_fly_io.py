@@ -35,6 +35,12 @@ class TestBuildUrl:
         url = _build_url(FLY_IO_ENDPOINTS["apps"], "acme", {})
         assert url == "https://api.machines.dev/v1/apps?org_slug=acme"
 
+    def test_reserved_char_in_slug_is_encoded_in_path(self) -> None:
+        # A slug carrying a path-reserved char must be percent-encoded, otherwise it could retarget
+        # the request to a different API path than the one credential validation checked.
+        url = _build_url(FLY_IO_ENDPOINTS["machines"], "ac/me", {"limit": 1000})
+        assert url == "https://api.machines.dev/v1/orgs/ac%2Fme/machines?limit=1000"
+
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -96,13 +102,25 @@ class TestFetchPageRetries:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
 
         with pytest.raises(requests.HTTPError):
             fly_io._fetch_page(session, "https://api.machines.dev/v1/orgs/a/machines", {}, MagicMock())
         assert session.get.call_count == 1
+
+    def test_unexpected_response_shape_raises(self) -> None:
+        # A bare list where an object wrapper is expected must fail loudly, not silently sync zero rows.
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.json.return_value = [{"id": "x"}]
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(ValueError):
+            fly_io._fetch_page(session, "https://api.machines.dev/v1/apps", {}, MagicMock())
 
 
 class TestGetRows:
@@ -145,7 +163,7 @@ class TestGetRows:
         assert [r["id"] for r in rows] == ["m1", "m2"]
 
     def test_empty_response_yields_no_rows(self) -> None:
-        pages = {
+        pages: dict[str, dict[str, Any]] = {
             "https://api.machines.dev/v1/orgs/acme/volumes?limit=1000": {"volumes": [], "next_cursor": None},
         }
         assert self._collect("volumes", pages) == []
