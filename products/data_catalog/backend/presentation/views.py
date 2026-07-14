@@ -306,18 +306,23 @@ class RelationshipProposalViewSet(
     @action(
         detail=True,
         methods=["POST"],
-        required_scopes=["data_catalog_approval:write", "query:read"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read", "query:read"],
         throttle_classes=[HogQLQueryThrottle],
         request=None,
         responses={200: RelationshipProposalSerializer},
     )
     def accept(self, request: Request, **kwargs) -> Response:
         """Promote the proposal to a real warehouse join after re-validating and probing it."""
+        # required_scopes gates tokens on query:read, but session users carry no scopes and
+        # AccessControlPermission only checks the data_catalog resource. Enforce query RBAC
+        # explicitly so a member with query access denied can't run the acceptance probe.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to accept a relationship proposal.")
         proposal = api.accept_proposal(self.get_object(), cast(User, request.user))
         return Response(self.get_serializer(proposal).data)
 
     @extend_schema(request=RelationshipRejectSerializer, responses={200: RelationshipProposalSerializer})
-    @action(detail=True, methods=["POST"], required_scopes=["data_catalog_approval:write"])
+    @action(detail=True, methods=["POST"], required_scopes=["data_catalog_approval:write", "data_catalog:read"])
     def reject(self, request: Request, **kwargs) -> Response:
         """Reject the proposal. Persists forever so the pair is never re-proposed."""
         body = RelationshipRejectSerializer(data=request.data)
