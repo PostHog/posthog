@@ -33,7 +33,7 @@ from __future__ import annotations
 import time
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
@@ -91,6 +91,9 @@ class Command(BaseCommand):
         **options,
     ):
         logger.setLevel(logging.INFO)
+
+        if batch_size < 1:
+            raise CommandError(f"--batch-size must be a positive integer, got {batch_size}.")
 
         mode = "LIVE" if live_run else "DRY-RUN (use --live-run to apply)"
         candidate_ids = self._candidate_team_ids(

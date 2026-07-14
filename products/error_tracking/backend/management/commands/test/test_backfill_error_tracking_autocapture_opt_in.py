@@ -1,5 +1,9 @@
 from posthog.test.base import BaseTest
 
+from django.core.management.base import CommandError
+
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from products.error_tracking.backend.management.commands.backfill_error_tracking_autocapture_opt_in import Command
@@ -43,6 +47,17 @@ class TestBackfillErrorTrackingAutocaptureOptIn(BaseTest):
         team = self._historical_opted_in_team()
 
         self._run(live_run=False)
+
+        assert not ErrorTrackingSettings.objects.filter(team=team).exists()
+
+    @parameterized.expand([("zero", 0), ("negative", -5)])
+    def test_invalid_batch_size_fails_fast(self, _name: str, batch_size: int):
+        # A non-positive batch size would crash range() or silently sync nothing; the manual pre-cutover
+        # step must reject it with a clear error rather than reporting no synced rows.
+        team = self._historical_opted_in_team()
+
+        with self.assertRaises(CommandError):
+            self._run(live_run=True, batch_size=batch_size)
 
         assert not ErrorTrackingSettings.objects.filter(team=team).exists()
 
