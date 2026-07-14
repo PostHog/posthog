@@ -1,5 +1,5 @@
-import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { memo } from 'react'
 
 import { IconArchive } from '@posthog/icons'
@@ -37,23 +37,27 @@ export const TaskListItem = memo(function TaskListItem({
     isActive: boolean
 }): JSX.Element {
     const { deleteTask } = useActions(tasksLogic)
+    const { taskDetailQueryParams } = useValues(tasksLogic)
 
     const displayTitle = task.title || task.slug
     // "Started" reflects when the latest run began; fall back to creation for never-run tasks.
     const startedAt = task.latest_run?.created_at ?? task.created_at
+    // Carry any active detail opt-in (e.g. staff ph_debug) onto the link so it survives cmd/ctrl-click
+    // (native new-tab) as well as the SPA push below.
+    const detailUrl = combineUrl(urls.taskDetail(task.id), taskDetailQueryParams).url
 
     return (
         <LinkListItem.Root>
             <LinkListItem.Group>
                 <Link
-                    to={urls.taskDetail(task.id)}
+                    to={detailUrl}
                     onClick={(e) => {
                         // Let cmd/ctrl/middle-click open a new tab natively.
                         if (e.metaKey || e.ctrlKey || e.button === 1) {
                             return
                         }
                         e.preventDefault()
-                        router.actions.push(urls.taskDetail(task.id))
+                        router.actions.push(urls.taskDetail(task.id), taskDetailQueryParams)
                     }}
                     buttonProps={{
                         active: isActive,

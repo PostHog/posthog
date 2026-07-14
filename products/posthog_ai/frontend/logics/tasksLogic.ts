@@ -141,6 +141,15 @@ export const tasksLogic = kea<tasksLogicType>([
     selectors({
         // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
         isStaffUser: [(s) => [s.user], (user): boolean => !!user?.is_staff],
+        // Query params to carry onto a task's detail URL. In the staff "all team" view, this is the
+        // ph_debug opt-in so the detail page and its run logs load for tasks the viewer doesn't own
+        // (the backend honors it for staff). Empty otherwise. Every navigation into a task detail —
+        // the openTask listener and the list-row links — must apply this, or the detail 404s.
+        taskDetailQueryParams: [
+            (s) => [s.assigneeFilter, s.user],
+            (assigneeFilter, user): Record<string, string> =>
+                assigneeFilter === 'all_team' && user?.is_staff ? { ph_debug: 'true' } : {},
+        ],
         // Combined list filters: search term + the assignee toggle. "For you" scopes to the current
         // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks; "all team" (staff
         // only) lists every task on the team, letting the server bypass the per-user visibility filter.
@@ -163,13 +172,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     listeners(({ actions, values }) => ({
         openTask: ({ taskId }) => {
-            // From the staff "all team" view, carry the ph_debug opt-in so the detail page and its run
-            // logs load for tasks the viewer doesn't own (the backend honors it for staff).
-            if (values.assigneeFilter === 'all_team' && values.isStaffUser) {
-                router.actions.push(`/tasks/${taskId}`, { ph_debug: 'true' })
-                return
-            }
-            router.actions.push(`/tasks/${taskId}`)
+            router.actions.push(`/tasks/${taskId}`, values.taskDetailQueryParams)
         },
         // Debounce typing before hitting the server; the loader's own `breakpoint` then drops any
         // response that a newer query has already superseded.
