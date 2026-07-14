@@ -714,16 +714,27 @@ def revoke_impersonation_oauth_tokens(impersonated_user: "User", impersonator: "
     tokens this admin minted during impersonation are revoked; the customer's own pre-existing
     tokens (impersonated_by IS NULL) are untouched. Shared by impersonation logout and read-only
     downgrade — both must invalidate write-capable tokens minted during the read-write window.
+
+    Order matters, mirroring `revoke_application_sessions`: delete grants and revoke refresh
+    tokens before the final access-token sweep, all in one transaction. A concurrent code
+    exchange holds a `select_for_update` lock on its grant row (`_reject_code_exchange_racing_revoke`)
+    and a concurrent refresh holds one on its refresh-token row (DOT), both of which carry
+    `impersonated_by`; deleting/revoking those first makes this transaction block on the racing
+    mint until it commits, so the trailing access-token sweep still catches the token it minted.
+    Sweeping access tokens first would let that token escape. We deliberately do not stamp the
+    app-wide `sessions_revoked_at` marker here (that is what forces a racing mint to self-reject),
+    because it would also force the customer's own non-impersonated sessions to re-authorize on a
+    mere mode change; impersonation revocation is scoped to (user, impersonator).
     """
     now = timezone.now()
     with transaction.atomic():
-        access_deleted, _ = OAuthAccessToken.objects.filter(
-            user=impersonated_user, impersonated_by=impersonator
-        ).delete()
+        grants_deleted, _ = OAuthGrant.objects.filter(user=impersonated_user, impersonated_by=impersonator).delete()
         refresh_revoked = OAuthRefreshToken.objects.filter(
             user=impersonated_user, impersonated_by=impersonator, revoked__isnull=True
         ).update(revoked=now)
-        grants_deleted, _ = OAuthGrant.objects.filter(user=impersonated_user, impersonated_by=impersonator).delete()
+        access_deleted, _ = OAuthAccessToken.objects.filter(
+            user=impersonated_user, impersonated_by=impersonator
+        ).delete()
 
     if access_deleted or refresh_revoked or grants_deleted:
         logger.info(
