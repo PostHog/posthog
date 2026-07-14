@@ -18,6 +18,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
+from posthog.models.oauth import revoke_impersonation_oauth_tokens
 
 logger = structlog.get_logger(__name__)
 
@@ -154,6 +155,11 @@ def downgrade_impersonation(request):
     request.session.modified = True
 
     target_user = get_impersonated_user(request)
+    # A write-capable OAuth token minted during the read-write window would otherwise outlive the
+    # downgrade and keep writing. Revoke the admin's impersonation tokens, mirroring logout.
+    if target_user:
+        revoke_impersonation_oauth_tokens(target_user, staff_user)
+
     posthoganalytics.capture(
         distinct_id=str(staff_user.distinct_id),
         event="impersonation_downgraded",

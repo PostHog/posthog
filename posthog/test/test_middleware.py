@@ -27,6 +27,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1658,6 +1659,58 @@ class TestDowngradeImpersonation(APIBaseTest):
         ).latest("action_time")
         assert "read-only" in log.change_message
         assert "Done with changes, back to read-only" in log.change_message
+
+    def test_downgrade_revokes_impersonation_oauth_tokens(self):
+        self.login_as_read_write()
+
+        app = OAuthApplication.objects.create(
+            client_id="downgrade-client",
+            redirect_uris="http://localhost/cb",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            organization=self.organization,
+        )
+        common = {"user": self.other_user, "application": app, "scoped_teams": [], "scoped_organizations": []}
+        impersonated_access = OAuthAccessToken.objects.create(
+            token="imp-access",
+            scope="feature_flag:write",
+            expires="2099-01-01T00:00:00Z",
+            impersonated_by=self.user,
+            **common,
+        )
+        impersonated_refresh = OAuthRefreshToken.objects.create(
+            token="imp-refresh", access_token=impersonated_access, impersonated_by=self.user, **common
+        )
+        impersonated_grant = OAuthGrant.objects.create(
+            code="imp-code",
+            expires="2099-01-01T00:00:00Z",
+            redirect_uri="http://localhost/cb",
+            scope="feature_flag:write",
+            code_challenge="x" * 43,
+            code_challenge_method="S256",
+            impersonated_by=self.user,
+            **common,
+        )
+        customer_owned = OAuthAccessToken.objects.create(
+            token="customer-access",
+            scope="feature_flag:write",
+            expires="2099-01-01T00:00:00Z",
+            impersonated_by=None,
+            **common,
+        )
+
+        response = self.client.post(
+            reverse("impersonation-downgrade"),
+            data=json.dumps({"reason": "Back to read-only"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+
+        assert not OAuthAccessToken.objects.filter(pk=impersonated_access.pk).exists()
+        assert OAuthRefreshToken.objects.get(pk=impersonated_refresh.pk).revoked is not None
+        assert not OAuthGrant.objects.filter(pk=impersonated_grant.pk).exists()
+        assert OAuthAccessToken.objects.filter(pk=customer_owned.pk).exists()
 
     def test_downgrade_returns_404_when_not_impersonated(self):
         response = self.client.post(

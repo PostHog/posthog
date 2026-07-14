@@ -707,15 +707,41 @@ class CIMDBlocklistEntry(models.Model):
 logger = structlog.get_logger(__name__)
 
 
+def revoke_impersonation_oauth_tokens(impersonated_user: "User", impersonator: "User") -> None:
+    """Revoke OAuth tokens `impersonator` minted while impersonating `impersonated_user`.
+
+    Tokens are matched by `(user=<impersonated>, impersonated_by=<impersonator>)`, so only
+    tokens this admin minted during impersonation are revoked; the customer's own pre-existing
+    tokens (impersonated_by IS NULL) are untouched. Shared by impersonation logout and read-only
+    downgrade — both must invalidate write-capable tokens minted during the read-write window.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        access_deleted, _ = OAuthAccessToken.objects.filter(
+            user=impersonated_user, impersonated_by=impersonator
+        ).delete()
+        refresh_revoked = OAuthRefreshToken.objects.filter(
+            user=impersonated_user, impersonated_by=impersonator, revoked__isnull=True
+        ).update(revoked=now)
+        grants_deleted, _ = OAuthGrant.objects.filter(user=impersonated_user, impersonated_by=impersonator).delete()
+
+    if access_deleted or refresh_revoked or grants_deleted:
+        logger.info(
+            "impersonation_oauth_tokens_revoked",
+            impersonated_user_id=impersonated_user.pk,
+            impersonator_user_id=impersonator.pk,
+            access_tokens_deleted=access_deleted,
+            refresh_tokens_revoked=refresh_revoked,
+            grants_deleted=grants_deleted,
+        )
+
+
 @receiver(user_logged_out)
 def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
     """Revoke OAuth tokens minted during an impersonation session when it ends.
 
     Fires on every logout, but only acts on impersonation logouts — when the loginas
-    session flag is still set and we can recover the original (staff) user. Tokens
-    are matched by `(user=<impersonated>, impersonated_by=<staff>)`, so only tokens
-    this admin minted during this kind of impersonation are revoked; the customer's
-    own pre-existing tokens (impersonated_by IS NULL) are untouched.
+    session flag is still set and we can recover the original (staff) user.
 
     Lives in the model module so the receiver is registered as soon as Django
     imports `OAuthAccessToken` — no explicit `apps.py` wiring required.
@@ -732,22 +758,7 @@ def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
     if impersonator is None:
         return
 
-    now = timezone.now()
-    access_deleted, _ = OAuthAccessToken.objects.filter(user=user, impersonated_by=impersonator).delete()
-    refresh_revoked = OAuthRefreshToken.objects.filter(
-        user=user, impersonated_by=impersonator, revoked__isnull=True
-    ).update(revoked=now)
-    grants_deleted, _ = OAuthGrant.objects.filter(user=user, impersonated_by=impersonator).delete()
-
-    if access_deleted or refresh_revoked or grants_deleted:
-        logger.info(
-            "impersonation_oauth_tokens_revoked",
-            impersonated_user_id=user.pk,
-            impersonator_user_id=impersonator.pk,
-            access_tokens_deleted=access_deleted,
-            refresh_tokens_revoked=refresh_revoked,
-            grants_deleted=grants_deleted,
-        )
+    revoke_impersonation_oauth_tokens(user, impersonator)
 
 
 @receiver(models.signals.post_delete, sender=OAuthApplication)
