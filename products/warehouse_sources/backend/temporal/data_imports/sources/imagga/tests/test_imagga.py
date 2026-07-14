@@ -170,6 +170,12 @@ class TestGetRows:
     def test_empty_result_yields_nothing(self, endpoint: str, result: dict[str, Any]) -> None:
         assert self._run(endpoint, result) == []
 
+    def test_usage_without_primary_key_yields_nothing(self) -> None:
+        # A non-empty snapshot missing `billing_period_start` must not be yielded — merging on an
+        # absent primary key column fails the sync permanently instead of producing an empty batch.
+        result = {"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}
+        assert self._run("usage", result) == []
+
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError):
             self._run("nope", _USAGE_RESULT)

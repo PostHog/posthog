@@ -5,6 +5,7 @@ from typing import Any
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -113,7 +114,10 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    session = make_tracked_session(redact_values=(api_secret,) if api_secret else ())
+    # The tenacity wrapper below is the single retry authority for this session, so disable the
+    # transport-level status retries (`make_tracked_session`'s DEFAULT_RETRY already retries 429/5xx).
+    # Otherwise both layers retry a rate-limit response and one 429 fans out into far more requests.
+    session = make_tracked_session(retry=Retry(total=0), redact_values=(api_secret,) if api_secret else ())
 
     @retry(
         retry=retry_if_exception_type((ImaggaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -128,8 +132,16 @@ def get_rows(
 
     if endpoint == "usage":
         row = _usage_snapshot_row(result)
-        if row:
-            yield [row]
+        if not row:
+            return
+        # The `usage` table merges on `billing_period_start`. If Imagga returns a result without it,
+        # yielding the row anyway makes the warehouse merge fail permanently on a missing key column;
+        # skip and log instead so a malformed response degrades to an empty sync, not a hard failure.
+        missing_keys = [key for key in IMAGGA_ENDPOINTS["usage"].primary_keys if key not in row]
+        if missing_keys:
+            logger.warning(f"Imagga /usage response missing primary key(s) {missing_keys}; skipping snapshot row")
+            return
+        yield [row]
         return
 
     if endpoint == "daily_usage":
