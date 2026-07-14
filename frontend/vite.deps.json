@@ -1,5 +1,5 @@
 {
-    "fingerprint": "42cfc1acbbe68dd497d8f5baee6757c8e6d2dcebd374d4f04ad123965fef4353",
+    "fingerprint": "347240b77357d69a590c192f4d527c6172b75eacfa3121e779175df9932c9ad8",
     "include": [
         "@base-ui/react",
         "@base-ui/react/accordion",
@@ -233,7 +233,6 @@
         "zxcvbn"
     ],
     "aliases": {
-        "@pierre/diffs": "../node_modules/.pnpm/@pierre+diffs@1.2.11_@shikijs+themes@4.3.0_react-dom@18.3.1_react@18.3.1__react@18.3.1/node_modules/@pierre/diffs",
         "ansi-colors": "../node_modules/.pnpm/ansi-colors@4.1.3/node_modules/ansi-colors",
         "class-variance-authority": "../node_modules/.pnpm/class-variance-authority@0.7.1/node_modules/class-variance-authority",
         "d3-array": "../node_modules/.pnpm/d3-array@3.2.4/node_modules/d3-array",

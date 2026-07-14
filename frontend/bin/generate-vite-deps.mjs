@@ -7,7 +7,6 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 // cold start Vite can then skip the scan whenever the fingerprint still matches.
 //
 // Run after adding/removing/bumping frontend dependencies: `pnpm vite:deps`.
-import { createRequire } from 'node:module'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -64,15 +63,23 @@ async function main() {
     }
 
     // Deps that don't resolve as bare specifiers from the frontend root (they belong to products/*
-    // workspace packages) need an explicit alias to their package directory, or the optimizer can't
-    // pre-bundle them under noDiscovery. Vite records each dep's resolved module path in the
-    // metadata; derive the package dir from it and store it relative to the frontend dir.
-    const require = createRequire(resolve(frontendDir, 'package.json'))
+    // workspace packages) need an explicit alias, or the optimizer can't pre-bundle them under
+    // noDiscovery and a CommonJS one would be served raw and break in the browser. Resolvability
+    // must be checked with import conditions — require.resolve would misclassify ESM-only packages
+    // (no `require` export condition) and alias them, and a directory alias bypasses the package's
+    // exports map, breaking subpath imports at runtime. Vite records each dep's resolved module
+    // path in the metadata; alias bare names to the package dir (so exports "." and subpaths keep
+    // resolving through its package.json) and subpath entries to their exact resolved file.
     const depsDir = resolve(frontendDir, 'node_modules/.vite/deps')
+    const packageName = (name) =>
+        name
+            .split('/')
+            .slice(0, name.startsWith('@') ? 2 : 1)
+            .join('/')
     const aliases = {}
     for (const name of include) {
         try {
-            require.resolve(name)
+            import.meta.resolve(name)
             continue // resolvable from the frontend root — no alias needed
         } catch {
             // fall through
@@ -82,13 +89,18 @@ async function main() {
             continue
         }
         const abs = resolve(depsDir, src)
-        // Cut the path back to the package root: .../node_modules/<name>
-        const marker = `${sep}node_modules${sep}${name.split('/').join(sep)}`
+        const pkg = packageName(name)
+        if (pkg !== name) {
+            aliases[name] = relative(frontendDir, abs)
+            continue
+        }
+        // Cut the path back to the package root: .../node_modules/<pkg>
+        const marker = `${sep}node_modules${sep}${pkg.split('/').join(sep)}`
         const idx = abs.lastIndexOf(marker)
         if (idx === -1) {
             continue
         }
-        aliases[name] = relative(frontendDir, abs.slice(0, idx + marker.length))
+        aliases[pkg] = relative(frontendDir, abs.slice(0, idx + marker.length))
     }
 
     const snapshot = { fingerprint: computeDepsFingerprint(frontendDir), include, aliases }

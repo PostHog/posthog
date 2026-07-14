@@ -13,9 +13,10 @@ import { resolve } from 'node:path'
 // `pnpm vite:deps` to regenerate it after changing dependencies.
 
 const DEPS_FILE = 'vite.deps.json'
-// Files whose contents define the frontend dependency closure. Any change here can add or remove
-// a bare import that must be pre-bundled, so it invalidates the snapshot.
-const FINGERPRINT_FILES = ['../pnpm-lock.yaml', 'package.json']
+// Files whose contents define the frontend dependency closure. The lockfile uniquely determines
+// every resolved dependency (a package.json dep change always updates it), so hashing package.json
+// itself would only cause false invalidations from script edits.
+const FINGERPRINT_FILES = ['../pnpm-lock.yaml', '../pnpm-workspace.yaml']
 
 export interface ViteDepsSnapshot {
     fingerprint: string

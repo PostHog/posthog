@@ -52,6 +52,7 @@ export default defineConfig(({ mode }) => {
                 name: 'startup-message',
                 configureServer(server) {
                     server.httpServer?.once('listening', () => {
+                        // Tiny delay only so this prints below Vite's own ready banner.
                         setTimeout(() => {
                             console.info(`
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
@@ -61,7 +62,7 @@ export default defineConfig(({ mode }) => {
 
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
 `)
-                        }, 1000)
+                        }, 100)
                     })
                 },
             },
@@ -168,6 +169,21 @@ export default defineConfig(({ mode }) => {
             // still matches). Re-run `pnpm vite:deps` and restart to refresh it. Installing a dep
             // changes the lockfile, which flips the fingerprint and falls back to discovery anyway.
             noDiscovery: prebundledDeps != null,
+            rolldownOptions: {
+                plugins: [
+                    {
+                        // Vite hardcodes sourcemap: 'hidden' for pre-bundled deps, which is most
+                        // of the optimize time and ~90MB of writes per cold start. Deps are
+                        // node_modules code; skip their sourcemaps in dev. This hook runs after
+                        // Vite's own output options, so it can win.
+                        name: 'posthog:no-dep-sourcemaps',
+                        outputOptions(options: { sourcemap?: boolean | 'inline' | 'hidden' }) {
+                            options.sourcemap = false
+                            return options
+                        },
+                    },
+                ],
+            },
             // snappy-wasm: don't pre-bundle so the WASM file stays with the JS.
             // @posthog/brand: its PNG stubs resolve assets via `new URL(..., import.meta.url)`,
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
