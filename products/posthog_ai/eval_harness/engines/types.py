@@ -146,3 +146,15 @@ class ExperimentResult:
 
     summary: EvalSummary
     results: list[CaseResult]
+
+
+@dataclass(frozen=True)
+class EnvVarSpec:
+    """One environment variable an engine requires, surfaced in the preflight error.
+
+    ``name`` is the literal variable name; ``description`` says what it is for so a
+    missing variable reads as a one-line fix.
+    """
+
+    name: str
+    description: str

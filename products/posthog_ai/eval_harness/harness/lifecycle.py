@@ -19,6 +19,8 @@ from posthog.ph_client import get_client
 
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
+from ..engines.base import EvalEngine
+from ..engines.registry import resolve_engine
 from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, TEAM_SETUP_CONCURRENCY, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
@@ -61,6 +63,9 @@ class SandboxedEvalHarness:
     def __init__(self, options: HarnessOptions) -> None:
         self.options = options
         self.provider: SandboxProviderStrategy | None = None
+        # The execution/reporting backend for this run. No --engine flag yet, so
+        # this is the registry default; it feeds preflight and every suite's run.
+        self._engine: EvalEngine = resolve_engine()
         self._stack = ExitStack()
         self._database: EvalDatabase | None = None
         self._live_server: EvalLiveServer | None = None
@@ -99,7 +104,7 @@ class SandboxedEvalHarness:
         results: list[SuiteRunResult] | None = None
         interrupted = False
         try:
-            validate_eval_env(self.options.agent_runtime, kinds=kinds)
+            validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
             if Infra.SANDBOX in required:
                 self.provider = build_provider(
                     self.options.provider,
@@ -295,6 +300,7 @@ class SandboxedEvalHarness:
             team_setup_slots=asyncio.Semaphore(TEAM_SETUP_CONCURRENCY),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
             reporter=reporter,
+            engine=self._engine,
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,
         )

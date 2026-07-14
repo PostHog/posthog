@@ -34,7 +34,7 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the selected suites' kinds: every run needs `BRAINTRUST_API_KEY`; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
-from .engines.braintrust import BraintrustEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
@@ -127,9 +126,9 @@ class _BaseEvalRun:
         self.ctx = ctx
         self.is_public = is_public
         self.no_send_logs = no_send_logs
-        # The execution/reporting backend. Braintrust is the only one today; the
-        # seam lets a PostHog-native engine slot in later (see engines/base.py).
-        self.engine = engine or BraintrustEngine()
+        # The execution/reporting backend, resolved once per run and shared via
+        # ctx.engine; an explicit engine (in tests) overrides it.
+        self.engine = engine or ctx.engine
 
         # Generate a unique experiment ID per eval run
         self.experiment_id = str(uuid.uuid4())

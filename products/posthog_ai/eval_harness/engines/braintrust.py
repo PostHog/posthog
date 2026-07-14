@@ -9,7 +9,7 @@ from typing import Any
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
 
-from .types import AggregateScore, CaseResult, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -74,6 +74,13 @@ class BraintrustEngine:
       lines up across runs; updating keeps that history rather than forking it.
     """
 
+    name = "braintrust"
+    supports_public_experiments = True
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
+
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
@@ -119,7 +126,7 @@ class BraintrustEngine:
         summary = result.summary
         return ExperimentResult(
             summary=EvalSummary(
-                engine_name="braintrust",
+                engine_name=self.name,
                 experiment_name=summary.experiment_name,
                 scores={name: AggregateScore(name=s.name, score=s.score) for name, s in summary.scores.items()},
                 experiment_url=summary.experiment_url,

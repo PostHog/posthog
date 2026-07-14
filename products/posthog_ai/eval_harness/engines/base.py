@@ -9,9 +9,9 @@ the run base or any suite.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import ClassVar, Protocol
 
-from .types import EvalTaskFn, ExperimentResult, ExperimentSpec
+from .types import EnvVarSpec, EvalTaskFn, ExperimentResult, ExperimentSpec
 
 # Re-exported for callers that import ``EvalTaskFn`` from the engine seam; it now
 # lives in ``types`` (retargeted at the neutral ``CaseHooks``).
@@ -26,7 +26,24 @@ class EvalEngine(Protocol):
     future ``PostHogEvalsEngine`` — recording datasets, experiments, and scores
     into PostHog's own LLM analytics as the system of record — can slot in behind
     the same interface, without changing the run base or any suite.
+
+    Obligations (documented on the implementation and pinned by the conformance
+    suite): never throttle or budget the task; persist ``hooks.metadata`` onto
+    ``CaseResult.metadata``; a task exception becomes ``CaseResult.error`` and is
+    excluded from aggregates; ``None`` scores are preserved per-case and excluded
+    from the means.
     """
+
+    name: ClassVar[str]
+    """Stable engine identifier; ``reporting`` renders ``name.title()`` as the label."""
+
+    supports_public_experiments: ClassVar[bool]
+    """Whether the engine has a notion of a public experiment (``is_public``)."""
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        """The environment variables this engine needs, validated in preflight."""
+        ...
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
         """Run every case in ``spec`` (``trial_count`` times each) through the task

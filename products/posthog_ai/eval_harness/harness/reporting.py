@@ -214,7 +214,7 @@ class ProgressReporter:
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
             lines.append(f"  PostHog: {posthog_url}")
-        lines.append(f"  Braintrust: {summary.experiment_url or '(local run, not uploaded)'}")
+        lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:
             lines.append(f"  Agent logs: {log_dir}")

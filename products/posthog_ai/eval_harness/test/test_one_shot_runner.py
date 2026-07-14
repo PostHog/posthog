@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
+from products.posthog_ai.eval_harness.engines.registry import resolve_engine
 from products.posthog_ai.eval_harness.engines.types import EvalSummary, ExperimentResult, ExperimentSpec, NullCaseHooks
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
@@ -52,6 +53,7 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         team_setup_slots=asyncio.Semaphore(1),
         one_shot_slots=asyncio.Semaphore(one_shot_slots),
         reporter=_StubReporter(),  # type: ignore[arg-type]
+        engine=resolve_engine(),
         per_case_timeout_seconds=timeout_seconds,
         trials=1,
     )
