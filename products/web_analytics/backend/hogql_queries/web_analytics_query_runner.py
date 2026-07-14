@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from prometheus_client import Counter
 from structlog.contextvars import bound_contextvars
 
 from posthog.schema import (
@@ -56,6 +57,14 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
 
 logger = structlog.get_logger(__name__)
+
+# Tracks how often a web analytics query is served without the events↔sessions join,
+# so the trial rollout can be monitored per query family against the join path.
+WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
+    "web_analytics_no_join_served_total",
+    "Web analytics queries served by a no-session-join fast path.",
+    ["family"],
+)
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -197,6 +206,39 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     date_to=self.query_date_range.date_to_str,
                     sampling_enabled=sampling.enabled if sampling else False,
                 )
+
+    @cached_property
+    def should_skip_session_join(self) -> bool:
+        """Whether this query can be served by independent events/sessions scans.
+
+        The events↔sessions join exists so filters on events can constrain which
+        sessions contribute to session-level metrics (duration, bounce rate). When
+        nothing in the query constrains session membership, both sides can be
+        aggregated independently — the join only multiplies cost, because the
+        sessions-side subquery is re-executed on every shard of the events cluster
+        (10× read amplification on US prod; measured 5.5-14.7× latency and 8-25×
+        memory vs the two-scan variants).
+
+        Runners that support a no-join query shape check this gate; anything not
+        covered falls through to the join path untouched.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_NO_JOIN_TEAM_IDS:
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        if getattr(self.query, "properties", None):
+            return False
+        # Test-account filters are event/person property filters, so they constrain
+        # session membership the same way user filters do.
+        if self._test_account_filters:
+            return False
+        sampling_factor = getattr(self.query, "samplingFactor", None)
+        if sampling_factor and sampling_factor != 1:
+            return False
+        sampling = getattr(self.query, "sampling", None)
+        if sampling and (sampling.enabled or sampling.forceSamplingRate):
+            return False
+        return True
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:
@@ -654,6 +696,19 @@ WHERE
             return parse_expr("events.$session_id_uuid")
         else:
             return parse_expr("events.$session_id")
+
+    @cached_property
+    def events_session_id_present(self) -> ast.Expr:
+        """True when the event carries a usable session id.
+
+        A missing `$session_id` materializes as an empty string, not NULL, so an
+        `IS NOT NULL` check alone lets sessionless (server-side) events through.
+        The join path excludes them implicitly (NULL session start fails the
+        period HAVING); the no-join query shapes need this explicit guard.
+        """
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid IS NOT NULL")
+        return parse_expr("events.$session_id IS NOT NULL AND events.$session_id != ''")
 
 
 def _sample_rate_from_count(count: int) -> SamplingRate:

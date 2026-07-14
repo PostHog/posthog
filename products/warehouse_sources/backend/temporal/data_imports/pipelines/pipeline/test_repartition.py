@@ -262,6 +262,37 @@ class TestRewriteIntoTemp:
         # created_at is a timestamp column named like a datetime key → auto-detects datetime mode.
         assert resolved.partition_mode == "datetime"
 
+    def test_resolved_keys_apply_to_batches_after_the_first(self, tmp_path):
+        # Auto-detect swaps the target's primary key (a UUID string) for the detected timestamp
+        # column. Batches after the first must use the resolved key — pairing the resolved
+        # datetime mode with the original UUID key raised ParserError mid-rewrite in production.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(partition_keys=["id"], trigger_reason="test", partition_mode=None),
+                batch_size=3,  # force batches after the resolving first one
+                logger=logger,
+            )
+        )
+
+        assert rows_written == rows
+        assert resolved.partition_mode == "datetime"
+        assert resolved.partition_keys == ["created_at"]
+
 
 class _FakeS3CM:
     """Minimal async-context-manager stand-in for `aget_s3_client()`."""

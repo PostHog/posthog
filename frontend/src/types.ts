@@ -4729,6 +4729,17 @@ export interface PropertyDefinition {
     verified_by?: string
     hidden?: boolean
     virtual?: boolean
+    // Provenance when a person property is populated from a data warehouse source. Read-only.
+    warehouse_origin?: WarehousePropertyOrigin | null
+}
+
+export interface WarehousePropertyOrigin {
+    source_id?: string
+    schema_id?: string
+    table_name?: string
+    column?: string
+    custom_property_source_id?: string
+    last_synced_at?: string
 }
 
 export enum PropertyDefinitionState {
@@ -5012,6 +5023,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
+    oauth_mcp_consent?: OAuthMcpConsentContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5878,6 +5891,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    BILLING = 'Billing',
     EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
@@ -7477,6 +7491,11 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+export type OAuthMcpConsentContext = {
+    is_mcp_resource: boolean
+    scopes?: string[]
 }
 
 export type OAuthApplicationPublicMetadata = {
