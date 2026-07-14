@@ -96,8 +96,6 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                // App URLs (toolbar authorized URLs) fold in because many teams leave recording
-                // domains empty; either field naming a site marks its host first-party.
                 firstPartyHosts: firstPartyHostPatterns([...(row.recording_domains ?? []), ...(row.app_urls ?? [])]),
             }
             return acc

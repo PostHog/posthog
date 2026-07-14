@@ -39,6 +39,5 @@ export function firstPartyHostPatterns(firstPartyUrlEntries: string[] | null | u
             patterns.push(hostname.toLowerCase())
         }
     }
-    // Recording domains and app URLs routinely name the same site.
     return [...new Set(patterns)]
 }

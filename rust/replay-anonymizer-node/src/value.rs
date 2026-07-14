@@ -13,11 +13,6 @@ fn looks_like_url(s: &str) -> bool {
 
 fn scrub_string_leaf(ctx: &Ctx<'_>, s: &str) -> Option<String> {
     if looks_like_url(s) {
-        // Covers custom/plugin payload URLs: `$pageview`/`$url_changed` `href`, `$current_url`,
-        // `$referrer`, console stack frames (posthog/taxonomy lists the URL-carrying event
-        // properties). `scrub_url`'s host policy keeps first-party and external hosts
-        // distinguishable without leaking the recorded site's domain; scheme-less URL-ish fields
-        // (`$host`, `$pathname`) fall through to the text scrub, which masks them.
         scrub_url(ctx, s)
     } else {
         scrub_text(ctx.allow, s)
