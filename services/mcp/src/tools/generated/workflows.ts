@@ -75,6 +75,22 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
         },
     })
 
+const WorkflowsDiscardDraftSchema = HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
+
+const workflowsDiscardDraft = (): ToolBase<typeof WorkflowsDiscardDraftSchema, Schemas.HogFlow> =>
+    withUiApp('workflow', {
+        name: 'workflows-discard-draft',
+        schema: WorkflowsDiscardDraftSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsDiscardDraftSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.HogFlow>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/discard_draft/`,
+            })
+            return result
+        },
+    })
+
 const WorkflowsGetSchema = HogFlowsRetrieveParams.omit({ project_id: true })
 
 const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Schemas.HogFlow>> =>
@@ -269,22 +285,6 @@ const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.Hog
     },
 })
 
-const WorkflowsDiscardDraftSchema = HogFlowsDiscardDraftCreateParams.omit({ project_id: true })
-
-const workflowsDiscardDraft = (): ToolBase<typeof WorkflowsDiscardDraftSchema, Schemas.HogFlow> =>
-    withUiApp('workflow', {
-        name: 'workflows-discard-draft',
-        schema: WorkflowsDiscardDraftSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsDiscardDraftSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.HogFlow>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/discard_draft/`,
-            })
-            return result
-        },
-    })
-
 const WorkflowsStatsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
     HogFlowsMetricsRetrieveQueryParams.shape
 )
@@ -419,6 +419,7 @@ const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchem
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create': workflowsCreate,
+    'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-global-stats': workflowsGlobalStats,
@@ -428,7 +429,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-logs': workflowsLogs,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
-    'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
