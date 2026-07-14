@@ -553,8 +553,22 @@ def sync_canonical_authoring(team: Team, *, prune: bool = False) -> SyncResult:
     )
 
 
-def seed_canonicals_tolerantly(team_id: int, sync: Callable[[Team], SyncResult]) -> None:
-    """Cold-team seed for API reads: run one canonical sync, swallowing failures.
+def sync_all_canonicals(team: Team, *, prune: bool = False) -> None:
+    """Reconcile every canonical review-hog skill set for a team — the four kinds in one call.
+
+    Single source of truth for "the full canonical set": the run path (`prune=True`) and the
+    settings GET both go through here, so a new kind is wired in one place. Ordered authoring-last
+    only for readable logs — each sync is independent.
+    """
+    sync_canonical_perspectives(team, prune=prune)
+    sync_canonical_validation(team, prune=prune)
+    sync_canonical_blind_spots(team, prune=prune)
+    sync_canonical_authoring(team, prune=prune)
+
+
+def seed_canonicals_tolerantly(team_id: int, sync: Callable[[Team], object]) -> None:
+    """Cold-team seed for API reads: run one canonical sync (or the full-set `sync_all_canonicals`),
+    swallowing failures.
 
     The run path syncs (with prune) at the start of every review, but a team that has never run one
     has no `LLMSkill` rows — its config menus would render empty and selects would 404. The config
