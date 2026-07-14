@@ -46,6 +46,7 @@ import {
     consumerBatchSizeKb as histogramKafkaBatchSizeKb,
     kafkaConsumerAssignment,
 } from './metrics'
+import { recordBatchConsumed, recordConsumedBatchBackpressure, recordConsumedBatchDuration } from './otel-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
@@ -675,6 +676,7 @@ export class KafkaConsumer {
                     histogramKafkaBatchSizeKb.observe(
                         messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
                     )
+                    recordBatchConsumed(topic, groupId, messages, Date.now())
 
                     if (!messages.length && !callEachBatchWhenEmpty) {
                         logger.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
@@ -686,6 +688,7 @@ export class KafkaConsumer {
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
+                    recordConsumedBatchDuration(processingTimeMs, topic, groupId)
 
                     const logSummary = `Processed ${messages.length} events in ${
                         Math.round(processingTimeMs / 10) / 100
@@ -758,12 +761,14 @@ export class KafkaConsumer {
                             topic: this.config.topic,
                             groupId: this.config.groupId,
                         })
+                        const backpressureStartMs = Date.now()
                         // If we have more than the max, we need to await one
                         await instrumentFn(
                             { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
                             () => this.backgroundTask[0].promise
                         )
                         stopTimer()
+                        recordConsumedBatchBackpressure(Date.now() - backpressureStartMs, topic, groupId)
                     }
                 }
 

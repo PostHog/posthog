@@ -34,6 +34,7 @@ import {
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
+import { recordBatchConsumed, recordConsumedBatchBackpressure, recordConsumedBatchDuration } from './otel-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const STATISTICS_INTERVAL_MS = 5000
@@ -285,6 +286,7 @@ export class KafkaConsumerV2 {
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
         consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
+        recordBatchConsumed(this.config.topic, this.config.groupId, messages, Date.now())
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -300,7 +302,9 @@ export class KafkaConsumerV2 {
         // crash the process. At-least-once is preserved (uncommitted offsets get re-read
         // on restart) and any logic bug surfaces loudly rather than silently dropping.
         const result: EachBatchResult = await eachBatch(messages)
-        consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(Date.now() - startMs)
+        const batchDurationMs = Date.now() - startMs
+        consumedBatchDuration.labels(this.config.topic, this.config.groupId).observe(batchDurationMs)
+        recordConsumedBatchDuration(batchDurationMs, this.config.topic, this.config.groupId)
 
         // We always track. If a REVOKE arrived while eachBatch ran, the generation tag in
         // trackTask makes the storeOffsets a no-op, but inFlight still holds the entry so
@@ -376,12 +380,14 @@ export class KafkaConsumerV2 {
             topic: this.config.topic,
             groupId: this.config.groupId,
         })
+        const backpressureStartMs = Date.now()
         try {
             // Wait for the OLDEST task's settled chain. Using settled (not raw) means we don't
             // release backpressure until storeOffsets has been attempted.
             await this.inFlight[0].settled
         } finally {
             stop()
+            recordConsumedBatchBackpressure(Date.now() - backpressureStartMs, this.config.topic, this.config.groupId)
         }
     }
 

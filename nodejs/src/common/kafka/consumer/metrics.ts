@@ -15,6 +15,13 @@ export const kafkaConsumerAssignment = new Gauge({
     labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
 })
 
+export const kafkaConsumerMessageAgeSeconds = new Histogram({
+    name: 'kafka_consumer_message_age_seconds',
+    help: 'Age of the oldest message in each consumed batch — consumer lag in seconds',
+    labelNames: ['topic', 'groupId'],
+    buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, Infinity],
+})
+
 export const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
     help: 'Main loop consumer batch processing duration in ms',

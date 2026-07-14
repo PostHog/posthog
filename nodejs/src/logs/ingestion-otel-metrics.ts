@@ -1,6 +1,7 @@
 import { Attributes, Counter, Histogram, Meter, MetricOptions, metrics as metricsApi } from '@opentelemetry/api'
 
 import { counterWithExemplars, histogramWithExemplars } from '~/common/metrics/exemplars'
+import { swallowing } from '~/common/metrics/swallow'
 
 /**
  * OTLP-pushed twins of the core logs-ingestion prom counters. The prom side keeps
@@ -83,21 +84,6 @@ function getInstruments(): LogsIngestionInstruments {
 function addPositive(counter: Counter, value: number, attributes?: Attributes): void {
     if (value > 0) {
         counter.add(value, attributes)
-    }
-}
-
-/**
- * These run in finally blocks and error handlers of the ingestion hot path — a throw
- * here would mask the real processing error and DLQ the message with the wrong reason,
- * so recording failures are swallowed.
- */
-function swallowing<Args extends unknown[]>(record: (...args: Args) => void): (...args: Args) => void {
-    return (...args: Args): void => {
-        try {
-            record(...args)
-        } catch {
-            // never let telemetry break ingestion
-        }
     }
 }
 
