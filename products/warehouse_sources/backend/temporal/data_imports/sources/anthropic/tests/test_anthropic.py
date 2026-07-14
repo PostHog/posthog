@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from tenacity import RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic import anthropic
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
@@ -357,15 +358,15 @@ class TestRetryAfter:
         assert exc_info.value.retry_after == 45.0
 
     def test_wait_honors_retry_after_capped(self) -> None:
-        assert _wait_anthropic(_FakeRetryState(AnthropicRetryableError("rate limited", retry_after=45.0))) == 45.0
+        state = _FakeRetryState(AnthropicRetryableError("rate limited", retry_after=45.0))
+        assert _wait_anthropic(cast(RetryCallState, state)) == 45.0
         # A server asking for longer than the cap is clamped so it can't wedge the worker.
-        assert (
-            _wait_anthropic(_FakeRetryState(AnthropicRetryableError("rate limited", retry_after=6000.0)))
-            == _MAX_RETRY_AFTER_SECONDS
-        )
+        capped = _FakeRetryState(AnthropicRetryableError("rate limited", retry_after=6000.0))
+        assert _wait_anthropic(cast(RetryCallState, capped)) == _MAX_RETRY_AFTER_SECONDS
 
     def test_wait_falls_back_when_no_retry_after(self) -> None:
         # No header (e.g. a 5xx) → blind exponential backoff, never a crash on the missing value.
-        wait = _wait_anthropic(_FakeRetryState(AnthropicRetryableError("server error"), attempt_number=1))
+        state = _FakeRetryState(AnthropicRetryableError("server error"), attempt_number=1)
+        wait = _wait_anthropic(cast(RetryCallState, state))
         assert isinstance(wait, float)
         assert wait >= 0
