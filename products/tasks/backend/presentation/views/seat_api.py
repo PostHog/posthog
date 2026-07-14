@@ -188,6 +188,8 @@ class SeatViewSet(viewsets.ViewSet):
     @staticmethod
     def _retired_product_response(request: Request) -> Response | None:
         product_key = request.data.get("product_key")
+        if not isinstance(product_key, str):
+            product_key = request.query_params.get("product_key")
         message = RETIRED_SEAT_PRODUCTS.get(product_key) if isinstance(product_key, str) else None
         if message is None:
             return None

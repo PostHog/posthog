@@ -312,6 +312,54 @@ class TestSeatAPIRetiredProducts(BaseSeatAPITest):
         self._assert_retired(response)
         mock_request.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "POST",
+                "/api/seats/?product_key=posthog_code",
+                {
+                    "plan_key": "posthog-code-free-20260301",
+                    "user_distinct_id": "me",
+                },
+            ),
+            (
+                "upgrade",
+                "PATCH",
+                "/api/seats/me/?product_key=posthog_code",
+                {"plan_key": "posthog-code-pro-200-20260301"},
+            ),
+            (
+                "reactivate",
+                "POST",
+                "/api/seats/me/reactivate/?product_key=posthog_code",
+                {},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_posthog_code_query_param_mutation_is_rejected_locally(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        payload: dict[str, str],
+        mock_request: MagicMock,
+    ) -> None:
+        self._auth_as_member()
+        request_payload = payload.copy()
+        if request_payload.get("user_distinct_id") == "me":
+            request_payload["user_distinct_id"] = str(self.user.distinct_id)
+        response = self.client.generic(
+            method,
+            path,
+            json.dumps(request_payload),
+            content_type="application/json",
+        )
+
+        self._assert_retired(response)
+        mock_request.assert_not_called()
+
 
 @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
 @patch("products.tasks.backend.presentation.views.seat_api.get_cached_instance_license")
