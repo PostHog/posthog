@@ -1203,6 +1203,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
                 message_id=str(workflow.uuid4()),
+                context=self.context,
             ),
             start_to_close_timeout=timedelta(minutes=35),
             # See process_task: heartbeat detects worker restarts, message_id

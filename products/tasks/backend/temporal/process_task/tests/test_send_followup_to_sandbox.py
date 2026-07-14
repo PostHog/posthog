@@ -1,53 +1,16 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
-
 from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
-    REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
-    _refresh_sandbox_mcp,
     send_followup_to_sandbox,
-)
-from products.tasks.backend.temporal.process_task.utils import (
-    McpServerConfig,
-    _mcp_token_issued_cache_key,
-    _sandbox_identity_cache_key,
-    mark_mcp_token_issued,
-    mark_sandbox_identity,
 )
 
 pytestmark = pytest.mark.django_db
-
-_GATE_CACHE_KEYS = [
-    _mcp_token_issued_cache_key("run-1", 42),
-    _mcp_token_issued_cache_key("run-1", 99),
-    _mcp_token_issued_cache_key("sb-2", 42),
-    _sandbox_identity_cache_key("run-1", "mcp"),
-    _sandbox_identity_cache_key("sb-2", "mcp"),
-]
-
-
-@pytest.fixture(autouse=True)
-def _clear_mcp_token_cache():
-    """Ensure each test starts with no recorded token issuances or session
-    identities so the refresh gate doesn't carry state between tests."""
-    cache.delete_many(_GATE_CACHE_KEYS)
-    yield
-    cache.delete_many(_GATE_CACHE_KEYS)
-
-
-def _make_mcp_config(name: str = "posthog", token: str = "tok") -> McpServerConfig:
-    return McpServerConfig(
-        type="http",
-        name=name,
-        url="https://mcp.posthog.com/mcp",
-        headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
-    )
 
 
 def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state: dict | None = None) -> MagicMock:
@@ -69,360 +32,6 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     return task_run
 
 
-class TestRefreshSandboxMcp:
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_success_path_single_call(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
-
-        task_run = _make_task_run_mock()
-        _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
-
-        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
-        mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
-        )
-        mock_user_configs.assert_called_once_with(token="fresh-token", team_id=7, user_id=42, interaction_origin=None)
-        mock_send_refresh.assert_called_once()
-        _, kwargs = mock_send_refresh.call_args
-        assert kwargs["auth_token"] == "jwt"
-        assert mock_send_refresh.call_args.args[0] is task_run
-        # mcpServers payload is serialized McpServerConfig shape
-        mcp_servers = mock_send_refresh.call_args.args[1]
-        assert mcp_servers == [_make_mcp_config(token="fresh-token").to_dict()]
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_retries_once_on_first_failure(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.side_effect = [
-            CommandResult(success=False, status_code=502, error="transient", retryable=True),
-            CommandResult(success=True, status_code=200),
-        ]
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        assert mock_send_refresh.call_count == 2
-        mock_sleep.assert_called_once_with(REFRESH_RETRY_DELAY_SECONDS)
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_two_failures_are_non_fatal(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
-
-        # Must not raise.
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        assert mock_send_refresh.call_count == 2
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_token_mint_failure_is_non_fatal_and_skips_send(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        mock_oauth.side_effect = RuntimeError("oauth service down")
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_ph_configs.assert_not_called()
-        mock_user_configs.assert_not_called()
-        mock_send_refresh.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_skips_send_when_no_mcp_configs_resolved(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = []
-        mock_user_configs.return_value = []
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_send_refresh.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_user_mcp_configs_skipped_when_no_creator(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
-
-        _refresh_sandbox_mcp(_make_task_run_mock(created_by_id=None), "read_only", auth_token=None)
-
-        mock_user_configs.assert_not_called()
-        mock_send_refresh.assert_called_once()
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_scopes_propagate_to_oauth_and_configs(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "full", auth_token=None)
-
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
-        mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
-        )
-
-
-class TestRefreshIntervalGate:
-    """Refreshes within MCP_TOKEN_REFRESH_INTERVAL_SECONDS of a previous
-    successful issuance for the same actor must be skipped without minting a
-    new token or contacting the sandbox."""
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_skipped_when_token_recently_issued(self, mock_oauth, mock_send_refresh):
-        mark_mcp_token_issued("run-1", 42)
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_oauth.assert_not_called()
-        mock_send_refresh.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_marks_after_successful_refresh(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        # Cache entries now exist → next refresh for this actor within the
-        # interval is gated, and the session identity is recorded.
-        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
-        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 42
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_marks_after_successful_retry(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.side_effect = [
-            CommandResult(success=False, status_code=502, error="transient"),
-            CommandResult(success=True, status_code=200),
-        ]
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is True
-
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-    )
-    def test_does_not_mark_after_two_failures(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
-    ):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
-
-        _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        # Cache stays empty so the next follow-up retries the dispatch.
-        assert cache.get(_mcp_token_issued_cache_key("run-1", 42)) is None
-        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) is None
-
-
-def _patch_actor(user_id: int):
-    """Pin the resolved credential user so tests can drive actor transitions
-    without building real run state."""
-    return patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user",
-        return_value=MagicMock(id=user_id),
-    )
-
-
-@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs")
-@patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs")
-@patch(
-    "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
-)
-class TestIdentityTransitionGate:
-    """An actor transition (run-state actor differs from the identity last
-    pushed to the sandbox) must bypass the freshness window and rebind the
-    session; the marks are keyed per sandbox so a replacement sandbox starts
-    unmarked."""
-
-    def _arm_success(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
-        mock_oauth.return_value = "fresh-token"
-        mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-        mock_user_configs.return_value = []
-        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
-
-    def test_actor_change_bypasses_freshness_window(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
-        # The creator's token is fresh and the session is bound to them…
-        mark_mcp_token_issued("run-1", 42)
-        mark_sandbox_identity("run-1", "mcp", 42)
-
-        # …but the next message comes from a different actor.
-        with _patch_actor(99):
-            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_send_refresh.assert_called_once()
-        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 99
-        assert cache.get(_mcp_token_issued_cache_key("run-1", 99)) is True
-
-    def test_switch_back_to_creator_refreshes_despite_fresh_window(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
-        # The creator's window is still warm, but the session was last bound
-        # to another user — the creator speaking again is a transition.
-        mark_mcp_token_issued("run-1", 42)
-        mark_sandbox_identity("run-1", "mcp", 99)
-
-        with _patch_actor(42):
-            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_send_refresh.assert_called_once()
-        assert cache.get(_sandbox_identity_cache_key("run-1", "mcp")) == 42
-
-    def test_same_actor_within_window_is_skipped(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
-        mark_mcp_token_issued("run-1", 99)
-        mark_sandbox_identity("run-1", "mcp", 99)
-
-        with _patch_actor(99):
-            _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", auth_token=None)
-
-        mock_oauth.assert_not_called()
-        mock_send_refresh.assert_not_called()
-
-    def test_replacement_sandbox_starts_unmarked(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
-    ):
-        self._arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
-        # Marks recorded against the run id (legacy scope) must not gate a run
-        # whose state now points at a concrete sandbox.
-        mark_mcp_token_issued("run-1", 42)
-        mark_sandbox_identity("run-1", "mcp", 42)
-
-        with _patch_actor(42):
-            _refresh_sandbox_mcp(_make_task_run_mock(state={"sandbox_id": "sb-2"}), "read_only", auth_token=None)
-
-        mock_send_refresh.assert_called_once()
-        assert cache.get(_mcp_token_issued_cache_key("sb-2", 42)) is True
-        assert cache.get(_sandbox_identity_cache_key("sb-2", "mcp")) == 42
-
-
 class TestSendFollowupActivityRefreshOrdering:
     """Refresh call must precede user_message, and the activity must succeed
     when refresh fails (non-fatal) as long as user_message succeeds."""
@@ -438,7 +47,7 @@ class TestSendFollowupActivityRefreshOrdering:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
             ) as mock_conn_token,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.ensure_sandbox_identity"
             ) as mock_refresh,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
@@ -485,18 +94,18 @@ class TestSendFollowupActivityRefreshOrdering:
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", posthog_mcp_scopes="full"))
 
         _patches["refresh"].assert_called_once()
-        args, _kwargs = _patches["refresh"].call_args
+        args, kwargs = _patches["refresh"].call_args
         assert args[0] is _patches["task_run"]
-        assert args[1] == "full"
-        assert args[2] == "jwt"
+        assert kwargs["posthog_mcp_scopes"] == "full"
+        assert kwargs["auth_token"] == "jwt"
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
 
-        args, _kwargs = _patches["refresh"].call_args
-        assert args[1] == "read_only"
+        _args, kwargs = _patches["refresh"].call_args
+        assert kwargs["posthog_mcp_scopes"] == "read_only"
 
 
 class TestSendFollowupTurnTimeout:
@@ -515,7 +124,7 @@ class TestSendFollowupTurnTimeout:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
             ) as mock_conn_token,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.ensure_sandbox_identity"
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"

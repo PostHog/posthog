@@ -394,7 +394,7 @@ def should_refresh_mcp_token(scope: str, user_id: int) -> bool:
 # boot-time one (the task creator).
 SANDBOX_IDENTITY_TTL_SECONDS = 7 * 24 * 60 * 60
 
-SandboxIdentityKind = Literal["mcp"]
+SandboxIdentityKind = Literal["mcp", "github"]
 
 
 def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
@@ -404,7 +404,8 @@ def _sandbox_identity_cache_key(scope: str, kind: SandboxIdentityKind) -> str:
 def mark_sandbox_identity(scope: str, kind: SandboxIdentityKind, value: int | str) -> None:
     """Record which identity the sandbox's live session currently holds.
 
-    ``mcp`` stores the user id the last-pushed OAuth token was minted for.
+    ``mcp`` stores the user id the last-pushed OAuth token was minted for;
+    ``github`` the user id the git/gh credentials were last rebound to.
     The run-state actor (``get_task_run_credential_user``) says who *should*
     be acting; this mark says whose token the session actually has — the gap
     between the two is an identity transition that must bypass the freshness

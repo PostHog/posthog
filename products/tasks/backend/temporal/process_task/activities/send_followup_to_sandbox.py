@@ -1,5 +1,4 @@
 import json
-import time
 import threading
 import contextvars
 from dataclasses import dataclass
@@ -12,37 +11,23 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.logic.services.agent_command import (
-    FOLLOWUP_TIMEOUT_SECONDS,
-    REFRESH_TIMEOUT_SECONDS,
-    CommandResult,
-    send_refresh_session,
-    send_user_message,
-)
+from products.tasks.backend.logic.services.agent_command import FOLLOWUP_TIMEOUT_SECONDS, send_user_message
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
-from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.sandbox_identity import ensure_sandbox_identity
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
-    get_last_sandbox_identity,
-    get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
-    get_user_mcp_server_configs,
     is_slack_interaction_state,
-    mark_mcp_token_issued,
-    mark_sandbox_identity,
-    sandbox_identity_scope,
-    should_refresh_mcp_token,
 )
 
 from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 
 logger = structlog.get_logger(__name__)
-
-REFRESH_RETRY_DELAY_SECONDS = 0.5
 
 # Retries exist for attempt-level deaths (worker restart kills the in-flight
 # attempt, detected via heartbeat timeout) and for delivery-unknown failures.
@@ -60,6 +45,11 @@ class SendFollowupToSandboxInput:
     # Workflow-generated idempotency key. Stable across activity retries, so
     # the agent-server can drop a redelivery of a message it already accepted.
     message_id: str | None = None
+    # The run's processing context, needed to rebind GitHub credentials on an
+    # actor transition. Optional so activities scheduled by pre-rollout
+    # workflow histories (without it) still deserialize; they skip the GitHub
+    # surface until the run's next workflow.
+    context: TaskProcessingContext | None = None
 
 
 @activity.defn
@@ -131,10 +121,15 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
         )
 
-    # Push a fresh MCP config before the turn so the agent-server rebinds its
-    # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
+    # Rebind the sandbox session (MCP OAuth token, GitHub credentials) to this
+    # message's actor before the turn runs. Non-fatal: if the rebind fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
-    _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    ensure_sandbox_identity(
+        task_run,
+        posthog_mcp_scopes=input.posthog_mcp_scopes,
+        auth_token=auth_token,
+        processing_context=input.context,
+    )
     artifacts = None
     artifact_ids = input.artifact_ids or []
     if artifact_ids:
@@ -217,120 +212,6 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
-
-
-def _mark_sandbox_session(scope: str, user_id: int) -> None:
-    """Record whose token the sandbox session now holds and start that user's
-    freshness window."""
-    mark_mcp_token_issued(scope, user_id)
-    mark_sandbox_identity(scope, "mcp", user_id)
-
-
-def _refresh_sandbox_mcp(
-    task_run: TaskRun,
-    scopes: PosthogMcpScopes,
-    auth_token: str | None,
-) -> None:
-    """Mint a fresh OAuth token and push updated MCP configs to the sandbox.
-
-    Best-effort: retries once on failure, then logs and returns. Never raises
-    — a failed refresh should not block an otherwise-valid follow-up.
-
-    Skipped only when the sandbox's live session already holds a fresh token
-    for *this message's actor*: the freshness window is keyed per
-    (sandbox, user), and an actor transition (the run-state actor differs from
-    the identity last pushed to the sandbox) bypasses the window entirely, so
-    the session rebinds before the new speaker's turn is delivered.
-    """
-    run_id = str(task_run.id)
-    task = task_run.task
-    scope = sandbox_identity_scope(run_id, task_run.state)
-    try:
-        actor_user = get_task_run_credential_user(task, task_run.state)
-        if actor_user is not None:
-            # Until a refresh records otherwise, the sandbox holds the
-            # boot-time token, which was minted for the task creator.
-            last_identity = get_last_sandbox_identity(scope, "mcp") or task.created_by_id
-            identity_changed = actor_user.id != last_identity
-            if not identity_changed and not should_refresh_mcp_token(scope, actor_user.id):
-                logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
-                return
-            if identity_changed:
-                logger.info(
-                    "refresh_mcp_identity_transition",
-                    run_id=run_id,
-                    previous_user_id=last_identity,
-                    user_id=actor_user.id,
-                )
-        access_token = create_oauth_access_token_for_run(task, task_run.state, scopes=scopes)
-    except Exception as e:
-        logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
-        return
-
-    mcp_configs = get_sandbox_ph_mcp_configs(
-        token=access_token,
-        project_id=task_run.team_id,
-        scopes=scopes,
-        interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        task_id=str(task_run.task_id),
-    )
-    if actor_user and actor_user.id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=task_run.team_id,
-            user_id=actor_user.id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
-
-    if not mcp_configs:
-        # Nothing to push means there is no MCP session to rebind — mark the
-        # window anyway so we don't re-mint a token on every message.
-        if actor_user is not None:
-            _mark_sandbox_session(scope, actor_user.id)
-        logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
-        return
-
-    mcp_servers = [config.to_dict() for config in mcp_configs]
-
-    result = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if result.success:
-        if actor_user is not None:
-            _mark_sandbox_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return
-
-    logger.info(
-        "refresh_mcp_retrying",
-        run_id=run_id,
-        error=result.error,
-        status_code=result.status_code,
-    )
-    time.sleep(REFRESH_RETRY_DELAY_SECONDS)
-    retry: CommandResult = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if retry.success:
-        if actor_user is not None:
-            _mark_sandbox_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return
-
-    logger.warning(
-        "refresh_mcp_failed",
-        run_id=run_id,
-        error=retry.error,
-        status_code=retry.status_code,
-    )
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:

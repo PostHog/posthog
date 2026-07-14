@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from temporalio import activity
 
@@ -97,6 +97,15 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             )
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+
+        # The workflow-start context carries a boot-time snapshot of the run
+        # state, but credential resolution must follow the *current* actor
+        # (multiplayer follow-ups update it mid-run) — re-read it live.
+        try:
+            live_state = TaskRun.objects.values_list("state", flat=True).get(id=ctx.run_id)
+            ctx = replace(ctx, state=live_state)
+        except TaskRun.DoesNotExist:
+            logger.warning("sandbox_credentials_refresh_run_missing", run_id=ctx.run_id)
 
         refreshed_kinds: list[str] = []
         orphaned_kinds: list[str] = []

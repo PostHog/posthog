@@ -165,8 +165,9 @@ class StartAgentServerOutput:
 @dataclass
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
-    # The user the boot-time credentials were minted for, recorded as the
-    # sandbox's initial session identity once the agent server starts.
+    # The user the boot-time credentials (MCP OAuth token, GitHub token) were
+    # minted for, recorded as the sandbox's initial session identities once
+    # the agent server starts.
     actor_user_id: int | None
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
@@ -321,13 +322,16 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
         )
 
-        # Record the sandbox's boot-time session identity and start its
+        # Record the sandbox's boot-time session identities and start the MCP
         # freshness window, so follow-ups from the same actor within
         # MCP_TOKEN_REFRESH_INTERVAL_SECONDS skip the redundant refresh.
         # Keyed on the sandbox id: a replacement sandbox starts unmarked.
-        if params.mcp_configs and params.actor_user_id is not None:
-            mark_mcp_token_issued(sandbox.id, params.actor_user_id)
-            mark_sandbox_identity(sandbox.id, "mcp", params.actor_user_id)
+        if params.actor_user_id is not None:
+            if params.mcp_configs:
+                mark_mcp_token_issued(sandbox.id, params.actor_user_id)
+                mark_sandbox_identity(sandbox.id, "mcp", params.actor_user_id)
+            if ctx.has_github_credentials:
+                mark_sandbox_identity(sandbox.id, "github", params.actor_user_id)
 
         # Persist the effective rtk posture the agent launched with, so terminal
         # analytics can cohort runs by it (the state override alone misses the
