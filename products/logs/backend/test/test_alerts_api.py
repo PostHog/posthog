@@ -947,13 +947,17 @@ class TestLogsAlertAPI(APIBaseTest):
             format="json",
         ).json()["hog_function_ids"]
 
-        # Trying to delete alert A's HogFunctions via alert B's endpoint should fail.
         response = self.client.post(
             self._destinations_delete_url(created_b["id"]),
             {"hog_function_ids": a_ids + b_ids},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
+        message = response.json()["detail"]
+        assert all(hog_function_id in message for hog_function_id in a_ids)
+        assert all(hog_function_id not in message for hog_function_id in b_ids)
+        assert "Refresh the alert and try again." in message
 
     # --- Reset ---
 

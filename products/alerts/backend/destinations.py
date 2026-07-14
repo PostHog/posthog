@@ -17,7 +17,9 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class AlertDestinationOwnershipError(Exception):
-    pass
+    def __init__(self, invalid_hog_function_ids: set[UUID]) -> None:
+        self.invalid_hog_function_ids = tuple(sorted(invalid_hog_function_ids, key=str))
+        super().__init__()
 
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
@@ -42,14 +44,20 @@ def soft_delete_alert_destinations(
 ) -> None:
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
-        updated = HogFunction.objects.filter(
-            team_id=team_id,
-            id__in=unique_ids,
-            template_id__in=list(AlertDestinationTemplate),
-            filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
-        ).update(deleted=True, enabled=False)
-        if updated != len(unique_ids):
-            raise AlertDestinationOwnershipError
+        owned_ids = set(
+            HogFunction.objects.select_for_update()
+            .filter(
+                team_id=team_id,
+                id__in=unique_ids,
+                template_id__in=list(AlertDestinationTemplate),
+                filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+            )
+            .values_list("id", flat=True)
+        )
+        invalid_ids = unique_ids - owned_ids
+        if invalid_ids:
+            raise AlertDestinationOwnershipError(invalid_ids)
+        HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(deleted=True, enabled=False)
 
 
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:

@@ -907,8 +907,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 alert_id=str(alert.id),
                 hog_function_ids=hog_function_ids,
             )
-        except AlertDestinationOwnershipError:
-            raise ValidationError("One or more HogFunctions do not belong to this alert.")
+        except AlertDestinationOwnershipError as error:
+            invalid_ids = ", ".join(str(hog_function_id) for hog_function_id in error.invalid_hog_function_ids)
+            raise ValidationError(
+                {
+                    "hog_function_ids": [
+                        f"These HogFunctions do not belong to this alert: {invalid_ids}. Refresh the alert and try again."
+                    ]
+                }
+            )
 
         report_user_action(
             request.user,

@@ -31,15 +31,22 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
         assert destination.deleted is True
         assert destination.enabled is False
 
-    def test_raises_and_does_not_delete_non_destination_hog_function_with_matching_alert_id(self) -> None:
+    def test_reports_invalid_ids_and_does_not_delete_any_destinations(self) -> None:
+        destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
         other = self._make_hog_function(template_id="template-webhook-custom", alert_id="alert-1")
 
-        with self.assertRaises(AlertDestinationOwnershipError):
-            soft_delete_alert_destinations(team_id=self.team.id, alert_id="alert-1", hog_function_ids=[other.id])
+        with self.assertRaises(AlertDestinationOwnershipError) as error:
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                hog_function_ids=[destination.id, other.id],
+            )
 
-        other.refresh_from_db()
-        assert other.deleted is False
-        assert other.enabled is True
+        assert error.exception.invalid_hog_function_ids == (other.id,)
+        for hog_function in (destination, other):
+            hog_function.refresh_from_db()
+            assert hog_function.deleted is False
+            assert hog_function.enabled is True
 
     def test_deletes_all_destinations_for_alert_only(self) -> None:
         slack_destination = self._make_hog_function(template_id="template-slack", alert_id="alert-1")
