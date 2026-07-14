@@ -1,7 +1,10 @@
 import math
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field as dataclass_field,
+)
 from datetime import datetime, timedelta
 from typing import ClassVar, Optional, Union
 
@@ -21,6 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.models import PropertyDefinition, Team, User
 
@@ -167,6 +171,10 @@ class ConversionGoalProcessor:
     config: MarketingAnalyticsConfig
     # Requesting user, threaded through to enforce per-user property access on the precompute path.
     user: Optional[User] = None
+    # Per-goal timings. HogQLTimings is not thread safe and goals are built in parallel, so each
+    # processor owns a clone (see HogQLTimings.clone_for_subquery); the runner merges them back once
+    # the pool has joined. Defaults to a standalone instance for callers outside the read path.
+    timings: HogQLTimings = dataclass_field(default_factory=HogQLTimings)
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -352,8 +360,10 @@ class ConversionGoalProcessor:
                     team_id=self.team.pk,
                 )
 
-        array_collection = self.build_array_collection_query(additional_conditions)
-        return self.build_attribution_pipeline(array_collection)
+        # Live events scan. Reaching here means the precompute did not serve this goal.
+        with self.timings.measure("ma_goal_events_fallback"):
+            array_collection = self.build_array_collection_query(additional_conditions)
+            return self.build_attribution_pipeline(array_collection)
 
     def is_goal_precomputable(self) -> bool:
         """Goal-level precompute eligibility, independent of the requesting user, date range, or flag.
@@ -487,32 +497,37 @@ class ConversionGoalProcessor:
         window = timedelta(days=self.config.attribution_window_days)
 
         # Touchpoints extend back by the attribution window; conversions only span the query range.
-        touchpoints_result = ensure_precomputed(
-            team=self.team,
-            insert_query=build_touchpoints_precompute_query(),
-            time_range_start=date_from - window,
-            time_range_end=date_to,
-            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
-            table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
-        )
+        # Both ensure_precomputed calls can materialize inline (PG + Redis + ClickHouse) when a slice
+        # is stale, so they are timed separately from the AST work that follows.
+        with self.timings.measure("ma_ensure_touchpoints"):
+            touchpoints_result = ensure_precomputed(
+                team=self.team,
+                insert_query=build_touchpoints_precompute_query(),
+                time_range_start=date_from - window,
+                time_range_end=date_to,
+                ttl_seconds=PRECOMPUTE_TTL_SECONDS,
+                table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+            )
         if not touchpoints_result.ready:
             return None
 
-        conversions_result = ensure_precomputed(
-            team=self.team,
-            insert_query=self.build_conversions_precompute_query(),
-            time_range_start=date_from,
-            time_range_end=date_to,
-            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
-            table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
-        )
+        with self.timings.measure("ma_ensure_conversions"):
+            conversions_result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.build_conversions_precompute_query(),
+                time_range_start=date_from,
+                time_range_end=date_to,
+                ttl_seconds=PRECOMPUTE_TTL_SECONDS,
+                table=LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+            )
         if not conversions_result.ready:
             return None
 
-        array_collection = self._build_array_collection_from_precomputes(
-            touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
-        )
-        return self.build_attribution_pipeline(array_collection)
+        with self.timings.measure("ma_attribution_pipeline_precomputed"):
+            array_collection = self._build_array_collection_from_precomputes(
+                touchpoints_result.job_ids, conversions_result.job_ids, date_from, date_to, window
+            )
+            return self.build_attribution_pipeline(array_collection)
 
     def _build_array_collection_from_precomputes(
         self,

@@ -799,6 +799,11 @@ class DeltaTableHelper:
         time tracks total files — a high partition_count must not let a table accumulate
         tens of thousands of files while staying under the per-partition bar.
 
+        When `partition_count` is None it is derived from the table's actual layout (the
+        distinct file directories in the delta log, no extra I/O) — only md5 partitioning
+        persists a count on the schema, so datetime/numerical-partitioned tables always
+        arrive here with None.
+
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
         healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
@@ -810,6 +815,11 @@ class DeltaTableHelper:
 
         file_uris = await self.get_file_uris()
         total_files = len(file_uris)
+        if partition_count is None:
+            # One directory per partition value; unpartitioned tables collapse to the single
+            # table root. Without this, a partitioned table with no persisted count reads as
+            # one giant partition and trips the per-partition threshold on every run.
+            partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris})
         # Treat unpartitioned tables as one "partition" for the threshold math.
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions
