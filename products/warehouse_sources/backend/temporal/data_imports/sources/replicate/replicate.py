@@ -183,9 +183,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = REPLICATE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive. Redact the token
-    # so it never lands in tracked HTTP logs or samples.
-    session = make_tracked_session(redact_values=(api_key,))
+    # One session reused across every page so urllib3 keeps the connection alive. Redact the token so
+    # it never lands in tracked HTTP logs, and disable capture entirely: prediction responses carry
+    # user-authored model inputs, outputs, and logs that the generic scrubber can't reliably sanitize.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     # Single-request endpoints (bare array / single object) have no pagination or resume state.
     if config.response_shape != "paginated":
