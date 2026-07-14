@@ -64,7 +64,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
         setEvaluationsFilter: (filter: string) => ({ filter }),
         setShowDisabledEvaluations: (show: boolean) => ({ show }),
-        toggleEvaluationDescription: (id: string) => ({ id }),
     }),
 
     reducers({
@@ -120,13 +119,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             true,
             {
                 setShowDisabledEvaluations: (_, { show }) => show,
-            },
-        ],
-        expandedDescriptionIds: [
-            [] as string[],
-            {
-                toggleEvaluationDescription: (state, { id }) =>
-                    state.includes(id) ? state.filter((e) => e !== id) : [...state, id],
             },
         ],
     }),

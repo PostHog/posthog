@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconHide, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -118,6 +119,37 @@ function getEvaluationConfigPreview(evaluation: EvaluationConfig): string {
     return evaluation.evaluation_config.prompt
 }
 
+function EvaluationDescription({ description }: { description: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [isClamped, setIsClamped] = useState(false)
+    const textRef = useRef<HTMLDivElement | null>(null)
+
+    // line-clamp-1 constrains clientHeight to a single line; if scrollHeight exceeds it the text is
+    // truncated and worth a toggle. Only measure while collapsed — expanded, scrollHeight === clientHeight.
+    useEffect(() => {
+        if (textRef.current && !expanded) {
+            setIsClamped(textRef.current.scrollHeight > textRef.current.clientHeight)
+        }
+    }, [description, expanded])
+
+    return (
+        <div className="flex items-start gap-1">
+            <div ref={textRef} className={`text-muted text-sm ${expanded ? '' : 'line-clamp-1'}`}>
+                {description}
+            </div>
+            {(isClamped || expanded) && (
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => setExpanded(!expanded)}
+                    data-attr="toggle-evaluation-description"
+                >
+                    {expanded ? 'Show less' : 'Show more'}
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 function AIObservabilityEvaluationsContent(): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic()
     const metricsLogic = evaluationMetricsLogic()
@@ -127,20 +159,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         evaluationsLoading,
         evaluationsFilter,
         showDisabledEvaluations,
-        expandedDescriptionIds,
         dateFilter,
         providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
-    const {
-        setEvaluationsFilter,
-        setShowDisabledEvaluations,
-        toggleEvaluationDescription,
-        toggleEvaluationEnabled,
-        loadEvaluations,
-        setDates,
-    } = useActions(evaluationsLogic)
+    const { setEvaluationsFilter, setShowDisabledEvaluations, toggleEvaluationEnabled, loadEvaluations, setDates } =
+        useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -160,30 +185,14 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, evaluation) => {
-                const isExpanded = expandedDescriptionIds.includes(evaluation.id)
-                return (
-                    <div className="flex flex-col">
-                        <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
-                            {evaluation.name}
-                        </Link>
-                        {evaluation.description && (
-                            <div className="flex items-start gap-1">
-                                <div className={`text-muted text-sm ${isExpanded ? '' : 'line-clamp-1'}`}>
-                                    {evaluation.description}
-                                </div>
-                                <LemonButton
-                                    size="xsmall"
-                                    onClick={() => toggleEvaluationDescription(evaluation.id)}
-                                    data-attr="toggle-evaluation-description"
-                                >
-                                    {isExpanded ? 'Show less' : 'Show more'}
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
-                )
-            },
+            render: (_, evaluation) => (
+                <div className="flex flex-col">
+                    <Link to={evaluationUrl(evaluation.id)} className="font-semibold text-primary">
+                        {evaluation.name}
+                    </Link>
+                    {evaluation.description && <EvaluationDescription description={evaluation.description} />}
+                </div>
+            ),
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
         {
