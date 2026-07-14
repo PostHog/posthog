@@ -192,6 +192,29 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Field-name/issue-code pairs pulled from a Zod failure — the input-free half
+ *  of {@link formatInputValidationError}, safe to attach to a captured
+ *  `$mcp_tool_call` so a dashboard can localize which parameter agents get
+ *  wrong. Reads only `issue.path`, `issue.code`, and (for unrecognized keys)
+ *  the rejected key names — never `issue.message` or `issue.input`, which
+ *  `reportInput` fills with raw agent values. Deduped and capped to keep event
+ *  cardinality bounded even if an agent sends a pathological payload. */
+export function extractZodValidationDetail(error: z.ZodError): { fields: string[]; codes: string[] } {
+    const fields = new Set<string>()
+    const codes = new Set<string>()
+    for (const issue of error.issues) {
+        codes.add(issue.code)
+        if (issue.code === 'unrecognized_keys') {
+            for (const key of issue.keys) {
+                fields.add(key)
+            }
+            continue
+        }
+        fields.add(issue.path.map(String).join('.') || '(root)')
+    }
+    return { fields: [...fields].slice(0, 25), codes: [...codes].slice(0, 25) }
+}
+
 /** Whether the tool's input schema declares an `output_format` field. */
 function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
     return schema instanceof z.ZodObject && 'output_format' in schema.shape
@@ -510,8 +533,9 @@ export function createExecTool(
                             validation_error: true,
                         })
                         // Typed so the executor's catch skips exception capture and
-                        // classifies it as `validation`, not `internal`.
-                        throw new ToolInputValidationError(message)
+                        // classifies it as `validation`, not `internal`. The structured
+                        // detail rides through to `$mcp_tool_call` field/code properties.
+                        throw new ToolInputValidationError(message, extractZodValidationDetail(validation.error))
                     }
                     input = validation.data as Record<string, unknown>
 

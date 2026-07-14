@@ -18,7 +18,12 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import {
+    createExecTool,
+    extractZodValidationDetail,
+    formatInputValidationError,
+    type ExecInnerCallTracker,
+} from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
@@ -170,6 +175,7 @@ export class ToolExecutor {
         const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
+            void trackToolCall(tool.name, 0, true, state, schemaValidationProperties(validation.error), intentMeta)
             return {
                 content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error) }],
                 isError: true,
@@ -282,6 +288,7 @@ export class ToolExecutor {
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            void trackToolCall('exec', 0, true, state, schemaValidationProperties(validation.error), intentMeta)
             return {
                 content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
                 isError: true,
@@ -442,6 +449,7 @@ export class ToolExecutor {
         const validation = renderUiTool.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
+            void trackToolCall('render-ui', 0, true, state, schemaValidationProperties(validation.error), intentMeta)
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
@@ -486,6 +494,10 @@ interface ToolErrorClassification {
     errorType: ToolErrorType
     /** Upstream HTTP status, when the failure came from a PostHog API error. */
     status?: number
+    /** Offending field path(s) for a validation failure (input-free). */
+    validationFields?: string[]
+    /** Issue/error code(s) for a validation failure. */
+    validationCodes?: string[]
 }
 
 /**
@@ -506,7 +518,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
-        return { errorType: 'validation' }
+        return { errorType: 'validation', validationFields: error.fields, validationCodes: error.codes }
     }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
@@ -517,7 +529,14 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
 
     const apiError = findRecoverableApiError(error)
     if (apiError instanceof PostHogValidationError) {
-        return { errorType: 'validation' }
+        // The PostHog API's own serializer rejected the body. `attr`/`code` are
+        // the structured field/code it returned (never the free-text `detail`,
+        // which can echo raw input).
+        return {
+            errorType: 'validation',
+            ...(apiError.attr ? { validationFields: [apiError.attr] } : {}),
+            ...(apiError.code ? { validationCodes: [apiError.code] } : {}),
+        }
     }
     if (apiError instanceof PostHogApiError && apiError.status === 429) {
         return { errorType: 'rate_limited', status: apiError.status }
@@ -541,5 +560,25 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+        ...validationDetailProperties(classification.validationFields, classification.validationCodes),
+    }
+}
+
+/**
+ * Properties for a schema-level validation rejection that never reached a
+ * handler (the direct `tools/call` path). Emits `$mcp_error_type: 'validation'`
+ * plus the sanitized field/code detail so these failures — previously invisible
+ * to `$mcp_tool_call` — can be sliced by which parameter agents got wrong.
+ */
+function schemaValidationProperties(error: Parameters<typeof extractZodValidationDetail>[0]): Record<string, unknown> {
+    const { fields, codes } = extractZodValidationDetail(error)
+    return { $mcp_error_type: 'validation', ...validationDetailProperties(fields, codes) }
+}
+
+/** Shared shape for the input-free validation detail on `$mcp_tool_call`. */
+function validationDetailProperties(fields?: string[], codes?: string[]): Record<string, unknown> {
+    return {
+        ...(fields?.length ? { $mcp_validation_error_fields: fields } : {}),
+        ...(codes?.length ? { $mcp_validation_error_codes: codes } : {}),
     }
 }

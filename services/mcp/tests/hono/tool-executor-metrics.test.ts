@@ -242,6 +242,23 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
         })
 
+        it('emits $mcp_tool_call with sanitized validation detail on schema rejection', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall({ name: 'strict-tool', arguments: {} }, makeState([{ name: 'strict-tool' }]))
+
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'strict-tool')
+            expect(call?.[2]).toBe(true) // isError
+            expect(call?.[4]).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_validation_error_fields: ['required_field'],
+                $mcp_validation_error_codes: ['invalid_type'],
+            })
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
