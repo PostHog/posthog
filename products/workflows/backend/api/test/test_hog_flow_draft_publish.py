@@ -201,6 +201,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
 
         flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
         draft_urls = {a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"}
         assert draft_urls == {"https://draft-v1.example.com", "https://added.example.com"}
 
@@ -262,6 +263,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
     def test_publish_with_confirm_promotes_draft_and_clears_it(self, _flag):
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
+        assert flow.draft_updated_at is not None
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
@@ -312,6 +314,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         # regardless of who wrote the blob
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
+        assert flow.draft is not None
+        assert flow.draft_updated_at is not None
         flow.draft = {**flow.draft, "actions": [{"id": "bad", "type": "function", "config": {}}]}
         flow.save(update_fields=["draft"])
 
