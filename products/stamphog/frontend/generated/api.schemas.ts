@@ -120,11 +120,6 @@ export const DigestRunStatusEnumApi = {
     Failed: 'failed',
 } as const
 
-/**
- * Rendered digest summary (intro plus per-PR one-liners) posted to Slack.
- */
-export type DigestRunApiSummary = { [key: string]: unknown }
-
 export interface DigestRunApi {
     readonly id: string
     /** ID of the digest channel this run belongs to. */
@@ -137,8 +132,6 @@ export interface DigestRunApi {
     readonly status: DigestRunStatusEnumApi
     /** Number of merged PRs included in the posted digest. */
     readonly pr_count: number
-    /** Rendered digest summary (intro plus per-PR one-liners) posted to Slack. */
-    readonly summary: DigestRunApiSummary
     /** Slack message timestamp of the posted digest, if posted. */
     readonly slack_message_ts: string
     /** Error message if the run failed, blank otherwise. */

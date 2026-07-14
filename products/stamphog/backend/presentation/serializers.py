@@ -10,11 +10,6 @@ from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunSt
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 
 
-@extend_schema_field(OpenApiTypes.OBJECT)
-class _DigestSummaryField(serializers.JSONField):
-    pass
-
-
 class _GateResultSummarySerializer(serializers.Serializer):
     """Allowlisted, content-free slice of ``ReviewRun.gate_result``.
 
@@ -386,10 +381,9 @@ class DigestRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Current state of the digest run (pending, completed, failed).",
     )
-    summary = _DigestSummaryField(
-        read_only=True,
-        help_text="Rendered digest summary (intro plus per-PR one-liners) posted to Slack.",
-    )
+    # The rendered summary is deliberately NOT exposed here: it's generated from each PR's body_excerpt,
+    # so it reproduces repository content a project member without GitHub repo access must not read. It
+    # lives only in the Slack post (whose audience already has channel access).
 
     class Meta:
         model = DigestRun
@@ -398,7 +392,6 @@ class DigestRunSerializer(serializers.ModelSerializer):
             "digest_channel",
             "status",
             "pr_count",
-            "summary",
             "slack_message_ts",
             "error",
             "created_at",

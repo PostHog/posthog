@@ -7602,7 +7602,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-digest-runs-list": {
-        "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, the rendered summary text, and the Slack message timestamp it posted to.",
+        "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message timestamp it posted to. The rendered summary text itself lives only in the Slack post.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog digest runs",

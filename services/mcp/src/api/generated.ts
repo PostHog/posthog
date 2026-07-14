@@ -19165,11 +19165,6 @@ export namespace Schemas {
     }
 
     /**
-     * Rendered digest summary (intro plus per-PR one-liners) posted to Slack.
-     */
-    export type DigestRunSummary = { [key: string]: unknown };
-
-    /**
      * * `pending` - PENDING
      * * `completed` - COMPLETED
      * * `failed` - FAILED
@@ -19195,8 +19190,6 @@ export namespace Schemas {
       readonly status: DigestRunStatusEnum;
       /** Number of merged PRs included in the posted digest. */
       readonly pr_count: number;
-      /** Rendered digest summary (intro plus per-PR one-liners) posted to Slack. */
-      readonly summary: DigestRunSummary;
       /** Slack message timestamp of the posted digest, if posted. */
       readonly slack_message_ts: string;
       /** Error message if the run failed, blank otherwise. */
