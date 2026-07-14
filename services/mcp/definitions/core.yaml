@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+        render_ui:
+            component_import: ../components/Component
+            view_component: Component
+            view_prop: data
     render-ui:
         type: custom
         app_name: PostHog Render UI

@@ -134,6 +134,11 @@ FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
 # silently lose their variant at freeze time. A small unresolvable share is tolerated as
 # deletion/merge noise; beyond this share the freeze is rejected as unable to keep its promise.
 FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE = 0.05
+# Concurrent personhog batch lookups while resolving the exposed set. Deliberately modest: each
+# in-flight RPC can occupy up to 2 connections of a replica's 5-connection bulk Postgres pool, so
+# higher values mostly move the queue server-side. Sized like the other request-path fan-outs
+# (e.g. RUN_WIDGETS_QUERY_CONCURRENCY); 1 falls back to fully sequential resolution.
+FREEZE_EXPOSURE_RESOLVE_CONCURRENCY = 4
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
@@ -2075,7 +2080,12 @@ class ExperimentService:
         unchanged from insert-time resolution (their distinct_id no longer resolves to a cohort
         member either way), and the cohort stays consistent with the count this guard approved.
         """
-        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(self.team.id, person_uuids)
+        # Opt into the concurrent personhog batch fan-out: the exposed set is large (up to
+        # FREEZE_EXPOSURE_MAX_EXPOSED_USERS) and this resolve runs inline in the web request,
+        # so sequential per-batch round trips would dominate the freeze duration.
+        resolved_person_pairs = get_person_ids_and_uuids_by_uuids(
+            self.team.id, person_uuids, concurrency=FREEZE_EXPOSURE_RESOLVE_CONCURRENCY
+        )
         unresolved_count = len(person_uuids) - len(resolved_person_pairs)
         if unresolved_count == 0:
             return resolved_person_pairs

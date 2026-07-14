@@ -10774,15 +10774,46 @@ export namespace Schemas {
       type: S3CompatibleDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig;
+    export type SnowflakeDestinationConfigType = typeof SnowflakeDestinationConfigType[keyof typeof SnowflakeDestinationConfigType];
+
+
+    export const SnowflakeDestinationConfigType = {
+      Snowflake: 'Snowflake',
+    } as const;
+
+    /**
+     * Typed configuration for a Snowflake batch-export destination.
+     *
+     * Account, user, authentication type and credentials may live in a linked Integration (when one is
+     * provided) or inline in this config (legacy). Mirrors the non-credential fields of
+     * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface SnowflakeDestinationConfig {
+      /** Snowflake database to write to. */
+      database: string;
+      /** Snowflake compute warehouse to use. */
+      warehouse: string;
+      /** Schema inside the database containing the destination table. */
+      schema: string;
+      /** Destination table name. */
+      table_name?: string;
+      /**
+         * Optional Snowflake role to assume for the session.
+         * @nullable
+         */
+      role?: string | null;
+      type: SnowflakeDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
      * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-     * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
-     * OpenAPI schema. Secret fields are stripped from `config` on read.
+     * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
+     * typed OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -10801,7 +10832,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10809,7 +10840,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11777,7 +11808,24 @@ export namespace Schemas {
       config: S3CompatibleDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest;
+    export type SnowflakeDestinationRequestType = typeof SnowflakeDestinationRequestType[keyof typeof SnowflakeDestinationRequestType];
+
+
+    export const SnowflakeDestinationRequestType = {
+      Snowflake: 'Snowflake',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Snowflake batch-export destination.
+     */
+    export interface SnowflakeDestinationRequest {
+      type: SnowflakeDestinationRequestType;
+      /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: SnowflakeDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -53917,6 +53965,16 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    /**
+     * * `Snowflake` - Snowflake
+     */
+    export type SnowflakeDestinationRequestTypeEnum = typeof SnowflakeDestinationRequestTypeEnum[keyof typeof SnowflakeDestinationRequestTypeEnum];
+
+
+    export const SnowflakeDestinationRequestTypeEnum = {
+      Snowflake: 'Snowflake',
+    } as const;
+
     export interface SourceConnectLink {
       /** The source type the link is for. */
       source_type: string;
@@ -57806,6 +57864,15 @@ export namespace Schemas {
          * @maxLength 120
          */
       home_quick_action?: string;
+    }
+
+    export interface TaskRunCancelRequest {
+      /**
+         * Optional reason for the cancellation, recorded on the run and shown to run watchers.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
     }
 
     /**

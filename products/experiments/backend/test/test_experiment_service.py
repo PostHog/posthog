@@ -3253,7 +3253,9 @@ class TestExperimentService(APIBaseTest):
             # the personless guard doesn't reject these unrelated scenarios.
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
@@ -3592,7 +3594,7 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, batch: [
+                new=lambda team_id, batch, **kwargs: [
                     (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
                 ],
             ),
@@ -3629,7 +3631,9 @@ class TestExperimentService(APIBaseTest):
             ),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort._insert_resolved_batch",
@@ -3743,7 +3747,9 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
@@ -3781,7 +3787,9 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
