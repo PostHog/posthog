@@ -589,7 +589,6 @@ doesn't conflict with concurrent PRs.
 - google_workspace_admin_reports
 - grafana
 - greythr
-- groq
 - growthbook
 - gumloop
 - gusto
