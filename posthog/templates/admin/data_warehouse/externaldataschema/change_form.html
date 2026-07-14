@@ -364,7 +364,9 @@
                 <strong>{{ snapshot_retention_value }} {{ snapshot_retention_mode }}</strong>.
                 Pruning only runs at sync time, so a paused, failing, or idle schema can hold
                 <em>orphaned</em> snapshots &mdash; ones past the retention window that haven't been
-                pruned yet. Trigger a prune below to reclaim that storage without a full re-sync.
+                pruned yet. Trigger a prune below to reclaim that Delta storage without a full re-sync.
+                The pruned snapshots stop being queryable once the next sync rebuilds the table's
+                queryable folder.
             </p>
             {% if snapshot_inventory_error %}
                 <p class="help" style="color: red;">

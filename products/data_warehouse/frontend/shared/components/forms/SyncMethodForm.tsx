@@ -158,9 +158,13 @@ export const getSaveDisabledReason = (
         return 'You must select an append field'
     }
 
-    // Retention 0 is valid (plain overwrite); only an out-of-range positive value blocks save.
-    if (syncType === 'full_refresh' && retentionValue > 365) {
-        return 'Keep at most 365 snapshots (or days)'
+    // Retention 0 is valid (plain overwrite); reject anything that isn't a whole number in [0, 365] so
+    // Save is never enabled on a value the API (an integer field capped at 365) would then reject.
+    if (
+        syncType === 'full_refresh' &&
+        (!Number.isInteger(retentionValue) || retentionValue < 0 || retentionValue > 365)
+    ) {
+        return 'Snapshot retention must be a whole number between 0 and 365'
     }
 }
 
@@ -627,6 +631,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         type="number"
                                         min={0}
                                         max={365}
+                                        step={1}
                                         value={retentionValue}
                                         onChange={(newValue) => setRetentionValue(newValue ?? 0)}
                                         className="w-24"

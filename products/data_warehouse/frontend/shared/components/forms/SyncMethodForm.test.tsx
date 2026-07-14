@@ -35,13 +35,16 @@ describe('SyncMethodForm', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
     })
 
-    // Retention 0 is valid (plain overwrite full refresh); only an out-of-range positive value blocks
-    // save so we never PATCH a config the backend would reject.
+    // Retention 0 is valid (plain overwrite full refresh); a non-integer or out-of-range value blocks
+    // save so we never PATCH a config the backend (an integer field, max 365) would reject.
+    const RETENTION_RANGE_MSG = 'Snapshot retention must be a whole number between 0 and 365'
     it.each([
         ['zero → allowed (overwrite)', 0, undefined],
         ['positive → allowed', 3, undefined],
         ['at max → allowed', 365, undefined],
-        ['over max → blocked', 366, 'Keep at most 365 snapshots (or days)'],
+        ['over max → blocked', 366, RETENTION_RANGE_MSG],
+        ['fractional → blocked', 3.5, RETENTION_RANGE_MSG],
+        ['negative → blocked', -1, RETENTION_RANGE_MSG],
     ])('save disabled reason for full refresh: %s', (_, retentionValue, expected) => {
         expect(getSaveDisabledReason('full_refresh', null, null, retentionValue)).toBe(expected)
     })

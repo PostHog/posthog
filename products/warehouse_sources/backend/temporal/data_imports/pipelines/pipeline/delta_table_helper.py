@@ -849,7 +849,18 @@ class DeltaTableHelper:
             f"prune_snapshots: deleting {len(prunable)} expired snapshot(s) with predicate {predicate}"
         )
         await asyncio.to_thread(table.delete, predicate)
-        await self.vacuum_table()
+        # Vacuum only reclaims the now-tombstoned files; it is NOT what makes the delete take effect. Once
+        # the delete commit lands the snapshots are gone from the Delta log, so we must report them pruned
+        # even if the vacuum fails — the caller keys the queryable-folder refresh off this count, and the
+        # refreshed Delta file list already excludes the tombstoned files. Swallowing a failed delete here
+        # (returning 0) would instead let the caller copy stale files into the queryable folder.
+        try:
+            await self.vacuum_table()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.aexception(
+                f"prune_snapshots: vacuum after delete failed (files left to a later vacuum): {e}"
+            )
         return len(prunable)
 
     async def snapshot_inventory(self) -> list[datetime]:
