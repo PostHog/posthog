@@ -78,48 +78,46 @@ pub async fn process_batch(
     )
     .await?;
 
-    if let Some(ref service) = state.event_restriction_service {
-        let pipeline = CapturePipeline::builder()
-            .chunk_step(ApplyRestrictions::new(
-                service.clone(),
-                context.api_token.clone(),
-                context.server_received_at.timestamp(),
-            ))
-            .build();
-        super::pipeline::run_in_place(&pipeline, &mut events).await;
-    }
-
-    {
-        let pipeline = CapturePipeline::builder()
-            .step(ApplyHistoricalRerouting::new(
-                state.historical_cfg,
-                Arc::new(RequestContext::clone(context)),
-            ))
-            .build();
-        super::pipeline::run_in_place(&pipeline, &mut events).await;
-    }
-
+    // The analytics policy phase as one framework pipeline, in the original v1
+    // order: restrictions → historical rerouting → overflow stamping → token:
+    // distinct_id limits. Each step stamps per-event state and always continues
+    // (capture never removes an event; drops/redirects are Destination/
+    // EventResult stamping — see `super::pipeline`). Steps present only when
+    // their dep is configured, exactly matching the previous per-check gating.
+    //
+    // Built per batch: the steps close over per-request context (token, server
+    // time) and request-scoped deps, which the framework's `'static` step bound
+    // forbids borrowing. A shared `Arc<RequestContext>` snapshot avoids cloning
+    // the context per step (see POC_NOTES §capture).
+    //
     // Overflow and global rate limit are independent checks on different axes:
     // overflow reroutes bursting keys; global rate limit disables person processing.
+    let ctx_snapshot = Arc::new(RequestContext::clone(context));
+    let mut policy = CapturePipeline::builder();
+    if let Some(ref service) = state.event_restriction_service {
+        policy = policy.chunk_step(ApplyRestrictions::new(
+            service.clone(),
+            context.api_token.clone(),
+            context.server_received_at.timestamp(),
+        ));
+    }
+    policy = policy.step(ApplyHistoricalRerouting::new(
+        state.historical_cfg,
+        ctx_snapshot.clone(),
+    ));
     if let Some(ref limiter) = state.overflow_limiter {
-        let pipeline = CapturePipeline::builder()
-            .step(ApplyOverflowStamping::new(
-                limiter.clone(),
-                Arc::new(RequestContext::clone(context)),
-            ))
-            .build();
-        super::pipeline::run_in_place(&pipeline, &mut events).await;
+        policy = policy.step(ApplyOverflowStamping::new(
+            limiter.clone(),
+            ctx_snapshot.clone(),
+        ));
     }
-
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-        let pipeline = CapturePipeline::builder()
-            .chunk_step(ApplyTokenDistinctIdLimits::new(
-                limiter.clone(),
-                Arc::new(RequestContext::clone(context)),
-            ))
-            .build();
-        super::pipeline::run_in_place(&pipeline, &mut events).await;
+        policy = policy.chunk_step(ApplyTokenDistinctIdLimits::new(
+            limiter.clone(),
+            ctx_snapshot.clone(),
+        ));
     }
+    super::pipeline::run_in_place(&policy.build(), &mut events).await;
 
     histogram!(
         CAPTURE_V1_PROCESSING_DURATION_SECONDS,

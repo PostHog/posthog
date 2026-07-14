@@ -105,3 +105,99 @@ test) were updated. Everything else — the manager, repository, types, and thei
 42 tests — moved unchanged (only the moved `manager.rs` test-module import paths
 were rewritten from `crate::event_restrictions::…` to `crate::…`). Test-only deps
 `rand` (mock repo key suffixes) and `chrono` are declared on the new crate.
+
+## §capture — capture v1 policy phase on the framework (Phase B1)
+
+Capture v1's analytics policy phase (`rust/capture/src/v1/analytics/process.rs`)
+is rebuilt as framework steps. The adapter is
+`rust/capture/src/v1/analytics/pipeline.rs` (`CaptureFx`, `CaptureOutputs`,
+`run_in_place`). All work is inside `rust/capture`; nothing in `rust/common/*`
+changed except this note.
+
+### Parity strategy: steps wrap the unchanged `apply_*` functions
+
+Hard constraint: existing v1 tests pass **unmodified** (that is the parity
+proof). To guarantee byte-for-byte parity, the ported policy functions
+(`apply_restrictions`, `apply_historical_rerouting`, `apply_overflow_stamping`,
+`apply_token_distinct_id_limits`) keep their exact signatures and bodies. The
+framework steps are thin wrappers that call them:
+
+- **Async, whole-batch aggregate** (`ApplyRestrictions`,
+  `ApplyTokenDistinctIdLimits`) → `ChunkStep`; the wrapper calls the `apply_*`
+  fn on the whole chunk (`&mut Vec` → `&mut [WrappedEvent]`).
+- **Sync, per-event** (`ApplyHistoricalRerouting`, `ApplyOverflowStamping`) →
+  `Step`; the wrapper applies the `apply_*` fn to a one-event slice via
+  `std::slice::from_mut(&mut event)`.
+
+The `apply_*` fns remain the single source of truth; their tests exercise them
+directly and are untouched. Consecutive sync steps (historical, overflow) fuse
+into one executor segment, so their per-event order becomes
+`h(e1),o(e1),h(e2),o(e2)` rather than `h(all),o(all)`. This is behavior-identical
+here: both steps are purely per-event, their metrics are commutative counters,
+and overflow's `destination == AnalyticsMain` guard makes it order-independent
+(the code already noted this invariant).
+
+### Verdict → per-event state mapping (the adapter contract)
+
+Framework verdicts are `Continue | Drop | Dlq | Redirect`. Capture never
+*removes* an event from the batch (v1 keeps every event in the response slice and
+skips by `EventResult`), so:
+
+- **Capture steps only ever return `Continue`.** A logical drop is realized as a
+  `Continue` whose event was stamped `EventResult::Drop` + `Destination::Drop` +
+  a `details` tag — "framework Drop ⇒ v1 per-event Drop result, NOT removal".
+- **Redirects are `Destination` stamping, not framework `Redirect`.** Force-
+  overflow / DLQ / custom-topic set `Destination` on the event; the unchanged
+  sink layer turns that into the actual topic. Capture therefore never emits a
+  framework redirect, and its `Outputs` type is `NoOutputs` (the compiler proves
+  capture never redirects at the framework level).
+
+Consequence: `run_in_place` moves the owned `Vec<WrappedEvent>` through
+`Pipeline::run_chunk` and back via `into_survivors()`. Because every verdict is
+`Continue`, survivors == inputs (same order, same length); a `debug_assert`
+guards the invariant. Capture deliberately does **not** feed `Drop`/`Redirect`
+verdicts to `run_chunk` — those discard the event value (`ItemOutcome::Terminated`
+carries only a `Verdict`, not the `WrappedEvent`), which would lose the event.
+
+### `fail_open()` is not applied — steps are intrinsically infallible
+
+The plan asks that steps which fail open be wrapped `fail_open()`. Capture's
+steps never return `StepError` (they call infallible `apply_*` fns), so they
+already satisfy the capture-profile "infallible steps only" constraint without a
+wrapper. The restriction fail-open behavior lives *inside*
+`EventRestrictionService` (it returns an empty restriction set when its config is
+stale), not at the step boundary. Independently, the framework `fail_open()`
+combinator requires `In: Clone`, and `WrappedEvent` is **not** `Clone` (it holds
+`Box<RawValue>`), so the combinator is inapplicable to capture events regardless
+— intrinsic infallibility is the right fit here.
+
+### Pipeline built per batch, not once at setup
+
+The design (§3.9) hoped to construct the pipeline once at setup. The framework's
+`Step: 'static` bound forbids steps borrowing request-scoped data, so steps own
+their deps. Per-request inputs — `token`, `server_received_at`, the full
+`RequestContext` (needed by `partition_key`) — are only available per batch, so
+the pipeline is built per batch. Deps are cheap to capture: services are `Clone`
+(Arc-backed: `EventRestrictionService`, `Arc<OverflowLimiter>`,
+`Arc<GlobalRateLimiter>`), `HistoricalConfig` is `Copy`, and a single
+`Arc<RequestContext>` snapshot is shared across the sync steps rather than cloned
+per step. Steps are present in the pipeline only when their dep is configured,
+matching the previous per-check `if let Some(..)` gating exactly.
+
+### Not ported — left as plain functions (gate-phase / validation)
+
+Per §3.9's gate-vs-policy split and the plan's B1.5 note, these stay plain
+functions:
+
+- `validate_batch`, `validate_events`, `normalize_timestamp` — request/validation
+  phase that builds the `WrappedEvent`s the policy phase consumes.
+- `apply_gateway_provenance` — pre-quota signature verification (gate-flavored:
+  it fails *closed*, dropping unparseable forged-marker events).
+- `apply_quota_limits` (quota limiter shim) — billing gate; async and fallible
+  (`?` propagates a request-level error), i.e. request-gate-flavored rather than
+  a per-event fail-open policy step. Modeling it as a `Gate` (§3.9) is future
+  work.
+
+`process_batch` now reads as: validate → provenance → quota → **one composed
+policy pipeline** (restrictions → historical → overflow → token:distinct_id
+limits) → serialize → publish.
