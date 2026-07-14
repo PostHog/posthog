@@ -2,7 +2,7 @@
 # principal (Slack/Discord/HTTP agent_user) authenticated, via the agent's
 # authoritative provider, AS a canonical identity (another agent_user keyed
 # identity:<provider>/subject). Resolved at admission so a session only runs
-# once a verified identity exists. See docs/identity-admission-rebuild.md.
+# once a verified identity exists. See docs/identity-and-tools.md.
 
 import django.db.models.manager
 import django.db.models.functions.datetime
