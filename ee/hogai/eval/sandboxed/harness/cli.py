@@ -20,9 +20,9 @@ DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAUL
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
-DEFAULT_DEMO_COPY_CONCURRENCY = 4
-"""Concurrent ClickHouse demo-data copies. Independent of sandbox slots: with
-Modal the sandboxes are unbounded, but the copies still hit local ClickHouse."""
+TEAM_SETUP_CONCURRENCY = 1
+"""Per-case team setups allowed at once. Setup copies ClickHouse data and some
+case seeders write there directly, so overlapping setups can exhaust local RAM."""
 
 UNBOUNDED_SANDBOXES = 1 << 20
 """Semaphore value standing in for "no limit" — larger than any case count."""
@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--case-timeout",
         type=int,
         default=None,
-        help=f"Per-case budget in seconds, counted from sandbox acquisition (default: {_default_case_timeout()}).",
+        help=f"Agent-run budget in seconds, started after team setup (default: {_default_case_timeout()}).",
     )
     parser.add_argument(
         "--trials",

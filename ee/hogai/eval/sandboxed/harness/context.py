@@ -47,16 +47,14 @@ class EvalContext:
     sandbox_slots: asyncio.Semaphore
     """The one global limiter on concurrently live sandboxes, shared by every suite."""
 
-    demo_slots: asyncio.Semaphore
-    """Bounds concurrent ClickHouse demo-data copies, which local ClickHouse cannot
-    absorb at the same width as remote sandboxes."""
+    team_setup_slots: asyncio.Semaphore
+    """Serializes team cloning and case seeders to protect local ClickHouse RAM."""
 
     reporter: ProgressReporter
     """Owns all terminal output and the ``eval_results.jsonl`` export."""
 
     per_case_timeout_seconds: int
-    """Budget for a single case, counted from sandbox-slot acquisition — never
-    from enqueue, so queueing behind the semaphore can't consume it."""
+    """Budget for the agent run, started after team setup so queueing cannot consume it."""
 
     trials: int
     """Times each case runs. Agents are stochastic, so N runs per case measure

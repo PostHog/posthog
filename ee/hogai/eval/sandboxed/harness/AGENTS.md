@@ -18,6 +18,7 @@ If you add an import to one of those modules, check that `--list` still runs.
 - **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our sandbox semaphore, so it would kill cases that never got a sandbox. The budget belongs in the `asyncio.wait_for` inside the slot.
 - **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that `ctx.sandbox_slots` is the only limiter.
 - **Acquire `ctx.sandbox_slots` exactly once per case**, around only the sandbox-owning window. It is not reentrant; a second acquisition inside the first deadlocks.
+- Hold `ctx.team_setup_slots` across both the demo-data clone and optional case setup hook. Some setup hooks write directly to ClickHouse, so releasing it between those phases defeats the RAM guard.
 - Keep scoring, log parsing, and span building _outside_ the slot. A sandbox that is being scored is a sandbox that someone else could be using.
 - Every sync Django ORM call reached from async code goes through `asyncio.to_thread`. Do not set `DJANGO_ALLOW_ASYNC_UNSAFE` to make an error go away.
 
@@ -59,11 +60,11 @@ After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18
 
 Three layers tear a case's sandbox down, outermost last:
 
-- A finished case terminates its own sandbox as the workflow completes.
-- A timed-out or errored case signals its `ProcessTaskWorkflow` (`complete_task` with a failed status, falling back to a hard cancel) so the agent stops burning tokens and the sandbox stops billing — the workflow's own `cleanup_sandbox` runs, so this is provider-agnostic and covers Modal, where there is no local container to reap.
-- `provider.cleanup_case(task_id)` runs after every case as a per-case safety net for teardown the workflow may have lagged on — Docker reclaims the case's container by name, Modal is a no-op (the workflow signal already covers it).
+- Every case signals its `ProcessTaskWorkflow` with a terminal status and waits for the workflow result, which includes the workflow's own `cleanup_sandbox` call.
+- If the workflow does not finish within the completion grace period, the runner cancels it and waits once more. An otherwise successful case becomes an infrastructure error when neither wait confirms a terminal state; existing failures and timeouts keep their original outcome.
+- `provider.cleanup_case(task_id)` then runs as a per-case safety net. Docker reclaims the case's container by name, while Modal terminates sandboxes carrying that exact `task_id` tag.
 
-`provider.cleanup()` (via `atexit`) is the end-of-run safety net, sweeping anything the above missed — leftover Docker containers by name, and leftover Modal sandboxes under the eval app (so they don't idle to their TTL).
+`provider.cleanup()` runs through the normal `ExitStack` and through `atexit` as an interruption fallback, sweeping anything the above missed: leftover Docker containers by name and leftover Modal sandboxes under the eval app.
 Both sweeps are scoped to this run's own tasks: the runner registers each task id via `provider.register_task`, and cleanup filters on that set — by container name on Docker, by the `task_id` sandbox tag on Modal.
 So a dev-stack task sandbox or a second concurrent eval run sharing the provider is never reaped, and a run that started nothing sweeps nothing.
 

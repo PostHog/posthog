@@ -11,7 +11,7 @@ The sandboxed evals need heavy shared infrastructure: a committed test database,
 Under pytest that infrastructure lived in session fixtures, and suites ran strictly one at a time, with Braintrust parallelizing only _within_ a suite.
 Wall-clock was dominated by suites queueing behind each other while sandbox capacity sat idle.
 
-The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds total load with one global semaphore.
+The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds sandbox and team-setup load with shared semaphores.
 Braintrust remains the eval engine and reporting backend; it just no longer controls scheduling.
 
 ## Modules
@@ -25,7 +25,7 @@ Braintrust remains the eval engine and reporting backend; it just no longer cont
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup. |
 | `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                      |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                            |
-| `live_server.py`   | `EvalLiveServer`, a session-lifetime Django `LiveServerThread`.                                                      |
+| `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                             |
 | `services.py`      | Starts the LLM gateway, MCP server, and personhog subprocesses; builds local skills.                                 |
 | `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                            |
 | `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                      |
@@ -44,7 +44,7 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
    The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
-4. `EvalLiveServer` binds `0.0.0.0:18000`.
+4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
 5. The LLM gateway (`:13308`) and MCP server (`:18787`) start as subprocesses.
 6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding on a new `@posthog/agent` version or Dockerfile change). Modal only: ngrok tunnels come up, exposing the callback services publicly.
 7. Local skills are built. Docker bind-mounts them; Modal bakes them into the image it builds.
@@ -63,22 +63,24 @@ One `asyncio.Semaphore` on `EvalContext` bounds live sandboxes across every suit
 Two consequences worth internalizing:
 
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
-- A second, smaller `demo_slots` semaphore bounds concurrent ClickHouse demo-data copies. On modal the sandbox semaphore is effectively unbounded, so it can no longer double as that protection.
+- A second `team_setup_slots` semaphore has one permit and covers the full demo-data clone plus optional case seeder. This prevents setup-time ClickHouse queries from overlapping even when Modal sandbox capacity is unbounded.
+- The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
 
 There are two event loops. The main loop owns the Temporal dev server, the suites, and the reporter.
 The Temporal worker keeps its own loop on a daemon thread, and the two communicate only through `loop.call_soon_threadsafe`.
 
 ## Provider differences
 
-|                     | docker                        | modal                    |
-| ------------------- | ----------------------------- | ------------------------ |
-| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_DOCKER`           |
-| Service URLs        | `host.docker.internal:<port>` | ngrok public URLs        |
-| `start()`           | base-image freshness check    | ngrok tunnels            |
-| Local skills        | bind-mounted                  | baked into the image     |
-| Default sandbox cap | 4                             | unbounded                |
-| Sandbox TTL         | default                       | case timeout plus margin |
-| End-of-run cleanup  | container sweep               | none needed locally      |
+|                     | docker                        | modal                     |
+| ------------------- | ----------------------------- | ------------------------- |
+| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_DOCKER`            |
+| Service URLs        | `host.docker.internal:<port>` | ngrok public URLs         |
+| `start()`           | base-image freshness check    | ngrok tunnels             |
+| Local skills        | bind-mounted                  | baked into the image      |
+| Default sandbox cap | 4                             | unbounded                 |
+| Sandbox TTL         | default                       | case timeout plus margin  |
+| Per-case safety net | container sweep               | task-tagged sandbox sweep |
+| End-of-run cleanup  | container sweep               | task-tagged sandbox sweep |
 
 `MODAL_DOCKER` is the same `ModalSandbox` class under a dedicated Modal app name, so local DEBUG image builds do not pollute the production app's image cache.
 

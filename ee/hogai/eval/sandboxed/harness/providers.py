@@ -307,6 +307,10 @@ class ModalProviderStrategy(SandboxProviderStrategy):
         # would reap a slow case's sandbox exactly as it was about to finish.
         return per_case_timeout_seconds + 10 * 60
 
+    def cleanup_case(self, task_id: str) -> None:
+        if self._sandbox_app_name:
+            cleanup_modal_eval_sandboxes(self._sandbox_app_name, {task_id})
+
     def cleanup(self) -> None:
         # A finished case terminates its own sandbox; sweep the app for any that a
         # timeout, crash, or Ctrl-C left running so they don't idle until their TTL.

@@ -19,7 +19,7 @@ from posthog.ph_client import get_client
 
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
-from .cli import DEFAULT_DEMO_COPY_CONCURRENCY, HarnessOptions
+from .cli import TEAM_SETUP_CONCURRENCY, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
@@ -54,7 +54,7 @@ class SandboxedEvalHarness:
     Two phases. The sync bootstrap runs before any event loop exists, because
     Django's async-safety guard rejects sync ORM calls from an async context and
     most of the setup is ORM-heavy. The async phase owns Temporal, the suites,
-    and the single global sandbox semaphore that bounds total load.
+    and the shared semaphores that bound sandbox load and serialize team setup.
     """
 
     def __init__(self, options: HarnessOptions) -> None:
@@ -110,6 +110,7 @@ class SandboxedEvalHarness:
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
         atexit.register(self.provider.cleanup)
+        self._stack.callback(self.provider.cleanup)
 
         database = EvalDatabase(keepdb=not self.options.create_db)
         database.setup()
@@ -223,7 +224,7 @@ class SandboxedEvalHarness:
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes),
-            demo_slots=asyncio.Semaphore(DEFAULT_DEMO_COPY_CONCURRENCY),
+            team_setup_slots=asyncio.Semaphore(TEAM_SETUP_CONCURRENCY),
             reporter=ProgressReporter(total_suites=suite_count),
             per_case_timeout_seconds=self.options.per_case_timeout_seconds,
             trials=self.options.trials,

@@ -9,6 +9,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from temporalio.client import WorkflowFailureError
+
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_task_and_trigger, poll_for_turn
@@ -30,24 +32,47 @@ __all__ = ["run_eval_case"]
 TEST_TITLE_RE = re.compile(r"\b(pytest|tests?)\b")
 LINT_TITLE_RE = re.compile(r"\b(ruff|lint)\b")
 
+WORKFLOW_COMPLETION_GRACE_SECONDS = 60
+WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
 
-async def _end_workflow(handle: WorkflowHandle, reason: str) -> None:
-    """Shut the case's ``ProcessTaskWorkflow`` down so a timed-out or errored case
-    stops burning LLM tokens and its sandbox stops billing.
 
-    Signals ``complete_task`` with a failed status (the same path the multi-turn
-    session's ``end`` takes), falling back to a hard cancel if the signal can't be
-    delivered. Either route runs the workflow's own ``cleanup_sandbox``, so this is
-    provider-agnostic. A double failure only warns — teardown must not mask the
-    original error being propagated.
-    """
+class WorkflowCleanupError(RuntimeError):
+    pass
+
+
+async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: int) -> bool:
     try:
-        await handle.signal(ProcessTaskWorkflow.complete_task, args=["failed", reason])
+        await asyncio.wait_for(handle.result(), timeout=timeout_seconds)
+    except TimeoutError:
+        return False
+    except WorkflowFailureError:
+        # Cancellation and workflow failure are terminal states. The workflow's
+        # finally block has run before Temporal publishes either result.
+        return True
     except Exception:
-        try:
-            await handle.cancel()
-        except Exception:
-            logger.warning("Failed to tear down workflow for eval case (reason=%s)", reason, exc_info=True)
+        logger.warning("Could not confirm eval workflow completion", exc_info=True)
+        return False
+    return True
+
+
+async def _finish_workflow(handle: WorkflowHandle, *, status: str, reason: str | None) -> bool:
+    """Request a terminal state and wait for the workflow's sandbox cleanup."""
+    signaled = False
+    try:
+        await handle.signal(ProcessTaskWorkflow.complete_task, args=[status, reason])
+        signaled = True
+    except Exception:
+        logger.warning("Could not signal eval workflow status=%s", status, exc_info=True)
+
+    if signaled and await _wait_for_workflow_terminal(handle, WORKFLOW_COMPLETION_GRACE_SECONDS):
+        return True
+
+    try:
+        await handle.cancel()
+    except Exception:
+        logger.warning("Could not cancel eval workflow after status=%s", status, exc_info=True)
+
+    return await _wait_for_workflow_terminal(handle, WORKFLOW_CANCELLATION_GRACE_SECONDS)
 
 
 @dataclass
@@ -65,15 +90,17 @@ async def run_eval_case(
 ) -> EvalCaseResult:
     """Run an eval case using the full Task -> temporal workflow -> log polling pipeline.
 
-    On any failure — including the ``CancelledError`` the caller's ``wait_for``
-    timeout raises into this coroutine — the case's workflow is signalled to shut
-    down before the exception propagates, so no agent or sandbox is left running.
+    The function returns only after the workflow has reached a terminal state, so
+    its sandbox cleanup cannot lag behind a successful case. Failures and caller
+    cancellation preserve their original outcome even when cleanup cannot be
+    confirmed.
     """
     trace_id = str(uuid.uuid4())
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
     task = None
     handle: WorkflowHandle | None = None
+    completion_task: asyncio.Task[bool] | None = None
     try:
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
@@ -98,19 +125,37 @@ async def run_eval_case(
             last_message or "(none)",
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
+        completion_task = asyncio.create_task(_finish_workflow(handle, status="completed", reason=None))
+        cleanup_confirmed = await asyncio.shield(completion_task)
+        if not cleanup_confirmed:
+            raise WorkflowCleanupError(
+                f"Eval case '{case.name}' finished, but its workflow cleanup could not be confirmed"
+            )
         return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log)
     except (Exception, asyncio.CancelledError) as e:
         # CancelledError is how the caller's asyncio.wait_for timeout reaches this
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
-        if handle is not None:
-            # Shield so a re-firing cancel can't abort the shutdown signal mid-flight.
-            await asyncio.shield(_end_workflow(handle, reason=f"eval case '{case.name}' failed: {e}"))
+        cleanup_confirmed = False
+        if completion_task is not None:
+            # A case timeout can arrive while successful workflow cleanup is
+            # already running. Let that bounded task settle instead of sending a
+            # conflicting failed completion signal.
+            cleanup_confirmed = await asyncio.shield(completion_task)
+        elif handle is not None and not isinstance(e, WorkflowCleanupError):
+            cleanup_confirmed = await asyncio.shield(
+                _finish_workflow(handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
+            )
+        if handle is not None and not cleanup_confirmed:
+            logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
         raise
     finally:
         if task is not None:
-            await asyncio.to_thread(provider.cleanup_case, str(task.id))
+            try:
+                await asyncio.to_thread(provider.cleanup_case, str(task.id))
+            except Exception:
+                logger.warning("Provider cleanup failed for eval task %s", task.id, exc_info=True)
 
 
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:

@@ -34,12 +34,23 @@ async def start_temporal_env() -> WorkflowEnvironment:
     Awaited on the harness's main event loop, so eval workflows and the local
     dev server share one loop instead of the fixture's private throwaway loop.
     """
-    env = await WorkflowEnvironment.start_local(
-        namespace=settings.TEMPORAL_NAMESPACE,
-        ip="127.0.0.1",
-        port=None,
-        dev_server_log_level="warn",
-    )
+    # Hogli loads the dev OTLP exporter config, but the eval harness does not
+    # start a collector. Disable trace export only while the Temporal child is
+    # spawned, then restore the parent process environment immediately.
+    previous_traces_exporter = os.environ.get("OTEL_TRACES_EXPORTER")
+    os.environ["OTEL_TRACES_EXPORTER"] = "none"
+    try:
+        env = await WorkflowEnvironment.start_local(
+            namespace=settings.TEMPORAL_NAMESPACE,
+            ip="127.0.0.1",
+            port=None,
+            dev_server_log_level="warn",
+        )
+    finally:
+        if previous_traces_exporter is None:
+            os.environ.pop("OTEL_TRACES_EXPORTER", None)
+        else:
+            os.environ["OTEL_TRACES_EXPORTER"] = previous_traces_exporter
     host, port = temporal_client_target(env)
     logger.info("Sandboxed eval Temporal server ready at %s:%s namespace=%s", host, port, settings.TEMPORAL_NAMESPACE)
     return env

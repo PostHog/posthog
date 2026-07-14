@@ -184,23 +184,22 @@ class _SandboxedEvalRun:
         ctx = self.ctx
         seed_result: dict[str, Any] = {}
         async with ctx.sandbox_slots:
-            # ``ctx.demo_slots`` is a separate, smaller semaphore bounding
-            # concurrent ClickHouse demo-data copies. With Modal the sandbox
-            # semaphore is effectively unbounded, so it can no longer double
-            # as that protection.
-            async with ctx.demo_slots:
+            # Team cloning and some case seeders both write to ClickHouse. Keep
+            # the full setup phase serial even when Modal makes sandbox capacity
+            # effectively unbounded.
+            async with ctx.team_setup_slots:
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
                 sandbox_context = await asyncio.to_thread(ctx.demo_data.make_context, eval_case.name)
-            if original_case is not None and original_case.setup is not None:
-                try:
-                    seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                except Exception:
-                    logger.exception("Setup hook failed for '%s'", eval_case.name)
-                    raise
-            # Budget the agent run from slot acquisition, so time spent queued
-            # on the sandbox semaphore can never eat into a case's timeout.
+                if original_case is not None and original_case.setup is not None:
+                    try:
+                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
+                    except Exception:
+                        logger.exception("Setup hook failed for '%s'", eval_case.name)
+                        raise
+            # Start the agent budget after team setup, so neither semaphore wait
+            # nor the ClickHouse copy can consume it.
             result = await asyncio.wait_for(
                 run_eval_case(eval_case, sandbox_context, provider=ctx.provider_strategy),
                 timeout=ctx.per_case_timeout_seconds,
@@ -427,7 +426,8 @@ async def SandboxedEval(
 
     Everything the suite needs (demo data, analytics client, case filter,
     concurrency limits, reporter) comes off ``ctx``; suites run concurrently on
-    one event loop, so total sandbox load is bounded by ``ctx.sandbox_slots``.
+    one event loop, with sandbox load bounded by ``ctx.sandbox_slots`` and team
+    setup serialized by ``ctx.team_setup_slots``.
     """
     run = _SandboxedEvalRun(
         experiment_name=experiment_name,
