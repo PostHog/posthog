@@ -1,9 +1,22 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type { Plugin } from 'vite'
 
 function copyFile(from: string, to: string): void {
     try {
+        // Skip when the destination already matches the source (same size, not older) —
+        // this runs on every dev-server boot (twice: configureServer and buildStart), and
+        // the recorder/array bundles plus sourcemaps are megabytes.
+        const fromStat = statSync(from)
+        try {
+            const toStat = statSync(to)
+            if (toStat.size === fromStat.size && toStat.mtimeMs >= fromStat.mtimeMs) {
+                return
+            }
+        } catch {
+            // Destination missing — copy it
+        }
+
         // Ensure target directory exists
         const toDir = dirname(to)
         if (!existsSync(toDir)) {

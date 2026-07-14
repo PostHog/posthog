@@ -1,29 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, join, relative, resolve } from 'path'
 import type { Plugin } from 'vite'
-
-function deleteAssetsFiles(): void {
-    try {
-        const assetsPath = resolve('.', 'src/assets')
-        if (existsSync(assetsPath)) {
-            // Remove all files in assets directory except .DS_Store
-            const files = readdirSync(assetsPath, { withFileTypes: true })
-            files.forEach((file) => {
-                if (file.name !== '.DS_Store') {
-                    const filePath = join(assetsPath, file.name)
-                    if (file.isDirectory()) {
-                        // Recursively delete directory
-                        deleteDirectory(filePath)
-                    } else {
-                        unlinkSync(filePath)
-                    }
-                }
-            })
-        }
-    } catch (error) {
-        console.warn(`⚠️ Could not clean assets directory:`, error)
-    }
-}
 
 function deleteDirectory(dirPath: string): void {
     try {
@@ -43,63 +20,83 @@ function deleteDirectory(dirPath: string): void {
     }
 }
 
-function copyFile(from: string, to: string): void {
+// Skip the copy when the destination already matches the source (same size, not older).
+// These trees are megabytes of images; rewriting them on every dev-server boot is pure
+// startup cost.
+function copyFileIfStale(from: string, to: string): boolean {
     try {
-        // Ensure target directory exists
+        const fromStat = statSync(from)
+        try {
+            const toStat = statSync(to)
+            if (toStat.size === fromStat.size && toStat.mtimeMs >= fromStat.mtimeMs) {
+                return false
+            }
+        } catch {
+            // Destination missing — copy it
+        }
         const toDir = dirname(to)
         if (!existsSync(toDir)) {
             mkdirSync(toDir, { recursive: true })
         }
-
-        // Copy the file
-        const fileContent = readFileSync(from)
-        writeFileSync(to, fileContent)
+        writeFileSync(to, readFileSync(from))
+        return true
     } catch (error) {
         console.warn(`❌ Could not copy ${from} to ${to}:`, error)
+        return false
     }
 }
 
-function copyDirectory(from: string, to: string): void {
+// One-way sync: copy stale/missing files from `from` into `to`, and remove entries in
+// `to` that no longer exist in `from` (the destination is fully derived from the source).
+function syncDirectory(from: string, to: string): number {
+    let copied = 0
     try {
-        // Ensure target directory exists
         if (!existsSync(to)) {
             mkdirSync(to, { recursive: true })
         }
 
-        const files = readdirSync(from, { withFileTypes: true })
-        files.forEach((file) => {
+        const sourceEntries = readdirSync(from, { withFileTypes: true })
+        const sourceNames = new Set<string>()
+        sourceEntries.forEach((entry) => {
             // Skip .DS_Store files
-            if (file.name === '.DS_Store') {
+            if (entry.name === '.DS_Store') {
                 return
             }
+            sourceNames.add(entry.name)
+            const fromPath = join(from, entry.name)
+            const toPath = join(to, entry.name)
+            if (entry.isDirectory()) {
+                copied += syncDirectory(fromPath, toPath)
+            } else if (copyFileIfStale(fromPath, toPath)) {
+                copied += 1
+            }
+        })
 
-            const fromPath = join(from, file.name)
-            const toPath = join(to, file.name)
-
-            if (file.isDirectory()) {
-                copyDirectory(fromPath, toPath)
+        // Prune destination entries that are gone from the source
+        readdirSync(to, { withFileTypes: true }).forEach((entry) => {
+            if (entry.name === '.DS_Store' || sourceNames.has(entry.name)) {
+                return
+            }
+            const orphanPath = join(to, entry.name)
+            if (entry.isDirectory()) {
+                deleteDirectory(orphanPath)
             } else {
-                copyFile(fromPath, toPath)
+                unlinkSync(orphanPath)
             }
         })
     } catch (error) {
-        console.warn(`❌ Could not copy directory ${from} to ${to}:`, error)
+        console.warn(`❌ Could not sync directory ${from} to ${to}:`, error)
     }
+    return copied
 }
 
 function copyPublicAssets(): void {
     const publicDir = resolve('.', 'public')
     const assetsDir = resolve('.', 'src/assets')
 
-    // Ensure assets directory exists
-    if (!existsSync(assetsDir)) {
-        mkdirSync(assetsDir, { recursive: true })
-    }
-
-    // Copy all files and directories from public to assets
     if (existsSync(publicDir)) {
-        copyDirectory(publicDir, assetsDir)
-        console.info('✅ Copied public assets to src/assets')
+        const copied = syncDirectory(publicDir, assetsDir)
+        console.info(`✅ Synced public assets to src/assets (${copied} file(s) copied)`)
     } else {
         console.warn('⚠️ Public directory does not exist')
     }
@@ -108,8 +105,8 @@ function copyPublicAssets(): void {
     const hedgehogModeSrc = resolve('.', 'node_modules', '@posthog', 'hedgehog-mode', 'assets')
     const hedgehogModeDest = resolve('.', 'dist', 'hedgehog-mode')
     if (existsSync(hedgehogModeSrc)) {
-        copyDirectory(hedgehogModeSrc, hedgehogModeDest)
-        console.info('✅ Copied hedgehog-mode assets to dist/hedgehog-mode')
+        const copied = syncDirectory(hedgehogModeSrc, hedgehogModeDest)
+        console.info(`✅ Synced hedgehog-mode assets to dist/hedgehog-mode (${copied} file(s) copied)`)
     } else {
         console.warn('⚠️ Hedgehog-mode assets directory does not exist')
     }
@@ -119,8 +116,7 @@ export function publicAssetsPlugin(): Plugin {
     return {
         name: 'public-assets-copy',
         configureServer() {
-            // Copy assets when dev server starts
-            deleteAssetsFiles()
+            // Sync assets when dev server starts
             copyPublicAssets()
         },
         handleHotUpdate({ file }) {
@@ -131,7 +127,7 @@ export function publicAssetsPlugin(): Plugin {
                 const targetPath = resolve('.', 'src/assets', relativePath)
 
                 if (existsSync(file)) {
-                    copyFile(file, targetPath)
+                    copyFileIfStale(file, targetPath)
                 }
             }
         },
