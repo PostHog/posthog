@@ -276,7 +276,7 @@ jobs:
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
-        timeout-minutes: 20
+        timeout-minutes: 30
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -310,6 +310,7 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
+                      --jobs 4 \
                       --timeout 300 \
                       --exclude ./cli/ \
                       --exclude ./common/ \
