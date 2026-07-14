@@ -36,6 +36,7 @@ import { ChartDisplayType } from '~/types'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { canShowTrendsTotal } from '../shared/canShowTrendsTotal'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
@@ -403,7 +404,15 @@ export function TrendsBarChart({
             return quillTooltipEnabled ? (
                 <InsightSeriesTooltip {...sharedProps} />
             ) : (
-                <TrendsTooltip {...sharedProps} formula={formula} />
+                <TrendsTooltip
+                    {...sharedProps}
+                    formula={formula}
+                    showTotal={canShowTrendsTotal(tooltipCtx.seriesData, {
+                        isStickiness,
+                        isPercentStackView,
+                        formula,
+                    })}
+                />
             )
         },
         [

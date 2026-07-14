@@ -112,6 +112,7 @@ export function InsightTooltip({
     interval,
     dateRange,
     showShiftKeyHint,
+    showTotal,
     formatCompareLabel,
     onClose,
     onRowClick,
@@ -248,7 +249,7 @@ export function InsightTooltip({
                             renderCount,
                             seriesColumnData?.color
                         )
-                        if (onRowClick && seriesColumnData) {
+                        if (onRowClick && seriesColumnData && datum.id !== 'total') {
                             return (
                                 <div
                                     className="cursor-pointer hover:bg-accent-highlight-secondary -mx-2 px-2 -my-1 py-1"
@@ -269,26 +270,52 @@ export function InsightTooltip({
             columns.push(closeColumn(onClose))
         }
 
+        const displaySource = dataSource.slice(0, rowCutoff)
+        if (showTotal) {
+            const columnTotals: Record<number, number> = {}
+            displaySource.forEach((row) => {
+                row.seriesData.forEach((s) => {
+                    columnTotals[s.order] = (columnTotals[s.order] || 0) + s.count
+                })
+            })
+            displaySource.push({
+                id: 'total',
+                datasetIndex: -1,
+                datumTitle: 'Total',
+                seriesData: Object.entries(columnTotals).map(([order, count]) => ({
+                    id: -1,
+                    dataIndex: -1,
+                    datasetIndex: -1,
+                    order: Number(order),
+                    count,
+                })),
+            })
+        }
+
         return (
             <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <div className="InsightTooltip__scrollable">
                     <LemonTable
-                        dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
+                        dataSource={displaySource}
                         columns={columns}
                         rowKey="id"
                         uppercaseHeader={false}
                         rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
+                        rowClassName={(datum) => (datum.id === 'total' ? 'InsightTooltip__total-row' : undefined)}
                         showHeader={showHeader}
                         onRow={
                             onRowClick && numDataPoints === 1
-                                ? (datum) => ({
-                                      onClick: () => {
-                                          const seriesDatum = datum.seriesData[0]
-                                          if (seriesDatum) {
-                                              onRowClick(seriesDatum)
-                                          }
-                                      },
-                                  })
+                                ? (datum) =>
+                                      datum.id === 'total'
+                                          ? {}
+                                          : {
+                                                onClick: () => {
+                                                    const seriesDatum = datum.seriesData[0]
+                                                    if (seriesDatum) {
+                                                        onRowClick(seriesDatum)
+                                                    }
+                                                },
+                                            }
                                 : undefined
                         }
                     />

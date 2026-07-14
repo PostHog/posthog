@@ -26,6 +26,7 @@ interface TrendsTooltipProps {
     formula?: string | null
     showPercentView?: boolean
     isPercentStackView?: boolean
+    showTotal?: boolean
     baseCurrency?: CurrencyCode
     groupTypeLabel?: string
     formatCompareLabel?: (label: string, dateLabel?: string) => string
@@ -58,6 +59,7 @@ export function TrendsTooltip({
     formula,
     showPercentView,
     isPercentStackView,
+    showTotal,
     baseCurrency,
     groupTypeLabel,
     formatCompareLabel,
@@ -161,6 +163,7 @@ export function TrendsTooltip({
             onClose={context.onUnpin ?? NOOP}
             renderSeries={renderSeries}
             renderCount={renderCount}
+            showTotal={showTotal}
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}
             showHeader={showHeader}

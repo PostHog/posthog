@@ -29,6 +29,7 @@ import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { canShowTrendsTotal } from '../shared/canShowTrendsTotal'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
@@ -195,7 +196,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             return quillTooltipEnabled ? (
                 <InsightSeriesTooltip {...tooltipProps} />
             ) : (
-                <TrendsTooltipLegacy {...tooltipProps} />
+                <TrendsTooltipLegacy
+                    {...tooltipProps}
+                    showTotal={canShowTrendsTotal(ctx.seriesData, {
+                        isStickiness,
+                        isPercentStackView,
+                        formula,
+                    })}
+                />
             )
         },
         [
