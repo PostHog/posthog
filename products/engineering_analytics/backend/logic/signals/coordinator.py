@@ -18,13 +18,15 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
-from products.engineering_analytics.backend.logic.ci_signals_config import list_authorized_ci_signal_sources
+from products.engineering_analytics.backend.logic.ci_signals_config import (
+    list_authorized_ci_signal_sources,
+    resolve_authorizer,
+)
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
 from products.engineering_analytics.backend.logic.signals.detect import detect_for_source
 from products.signals.backend.facade.api import emit_signal, team_ids_with_source_product_enabled
@@ -72,7 +74,7 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
     # Re-check the flag and authorizer at detection time — retries can run long after discovery.
     if team is None or not _rollout_flag_enabled(team):
         return [], None
-    user = User.objects.filter(id=target.authorized_by_user_id, is_active=True).first()
+    user = resolve_authorizer(team=team, user_id=target.authorized_by_user_id)
     if user is None:
         return [], None
     access_control = UserAccessControl(user=user, team=team)

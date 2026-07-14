@@ -70,6 +70,15 @@ def update_ci_signals_config(
     return get_ci_signals_config(team=team, user_access_control=user_access_control)
 
 
+def resolve_authorizer(*, team: Team, user_id: int) -> User | None:
+    """The user whose access authorizes a sweep read, or None once deactivated or out of the org.
+    Discovery and the detection activity both resolve through here so the gates can't diverge."""
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if user is None or not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+        return None
+    return user
+
+
 @dataclass(frozen=True)
 class AuthorizedCISignalSource:
     source_id: str
@@ -95,8 +104,8 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     snapshot = row.config.get(AUTHORIZED_SOURCES_CONFIG_KEY) if isinstance(row.config, dict) else None
     if not isinstance(snapshot, list) or not snapshot:
         return []
-    user = User.objects.filter(id=row.created_by_id, is_active=True).first()
-    if user is None or not user.organization_memberships.filter(organization_id=team.organization_id).exists():
+    user = resolve_authorizer(team=team, user_id=row.created_by_id)
+    if user is None:
         return []
     access_control = UserAccessControl(user=user, team=team)
     accessible = {source.id for source in list_github_sources(team=team, user_access_control=access_control)}

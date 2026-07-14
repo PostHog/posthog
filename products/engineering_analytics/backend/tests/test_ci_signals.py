@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest import mock
 
 import pandas as pd
 
@@ -22,6 +23,7 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
+from products.engineering_analytics.backend.logic.signals.coordinator import CISignalTarget, _detect_for_target
 from products.engineering_analytics.backend.logic.signals.detectors import (
     detect_broken_default_branch,
     detect_ci_duration_regressions,
@@ -43,6 +45,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
+_COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.signals"
 GITHUB_SOURCE_PREFIX = "myprefix"
 
@@ -173,9 +176,13 @@ class TestCISignalSourceAuthorization(BaseTest):
         self.user.is_active = True
         self.user.save()
 
-        # An authorizer removed from the organization no longer authorizes anything.
+        # An authorizer removed from the organization no longer authorizes anything — at discovery
+        # and again at detection time (retries can run long after discovery).
         self.user.organization_memberships.all().delete()
         assert list_authorized_ci_signal_sources(team=self.team) == []
+        target = CISignalTarget(team_id=self.team.id, source_id=str(first.id), authorized_by_user_id=self.user.id)
+        with mock.patch(f"{_COORDINATOR}._rollout_flag_enabled", return_value=True):
+            assert _detect_for_target(target) == ([], None)
 
     def test_rows_without_a_snapshot_authorize_nothing(self) -> None:
         create_github_source(self.team, prefix="one_", source_id="gh-1")
