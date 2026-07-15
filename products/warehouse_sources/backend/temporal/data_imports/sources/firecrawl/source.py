@@ -53,7 +53,6 @@ class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Firecrawl",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Firecrawl API key to pull your Firecrawl account activity and usage into the PostHog Data warehouse.
 
 You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.dev/app/api-keys). A single key grants access to all of the tables below.""",
