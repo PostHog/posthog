@@ -302,7 +302,7 @@ export function Nav(): JSX.Element {
                                     </>
                                 }
                                 tooltipPlacement="bottom"
-                                className="h-5 px-1.5 text-xs text-secondary hover:text-primary"
+                                className="relative top-1 h-5 px-1.5 text-xs text-secondary hover:text-primary"
                                 data-attr="desktop-titlebar-search"
                             >
                                 Search
