@@ -219,6 +219,9 @@ tools:
                 - created_at
                 - updated_at
                 - completed_at
+    tasks-runs-living-artifacts-chart:
+        operation: tasks_runs_living_artifacts_chart
+        enabled: false
     tasks-runs-living-artifacts-create:
         operation: tasks_runs_living_artifacts_create
         enabled: false
