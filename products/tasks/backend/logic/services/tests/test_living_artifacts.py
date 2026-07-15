@@ -471,8 +471,8 @@ class TestLivingArtifacts(TestCase):
         ]
     )
     def test_internal_run_artifacts_rejected_as_living_artifact_sources(
-        self, _name, entry_type, entry_source, reference_by
-    ):
+        self, _name: str, entry_type: str, entry_source: str, reference_by: str
+    ) -> None:
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/state.bin"
         self.task_run.artifacts = [
             {
@@ -486,9 +486,8 @@ class TestLivingArtifacts(TestCase):
             }
         ]
         self.task_run.save(update_fields=["artifacts", "updated_at"])
-        reference = (
-            {"source_artifact_id": "artifact-1"} if reference_by == "id" else {"source_storage_path": storage_path}
-        )
+        source_artifact_id = "artifact-1" if reference_by == "id" else None
+        source_storage_path = storage_path if reference_by == "storage_path" else None
 
         with self.assertRaisesRegex(ValueError, "not a shareable run output"):
             create_living_artifact(
@@ -496,7 +495,8 @@ class TestLivingArtifacts(TestCase):
                 name="state.bin",
                 artifact_type=TaskArtifact.ArtifactType.FILE,
                 adapter=TaskArtifact.Adapter.SLACK_FILE,
-                **reference,
+                source_artifact_id=source_artifact_id,
+                source_storage_path=source_storage_path,
             )
 
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
