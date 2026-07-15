@@ -34,7 +34,7 @@ target/debug/personhog-test-harness gate --external-router-url http://127.0.0.1:
   --pg-target-table personhog_person_tmp
 ```
 
-The spawned stack is isolated from the dev stack: its own port range (51xxx), its own etcd prefix (`/personhog-test-harness/`), and a per-run changelog topic (`personhog_test_harness_<run_id>`, deleted on teardown).
+The spawned stack is isolated from the dev stack: its own port range (24xxx, kept below the ephemeral range so outbound connections cannot steal a listen port), its own etcd prefix (`/personhog-test-harness/`), and a per-run changelog topic (`personhog_test_harness_<run_id>`, deleted on teardown).
 Persons are seeded directly in Postgres for a reserved harness team id (SQL is the interim seeding mechanism until the create RPC's future is settled; `src/seed.rs` is the swap seam).
 Service logs land in `<bin-dir>/harness-logs/<run_id>/`.
 

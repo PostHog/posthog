@@ -2012,6 +2012,8 @@ export interface CredentialApi {
  * * `Kickscale` - Kickscale
  * * `Zellify` - Zellify
  * * `RudderStack` - RudderStack
+ * * `DodoPayments` - DodoPayments
+ * * `Salestrics` - Salestrics
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2778,6 +2780,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Kickscale: 'Kickscale',
     Zellify: 'Zellify',
     RudderStack: 'RudderStack',
+    DodoPayments: 'DodoPayments',
+    Salestrics: 'Salestrics',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

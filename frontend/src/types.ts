@@ -5429,6 +5429,7 @@ export const INTEGRATION_KINDS = [
     'postgresql',
     'aws-s3',
     's3-compatible',
+    'snowflake',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6510,6 +6511,7 @@ export type BatchExportServicePostgres = {
 
 export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
+    integration?: number
     config: {
         account: string
         database: string
