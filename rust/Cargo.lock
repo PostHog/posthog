@@ -2866,6 +2866,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-database",
  "common-dns",
