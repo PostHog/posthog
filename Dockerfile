@@ -166,6 +166,9 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    # uv sync validates workspace membership even with --no-dev, so every
+    # workspace member must be present in the build context.
+    --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -392,6 +395,10 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog common/alerting common/alerting/
 COPY --chown=posthog:posthog products products/
+# Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
+# (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
+# services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
+COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 
 # Validate the Playwright client library (used to drive the remote browserless service over CDP —
 # no browser binary ships in this image).

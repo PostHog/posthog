@@ -107,6 +107,13 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
+    return internal_requests.get(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/in_flight_count",
+        headers=get_internal_api_headers(),
+    )
+
+
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
