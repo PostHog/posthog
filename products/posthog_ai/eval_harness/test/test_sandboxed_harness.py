@@ -4,6 +4,7 @@ import os
 import sys
 import asyncio
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -107,6 +108,7 @@ def test_setup_django_disables_self_capture_before_settings_load() -> None:
                 "assert settings.SELF_CAPTURE is False\n"
             ),
         ],
+        cwd=Path(__file__).resolve().parents[4],
         env={**os.environ, "SELF_CAPTURE": "1"},
         capture_output=True,
         text=True,
