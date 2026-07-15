@@ -218,6 +218,37 @@ class TestLlamaCloudTransport:
         assert url == "https://api.cloud.eu.llamaindex.ai/api/v1/pipelines"
         assert params == {}
 
+    def test_get_rows_pipelines_redacts_nested_credentials(self) -> None:
+        # Pipeline definitions embed third-party credentials in nested config; those keys
+        # must never reach the warehouse, while the surrounding metadata passes through.
+        session = FakeSession(
+            [
+                [
+                    {
+                        "id": "pipeline-1",
+                        "name": "docs",
+                        "embedding_config": {"type": "OPENAI_EMBEDDING", "component": {"api_key": "sk-secret"}},
+                        "data_sink": {"component": {"password": "hunter2", "host": "db.example.com"}},
+                    }
+                ]
+            ]
+        )
+        manager = _make_manager()
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("llx-test", "eu", "pipelines", MagicMock(), manager))
+
+        assert batches == [
+            [
+                {
+                    "id": "pipeline-1",
+                    "name": "docs",
+                    "embedding_config": {"type": "OPENAI_EMBEDDING", "component": {"api_key": "REDACTED"}},
+                    "data_sink": {"component": {"password": "REDACTED", "host": "db.example.com"}},
+                }
+            ]
+        ]
+
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:
         session = MagicMock()

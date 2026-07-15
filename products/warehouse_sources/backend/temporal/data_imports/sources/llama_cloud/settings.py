@@ -58,6 +58,10 @@ class LlamaCloudEndpointConfig:
     requires_organization_id: bool = False
     description: str | None = None
     default_incremental_lookback_seconds: int | None = None
+    # Endpoints whose payloads embed third-party credentials (embedding-provider keys,
+    # data-sink connection secrets) have auth-bearing keys redacted before they land
+    # in the warehouse. Only the config-style pipelines endpoint carries these.
+    redact_secrets: bool = False
 
 
 LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
@@ -125,6 +129,8 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         path="/api/v1/pipelines",
         # Returns a bare JSON array with neither pagination nor timestamp filters.
         paginated=False,
+        # Pipeline definitions embed nested embedding-provider and data-sink credentials.
+        redact_secrets=True,
     ),
     "files": LlamaCloudEndpointConfig(
         name="files",
