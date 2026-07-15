@@ -41,7 +41,37 @@ class TestHogQLFingerprint(BaseTest):
             (
                 "literal_list_lengths",
                 "SELECT count() FROM events WHERE event IN ('a', 'b')",
-                "SELECT count() FROM events WHERE event IN ('c', 'd')",
+                "SELECT count() FROM events WHERE event IN ('c', 'd', 'e')",
+            ),
+            (
+                "literal_array_vs_tuple",
+                "SELECT count() FROM events WHERE event IN ['a', 'b']",
+                "SELECT count() FROM events WHERE event IN ('a', 'b')",
+            ),
+            (
+                "bracket_vs_dot_property_access",
+                "SELECT properties['foo'] FROM events",
+                "SELECT properties.foo FROM events",
+            ),
+            (
+                "cte_names",
+                "WITH x AS (SELECT event FROM events) SELECT event FROM x",
+                "WITH y AS (SELECT event FROM events) SELECT event FROM y",
+            ),
+            (
+                "cte_names_across_union_branches",
+                "WITH x AS (SELECT event FROM events) SELECT event FROM x UNION ALL SELECT event FROM x",
+                "WITH y AS (SELECT event FROM events) SELECT event FROM y UNION ALL SELECT event FROM y",
+            ),
+            (
+                "count_star_vs_count",
+                "SELECT count(*) FROM events",
+                "SELECT count() FROM events",
+            ),
+            (
+                "template_placeholder_vs_literals",
+                "SELECT count() FROM events WHERE distinct_id IN {ids}",
+                "SELECT count() FROM events WHERE distinct_id IN ('a', 'b')",
             ),
         ]
     )
@@ -74,6 +104,11 @@ class TestHogQLFingerprint(BaseTest):
                 "aggregate_function",
                 "SELECT count() FROM events GROUP BY event",
                 "SELECT uniq(person_id) FROM events GROUP BY event",
+            ),
+            (
+                "bracket_property_name",
+                "SELECT properties['foo'] FROM events",
+                "SELECT properties['bar'] FROM events",
             ),
         ]
     )
