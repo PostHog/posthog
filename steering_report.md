@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes add a receiver-first Temporal rollout gate, strict adapter-level steer decline handling, safe Temporal requeueing, stale Codex turn rejection handling, incomplete-hydration cursor normalization, and overlapping resume-window deduplication.
+The latest fixes add a receiver-first Temporal rollout gate, strict adapter-level steer decline handling, safe Temporal requeueing, stale Codex turn rejection handling, ordered fallback delivery, a synchronous workflow closing boundary, atomic retry hydration, and exact same-timestamp event deduplication.
 
 ## What the feature does
 
@@ -182,21 +182,67 @@ Live E2E exposed a separate immediate-resume duplication: inherited live `agent_
 
 Resume hydration now treats persisted history as authoritative through its newest event and appends only genuinely newer session events. Live watcher updates remain buffered until hydration completes, so no current-leaf update is lost. The regression preserves a newer live event while rejecting the inherited duplicate chunk.
 
+## Latest ordering and hydration race fixes
+
+### Declined and shutdown-rejected steers preserve arrival order
+
+Every pending follow-up now receives a monotonic arrival sequence. A steer that is declined by the active sandbox or rejected during sandbox shutdown is converted to a normal follow-up and inserted according to that sequence instead of repeatedly being inserted at queue index zero.
+
+The sequence is carried across task management, child workflow signaling, acknowledgement recovery, persistence, and restore. Regressions cover two declined steers and two shutdown-rejected steers and verify that `S1` remains ahead of `S2`.
+
+### Workflow completion closes follow-up admission before teardown
+
+Both workflow generations enter their closing state synchronously when the final follow-up drain begins. Work accepted before the terminal boundary is drained, while signals arriving after that boundary are rejected through the existing shutdown acknowledgement path instead of being accepted into a queue that will never run.
+
+This removes the teardown window where `complete_task` could finish the workflow after a late steer had been admitted.
+
+### Every resume hydration attempt buffers live updates
+
+The cloud watcher now owns a hydration token and buffers live updates during initial hydration and every retry. A stale or overlapping hydration attempt cannot release another attempt's buffer.
+
+On success, the hydrated history, leaf-local cursor, and history offset are installed atomically before buffered updates are replayed. This prevents a successful retry from resetting `processedLineCount` while a live update is being received.
+
+### Same-timestamp events use exact event identity
+
+Hydration no longer treats timestamps as the provenance boundary. Existing and hydrated events are compared using exact event keys, while the existing semantic coalescing rule still prevents persisted agent messages and their live chunk equivalents from rendering twice.
+
+Distinct events that share a millisecond timestamp, including turn completion, errors, tool updates, and response chunks, are retained.
+
 ## Automated validation
 
 Latest validation:
 
-- Backend `process_task` and `execute_sandbox` workflow suites: 103 passed.
-- Backend focused completion-race regressions after merging current `origin/master`: 2 passed.
-- PostHog Code agent package: 77 files and 1,270 tests passed.
-- PostHog Code full UI package: 172 files and 1,523 tests passed.
+- Backend `execute_sandbox` workflow suite: 58 passed.
+- Backend `task_management` workflow suite: 60 passed.
+- Backend focused `process_task` ordering and terminal-boundary regressions: 4 passed.
+- Backend pending-follow-up activity suite: 12 passed.
 - PostHog Code session service UI suite: 142 passed.
-- Shared, agent, core, and UI TypeScript package typechecks passed.
-- OpenAPI generation, Ruff, Python compilation, Biome, and diff checks passed.
+- Core and UI TypeScript package typechecks passed.
+- Ruff, Biome formatting and lint, and diff checks passed.
 
-Earlier validation across the branch also covered the focused Temporal, activity, client, adapter, and app-server suites.
+Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Latest ordered steering and A-to-B-to-C cold hydration run
+
+- Task: `0416caa0-2b6f-4ac9-a0ae-2d587b841c52`
+- A run: `6bac2293-74ee-4fb3-b532-e1dd13c4d393`
+- B run: `4afc569d-5d60-4a68-82ce-62ea915dbfa8`
+- C run: `04254746-ec03-4144-9162-5070f02e19e0`
+
+The backend and Electron app were fully restarted with the current working trees and replacement backend and LLM gateway tunnels. The test used a new task so the earlier failed-tunnel attempt could not affect the result.
+
+Verified:
+
+- A returned `BASE715NEW` exactly twice: once in the prompt and once in the response.
+- A normal follow-up started a 25-second terminal command. An active steer then returned `STEER715NEW` exactly twice, while the superseded `FALLBACK715` instruction remained exactly once as its original user message.
+- The active run remained healthy with no terminal error or pending prompt.
+- A was completed before B was sent, and B was completed before C was sent. Local database state confirmed the exact A-to-B-to-C `state.resume_from_run_id` chain.
+- B returned `RESUMEB715NEW` exactly twice and C returned `RESUMEC715NEW` exactly twice.
+- A full Electron process restart and task reopen hydrated all four successful prompt/response pairs exactly once, retained the superseded fallback once, and displayed two restored-sandbox boundaries.
+- The cold transcript had no error, no pending prompt, no missing ancestry, and no duplicate response.
+- All three runs reached `completed`.
 
 ### Final steering and A→B→C hydration run
 

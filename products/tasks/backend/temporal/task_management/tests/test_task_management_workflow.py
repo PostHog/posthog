@@ -122,7 +122,7 @@ class TestExternalSignalHandlers:
 
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="hello", artifact_ids=["a1"], source="user", steer=True),
-            PendingExternalFollowup(message="legacy", artifact_ids=["a2"], source="user", steer=True),
+            PendingExternalFollowup(message="legacy", artifact_ids=["a2"], source="user", steer=True, sequence=1),
         ]
 
     async def test_external_heartbeat_records_activity(self, fixed_now):
@@ -910,18 +910,25 @@ class TestShutdownRejectionHandling:
         ]
         silent_workflow_logger.warning.assert_called()
 
-    async def test_steer_rejection_requeues_as_normal_followup(self, fixed_now, silent_workflow_logger):
+    async def test_steer_rejections_preserve_arrival_order_as_normal_followups(self, fixed_now, silent_workflow_logger):
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
-        workflow._pending_ack_slots["ack-steer"] = PendingAckSlot(
+        workflow._pending_ack_slots["ack-steer-1"] = PendingAckSlot(
             signal_name=SEND_STEER_SIGNAL,
             sent_at=fixed_now.now,
-            signal_args=["ack-steer", "do not lose this", [], "user"],
+            signal_args=["ack-steer-1", "first instruction", [], "user"],
+            sequence=0,
+        )
+        workflow._pending_ack_slots["ack-steer-2"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=["ack-steer-2", "second instruction", [], "user"],
+            sequence=1,
         )
         workflow._child_acks.append(
             ChildAck(
                 signal_name=SEND_STEER_SIGNAL,
-                ack_id="ack-steer",
+                ack_id="ack-steer-1",
                 accepted=False,
                 detail="child_shutting_down",
                 received_at=fixed_now.now,
@@ -929,9 +936,24 @@ class TestShutdownRejectionHandling:
         )
 
         await workflow._drain_child_signals()
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name=SEND_STEER_SIGNAL,
+                ack_id="ack-steer-2",
+                accepted=False,
+                detail="child_shutting_down",
+                received_at=fixed_now.now,
+            )
+        )
+        await workflow._drain_child_signals()
 
         assert workflow._pending_external_followups == [
-            PendingExternalFollowup(message="do not lose this", artifact_ids=[], source="user", steer=False)
+            PendingExternalFollowup(
+                message="first instruction", artifact_ids=[], source="user", steer=False, sequence=0
+            ),
+            PendingExternalFollowup(
+                message="second instruction", artifact_ids=[], source="user", steer=False, sequence=1
+            ),
         ]
 
     async def test_complete_task_rejection_is_dropped_silently(self, fixed_now, silent_workflow_logger):
@@ -1067,7 +1089,7 @@ class TestPendingFollowupPersistence:
 
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="queued-1", artifact_ids=[], source="user"),
-            PendingExternalFollowup(message="queued-2", artifact_ids=["a1"], source="user"),
+            PendingExternalFollowup(message="queued-2", artifact_ids=["a1"], source="user", sequence=1),
         ]
 
     async def test_restore_swallows_read_error(self, monkeypatch, silent_workflow_logger):
@@ -1108,5 +1130,5 @@ class TestPendingFollowupPersistence:
 
         assert captured["input"].run_id == "run-id"
         assert captured["input"].followups == [
-            {"message": "persist-me", "artifact_ids": ["a1"], "source": "user", "steer": False}
+            {"message": "persist-me", "artifact_ids": ["a1"], "source": "user", "steer": False, "sequence": 0}
         ]

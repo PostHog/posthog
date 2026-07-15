@@ -300,25 +300,23 @@ class TestProcessTaskWorkflow:
 
 
 class TestProcessTaskFollowupDispatch:
-    async def test_declined_steer_requeues_as_a_steerable_normal_followup(self, monkeypatch):
+    async def test_declined_steers_requeue_in_arrival_order(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         release_initial = asyncio.Event()
-        release_fallback = asyncio.Event()
         deliveries: list[tuple[str | None, bool]] = []
 
         async def fake_send_followup(*, message, artifact_ids, steer=False):
             deliveries.append((message, steer))
             if message == "keep working":
                 await release_initial.wait()
-            elif message == "use green instead" and steer:
+            elif steer:
                 return STEER_DECLINED_OUTCOME
-            elif message == "use green instead":
-                await release_fallback.wait()
             return None
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
@@ -328,25 +326,38 @@ class TestProcessTaskFollowupDispatch:
 
         await workflow.send_steer_message("use green instead")
         assert await workflow._dispatch_next_followup() is True
-
-        assert deliveries == [("keep working", False), ("use green instead", True)]
-        release_initial.set()
-        await asyncio.sleep(0)
-        assert await workflow._dispatch_next_followup() is True
-        assert await workflow._dispatch_next_followup() is True
-        await asyncio.sleep(0)
-
         await workflow.send_steer_message("use blue instead")
         assert await workflow._dispatch_next_followup() is True
+
         assert deliveries == [
             ("keep working", False),
             ("use green instead", True),
-            ("use green instead", False),
             ("use blue instead", True),
         ]
-
-        release_fallback.set()
+        assert [(followup.message, followup.steer) for followup in workflow._pending_followups] == [
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
+        release_initial.set()
         await workflow._finish_active_followup()
+        assert deliveries == [
+            ("keep working", False),
+            ("use green instead", True),
+            ("use blue instead", True),
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
+
+    async def test_terminal_drain_closes_followup_admission(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow._finish_active_followup()
+        await workflow.send_steer_message("too late")
+
+        assert workflow._pending_followup is None
+        assert workflow._pending_followups == []
 
     async def test_completion_waits_for_declined_steer_fallback(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -449,8 +460,8 @@ class TestProcessTaskWorkflowUnit:
 
         assert workflow._pending_followups == [
             PendingFollowup(message="first", artifact_ids=["artifact-1"]),
-            PendingFollowup(message="second", artifact_ids=["artifact-2"], steer=True),
-            PendingFollowup(message="legacy-steer", artifact_ids=["artifact-3"], steer=True),
+            PendingFollowup(message="second", artifact_ids=["artifact-2"], steer=True, sequence=1),
+            PendingFollowup(message="legacy-steer", artifact_ids=["artifact-3"], steer=True, sequence=2),
         ]
         assert workflow._pending_followup is None
         deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)

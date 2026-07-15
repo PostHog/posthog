@@ -115,6 +115,7 @@ class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
     steer: bool = False
+    sequence: int = 0
 
 
 @dataclass
@@ -250,7 +251,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_gone: bool = False
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
+        self._next_followup_sequence: int = 0
         self._active_followup_task: asyncio.Task[None] | None = None
+        self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
@@ -318,6 +321,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 return self._pending_followups.pop(index)
         return None
 
+    def _insert_followup_in_arrival_order(self, followup: PendingFollowup) -> None:
+        for index, pending in enumerate(self._pending_followups):
+            if pending.sequence > followup.sequence:
+                self._pending_followups.insert(index, followup)
+                return
+        self._pending_followups.append(followup)
+
     async def _dispatch_next_followup(self) -> bool:
         if self._active_followup_task is not None:
             if self._active_followup_task.done():
@@ -352,15 +362,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             steer=followup.steer,
         )
         if followup.steer and outcome == STEER_DECLINED_OUTCOME:
-            self._pending_followups.insert(
-                0,
+            self._insert_followup_in_arrival_order(
                 PendingFollowup(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    sequence=followup.sequence,
                 ),
             )
 
     async def _finish_active_followup(self) -> None:
+        self._shutting_down = True
         while True:
             if self._active_followup_task is not None:
                 task = self._active_followup_task
@@ -1773,7 +1784,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "artifact_count": len(artifact_ids or []),
             },
         )
-        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [], steer=steer)
+        if self._shutting_down:
+            workflow.logger.warning(
+                "send_followup_signal_rejected_closing",
+                extra={"run_id": context.run_id if context is not None else None},
+            )
+            return
+        pending_followup = PendingFollowup(
+            message=message,
+            artifact_ids=artifact_ids or [],
+            steer=steer,
+            sequence=self._next_followup_sequence,
+        )
+        self._next_followup_sequence += 1
         # Always queue. `deprecate_patch` accepts existing non-deprecated
         # markers from workflows that ran the prior `workflow.patched(...)`
         # gate, so this is safe to deploy alongside in-flight workflows. The

@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     PARENT_ATTACHED_SIGNAL,
     PARENT_COMPLETED_SIGNAL,
     PARENT_HEARTBEAT_SIGNAL,
+    SEND_STEER_SIGNAL,
     ChildCompletionPayload,
     ExecuteSandboxInput,
     ExecuteSandboxWorkflow,
@@ -201,7 +202,14 @@ class TestSignalHandlers:
 
         assert workflow._pending_followups == [
             PendingFollowup(message="hello", artifact_ids=["art-1"], ack_id="ack-3", source="user", steer=True),
-            PendingFollowup(message="legacy", artifact_ids=["art-2"], ack_id="ack-legacy", source="user", steer=True),
+            PendingFollowup(
+                message="legacy",
+                artifact_ids=["art-2"],
+                ack_id="ack-legacy",
+                source="user",
+                steer=True,
+                sequence=1,
+            ),
         ]
         assert workflow._pending_outbound == []
         silent_workflow_logger.info.assert_called()
@@ -818,25 +826,23 @@ class TestHandleFollowupInFlightTracking:
         assert "ack-fail" not in workflow._in_flight_followup_ack_ids
         assert "ack-fail" in workflow._acked_ids
 
-    async def test_declined_steer_requeues_as_a_steerable_normal_followup(self, monkeypatch, silent_workflow_logger):
+    async def test_declined_steers_requeue_in_arrival_order(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
         release_initial = asyncio.Event()
-        release_fallback = asyncio.Event()
         deliveries: list[tuple[str | None, bool]] = []
 
         async def fake_send_followup(*, message, artifact_ids, steer=False):
             deliveries.append((message, steer))
             if message == "keep working":
                 await release_initial.wait()
-            elif message == "use green instead" and steer:
+            elif steer:
                 return STEER_DECLINED_OUTCOME
-            elif message == "use green instead":
-                await release_fallback.wait()
             return None
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
         monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "patched", Mock(return_value=True))
 
         await workflow.send_followup_message("ack-normal", "keep working")
         assert await workflow._dispatch_next_followup() is True
@@ -844,25 +850,27 @@ class TestHandleFollowupInFlightTracking:
 
         await workflow.send_steer_message("ack-steer", "use green instead")
         assert await workflow._dispatch_next_followup() is True
-
-        assert deliveries == [("keep working", False), ("use green instead", True)]
-        release_initial.set()
-        await asyncio.sleep(0)
-        assert await workflow._dispatch_next_followup() is True
-        assert await workflow._dispatch_next_followup() is True
-        await asyncio.sleep(0)
-
         await workflow.send_steer_message("ack-steer-2", "use blue instead")
         assert await workflow._dispatch_next_followup() is True
+
         assert deliveries == [
             ("keep working", False),
             ("use green instead", True),
-            ("use green instead", False),
             ("use blue instead", True),
         ]
-
-        release_fallback.set()
+        assert [(followup.message, followup.steer) for followup in workflow._pending_followups] == [
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
+        release_initial.set()
         await workflow._finish_active_followup()
+        assert deliveries == [
+            ("keep working", False),
+            ("use green instead", True),
+            ("use blue instead", True),
+            ("use green instead", False),
+            ("use blue instead", False),
+        ]
 
     async def test_completion_waits_for_declined_steer_fallback(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
@@ -924,13 +932,13 @@ class TestShutdownRejection:
     normally queue new work are rejected so the orchestrator's retry path
     can route them to a fresh sandbox instead of silently losing them."""
 
-    async def test_send_followup_rejected_with_known_detail(self, silent_workflow_logger):
+    async def test_terminal_drain_rejects_late_steer_with_known_detail(self, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
-        workflow._shutting_down = True
         workflow._pending_outbound.clear()
 
-        await workflow.send_followup_message("ack-late", "post-shutdown msg")
+        await workflow._finish_active_followup()
+        await workflow.send_steer_message("ack-late", "post-shutdown msg")
 
         # No queueing — the message goes nowhere on the sandbox side.
         assert workflow._pending_followups == []
@@ -939,7 +947,7 @@ class TestShutdownRejection:
         assert workflow._pending_outbound == [
             OutboundSignal(
                 target_signal=PARENT_ACK_SIGNAL,
-                args=["send_followup_message", "ack-late", False, "child_shutting_down"],
+                args=[SEND_STEER_SIGNAL, "ack-late", False, "child_shutting_down"],
                 correlation_id="ack-late",
             )
         ]

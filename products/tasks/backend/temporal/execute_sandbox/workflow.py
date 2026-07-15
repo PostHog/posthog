@@ -175,6 +175,7 @@ class PendingFollowup:
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
     steer: bool = False
+    sequence: int = 0
 
 
 @dataclass
@@ -258,6 +259,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
         self._heartbeat_received: bool = False
         self._pending_followups: list[PendingFollowup] = []
+        self._next_followup_sequence: int = 0
         self._pending_outbound: list[OutboundSignal] = []
         self._active_followup_task: asyncio.Task[None] | None = None
 
@@ -335,6 +337,13 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 return self._pending_followups.pop(index)
         return None
 
+    def _insert_followup_in_arrival_order(self, followup: PendingFollowup) -> None:
+        for index, pending in enumerate(self._pending_followups):
+            if pending.sequence > followup.sequence:
+                self._pending_followups.insert(index, followup)
+                return
+        self._pending_followups.append(followup)
+
     async def _dispatch_next_followup(self) -> bool:
         if self._active_followup_task is not None:
             if self._active_followup_task.done():
@@ -355,6 +364,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         return True
 
     async def _finish_active_followup(self) -> None:
+        self._shutting_down = True
         while True:
             if self._active_followup_task is not None:
                 task = self._active_followup_task
@@ -771,8 +781,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 ack_id=ack_id,
                 source=source,
                 steer=steer,
+                sequence=self._next_followup_sequence,
             )
         )
+        self._next_followup_sequence += 1
 
     @workflow.signal(name=HEARTBEAT_SIGNAL)
     async def heartbeat(self, agent_active: bool = False) -> None:
@@ -819,13 +831,13 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     steer=followup.steer,
                 )
                 if followup.steer and outcome == STEER_DECLINED_OUTCOME:
-                    self._pending_followups.insert(
-                        0,
+                    self._insert_followup_in_arrival_order(
                         PendingFollowup(
                             message=followup.message,
                             artifact_ids=followup.artifact_ids,
                             ack_id=followup.ack_id,
                             source=followup.source,
+                            sequence=followup.sequence,
                         ),
                     )
                     return
