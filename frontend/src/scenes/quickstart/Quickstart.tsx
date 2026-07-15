@@ -173,17 +173,16 @@ function ProjectToken(): JSX.Element | null {
 
     return (
         <div
-            className="flex flex-col gap-1 w-fit max-w-full"
+            className="flex flex-col gap-1 min-w-0 max-w-full"
             onClick={() => captureQuickstartAction('copy_project_token')}
             data-attr="quickstart-copy-project-token"
         >
-            <LemonLabel>Project token</LemonLabel>
+            <LemonLabel info="Every SDK snippet uses it. Write-only, so it's safe in public apps.">
+                Project token
+            </LemonLabel>
             <CodeSnippet compact wrap thing="project token">
                 {currentTeam.api_token}
             </CodeSnippet>
-            <p className="text-muted text-xs mb-0">
-                Every SDK snippet uses it. Write-only, so it's safe in public apps.
-            </p>
         </div>
     )
 }
@@ -785,7 +784,7 @@ export function Quickstart(): JSX.Element {
 
     return (
         <SceneContent className="gap-y-8 py-4">
-            <section className="flex items-start justify-between gap-8">
+            <section className="flex items-center justify-between gap-8">
                 <div className="flex flex-col gap-4 min-w-0 flex-1">
                     <div>
                         <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
@@ -845,7 +844,6 @@ export function Quickstart(): JSX.Element {
                         </LemonButton>
                         <LiveUsersRightNow />
                     </div>
-                    <ProjectToken />
                 </div>
                 <HeroImageCycler />
             </section>
@@ -853,10 +851,13 @@ export function Quickstart(): JSX.Element {
             {!installationComplete && <InstallHeroCard />}
 
             <section>
-                <SectionHeader
-                    title="Turn on your tools"
-                    subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
-                />
+                <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
+                    <SectionHeader
+                        title="Turn on your tools"
+                        subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
+                    />
+                    <ProjectToken />
+                </div>
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
                         <ProductCard key={product.key} product={product} />
