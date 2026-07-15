@@ -1,7 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
@@ -105,6 +105,7 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
 function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
     const titleRef = useRef<HTMLHeadingElement | null>(null)
     const resizeObserverRef = useRef<ResizeObserver | null>(null)
+    const updateIsTruncatedRef = useRef<(() => void) | null>(null)
     const [isTruncated, setIsTruncated] = useState(false)
 
     const setTitleRef = useCallback((titleElement: HTMLHeadingElement | null): void => {
@@ -128,6 +129,7 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
             )
         }
 
+        updateIsTruncatedRef.current = updateIsTruncated
         updateIsTruncated()
 
         if (typeof ResizeObserver !== 'undefined') {
@@ -135,6 +137,10 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
             resizeObserverRef.current.observe(titleElement)
         }
     }, [])
+
+    useLayoutEffect(() => {
+        updateIsTruncatedRef.current?.()
+    }, [children])
 
     useEffect(() => () => resizeObserverRef.current?.disconnect(), [])
 
