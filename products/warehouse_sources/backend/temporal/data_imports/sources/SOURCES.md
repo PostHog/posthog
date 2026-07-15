@@ -182,6 +182,7 @@ the row lists both.
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -241,6 +242,7 @@ the row lists both.
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
+| langfuse                  | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly              | HTTP                        | requests                                                        | ✅                          |
 | kustomer                  | HTTP                        | requests                                                        | ✅                          |
 | lattice                   | HTTP                        | requests                                                        | ✅                          |
@@ -299,6 +301,7 @@ the row lists both.
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
+| openrouter                | HTTP                        | requests                                                        | ✅                          |
 | openweather               | HTTP                        | requests                                                        | ✅                          |
 | ortto                     | HTTP                        | requests                                                        | ✅                          |
 | oura                      | HTTP                        | requests                                                        | ✅                          |
@@ -356,6 +359,7 @@ the row lists both.
 | rss                       | HTTP                        | requests                                                        | ✅                          |
 | ruddr                     | HTTP                        | requests                                                        | ✅                          |
 | safetyculture             | HTTP                        | requests                                                        | ✅                          |
+| sage_hr                   | HTTP                        | requests                                                        | ✅                          |
 | salesforce                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                | HTTP                        | requests                                                        | ✅                          |
 | salesloft                 | HTTP                        | requests                                                        | ✅                          |
@@ -419,6 +423,7 @@ the row lists both.
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -544,6 +549,7 @@ doesn't conflict with concurrent PRs.
 - deputy
 - display_video_360
 - docusign
+- dodopayments
 - dolibarr
 - dremio
 - dropbox
@@ -568,6 +574,7 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
@@ -638,7 +645,6 @@ doesn't conflict with concurrent PRs.
 - koyeb
 - kyve
 - lambda_labs
-- langfuse
 - langsmith
 - leexi
 - lemon_squeezy
@@ -691,7 +697,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - openai
-- openrouter
 - opsgenie
 - opuswatch
 - oracle
@@ -756,10 +761,10 @@ doesn't conflict with concurrent PRs.
 - rudderstack
 - runpod
 - safetyculture
-- sage_hr
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
+- salestrics
 - sanity
 - sap_concur
 - sap_erp
@@ -839,7 +844,6 @@ doesn't conflict with concurrent PRs.
 - uptick
 - us_census
 - uservoice
-- vapi
 - veeqo
 - vespa
 - visma_economic

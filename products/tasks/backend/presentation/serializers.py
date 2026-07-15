@@ -1,3 +1,4 @@
+import re
 import json
 import base64
 import logging
@@ -307,11 +308,15 @@ class TaskRunDetailSerializer(DataclassSerializer):
         ]
 
 
-# Only implementation is supported when linking a task to a report from the public task API
-# (e.g. PostHog Code inbox); research/repo-selection links are created by server-side flows.
-# Mirrors `signals` `task_run_artefacts.TASK_RUN_TYPE_IMPLEMENTATION` — kept inline
-# so presentation never imports the other product's internals.
-SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION = "implementation"
+# The relationship a client asserts between a task and a signal report when creating a task from the
+# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
+# free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
+# been access-controlled — so no relationship is reserved here either. `implementation` additionally
+# opens the auto-start spend gate (recorded server-side via `record_report_task`). Only the routing-
+# safe format is enforced, so a malformed value returns 400 rather than 500 from the artefact schema.
+# Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
+# kept inline so presentation never imports the other product's internals.
+_SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class TaskSerializer(DataclassSerializer):
@@ -409,11 +414,17 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
     )
-    # Write-only: which SignalReportTask row to create when linking a task to a report.
-    signal_report_task_relationship = serializers.ChoiceField(
-        choices=[(SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION, "Implementation")],
+    # Write-only: recorded as the signals `task_run` artefact type when linking a task to a report.
+    signal_report_task_relationship = serializers.CharField(
         required=False,
         write_only=True,
+        max_length=200,
+        help_text=(
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
+            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
+            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
+            "'_', '-') is accepted."
+        ),
     )
     json_schema = serializers.JSONField(
         required=False,
@@ -577,6 +588,15 @@ class TaskWriteSerializer(serializers.Serializer):
         if value and value.team_id != self.context["team"].id:
             raise serializers.ValidationError("Signal report must belong to the same team")
         return value
+
+    def validate_signal_report_task_relationship(self, value: str) -> str:
+        normalized = value.strip()
+        if not _SIGNAL_REPORT_TASK_RELATIONSHIP_RE.fullmatch(normalized):
+            raise serializers.ValidationError(
+                "Must contain only lowercase letters, numbers, underscores, or hyphens, "
+                "and start with a lowercase letter or number."
+            )
+        return normalized
 
     def validate(self, attrs: dict) -> dict:
         rel = attrs.get("signal_report_task_relationship")

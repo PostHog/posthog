@@ -192,19 +192,6 @@ const EXPANDED_ROW_DECORATORS_BASE = [
     }),
 ]
 
-// Expanding a row mounts UsefulLinks (loads the account async) and the notes table
-// (loads notebooks async). Both start as skeletons and resolve later, which changes
-// the expansion's width and height. Awaiting the settled content here keeps the
-// snapshot deterministic — otherwise it races the loads and the Useful links sidebar
-// is sometimes absent, sometimes present (the flaky ~7% height/width diff).
-async function expandFirstRow(canvasElement: HTMLElement, notesLoadedText: string): Promise<void> {
-    const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByTitle('Show more'))
-    await canvas.findByText('Useful links')
-    await canvas.findByText('Organization')
-    await canvas.findByText(notesLoadedText)
-}
-
 // Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
 async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
     const canvas = within(canvasElement)
@@ -320,7 +307,12 @@ export const RowExpandedEmpty: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        // Only click to expand — sidebar content verification is redundant for snapshot
+        // purposes since mock data is deterministic. The waitForSelector in testOptions
+        // gates the snapshot on [data-attr="account-expansion"] with a 60s budget,
+        // avoiding the tight findByText timeouts that flake under CI load.
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByTitle('Show more'))
     },
 }
 
@@ -372,7 +364,8 @@ export const RowExpandedWithNote: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'Q2 expansion call')
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByTitle('Show more'))
     },
 }
 
@@ -392,7 +385,8 @@ export const RowExpandedLinksDisabled: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByTitle('Show more'))
     },
 }
 

@@ -146,6 +146,7 @@ class TestProcessSingle:
         [
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
+            "Source column type changed: 'price' has values that no longer fit its stored type int64",
         ],
     )
     @pytest.mark.asyncio

@@ -1097,6 +1097,11 @@ class DocusignSourceConfig(config.Config):
 
 
 @config.config
+class DodoPaymentsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DolibarrSourceConfig(config.Config):
     pass
 
@@ -1372,7 +1377,8 @@ class FlyIoSourceConfig(config.Config):
 
 @config.config
 class FormbricksSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2050,7 +2056,9 @@ class LangSmithSourceConfig(config.Config):
 
 @config.config
 class LangfuseSourceConfig(config.Config):
-    pass
+    public_key: str
+    secret_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2612,7 +2620,7 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenRouterSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3239,7 +3247,8 @@ class SafetyCultureSourceConfig(config.Config):
 
 @config.config
 class SageHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -3270,6 +3279,11 @@ class SalesforceMarketingCloudSourceConfig(config.Config):
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class SalestricsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3950,7 +3964,7 @@ class VantageSourceConfig(config.Config):
 
 @config.config
 class VapiSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4446,6 +4460,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DOCKERHUB: DockerhubSourceConfig,
         ExternalDataSourceType.DOCUSEAL: DocusealSourceConfig,
         ExternalDataSourceType.DOCUSIGN: DocusignSourceConfig,
+        ExternalDataSourceType.DODOPAYMENTS: DodoPaymentsSourceConfig,
         ExternalDataSourceType.DOLIBARR: DolibarrSourceConfig,
         ExternalDataSourceType.DREMIO: DremioSourceConfig,
         ExternalDataSourceType.DRIP: DripSourceConfig,
@@ -4849,6 +4864,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SALESTRICS: SalestricsSourceConfig,
         ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,
