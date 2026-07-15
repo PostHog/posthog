@@ -140,9 +140,7 @@ test.describe('Notebooks', () => {
 
         await test.step('type text content in the notebook', async () => {
             const savePromise = notebook.waitForSave()
-            await notebook.editor.click()
-            await page.keyboard.press('ControlOrMeta+End')
-            await page.keyboard.press('Enter')
+            await notebook.focusNewParagraphAtEnd()
             await page.keyboard.type(textContent)
             await expect(notebook.editor).toContainText(textContent)
             await savePromise

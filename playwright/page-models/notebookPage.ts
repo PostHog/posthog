@@ -59,15 +59,24 @@ export class NotebookPage {
         )
     }
 
+    /** Place the caret in a fresh empty paragraph at the end of the notebook. */
+    async focusNewParagraphAtEnd(): Promise<void> {
+        // Click a text block directly: clicking the canvas itself can land on hover
+        // affordances (add-block boundaries) instead of placing the caret.
+        await this.page.locator('.MarkdownNotebook__text-block').last().click()
+        await this.page.keyboard.press('End')
+        await this.page.keyboard.press('Enter')
+    }
+
     async addInsightViaSlashCommand(
         type: 'Trend' | 'Funnel' | 'Retention' | 'Paths' | 'Stickiness' | 'Lifecycle' | 'SQL'
     ): Promise<void> {
         const currentCount = await this.insightNodes.count()
         const savePromise = this.waitForSave()
-        await this.editor.click()
-        await this.page.keyboard.press('ControlOrMeta+End')
-        await this.page.keyboard.press('Enter')
-        await this.page.keyboard.type(`/${type}`)
+        await this.focusNewParagraphAtEnd()
+        await this.page.keyboard.type('/')
+        await expect(this.page.locator('.MarkdownNotebook__insert-menu')).toBeVisible()
+        await this.page.keyboard.type(type)
         const menuItem = this.page.getByRole('option', { name: type, exact: true })
         await expect(menuItem).toBeVisible()
         await menuItem.click()
