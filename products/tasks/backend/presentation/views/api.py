@@ -6,12 +6,13 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
+import pydantic
 import requests as http_requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -24,14 +25,18 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.schema import QuerySchemaRoot
+
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import CodeInviteThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
 from products.tasks.backend.facade import (
@@ -2127,11 +2132,27 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         strict_request_validation=True,
         operation_id="tasks_runs_living_artifacts_chart",
     )
-    @action(detail=False, methods=["post"], url_path="chart", required_scopes=["task:write"])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="chart",
+        # query:read because the body executes arbitrary insight queries — task:write alone
+        # must not become a data-read scope.
+        required_scopes=["task:write", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def chart(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
         name = request.validated_data["name"]
         query = request.validated_data.get("query")
+        if query is not None:
+            try:
+                QuerySchemaRoot.model_validate(upgrade(query))
+            except pydantic.ValidationError:
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
             asset, png = render_png_export(
                 team=self.team,
@@ -2160,8 +2181,17 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound()
         if error is not None:
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
-        serializer = TaskRunLivingArtifactChartResponseSerializer({"artifact": artifact, "export_asset_id": asset.id})
+        serializer = TaskRunLivingArtifactChartResponseSerializer(
+            {"artifact": artifact, "export_asset_id": asset.id, "url": self._chart_url(query, asset)}
+        )
         return Response(serializer.data)
+
+    def _chart_url(self, query: dict | None, asset) -> str | None:
+        if query is not None:
+            return absolute_uri(f"/project/{self.team_id}/insights/new#q={quote(json.dumps(query))}")
+        if asset.insight_id and asset.insight:
+            return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")
+        return None
 
     @validated_request(
         responses={

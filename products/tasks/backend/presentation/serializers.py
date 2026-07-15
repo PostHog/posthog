@@ -883,6 +883,11 @@ class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
 class TaskRunLivingArtifactChartResponseSerializer(serializers.Serializer):
     artifact = TaskRunLivingArtifactResponseSerializer(help_text="The living artifact registered for delivery.")
     export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing the chart.")
+    url = serializers.URLField(
+        allow_null=True,
+        required=False,
+        help_text="Link to explore this chart interactively in PostHog.",
+    )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):

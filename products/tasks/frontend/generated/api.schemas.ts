@@ -2269,6 +2269,11 @@ export interface TaskRunLivingArtifactChartResponseApi {
     artifact: TaskRunLivingArtifactResponseApi
     /** Id of the rendered PNG export backing the chart. */
     export_asset_id: number
+    /**
+     * Link to explore this chart interactively in PostHog.
+     * @nullable
+     */
+    url?: string | null
 }
 
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }

@@ -58429,6 +58429,11 @@ export namespace Schemas {
       artifact: TaskRunLivingArtifactResponse;
       /** Id of the rendered PNG export backing the chart. */
       export_asset_id: number;
+      /**
+         * Link to explore this chart interactively in PostHog.
+         * @nullable
+         */
+      url?: string | null;
     }
 
     /**

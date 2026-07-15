@@ -7276,6 +7276,93 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             )
 
 
+class TestLivingArtifactChartRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both", {"name": "c", "query": {"kind": "TrendsQuery"}, "insight_id": 1}),
+            ("neither", {"name": "c"}),
+        ]
+    )
+    def test_requires_exactly_one_of_query_or_insight_id(self, _name, body):
+        from products.tasks.backend.presentation.serializers import TaskRunLivingArtifactChartRequestSerializer
+
+        serializer = TaskRunLivingArtifactChartRequestSerializer(data=body)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("query", serializer.errors)
+
+
+class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
+    CHART_QUERY = {
+        "kind": "InsightVizNode",
+        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    }
+
+    def _post_chart(self, scopes, body):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="chart test key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=scopes,
+        )
+        self.client.force_authenticate(None)
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/chart/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {api_key_value}"},
+        )
+
+    @parameterized.expand([("task_write_only", ["task:write"]), ("query_read_only", ["query:read"])])
+    def test_rejects_key_missing_either_scope(self, _name, scopes):
+        response = self._post_chart(scopes, {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
+        mock_render.return_value = (MagicMock(id=321, exception=None), b"png-bytes")
+        mock_create.return_value = (
+            {
+                "id": "a1",
+                "task_id": "t1",
+                "run_id": "r1",
+                "team_id": self.team.id,
+                "name": "Chart",
+                "artifact_type": "file",
+                "adapter": "slack_file",
+                "status": "active",
+                "location": {},
+                "metadata": {},
+                "current_version": 1,
+                "versions": [],
+            },
+            None,
+        )
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["export_asset_id"], 321)
+        self.assertIn("/insights/new#q=", data["url"])
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["content_bytes"], b"png-bytes")
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_invalid_query_fails_before_render(self, mock_render):
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": {"kind": "NotAQuery"}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Invalid insight query")
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_render_failure_returns_typed_400(self, mock_render):
+        mock_render.return_value = (MagicMock(id=322, exception="Query exploded"), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Query exploded")
+
+
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.compute_repository_readiness")
     def test_repository_readiness_endpoint(self, mock_compute):
