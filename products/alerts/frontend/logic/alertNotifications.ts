@@ -16,6 +16,24 @@ export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
 
+// Maps a destination HogFunction's template_id back to the notification type, so analytics and
+// UI code can label an existing destination without re-deriving it from inputs. Kept next to
+// buildAlertDestination (which sets these template_ids) so the two stay in sync.
+export const notificationTypeFromTemplateId = (templateId?: string | null): AlertNotificationType | null => {
+    switch (templateId) {
+        case 'template-slack':
+            return ALERT_NOTIFICATION_TYPE_SLACK
+        case 'template-discord':
+            return ALERT_NOTIFICATION_TYPE_DISCORD
+        case 'template-microsoft-teams':
+            return ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+        case 'template-webhook':
+            return ALERT_NOTIFICATION_TYPE_WEBHOOK
+        default:
+            return null
+    }
+}
+
 export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
     properties: [
         {

@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -18,6 +19,7 @@ import {
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
+    notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import type { alertNotificationLogicType } from './alertNotificationLogicType'
@@ -122,13 +124,20 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadIntegrationsSuccess: () => {
             if (!values.firstSlackIntegration) {
                 actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
+            // Emit before the undo-able delete so the destination type is captured even if the
+            // HogFunction row is gone by the time the toast resolves. Mirrors the create event so
+            // adoption of each destination type (Slack/Discord/Teams/webhook) is measurable.
+            posthog.capture('insight alert destination deleted', {
+                alert_id: props.alertId,
+                type: notificationTypeFromTemplateId(hogFunction.template_id),
+            })
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -155,6 +164,19 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     return api.hogFunctions.create(payload)
                 })
             )
+
+            // Capture one event per destination that was actually created, tagged with its type,
+            // so adoption of each destination (Slack/Discord/Teams/webhook) is measurable. The
+            // destination is a separate HogFunction, so no `alert created`/`alert updated` event
+            // records it — this is the only signal that ties a destination type to an alert.
+            results.forEach((result, i) => {
+                if (result.status === 'fulfilled') {
+                    posthog.capture('insight alert destination created', {
+                        alert_id: alertId,
+                        type: pending[i].type,
+                    })
+                }
+            })
 
             const failures = results
                 .map((result, i) => ({ result, notification: pending[i] }))
