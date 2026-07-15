@@ -122,6 +122,22 @@ async def test_skips_team_with_invalid_current_retention():
 
 
 @pytest.mark.asyncio
+async def test_leaves_admin_only_7d_retention_unchanged():
+    # The fake queryset ignores the DB-level exclude("7d"), so this guards the worst case:
+    # even when a 7d team reaches the loop, it must never be rewritten to its entitlement
+    team = _team(retention="7d", feature_unit="year", feature_limit=1)
+    bulk_update = MagicMock()
+
+    with _patch_team_objects([team], bulk_update):
+        await ActivityEnvironment().run(enforce_max_replay_retention, EnforceMaxReplayRetentionInput(dry_run=False))
+
+    assert team.session_recording_retention_period == "7d"
+    bulk_update.assert_called_once()
+    args, _kwargs = bulk_update.call_args
+    assert args[0] == []
+
+
+@pytest.mark.asyncio
 async def test_processes_multiple_teams_independently():
     over_entitled = _team(retention="5y", feature_unit="year", feature_limit=1)
     within_entitlement = _team(retention="90d", feature_unit="year", feature_limit=1)

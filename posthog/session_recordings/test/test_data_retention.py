@@ -53,6 +53,8 @@ def test_parse_feature_to_entitlement(test_feature: ProductFeature | None, expec
         (None, False),
         ("", False),
         ("10days", False),
+        # "7d" is a valid model choice but admin-only: it must never become API-settable
+        ("7d", False),
         ("30d", True),
         ("90d", True),
         ("1y", True),

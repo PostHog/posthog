@@ -715,7 +715,8 @@ export interface TeamSurveyConfigType {
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
 
-export type SessionRecordingRetentionPeriod = 'legacy' | '30d' | '90d' | '1y' | '5y'
+// '7d' is admin-only (set via Django admin, not offered in the settings UI)
+export type SessionRecordingRetentionPeriod = 'legacy' | '7d' | '30d' | '90d' | '1y' | '5y'
 
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean

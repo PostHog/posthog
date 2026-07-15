@@ -449,11 +449,11 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -1050,11 +1050,11 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -1653,11 +1653,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -2263,11 +2263,11 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -2875,11 +2875,11 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -3501,11 +3501,11 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -4118,11 +4118,11 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -4735,11 +4735,11 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -5360,11 +5360,11 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -5977,11 +5977,11 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -6606,11 +6606,11 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -7219,11 +7219,11 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -7824,11 +7824,11 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),
@@ -8436,11 +8436,11 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
         session_recording_retention_period: zod
-            .enum(['30d', '90d', '1y', '5y'])
-            .describe('\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
+            .enum(['7d', '30d', '90d', '1y', '5y'])
+            .describe('\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years')
             .optional()
             .describe(
-                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
+                'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `7d` - 7 Days\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
         survey_config: zod.unknown().optional(),

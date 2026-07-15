@@ -26,6 +26,8 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
         async for team in (
             Team.objects.exclude(session_recording_retention_period="legacy")
             .exclude(session_recording_retention_period="30d")
+            # "7d" is admin-only and below every entitlement floor, so it is never enforced down
+            .exclude(session_recording_retention_period="7d")
             .only("id", "name", "organization", "session_recording_retention_period")
         ):
             organization = await database_sync_to_async(lambda team: team.organization)(team)

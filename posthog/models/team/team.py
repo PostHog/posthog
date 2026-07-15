@@ -262,6 +262,8 @@ class BusinessModel(models.TextChoices):
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
+    # Not settable via the API or settings UI (see VALID_RETENTION_PERIODS) — Django admin only
+    SEVEN_DAYS = "7d", "7 Days"
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
     ONE_YEAR = "1y", "1 Year"

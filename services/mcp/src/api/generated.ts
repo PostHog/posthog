@@ -43932,6 +43932,7 @@ export namespace Schemas {
     export type PatchedProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
+     * * `7d` - 7 Days
      * * `30d` - 30 Days
      * * `90d` - 90 Days
      * * `1y` - 1 Year
@@ -43941,6 +43942,7 @@ export namespace Schemas {
 
 
     export const SessionRecordingRetentionPeriodEnum = {
+      '7d': '7d',
       '30d': '30d',
       '90d': '90d',
       '1y': '1y',
@@ -44715,6 +44717,7 @@ export namespace Schemas {
       session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
        *
+       * * `7d` - 7 Days
        * * `30d` - 30 Days
        * * `90d` - 90 Days
        * * `1y` - 1 Year
@@ -48550,6 +48553,7 @@ export namespace Schemas {
       session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
        *
+       * * `7d` - 7 Days
        * * `30d` - 30 Days
        * * `90d` - 90 Days
        * * `1y` - 1 Year

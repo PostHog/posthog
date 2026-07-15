@@ -76,13 +76,14 @@ describe('RecordingService', () => {
 
     describe('validateS3Key', () => {
         it.each([
+            ['session_recordings/7d/1764634738680-3cca0f5d3c7cc7ee', true],
             ['session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', true],
             ['session_recordings/90d/1764634738680-abcdef0123456789', true],
             ['session_recordings/1y/1764634738680-0000000000000000', true],
             ['session_recordings/5y/1764634738680-ffffffffffffffff', true],
             ['../etc/passwd', false],
             ['other_prefix/30d/123-abcdef0123456789', false],
-            ['session_recordings/7d/123-abcdef0123456789', false],
+            ['session_recordings/14d/123-abcdef0123456789', false],
             ['session_recordings/30d/file', false],
             ['session_recordings/30d/123', false],
             ['session_recordings/30d/123-abc', false],
