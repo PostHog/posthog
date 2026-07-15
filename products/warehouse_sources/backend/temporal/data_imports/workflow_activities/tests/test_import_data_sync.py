@@ -5,11 +5,15 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
+    _handle_import_error,
+    _is_transient_transport_error,
     import_data_activity_sync,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -201,3 +205,75 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+
+
+def _proxy_error_wrapping_timeout() -> Exception:
+    # The exact shape from the signal: a proxy-connect TimeoutError surfaced as a requests ProxyError.
+    err = requests.exceptions.ProxyError("Cannot connect to proxy")
+    err.__cause__ = TimeoutError("timed out")
+    return err
+
+
+def _generic_error_wrapping_connection_reset() -> Exception:
+    err = Exception("something went wrong")
+    err.__cause__ = ConnectionResetError("connection reset by peer")
+    return err
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (_proxy_error_wrapping_timeout(), True),
+        (requests.exceptions.ConnectionError("connection aborted"), True),
+        (requests.exceptions.ReadTimeout("read timed out"), True),
+        (ConnectionResetError("connection reset by peer"), True),
+        (_generic_error_wrapping_connection_reset(), True),
+        # A message that merely mentions a network phrase is not a transport exception — stays loud.
+        (Exception("connection reset by peer"), False),
+        (ValueError("Invalid credentials"), False),
+    ],
+)
+def test_is_transient_transport_error(error, expected):
+    assert _is_transient_transport_error(error) is expected
+
+
+def _mock_logger() -> mock.MagicMock:
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+    return logger
+
+
+@pytest.mark.asyncio
+async def test_handle_import_error_logs_transient_transport_error_as_warning():
+    # Transient transport blips are re-raised for Temporal to retry but must not mint an
+    # error-tracking issue, so they log at warning rather than exception.
+    error = _proxy_error_wrapping_timeout()
+    logger = _mock_logger()
+    source = mock.MagicMock()
+    source.get_non_retryable_errors.return_value = {"Invalid credentials": None}
+    job_inputs = mock.MagicMock(job_type="MongoDB")
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(requests.exceptions.ProxyError):
+            await _handle_import_error(job_inputs, logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_import_error_logs_unclassified_error_as_exception():
+    error = Exception("some unexpected failure")
+    logger = _mock_logger()
+    source = mock.MagicMock()
+    source.get_non_retryable_errors.return_value = {"Invalid credentials": None}
+    job_inputs = mock.MagicMock(job_type="MongoDB")
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(Exception, match="some unexpected failure"):
+            await _handle_import_error(job_inputs, logger, error)
+
+    logger.aexception.assert_awaited_once()
+    logger.awarning.assert_not_awaited()
