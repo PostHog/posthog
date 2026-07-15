@@ -99,7 +99,6 @@ Memories and connections are scoped to individual users of your Hyperspell app. 
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

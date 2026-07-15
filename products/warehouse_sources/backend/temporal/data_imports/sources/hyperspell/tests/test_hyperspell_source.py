@@ -50,7 +50,6 @@ class TestHyperspellSource:
         assert config.name.value == "Hyperspell"
         assert config.label == "Hyperspell"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/hyperspell.svg"
         assert [f.name for f in config.fields] == ["api_key", "region", "user_ids"]
 
