@@ -88,7 +88,7 @@ interface ParsedCommand {
     question: string
 }
 
-function parseCommandString(options: string): ParsedCommand {
+export function parseCommandString(options: string): ParsedCommand {
     let remaining = options
 
     // Check for mode parameter (format: mode=<value>:rest), remove it if present
