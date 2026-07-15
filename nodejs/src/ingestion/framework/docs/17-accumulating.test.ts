@@ -1,52 +1,59 @@
 /**
  * # Chapter 17: Accumulating Pipelines
  *
- * `newAccumulatingPipeline(config)` builds an `AccumulatingPipeline`: it wraps a
- * per-message record pipeline that folds each element into an external
- * accumulator, and flushes that accumulator through a separate flush pipeline
- * on a size or age trigger. Session replay is the motivating consumer: events
- * fold into a batch recorder across many Kafka polls, and the flush writes the
- * whole batch to storage.
+ * ## Why this exists
  *
- * ## Key concepts
+ * Some sinks want few, large writes. Session replay folds thousands of Kafka
+ * messages into one batch recorder and writes it to S3 once the batch is big
+ * or old enough. That batch boundary spans many Kafka polls, so no earlier
+ * shape fits: a batching pipeline's batch (chapter 14) is exactly one feed()
+ * call. `newAccumulatingPipeline` owns the boundary instead: it keeps an
+ * external accumulator (the batch context), folds every fed element into it
+ * through your record pipeline, and pushes the accumulator through your flush
+ * pipeline when a size or age trigger fires.
  *
- * - **The batch boundary spans many `feed()` calls.** Unlike a batching
- *   pipeline (chapter 14), where each `feed()` is one batch, an accumulation
- *   cycle keeps absorbing feeds until `shouldFlush` (size) returns true or the
- *   age timer marks a flush due.
- * - **`beforeBatch` mints the batch context** (the accumulator, e.g. a session
- *   batch recorder) once per cycle: before the first feed, and again after
- *   every flush. The pipeline tags it onto every element it feeds through, so
- *   record steps fold into it without shared mutable lookups.
- * - **`next()` returns a discriminated result.** A `flushed: false` turn
- *   carries the record pipeline's results; a `flushed: true` turn carries the
- *   flush pipeline's results. `null` means fully drained and nothing due.
- * - **Side effects are surfaced, not scheduled.** Every turn carries the side
- *   effects produced that turn (e.g. DLQ produces); the caller makes them
- *   durable. Offsets stay entirely outside too: the pipeline never commits —
- *   the caller commits after a flushed turn's side effects have settled.
- * - **The age timer only marks a flush due; `next()` executes it.** Something
- *   must keep calling `next()` while idle (see the LIVENESS INVARIANT in
- *   `accumulating-pipeline.ts`) — for Kafka consumers that is
- *   `callEachBatchWhenEmpty: true`.
+ * ## How to use it
  *
- * ## How it works
+ * Give `newAccumulatingPipeline(config)` four things:
  *
- * ```
- * feed(A) ─► record pipeline folds A into ctx ─► next(): { flushed: false, elements: A' }
- * feed(B) ─► record pipeline folds B into ctx ─► next(): { flushed: false, elements: B' }
- *                        size or age trigger ─► next(): { flushed: true,  elements: flush(ctx) }
- *                                               beforeBatch mints a fresh ctx for the next cycle
- * ```
+ * - **`beforeBatch`** — mints a fresh accumulator (e.g. a session batch
+ *   recorder) at the start of each cycle: before the first feed, and again
+ *   after every flush. The pipeline tags the accumulator onto every element
+ *   it feeds through, so record steps fold into it without shared lookups.
+ * - **`pipeline`** — your pre-built record pipeline, typically a
+ *   `newBatchingPipeline` (chapter 14) whose steps fold each element into the
+ *   accumulator and whose afterBatch tracks offsets and trims results down to
+ *   what the flush needs.
+ * - **`flush`** — the pipeline that persists the accumulator. It receives ONE
+ *   element per flush: the batch context plus every accumulated record
+ *   result, in feed order.
+ * - **`shouldFlush` / `maxBatchAgeMs`** — the size and age triggers.
  *
- * `flush()` drains and flushes on demand (a Kafka partition revoke), and
- * `stop()` does the same while also clearing the age timer (shutdown), so the
- * last partial batch is never lost.
+ * Then drive it the way a Kafka consumer does: feed() every poll, loop next()
+ * until null. next() returns a discriminated turn — `flushed: false` carries
+ * record results, `flushed: true` carries the flush output. Make each turn's
+ * side effects (e.g. DLQ produces) durable, and commit offsets only after a
+ * flushed turn. Call flush() on partition revoke and stop() on shutdown, so
+ * the last partial batch is never lost.
+ *
+ * ## The fine print
+ *
+ * - The pipeline never commits offsets and never schedules side effects — the
+ *   caller does both. Offsets are tracked in the record pipeline's afterBatch
+ *   and committed by the consumer.
+ * - The age timer only marks a flush due; a later next() call executes it, so
+ *   something must keep calling next() while idle (for Kafka consumers,
+ *   `callEachBatchWhenEmpty: true`). See the LIVENESS INVARIANT note in
+ *   `accumulating-pipeline.ts`.
  */
-import { AccumulatedFlushInput, RecordPipeline } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipelineResultWithContext, OkResultWithContext } from '~/ingestion/framework/batch-pipeline.interface'
-import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
-import { newAccumulatingPipeline } from '~/ingestion/framework/builders'
+import {
+    AccumulatedFlushInput,
+    AccumulatingResult,
+    AccumulationContext,
+} from '~/ingestion/framework/accumulating-pipeline'
+import { OkResultWithContext } from '~/ingestion/framework/batch-pipeline.interface'
+import { BatchingContext } from '~/ingestion/framework/batching-pipeline'
+import { newAccumulatingPipeline, newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 
@@ -60,34 +67,29 @@ type Batch = { records: number[] }
 type NoCtx = Record<string, never>
 
 /**
- * A minimal record pipeline: folds each fed element's id into the accumulator the pipeline tagged
- * onto it, then acks the element. Real deployments pass a BatchingPipeline here (its afterBatch is
- * where offsets get tracked); the accumulating pipeline only needs the feed()/next() shape.
+ * The record pipeline is an ordinary batching pipeline (chapter 14): its fold step reads the
+ * accumulator straight off each element — the accumulating pipeline tagged it on — and folds into
+ * it. Real deployments hang offset tracking and result trimming off the afterBatch; here it just
+ * surfaces an optional per-batch side effect.
  */
-class FoldingRecordPipeline implements RecordPipeline<Event & Batch, NoCtx, Event, NoCtx> {
-    private buffer: OkResultWithContext<Event & Batch, NoCtx>[] = []
-
-    constructor(private sideEffectPerBatch?: () => Promise<unknown>) {}
-
-    feed(elements: OkResultWithContext<Event & Batch, NoCtx>[]): Promise<FeedResult> {
-        this.buffer.push(...elements)
-        return Promise.resolve({ ok: true })
-    }
-
-    next(): Promise<BatchResult<BatchPipelineResultWithContext<Event, NoCtx>> | null> {
-        if (this.buffer.length === 0) {
-            return Promise.resolve(null)
-        }
-        const out = this.buffer
-        this.buffer = []
-        for (const element of out) {
-            element.result.value.records.push(element.result.value.id)
-        }
-        return Promise.resolve({
-            elements: out.map((element) => ({ result: ok({ id: element.result.value.id }), context: element.context })),
-            sideEffects: this.sideEffectPerBatch ? [this.sideEffectPerBatch()] : [],
-        })
-    }
+function buildRecordPipeline(recordSideEffect?: () => Promise<unknown>) {
+    return newBatchingPipeline<Event & Batch & AccumulationContext, Event, NoCtx>(
+        (beforeBatch) =>
+            beforeBatch.pipe(function passThroughBefore(input) {
+                return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+            }),
+        (builder) =>
+            builder.sequentially((b) =>
+                b.pipe(function foldIntoAccumulator(input) {
+                    input.records.push(input.id)
+                    return Promise.resolve(ok({ id: input.id }))
+                })
+            ),
+        (afterBatch) =>
+            afterBatch.pipe(function surfaceRecordSideEffects(input) {
+                return Promise.resolve(ok(input, recordSideEffect ? [recordSideEffect()] : []))
+            })
+    )
 }
 
 function buildPipeline(options: {
@@ -95,18 +97,19 @@ function buildPipeline(options: {
     maxBatchAgeMs?: number
     recordSideEffect?: () => Promise<unknown>
 }) {
-    return newAccumulatingPipeline<Event, Event, NoCtx, NoCtx, Batch, number[], NoCtx>({
+    return newAccumulatingPipeline<Event, Event, NoCtx, BatchingContext, Batch, number[], NoCtx>({
         // Mints the accumulator for each cycle — runs before the first feed and after every flush.
         beforeBatch: (builder) =>
             builder.pipe(function mintAccumulator(input) {
-                return Promise.resolve(ok({ batchContext: { records: [], batchId: input.batchId } }))
+                const batchContext: Batch & AccumulationContext = { records: [], batchId: input.batchId }
+                return Promise.resolve(ok({ batchContext }))
             }),
-        pipeline: new FoldingRecordPipeline(options.recordSideEffect),
+        pipeline: buildRecordPipeline(options.recordSideEffect),
         // The flush pipeline receives ONE element: the batch context plus the accumulated results.
         // Here it "persists" by emitting the accumulated records; session replay writes to S3.
         flush: (builder) =>
             builder.sequentially((b) =>
-                b.pipe(function writeRecords(input: AccumulatedFlushInput<Event, NoCtx, Batch>) {
+                b.pipe(function writeRecords(input: AccumulatedFlushInput<Event, BatchingContext, Batch>) {
                     return Promise.resolve(ok(input.batchContext.records))
                 })
             ),
@@ -117,6 +120,16 @@ function buildPipeline(options: {
 
 function feedEvents(ids: number[]): OkResultWithContext<Event, NoCtx>[] {
     return ids.map((id) => createOkContext({ id }, {}))
+}
+
+// Narrows a turn to its flushed variant (so the elements read as flush output) and unwraps the values.
+function flushedValues(
+    result: AccumulatingResult<Event, BatchingContext, number[], NoCtx> | null
+): (number[] | null)[] {
+    if (result === null || !result.flushed) {
+        throw new Error('expected a flushed turn')
+    }
+    return result.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))
 }
 
 describe('Accumulating Pipelines', () => {
@@ -152,16 +165,12 @@ describe('Accumulating Pipelines', () => {
         await pipeline.feed(feedEvents([1, 2, 3]))
         expect(await pipeline.next()).toMatchObject({ flushed: false })
 
-        const flushed = await pipeline.next()
-        expect(flushed).toMatchObject({ flushed: true })
-        expect(flushed!.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))).toEqual([[1, 2, 3]])
+        expect(flushedValues(await pipeline.next())).toEqual([[1, 2, 3]])
 
         // The next cycle accumulates independently of the flushed one.
         await pipeline.feed(feedEvents([4, 5, 6]))
         await pipeline.next()
-        const flushedAgain = await pipeline.next()
-        expect(flushedAgain).toMatchObject({ flushed: true })
-        expect(flushedAgain!.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))).toEqual([[4, 5, 6]])
+        expect(flushedValues(await pipeline.next())).toEqual([[4, 5, 6]])
     })
 
     /**
@@ -184,9 +193,7 @@ describe('Accumulating Pipelines', () => {
             jest.advanceTimersByTime(1_500)
 
             // The timer has only marked the flush due; this next() executes it.
-            const flushed = await pipeline.next()
-            expect(flushed).toMatchObject({ flushed: true })
-            expect(flushed!.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))).toEqual([[7]])
+            expect(flushedValues(await pipeline.next())).toEqual([[7]])
 
             await pipeline.stop()
         } finally {
@@ -239,13 +246,9 @@ describe('Accumulating Pipelines', () => {
 
         await pipeline.feed(feedEvents([8, 9]))
         // No next() calls yet: flush() drains the record phase itself, then flushes.
-        const revoked = await pipeline.flush()
-        expect(revoked).toMatchObject({ flushed: true })
-        expect(revoked!.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))).toEqual([[8, 9]])
+        expect(flushedValues(await pipeline.flush())).toEqual([[8, 9]])
 
         await pipeline.feed(feedEvents([10]))
-        const final = await pipeline.stop()
-        expect(final).toMatchObject({ flushed: true })
-        expect(final!.elements.map((e) => (isOkResult(e.result) ? e.result.value : null))).toEqual([[10]])
+        expect(flushedValues(await pipeline.stop())).toEqual([[10]])
     })
 })
