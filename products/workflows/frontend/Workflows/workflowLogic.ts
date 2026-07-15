@@ -20,7 +20,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType } from '~/types'
+import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -427,6 +427,10 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        workflowUserAccessLevel: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow): AccessControlLevel | null => originalWorkflow?.user_access_level ?? null,
+        ],
         currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],
@@ -563,6 +567,17 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = false
                                 result.errors = {
                                     email: combinedErrors,
+                                }
+                            }
+                        } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
+                            // Native push needs at least one delivery channel; without one the runtime
+                            // throws "No push channel configured" at send time. Block publish instead.
+                            const channels = action.config.inputs?.channels?.value
+                            if (!Array.isArray(channels) || channels.length === 0) {
+                                result.valid = false
+                                result.errors = {
+                                    ...result.errors,
+                                    channels: 'Select at least one channel to send this notification',
                                 }
                             }
                         }

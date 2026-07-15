@@ -9,7 +9,6 @@ import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
-import { AlertType } from 'lib/components/Alerts/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -79,6 +78,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
+import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -288,6 +289,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    Workflow = 'hog_flow',
     EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
@@ -352,6 +354,7 @@ export interface UserType extends UserBaseType {
     is_impersonated: boolean
     is_impersonated_until?: string
     is_impersonated_read_only?: boolean
+    is_impersonated_reason?: string | null
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -470,6 +473,7 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
+    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -505,6 +509,7 @@ export interface PluginAccess {
 export interface PersonalAPIKeyType {
     id: string
     label: string
+    description?: string | null
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
@@ -575,17 +580,10 @@ export interface OrganizationDomainType {
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
     has_saml: boolean
-    saml_entity_id: string
-    saml_acs_url: string
-    saml_x509_cert: string
-    scim_enabled?: boolean
+    has_scim?: boolean
     scim_base_url?: string
-    scim_bearer_token?: string
     has_id_jag?: boolean
-    id_jag_issuer_url?: string | null
-    id_jag_jwks_url?: string | null
-    id_jag_allowed_clients?: string[]
-    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
     identity_provider_config?: string | null
 }
 
@@ -1100,6 +1098,9 @@ export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
     Paused = 'paused',
+    // Running with enrollment frozen to the already-exposed cohort while metrics keep flowing.
+    // Derived from the feature flag, not stored — see Experiment.is_exposure_frozen.
+    ExposureFrozen = 'exposure_frozen',
     Stopped = 'stopped',
 }
 
@@ -1132,6 +1133,7 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -1230,6 +1232,11 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface MetricPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.MetricAttribute
+    operator: PropertyOperator
+}
+
 export type SpanPropertyFilterType =
     | PropertyFilterType.Span
     | PropertyFilterType.SpanAttribute
@@ -1291,6 +1298,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | WorkflowVariablePropertyFilter
@@ -1358,7 +1366,6 @@ export type EncodedRecordingSnapshot = _EncodedRecordingSnapshot
 export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
-export { SnapshotSourceType } from '@posthog/replay-shared'
 
 export type SessionRecordingSnapshotParams = (
     | {
@@ -1646,6 +1653,8 @@ export type SearchResultType = {
     type: SearchableEntity
     rank: number | null
     extra_fields: Record<string, unknown>
+    /** Resolved access level the user has for this object ('none' means no access); null when access controls don't apply */
+    user_access_level?: AccessControlLevel | null
 }
 
 export type SearchResponse = {
@@ -4236,6 +4245,10 @@ export interface FeatureFlagGroupType {
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
     aggregation_group_type_index?: integer | null
+    /** Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition. */
+    exposure_frozen?: boolean
+    /** Snapshot cohort the exposure freeze AND'd into this group's properties. */
+    exposure_frozen_cohort?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -4266,6 +4279,12 @@ export interface FeatureFlagFilters {
     payloads?: Record<string, JsonType>
     early_exit?: boolean
     feature_enrollment?: boolean
+    /** Experiment holdout exclusion, evaluated by the flag matcher before release conditions. */
+    holdout?: { id: number; exclusion_percentage: number } | null
+    /** Legacy holdout representation, also evaluated before release conditions. */
+    holdout_groups?: FeatureFlagGroupType[] | null
+    /** Early access enrollment conditions, evaluated before release conditions. */
+    super_groups?: FeatureFlagGroupType[] | null
 }
 
 export interface FeatureFlagBasicType {
@@ -4346,12 +4365,6 @@ export interface OrganizationFeatureFlagsCopyBody {
     copy_schedule?: boolean
     disable_copied_flag?: boolean
 }
-
-export type OrganizationFeatureFlags = {
-    flag_id: FeatureFlagType['id']
-    team_id: TeamType['id']
-    active: FeatureFlagType['active']
-}[]
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
@@ -4688,6 +4701,7 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -4715,6 +4729,17 @@ export interface PropertyDefinition {
     verified_by?: string
     hidden?: boolean
     virtual?: boolean
+    // Provenance when a person property is populated from a data warehouse source. Read-only.
+    warehouse_origin?: WarehousePropertyOrigin | null
+}
+
+export interface WarehousePropertyOrigin {
+    source_id?: string
+    schema_id?: string
+    table_name?: string
+    column?: string
+    custom_property_source_id?: string
+    last_synced_at?: string
 }
 
 export enum PropertyDefinitionState {
@@ -4812,6 +4837,12 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    /**
+     * Draft flag config for an unsaved experiment, in the flag's own input shape. Client-only:
+     * `toExperimentWritePayload` extracts it into the `feature_flag` write field and strips it.
+     * Saved experiments read flag config from `feature_flag` (the read projection) instead.
+     */
+    feature_flag_config?: ExperimentFeatureFlagInputApi
     exposure_cohort?: number
     exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
@@ -4825,12 +4856,9 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
-        aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
-        rollout_percentage?: number
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4995,6 +5023,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
+    oauth_mcp_consent?: OAuthMcpConsentContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5343,6 +5373,8 @@ export interface SubscriptionType {
     enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
+    /** Write-only. When false, creating the subscription skips the immediate confirmation send (the schedule is unaffected). */
+    send_test_now?: boolean
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -5393,6 +5425,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -5435,8 +5468,10 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_WRITE = 'canvases:write',
     CHANNELS_MANAGE = 'channels:manage',
     COMMANDS = 'commands',
+    FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5461,7 +5496,8 @@ export interface EmailIntegrationDomainGroupedType {
 
 export interface SlackChannelType {
     id: string
-    name: string
+    // Absent for private channels the bot can't access (is_private_without_access).
+    name?: string
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
@@ -5636,6 +5672,8 @@ export type APIScopeObject =
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
+    | 'data_catalog'
+    | 'data_catalog_approval'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
@@ -5853,6 +5891,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    BILLING = 'Billing',
     EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
@@ -6106,7 +6145,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
 }
 
 export interface ExternalDataSource {
@@ -6118,7 +6157,7 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
-    created_via: 'web' | 'api' | 'mcp' | null
+    created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
     engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
@@ -6891,7 +6930,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
-    | ProductKey.MCP_ANALYTICS,
+    | ProductKey.MCP_ANALYTICS
+    | ProductKey.CONVERSATIONS,
     OnboardingProduct
 >
 
@@ -6922,6 +6962,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
@@ -6930,6 +6971,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
+        | 'customer_analytics_account_relationships'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7449,6 +7491,11 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+export type OAuthMcpConsentContext = {
+    is_mcp_resource: boolean
+    scopes?: string[]
 }
 
 export type OAuthApplicationPublicMetadata = {

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +13,9 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
+import { BulkCopyFlagsModal } from '../BulkCopyFlagsModal'
+import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from '../flagSelectionLogic'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
@@ -65,12 +69,16 @@ export function ProjectsGrid(): JSX.Element {
         accessibleTeamIds,
         siblingsByFlagKey,
         siblingsLoadingKeys,
+        togglingFlagIds,
     } = useValues(projectsGridLogic)
-    const { loadMoreFlags } = useActions(projectsGridLogic)
+    const { loadMoreFlags, toggleFlagActive } = useActions(projectsGridLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const sentinelRef = useRef<HTMLDivElement>(null)
+    // State (not a ref) so the table re-renders once the toolbar slot mounts and the bar can portal into it
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const el = sentinelRef.current
@@ -124,18 +132,33 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: OrganizationFeatureFlagRow) => (
-                <ProjectsGridCell
-                    state={cellStateFor(
-                        flag,
-                        teamId,
-                        currentTeamId,
-                        accessibleTeamIds,
-                        siblingsByFlagKey[flag.key],
-                        siblingsLoadingKeys.includes(flag.key)
-                    )}
-                />
-            ),
+            render: (_: unknown, flag: OrganizationFeatureFlagRow) => {
+                const state = cellStateFor(
+                    flag,
+                    teamId,
+                    currentTeamId,
+                    accessibleTeamIds,
+                    siblingsByFlagKey[flag.key],
+                    siblingsLoadingKeys.includes(flag.key)
+                )
+                const flagId = state.kind === 'present' ? state.sibling.flag_id : null
+                return (
+                    <ProjectsGridCell
+                        state={state}
+                        toggling={flagId !== null ? togglingFlagIds[flagToggleKey(teamId, flagId)] : false}
+                        onToggle={
+                            flagId !== null
+                                ? (active) =>
+                                      confirmFlagActiveToggleInProject({
+                                          teamName: teamsById.get(teamId)?.name ?? `Project ${teamId}`,
+                                          active,
+                                          onConfirm: () => toggleFlagActive(flag.key, teamId, flagId, active),
+                                      })
+                                : undefined
+                        }
+                    />
+                )
+            },
         })),
     ]
 
@@ -144,7 +167,8 @@ export function ProjectsGrid(): JSX.Element {
             title="Feature flags across projects"
             description="Compare each flag's status, rollout, and recent usage across your organization's projects."
         >
-            <ProjectsGridToolbar />
+            <ProjectsGridToolbar bulkSelectionBarRef={setBulkBarTarget} />
+            <BulkCopyFlagsModal />
             <LemonTable
                 columns={columns}
                 dataSource={flags}
@@ -153,6 +177,35 @@ export function ProjectsGrid(): JSX.Element {
                 emptyState="No flags match your search."
                 data-attr="projects-grid-table"
                 className="[&_table]:table-fixed"
+                bulkSelection={{
+                    getKey: (flag: OrganizationFeatureFlagRow): string => flag.key,
+                    rowAriaLabel: (flag: OrganizationFeatureFlagRow) => `Select feature flag ${flag.key}`,
+                    headerAriaLabel: 'Select all loaded feature flags',
+                    noun: ['flag', 'flags'],
+                    barPortalTarget: bulkBarTarget,
+                    renderActions: (ctx) => (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            data-attr="projects-grid-bulk-copy-button"
+                            disabledReason={
+                                ctx.selectedCount > BULK_COPY_MAX_FLAGS
+                                    ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
+                                    : undefined
+                            }
+                            onClick={() => {
+                                openBulkCopyModal({
+                                    sourceProjectId: currentTeamId,
+                                    flagKeys: ctx.selectedKeys.map(String),
+                                    sourceSelectable: true,
+                                })
+                            }}
+                        >
+                            Copy to projects
+                        </LemonButton>
+                    ),
+                }}
             />
             {flagsPageLoading && flags.length > 0 && <LemonSkeleton className="h-8 my-2" />}
             <div ref={sentinelRef} className="h-1" />

@@ -46,7 +46,7 @@ For deeper investigation, hand off to other skills and tools:
   - Logs: `query-logs`, `logs-count-ranges` to find log activity around the issue
   - Session replays: `query-session-recordings-list`, `session-recording-get` to find
     recordings of affected users
-  - Persons / activity: `persons-retrieve`, `activity-log-list` to inspect a specific user's
+  - Persons / activity: `persons-retrieve`, `advanced-activity-logs-list` to inspect a specific user's
     behavior
   - Trends / SQL: `query-trends`, `execute-sql` for ad-hoc verification queries
 

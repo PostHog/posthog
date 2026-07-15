@@ -3,8 +3,7 @@
  *
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
- * as the asking user — the same pattern as `posthog-ai`, applied to the
- * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * as the asking user. It keeps only its own runtime natives (`@posthog/memory-*`
  * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
  * via `level: 'approve'` + `approval_policy`, so the platform — not

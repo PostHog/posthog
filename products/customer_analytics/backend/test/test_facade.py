@@ -179,11 +179,15 @@ class TestCustomerAnalyticsFacade(BaseTest):
         return AccountRelationship.objects.for_team(self.team.id).filter(account_id=account.id, ended_at__isnull=True)
 
     def test_update_external_account_assigns_relationship_and_resolves_email(self):
-        self._create_csm_definition()
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", relationship_assignments={"CSM": self.user.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): self.user.id},
+            tags=None,
+            tags_mode="add",
         )
 
         assert result.error is None
@@ -199,7 +203,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", relationship_assignments={"CSM": None}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={str(definition.id): None}, tags=None, tags_mode="add"
         )
 
         assert result.account is not None
@@ -207,7 +211,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert self._active_relationships(account).count() == 0
 
     def test_update_external_account_does_not_touch_properties(self):
-        self._create_csm_definition()
+        definition = self._create_csm_definition()
         account = create_account(
             team_id=self.team.id,
             name="Acme Corp",
@@ -216,7 +220,11 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         facade.update_external_account(
-            self.team.id, "acme-1", relationship_assignments={"CSM": self.user.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): self.user.id},
+            tags=None,
+            tags_mode="add",
         )
 
         account.refresh_from_db()
@@ -224,17 +232,21 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert account.properties.csm is None
 
     def test_update_external_account_rejects_non_member(self):
-        self._create_csm_definition()
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         outsider = User.objects.create_and_join(Organization.objects.create(name="Outsiders"), "out@example.com", None)
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", relationship_assignments={"CSM": outsider.id}, tags=None, tags_mode="add"
+            self.team.id,
+            "acme-1",
+            relationship_assignments={str(definition.id): outsider.id},
+            tags=None,
+            tags_mode="add",
         )
 
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION
-        assert result.error_field == "CSM"
+        assert result.error_field == str(definition.id)
         assert self._active_relationships(account).count() == 0
 
     def test_update_external_account_invalid_properties(self):
@@ -276,7 +288,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert removed.account is not None and removed.account.tags == []
 
     def test_update_external_account_rolls_back_relationship_when_tags_fail(self):
-        self._create_csm_definition()
+        definition = self._create_csm_definition()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         with patch(
@@ -286,7 +298,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             result = facade.update_external_account(
                 self.team.id,
                 "acme-1",
-                relationship_assignments={"CSM": self.user.id},
+                relationship_assignments={str(definition.id): self.user.id},
                 tags=["enterprise"],
                 tags_mode="add",
             )

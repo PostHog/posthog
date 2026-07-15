@@ -30,7 +30,6 @@ class TestOnfleetSource:
         assert config.name.value == "Onfleet"
         assert config.label == "Onfleet"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/onfleet"
 
     def test_api_key_field_is_secret_password(self):

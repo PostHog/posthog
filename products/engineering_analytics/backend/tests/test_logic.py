@@ -62,6 +62,18 @@ def _resp(results: list[tuple]) -> SimpleNamespace:
     return SimpleNamespace(results=results)
 
 
+def _pr_list_run(rows: list[tuple], push_rows: list[tuple] | None = None):
+    """Mocked ``curated.run`` for the PR-list path, which now issues two queries: the list
+    query returns ``rows``; the scoped push-history query returns ``push_rows``."""
+
+    def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
+        if query_type == "engineering_analytics.pr_push_history":
+            return _resp(push_rows or [])
+        return _resp(rows)
+
+    return run
+
+
 def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
@@ -284,7 +296,13 @@ class TestEndpointMapping(BaseTest):
             5,
             2,
         )
-        with mock.patch(_RUN_QUERY, return_value=_resp([row])):
+        # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
+        # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
+        push_rows = [
+            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is False
@@ -300,6 +318,10 @@ class TestEndpointMapping(BaseTest):
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
+        assert [(p.head_sha, p.wall_seconds, p.failed, p.pending) for p in item.push_history] == [
+            ("sha-old", 900, True, False),
+            ("sha-new", None, False, True),
+        ]
 
     def test_pull_request_list_flags_truncation(self) -> None:
         # Cap patched low; return more rows than the cap to exercise the N+1 overflow
@@ -326,12 +348,35 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
         )
-        with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
+        with (
+            mock.patch(f"{_PR_LIST}._LIMIT", 2),
+            mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row, row, row])),
+        ):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is True
         assert result.limit == 2
         assert len(result.items) == 2
+
+    def test_current_branch_health_counts_every_workflow(self) -> None:
+        workflow_rows = [(f"Workflow {index}", 1, 0) for index in range(100)]
+        workflow_rows.extend((f"Low-volume failure {index:02d}", 1, 1) for index in range(21))
+        workflow_rows.append(("Still running", 0, 0))
+
+        def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
+            if query_type == "engineering_analytics.default_branch":
+                return _resp([(0, 12)])
+            assert query_type == "engineering_analytics.current_branch_health"
+            assert "LIMIT" not in sql.upper()
+            return _resp(workflow_rows)
+
+        with mock.patch(_RUN_QUERY, side_effect=run):
+            health = api.get_current_branch_health(team=self.team)
+
+        assert health.default_branch == "main"
+        assert health.settled_workflows == 121
+        assert health.failing_workflows == 21
+        assert health.failing_workflow_names == [f"Low-volume failure {index:02d}" for index in range(20)]
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
@@ -375,14 +420,14 @@ class TestEndpointMapping(BaseTest):
 class TestCostPerMergeSeries(BaseTest):
     """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
     division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
-    Python fold — the runner-tier cost model, the bucket join, the empty-bucket handling — without
-    a warehouse. The tier multiplier stays server-side; only group columns cross the mock boundary."""
+    Python fold — the bucket join, the trailing-window ratio, the empty-bucket handling — without a
+    warehouse. Cost is aggregated in SQL over the shared cost source, so only the per-bucket dollar
+    figure crosses the mock boundary."""
 
     @staticmethod
     def _curated(cost_rows: list[tuple], merges_rows: list[tuple], *, jobs_synced: bool = True) -> mock.Mock:
         curated = mock.Mock()
-        curated.jobs_source.return_value = "px_github_workflow_jobs" if jobs_synced else None
-        curated.run_source.return_value = "px_github_workflow_runs"
+        curated.job_cost_source.return_value = "(cost_source)" if jobs_synced else None
         curated.pr_source.return_value = "px_github_pull_requests"
         # Cost scan first, then the merges scan — the call order in query_cost_per_merge_series.
         curated.run.side_effect = [_resp(cost_rows), _resp(merges_rows)]
@@ -391,12 +436,12 @@ class TestCostPerMergeSeries(BaseTest):
     def test_buckets_cost_per_merge_and_zero_fills(self) -> None:
         date_from = _dt("2026-06-01T00:00:00")
         date_to = _dt("2026-06-30T00:00:00")  # 29-day window -> day granularity, deterministic buckets.
-        # Columns: bucket_start, labels, finished, elapsed, unfinished. depot-4 (4-core) bills at 2x, so
-        # 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
+        # Columns: bucket_start, billable_seconds, cost_sum, costed, unsettled, excluded — the SQL cost
+        # aggregates. depot-4 (4-core) bills at 2x, so 2 min -> 2 * 0.004 * 2 = 0.016; 1 min -> 0.008.
         cost_rows = [
-            (datetime(2026, 6, 2), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),
-            (datetime(2026, 6, 3), '["depot-ubuntu-22.04-4"]', 1, 60.0, 0),
-            (datetime(2026, 6, 6), '["depot-ubuntu-22.04-4"]', 1, 120.0, 0),  # cost but no merges below
+            (datetime(2026, 6, 2), 120.0, 0.016, 1, 0, 0),
+            (datetime(2026, 6, 3), 60.0, 0.008, 1, 0, 0),
+            (datetime(2026, 6, 6), 120.0, 0.016, 1, 0, 0),  # cost but no merges below
         ]
         # Columns: bucket_start, merges.
         merges_rows = [
@@ -404,11 +449,10 @@ class TestCostPerMergeSeries(BaseTest):
             (datetime(2026, 6, 3), 2),
             (datetime(2026, 6, 5), 3),  # merges but no cost above
         ]
-        granularity, buckets = query_cost_per_merge_series(
-            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to
+        buckets = query_cost_per_merge_series(
+            curated=self._curated(cost_rows, merges_rows), date_from=date_from, date_to=date_to, granularity="day"
         )
 
-        assert granularity == "day"
         assert len(buckets) == 30  # June 1..30 inclusive, zero-filled.
         by_day = {bucket.bucket_start: bucket for bucket in buckets}
 
@@ -443,10 +487,9 @@ class TestCostPerMergeSeries(BaseTest):
 
     def test_empty_when_jobs_source_unsynced(self) -> None:
         curated = self._curated([], [], jobs_synced=False)
-        granularity, buckets = query_cost_per_merge_series(
-            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00")
+        buckets = query_cost_per_merge_series(
+            curated=curated, date_from=_dt("2026-06-01T00:00:00"), date_to=_dt("2026-06-30T00:00:00"), granularity="day"
         )
-        assert granularity == "day"
         assert buckets == []
         curated.run.assert_not_called()  # no jobs source -> no scan is issued
 
@@ -603,6 +646,13 @@ class TestListGitHubSources(BaseTest):
         source = self._source(prefix="noinputs")
         assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
 
+    def test_repo_is_blank_when_job_inputs_is_not_a_dict(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; a non-dict must not crash
+        # the shared repository read (it backs every endpoint via resolve_github_tables), just yield "".
+        source = self._source(prefix="weird")
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="weird")]
+
     def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
         self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
         deleted = self._source(prefix="gone", repository="PostHog/posthog")
@@ -677,6 +727,56 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
 
+    def test_repo_overview_headlines_and_series_toggle(self) -> None:
+        # The weekly digest's whole read path: headline aggregates with include_series=False must
+        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
+        # included: the merge population that triggered the spend) while the median keeps the
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
+        # chart series empty. The default call keeps the series for the UI.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                # human, merged in window: open->merge = 8 days; the median's only sample
+                _pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80"),
+                # bot, merged in window: counted in merged_pr_count, excluded from the median
+                _pr_row(81, "dependabot[bot]", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha81"),
+                # merged before the window (and before its prev twin): in neither count
+                _pr_row(82, "alice", "closed", 0, _ago(120), merged_at=_ago(90), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
+                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+            ],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
+        assert overview.merged_pr_count_prev == 0
+        assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
+        assert overview.run_count == 2
+        assert overview.rerun_cycles == 1
+        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.cost_series == []
+        assert overview.time_to_green_series == []
+        assert overview.success_rate_series == []
+        assert overview.open_to_merge_series == []
+        assert overview.cost_series_granularity == "day"  # the grain the series would have used
+
+        with_series = api.get_repo_overview(team=self.team)
+        assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
+        assert len(with_series.success_rate_series) > 0
+
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
         result = api.list_pull_requests(team=self.team)
@@ -745,9 +845,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_pr_cost_clamps_clock_skewed_negative_durations(self) -> None:
         # Two jobs share one run/label group: a normal +120s job and a clock-skewed -120s one
         # (completed_at < started_at). The grouped sum must clamp the negative per-job (greatest(.,0))
-        # so it doesn't cancel its group-mate's elapsed before the even-split expansion. Without the
-        # clamp the group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and
-        # the normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
+        # so it doesn't cancel its group-mate's elapsed inside the group total. Without the clamp the
+        # group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and the
+        # normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -799,6 +899,28 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
+
+    def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
+        # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
+        # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
+        # the prev scan the innermost raw prefilter would drop it and success_rate_prev would go None.
+        # A -30d window puts its prev twin at [-60d, -30d), so _ago(45) lands squarely in it.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(2), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha60", "completed", "success", _ago(2), _ago(2), pr_number=60),
+                _run_row(6002, "CI", "sha60p", "completed", "success", _ago(45), _ago(45), pr_number=60),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
+        assert ci.success_rate == 1.0
+        assert ci.success_rate_prev == 1.0
 
     def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
         self._create_table(

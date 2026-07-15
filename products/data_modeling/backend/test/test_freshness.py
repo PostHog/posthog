@@ -10,6 +10,7 @@ from products.data_modeling.backend.logic.freshness import (
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
+    clamp_to_source_floor,
     compute_effective_cadences,
     declared_target_bounds,
     find_invalid_targets,
@@ -18,6 +19,7 @@ from products.data_modeling.backend.logic.freshness import (
 
 M5 = timedelta(minutes=5)
 M15 = timedelta(minutes=15)
+M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
@@ -228,3 +230,33 @@ class TestFindInvalidTargets(TestCase):
         self.assertEqual(
             find_invalid_targets(edges=edges, declared_targets=targets, source_intervals=source_intervals), expected
         )
+
+
+class TestClampToSourceFloor(TestCase):
+    @parameterized.expand(
+        [
+            # finer than the 6h floor -> coarsened to the floor bucket
+            ("finer_than_floor", {"a": M15}, {"src": H6}, {"a": H6}, H6),
+            # floor is not a bucket (45min) -> clamp up to the nearest bucket (1h), never finer
+            ("non_bucket_floor_rounds_up", {"a": M15}, {"src": M45}, {"a": H1}, H1),
+            # already at the floor -> untouched
+            ("at_floor", {"a": H6}, {"src": H6}, {"a": H6}, None),
+            # coarser than the floor -> untouched
+            ("coarser_than_floor", {"a": DAY}, {"src": H6}, {"a": DAY}, None),
+            # streamed source imposes no floor -> never clamped
+            ("streamed_source", {"a": M15}, {"src": STREAMING}, {"a": M15}, None),
+            # unscheduled stays unscheduled
+            ("unscheduled_untouched", {"a": None}, {"src": H6}, {"a": None}, None),
+        ]
+    )
+    def test_clamp(self, _name, effective, source_intervals, expected_cadences, expected_clamped_to):
+        clamped, changes = clamp_to_source_floor(effective, edges=[("src", "a")], source_intervals=source_intervals)
+        self.assertEqual(clamped, expected_cadences)
+        if expected_clamped_to is None:
+            self.assertEqual(changes, [])
+        else:
+            self.assertEqual(len(changes), 1)
+            self.assertEqual(changes[0].node_id, "a")
+            self.assertEqual(changes[0].demanded, effective["a"])
+            self.assertEqual(changes[0].source_floor, source_intervals["src"])
+            self.assertEqual(changes[0].clamped_to, expected_clamped_to)

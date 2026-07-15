@@ -680,8 +680,8 @@ def _recent_activity(team: Team) -> dict[str, Any]:
     Cuts across every entity type the activity log knows about — surveys, feature flags,
     experiments, dashboards, insights, cohorts, notebooks, actions, etc. — so the agent
     gets one place to look for "where has this team been working lately?" without per-
-    entity readers. The MCP tools `activity-log-list` / `advanced-activity-logs-list`
-    do the drill-down once the agent decides a scope is worth investigating.
+    entity readers. The MCP tool `advanced-activity-logs-list`
+    does the drill-down once the agent decides a scope is worth investigating.
 
     `edits` is total log entries in the window (write velocity). `users` is distinct
     user count, so a single power-user looping is distinguishable from broad team

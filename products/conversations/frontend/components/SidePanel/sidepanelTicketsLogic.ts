@@ -1,8 +1,10 @@
+import { JSONContent } from '@tiptap/core'
 import { actions, beforeUnmount, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { appendExceptionToMessage, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,10 +29,31 @@ function removeRestoreTokenFromUrl(): void {
     }
 }
 
+function messageToRichContent(message: string): JSONContent {
+    return {
+        type: 'doc',
+        content: message.split('\n').map((line) => ({
+            type: 'paragraph',
+            ...(line ? { content: [{ type: 'text', text: line }] } : {}),
+        })),
+    }
+}
+
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
     connect(() => ({
-        values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
+        values: [
+            sidePanelStateLogic,
+            ['sidePanelOpen'],
+            featureFlagLogic,
+            ['featureFlags'],
+            supportLogic,
+            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket'],
+        ],
+        actions: [
+            supportLogic,
+            ['closeEmailForm', 'closeSupportForm', 'clearPendingViewTicket', 'resetSendSupportRequest'],
+        ],
     })),
     actions({
         initTickets: true,
@@ -47,6 +70,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setMessageSending: (sending: boolean) => ({ sending }),
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
+        setNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        startTicketFromSupportForm: true,
+        openPendingTicket: true,
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
         requestRestoreLink: (email: string) => ({ email }),
         restoreFromUrlToken: (token: string) => ({ token }),
@@ -88,6 +114,22 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             null as ConversationTicket | null,
             {
                 setCurrentTicket: (_, { ticket }) => ticket,
+            },
+        ],
+        newTicketDraft: [
+            null as JSONContent | null,
+            {
+                setNewTicketDraft: (_, { content }) => content,
+                // Clear once we leave the composer so a later blank "New ticket" doesn't show a stale prefill
+                setView: (state, { view }) => (view === 'new' ? state : null),
+            },
+        ],
+        // Bumped only when a draft is injected via setNewTicketDraft (a prefilled CTA), so NewTicket
+        // remounts to pick up the seeded content. Plain typing never calls this, so it doesn't remount.
+        newTicketDraftRevision: [
+            0,
+            {
+                setNewTicketDraft: (state) => state + 1,
             },
         ],
         messagesLoading: [
@@ -296,6 +338,51 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.loadMessages(ticket.id)
             actions.markAsRead(ticket.id)
         },
+        // "Contact support" CTAs (error boundaries, empty states, etc.) open the support form via
+        // supportLogic; with conversations enabled they should land in this composer instead, carrying
+        // any prefilled message with them
+        startTicketFromSupportForm: () => {
+            // When disabled, do nothing — the classic modal/form flow owns this case
+            if (!values.isEnabled) {
+                return
+            }
+            const request = values.sendSupportRequest
+            const message = request?.message
+            if (message) {
+                actions.setNewTicketDraft(
+                    messageToRichContent(appendExceptionToMessage(message, request?.exception_event))
+                )
+            }
+            actions.setView('new')
+            // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
+            // open and ignores future URL-driven opens), and reset so a stale message can't resurface
+            // prefilled on a later CTA that carries none
+            actions.closeEmailForm()
+            actions.closeSupportForm()
+            actions.resetSendSupportRequest()
+        },
+        // "View" on a submission toast (Max AI, feature-preview feedback, etc.) should land in the
+        // created ticket's thread, matching where the composer flow leaves you
+        openPendingTicket: () => {
+            const pending = values.pendingViewTicket
+            if (!pending) {
+                return
+            }
+            // Clear before the enabled-guard so a stale intent can't be consumed on a later mount
+            actions.clearPendingViewTicket()
+            if (!values.isEnabled) {
+                return
+            }
+            actions.setCurrentTicket({
+                id: pending.id,
+                status: pending.status as ConversationTicket['status'],
+                message_count: 1,
+                created_at: pending.created_at,
+                unread_count: 0,
+                last_message_at: pending.created_at,
+            })
+            actions.loadTickets()
+        },
         requestRestoreLink: async ({ email }) => {
             const conversations = posthog.conversations as any
             if (!conversations?.requestRestoreLink) {
@@ -355,10 +442,30 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return
             }
             actions.initTickets()
+            // Flags can resolve after a support intent was already set (cold load of a
+            // #panel=support:...:true URL fires openSupportForm before flags arrive). The
+            // isEmailFormOpen/pendingViewTicket subscriptions early-returned while disabled, so
+            // re-consume here now that we're enabled.
+            if (values.isEmailFormOpen) {
+                actions.startTicketFromSupportForm()
+            }
+            if (values.pendingViewTicket) {
+                actions.openPendingTicket()
+            }
         },
         sidePanelOpen: () => {
             if (values.isEnabled) {
                 actions.loadTickets()
+            }
+        },
+        isEmailFormOpen: (open: boolean) => {
+            if (open) {
+                actions.startTicketFromSupportForm()
+            }
+        },
+        pendingViewTicket: (pending: { id: string } | null) => {
+            if (pending) {
+                actions.openPendingTicket()
             }
         },
     })),
@@ -376,6 +483,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     afterMount(({ values, actions }) => {
         if (values.isEnabled) {
+            // initTickets re-consumes any pending support intent (isEmailFormOpen/pendingViewTicket),
+            // so no need to repeat that here
             actions.initTickets()
         }
     }),

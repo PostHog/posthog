@@ -266,7 +266,9 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+**cli is the default for all clients.**
+When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent) and ChatGPT (matched by its `openai-mcp … (ChatGPT)` User-Agent).
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
 
@@ -285,7 +287,8 @@ x-posthog-mcp-mode: tools
 | `tools` | Force tools mode (one MCP tool per PostHog tool).       |
 | `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
-The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+The header wins when both the header and the query parameter are set.
+An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
 ### Consumer attribution
 
@@ -303,40 +306,42 @@ The header wins when both the header and the query parameter are set. Reserved v
 
 ### Data processing
 
-The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.
+The MCP server runs in PostHog's US and EU Kubernetes clusters and stores session state in the region you connect to.
+A stateless Cloudflare Worker in front of it only authenticates requests and routes them to your cloud region; it does not store any sensitive data.
 
 ### Using self-hosted instances
 
-If you're using a self-hosted instance of PostHog, you can specify a custom base URL by adding the `POSTHOG_BASE_URL` [environment variable](https://developers.cloudflare.com/workers/configuration/environment-variables) when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_BASE_URL=https://posthog.example.com`
+If you're using a self-hosted instance of PostHog, you can specify a custom base URL by setting the `POSTHOG_API_BASE_URL` environment variable when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_API_BASE_URL=https://posthog.example.com`
 
 # Development
 
-To run the MCP server locally, run the following command:
+To run the MCP server (Hono on Node) locally, run the following command:
 
 ```bash
 pnpm run dev
 ```
 
-And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+Or use `bin/start-mcp-server` from the repo root, which also bootstraps `.env` and sets Redis/port defaults.
+Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
-### Hono runtime (Node)
+The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+### Edge-proxy worker (Cloudflare)
+
+In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.
+It does not serve the MCP protocol itself - see [ARCHITECTURE.md](ARCHITECTURE.md).
+To run just the worker locally:
 
 ```bash
-pnpm run dev:hono
+pnpm run dev:proxy
 ```
-
-Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
-
-`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 
 ### Developing with local resources
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
 
 1. Start the [context-mill](https://github.com/PostHog/context-mill) dev server: `cd ../context-mill && npm run dev`
-2. Start the MCP server with local resources: `pnpm run dev:local-resources`
+2. Start the MCP server with local resources: `pnpm run dev:local-resources` (runs `bin/start-mcp-server` with `POSTHOG_MCP_LOCAL_SKILLS_URL` pointed at context-mill)
 
 Changes in the examples repo will be reflected on the next request.
 
@@ -349,9 +354,9 @@ This repository is organized to support multiple language implementations:
 
 ### Development Commands
 
-- `pnpm run dev` - Start development server
-- `pnpm run schema:build:json` - Generate JSON schema for other language implementations
-- `pnpm run lint && pnpm run format` - Format and lint code
+- `pnpm run dev` - Start the MCP development server
+- `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
+- `pnpm run format` - Format and lint code
 
 ### Adding New Tools
 
@@ -359,12 +364,7 @@ See the [tools documentation](typescript/src/tools/README.md) for a guide on add
 
 ### Environment variables
 
-- Create `.dev.vars` in the root
-- Add Inkeep API key to enable `docs-search` tool (see `Inkeep API key - mcp`)
-
-```bash
-INKEEP_API_KEY="..."
-```
+Copy `.env.example` to `.env` in the root and adjust the values as needed.
 
 ### Configuring the Model Context Protocol Inspector
 
