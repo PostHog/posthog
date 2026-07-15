@@ -7,9 +7,12 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.hypercache import (
     DEFAULT_CACHE_MISS_TTL,
@@ -150,6 +153,59 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
 
         assert result is None
         assert source == "db"
+
+
+class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
+    """A Redis outage on a primary read must degrade to the next tier, never bubble a 500."""
+
+    @parameterized.expand(
+        [
+            ("connection_interrupted", ConnectionInterrupted(connection=None)),
+            ("redis_connection_error", redis.exceptions.ConnectionError("Error 111 connecting to redis:6379")),
+            ("timeout_error", redis.exceptions.TimeoutError()),
+        ]
+    )
+    def test_get_from_cache_redis_error_falls_back_to_s3(self, _name, exception):
+        hc = self.hypercache
+
+        with (
+            patch.object(hc.cache_client, "get", side_effect=exception),
+            patch.object(object_storage, "read", return_value=json.dumps(self.sample_data)),
+        ):
+            result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result == self.sample_data
+        assert source == "s3"
+
+    def test_get_from_cache_redis_error_falls_back_to_db_when_s3_empty(self):
+        hc = self.hypercache
+
+        with (
+            patch.object(hc.cache_client, "get", side_effect=redis.exceptions.ConnectionError("redis down")),
+            patch.object(object_storage, "read", return_value=None),
+        ):
+            result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
+    def test_batch_get_from_cache_redis_error_degrades_to_all_miss(self):
+        hc = self.hypercache
+        teams = [Team(id=1), Team(id=2)]
+
+        with patch.object(hc.cache_client, "get_many", side_effect=ConnectionInterrupted(connection=None)):
+            results = hc.batch_get_from_cache(teams)
+
+        assert results == {1: (None, "miss", None), 2: (None, "miss", None)}
+
+    def test_get_etag_redis_error_returns_none(self):
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="etag_ns", value="etag_value", load_fn=load_fn, enable_etag=True)
+
+        with patch.object(hc.cache_client, "get", side_effect=redis.exceptions.ConnectionError("redis down")):
+            assert hc.get_etag(self.team_id) is None
 
 
 class TestHyperCacheUpdateCache(HyperCacheTestBase):

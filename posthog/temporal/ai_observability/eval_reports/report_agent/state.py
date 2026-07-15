@@ -28,6 +28,7 @@ class EvalReportAgentState(TypedDict):
     evaluation_description: str
     evaluation_prompt: str
     evaluation_type: str
+    output_type: str
     period_start: str
     period_end: str
     previous_period_start: str

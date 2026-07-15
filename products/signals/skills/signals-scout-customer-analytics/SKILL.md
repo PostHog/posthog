@@ -38,7 +38,7 @@ Your seam is the one nobody else holds: **per-account (group-grain) engagement h
 
 You can't score 1,000 accounts every run. Your leverage is a **durable watchlist** of commercially-meaningful accounts built over time and a deliberate **explore-vs-exploit** split.
 
-You author reports directly via the report channel (`signals-scout-emit-report` / `signals-scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a confirmed per-account engagement risk on a commercially-staked account you'd stand behind as a standalone inbox item a CSM or AE will act on. A risk the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the customer-analytics-specific framing — do not restate the generic mechanics.
+You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a confirmed per-account engagement risk on a commercially-staked account you'd stand behind as a standalone inbox item a CSM or AE will act on. A risk the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the customer-analytics-specific framing — do not restate the generic mechanics.
 
 ## Quick close-out: is there an account roster worth scoring?
 
@@ -57,9 +57,9 @@ Cycle between these moves; skip what's not useful. Spend the bulk of a run on **
 
 Four cheap reads plus the join check cold-start every run:
 
-- `signals-scout-scratchpad-search` (`text=customer_analytics`, high `limit`, then `text=account`) — your watchlist, per-account baselines, the discovered group-type index, `report:` / `reviewer:` pointers (which report covers a risk, who owns an account), and what you've ruled out. Pass a high limit so overdue accounts don't fall out of the round-robin.
-- `signals-scout-runs-list` (last 7d) — what prior runs scored and ruled out; don't re-score an account a recent run already covered.
-- `signals-scout-project-profile-get` — `products_in_use` (confirm `customer_analytics`), `top_events` for fleet-wide volume context, plus `existing_inbox_reports`.
+- `scout-scratchpad-search` (`text=customer_analytics`, high `limit`, then `text=account`) — your watchlist, per-account baselines, the discovered group-type index, `report:` / `reviewer:` pointers (which report covers a risk, who owns an account), and what you've ruled out. Pass a high limit so overdue accounts don't fall out of the round-robin.
+- `scout-runs-list` (last 7d) — what prior runs scored and ruled out; don't re-score an account a recent run already covered.
+- `scout-project-profile-get` — `products_in_use` (confirm `customer_analytics`), `top_events` for fleet-wide volume context, plus `existing_inbox_reports`.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the account name / external_id) — the reports already in the inbox. Your own report-channel reports persist their backing signals under `source_product=signals_scout` (**not** `customer_analytics`), so don't filter `source_product=customer_analytics` — you'd miss every report you authored. A risk on an account you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
 - **Discover the account group-type index and verify the join.** Don't assume an index. Find which `$group_N` the roster keys to, and how many accounts actually have events:
 
@@ -172,7 +172,7 @@ Sibling courtesy: a fleet-wide move already reported by `product-analytics` or `
 
 ### Close out
 
-One paragraph: which accounts you scored, what you added to the watchlist, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due staked accounts, all within baseline, fleet steady" is a real outcome.
+One paragraph: which accounts you scored, what you added to the watchlist, which reports you authored or edited, what you ruled out and why. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the due staked accounts, all within baseline, fleet steady" is a real outcome.
 
 ## Disqualifiers (skip these)
 
@@ -199,9 +199,9 @@ Direct (read-only):
 
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating.
 - `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
-- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to an account / CSM-team owner.
+- `scout-members-list` — the in-run roster for routing `suggested_reviewers` to an account / CSM-team owner.
 
-Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`, `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe); `signals-scout-emit-report` / `signals-scout-edit-report` (author / edit a report — the report-channel contract is in the harness prompt); `signals-scout-scratchpad-remember`, `signals-scout-scratchpad-forget` (memory).
+Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-runs-list`, `scout-runs-retrieve` (orientation + dedupe); `scout-emit-report` / `scout-edit-report` (author / edit a report — the report-channel contract is in the harness prompt); `scout-scratchpad-remember`, `scout-scratchpad-forget` (memory).
 
 ## When to stop
 
