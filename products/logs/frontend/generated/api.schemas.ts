@@ -1688,6 +1688,52 @@ export interface _LogsValuesResponseApi {
 }
 
 /**
+ * * `timestamp` - timestamp
+ * * `level` - level
+ * * `source` - source
+ * * `trace_id` - trace_id
+ * * `span_id` - span_id
+ * * `message` - message
+ * * `custom` - custom
+ */
+export type LogsViewColumnTypeEnumApi = (typeof LogsViewColumnTypeEnumApi)[keyof typeof LogsViewColumnTypeEnumApi]
+
+export const LogsViewColumnTypeEnumApi = {
+    Timestamp: 'timestamp',
+    Level: 'level',
+    Source: 'source',
+    TraceId: 'trace_id',
+    SpanId: 'span_id',
+    Message: 'message',
+    Custom: 'custom',
+} as const
+
+export interface LogsViewColumnApi {
+    /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+    id: string
+    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+     *
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom */
+    type: LogsViewColumnTypeEnumApi
+    /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+    name?: string
+    /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+    expression?: string
+    /**
+     * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+     * @minimum 1
+     * @maximum 2000
+     */
+    width?: number
+}
+
+/**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
 export type LogsViewApiFilters = { [key: string]: unknown }
@@ -1699,6 +1745,11 @@ export interface LogsViewApi {
     name: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: LogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1727,6 +1778,11 @@ export interface PatchedLogsViewApi {
     name?: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: PatchedLogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi

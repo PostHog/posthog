@@ -47,8 +47,10 @@ from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
+    MAX_ATTACHMENTS_PER_MESSAGE,
     build_content_with_images,
     is_valid_image,
+    sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
@@ -319,9 +321,19 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
     return None
 
 
+def split_slack_attachments(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Partition extracted attachments into (images, non-image files) by mimetype."""
+    images = [a for a in attachments if (a.get("mimetype") or "").startswith("image/")]
+    files = [a for a in attachments if not (a.get("mimetype") or "").startswith("image/")]
+    return images, files
+
+
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
     """
-    Extract image attachments from Slack and re-host them in UploadedMedia.
+    Extract attachments from Slack and re-host them in UploadedMedia.
+
+    Returns a combined list of images and non-image files (PDFs, docs, etc.),
+    each tagged with its ``mimetype``. Callers split with ``split_slack_attachments``.
     """
     if not files:
         return []
@@ -329,12 +341,10 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
     team_id = _get_team_id(team)
     bot_token = getattr(client, "token", None) if client else None
     logger.info("🖼️ slack_file_extract_started", team_id=team_id, total_files=len(files), has_bot_token=bool(bot_token))
-    images = []
-    for f in files:
+    attachments: list[dict] = []
+    for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
         mimetype = f.get("mimetype", "")
-        if not mimetype.startswith("image/"):
-            logger.debug("🖼️ slack_file_extract_skipped_non_image", file_id=f.get("id"), mimetype=mimetype)
-            continue
+        is_image = mimetype.startswith("image/")
 
         file_id = f.get("id")
         source_url = f.get("url_private_download") or f.get("url_private")
@@ -348,35 +358,36 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
             continue
 
         try:
-            image_bytes = _download_slack_image_bytes(source_url, bot_token)
+            file_bytes = _download_slack_image_bytes(source_url, bot_token)
         except Exception as e:
             logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
             continue
 
-        if not image_bytes:
+        if not file_bytes:
             logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
             continue
 
-        if not is_valid_image(image_bytes):
+        # Only images get byte-level validation; other types are stored as-is and
+        # served as opaque downloads by the media endpoint.
+        if is_image and not is_valid_image(file_bytes):
             logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
             continue
 
-        stored_url = save_file_to_uploaded_media(
-            team, f.get("name", "image"), mimetype, image_bytes, validate_images=False
-        )
+        safe_name = sanitize_attachment_filename(f.get("name"))
+        stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
         if stored_url:
-            images.append(
-                {
-                    "url": stored_url,
-                    "name": f.get("name", "image"),
-                    "mimetype": mimetype,
-                    "thumb": f.get("thumb_360") or f.get("thumb_160"),
-                }
-            )
+            attachment = {
+                "url": stored_url,
+                "name": safe_name,
+                "mimetype": mimetype,
+            }
+            if is_image:
+                attachment["thumb"] = f.get("thumb_360") or f.get("thumb_160")
+            attachments.append(attachment)
         else:
             logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
-    logger.info("🖼️ slack_file_extract_finished", team_id=team_id, image_count=len(images))
-    return images
+    logger.info("🖼️ slack_file_extract_finished", team_id=team_id, attachment_count=len(attachments))
+    return attachments
 
 
 def create_or_update_slack_ticket(
@@ -416,8 +427,8 @@ def create_or_update_slack_ticket(
         files_count=len(files or []),
     )
 
-    # Extract images from Slack files, making them publicly accessible
-    images = extract_slack_files(files, team, client)
+    # Extract attachments from Slack files, making them publicly accessible
+    images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id)
@@ -457,8 +468,8 @@ def create_or_update_slack_ticket(
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
-        # Allow messages with only images (no text)
-        if not cleaned_text and not images:
+        # Allow messages with only attachments (no text)
+        if not cleaned_text and not images and not file_attachments:
             logger.warning(
                 "🧵 slack_support_ticket_ingest_empty_after_processing",
                 team_id=team_id,
@@ -468,7 +479,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
         Comment.objects.create(
             team=team,
@@ -486,6 +497,7 @@ def create_or_update_slack_ticket(
                 "slack_author_email": user_info.get("email"),
                 "slack_author_avatar": user_info.get("avatar"),
                 "slack_images": images if images else None,
+                "slack_files": file_attachments if file_attachments else None,
             },
         )
 
@@ -497,8 +509,8 @@ def create_or_update_slack_ticket(
         return ticket
 
     # New ticket from top-level message
-    # Allow messages with only images (no text)
-    if not cleaned_text and not images:
+    # Allow messages with only attachments (no text)
+    if not cleaned_text and not images and not file_attachments:
         logger.warning(
             "🧵 slack_support_ticket_ingest_empty_after_processing",
             team_id=team_id,
@@ -508,7 +520,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -567,6 +579,7 @@ def create_or_update_slack_ticket(
             "slack_author_email": user_info.get("email"),
             "slack_author_avatar": user_info.get("avatar"),
             "slack_images": images if images else None,
+            "slack_files": file_attachments if file_attachments else None,
         },
     )
 
@@ -1263,7 +1276,7 @@ def _backfill_thread_replies(
         if not reply_text.strip() and not reply_files:
             continue
 
-        images = extract_slack_files(reply_files, team, client)
+        images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
             user_cache[reply_user] = resolve_slack_user(client, reply_user)
@@ -1286,7 +1299,7 @@ def _backfill_thread_replies(
         cleaned_text, rich_content = slack_to_content_and_rich_content(
             reply_text, reply_blocks, user_names=reply_user_names
         )
-        if not cleaned_text and not images:
+        if not cleaned_text and not images and not file_attachments:
             continue
 
         if is_team_member:
@@ -1294,7 +1307,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
         comments_to_create.append(
             Comment(
@@ -1313,6 +1326,7 @@ def _backfill_thread_replies(
                     "slack_author_email": user_info.get("email"),
                     "slack_author_avatar": user_info.get("avatar"),
                     "slack_images": images if images else None,
+                    "slack_files": file_attachments if file_attachments else None,
                 },
             )
         )

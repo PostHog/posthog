@@ -66,6 +66,7 @@ jobs:
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
                         # Dev tools with dedicated pytest steps below
@@ -194,6 +195,11 @@ jobs:
               run: |
                   pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
+            - name: Run owners resolver tests
+              shell: bash
+              run: |
+                  pytest tools/owners/tests -v --junitxml=junit-owners.xml
+
             - name: Run query-performance-ai tests
               shell: bash
               run: |
@@ -212,6 +218,7 @@ jobs:
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
+                      junit-owners.xml
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent.xml
 

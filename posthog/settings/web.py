@@ -622,6 +622,7 @@ SPECTACULAR_SETTINGS = {
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
+        "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
