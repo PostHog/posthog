@@ -153,23 +153,30 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
         const mergeFetched = async (
             facets: FacetConfig[]
         ): Promise<Record<string, _TracingAttributeBreakdownRowApi[]>> => {
+            // The search term each request is about to carry. A full reload and a per-facet search
+            // have independent breakpoints, so a reload issued before the user typed can settle
+            // after the narrowed search response — merging it would put unsearched rows under a
+            // still-filled search box. Dropping stale-term rows leaves the fresher response's in place.
+            const searchAtRequest = Object.fromEntries(facets.map((f) => [f.key, values.facetSearch[f.key] ?? '']))
             const settled = await Promise.allSettled(
                 facets.map(async (facet) => [facet.key, await fetchFacet(facet)] as const)
             )
-            const fetched = settled
+            const fulfilled = settled
                 .filter(
                     (s): s is PromiseFulfilledResult<readonly [string, _TracingAttributeBreakdownRowApi[]]> =>
                         s.status === 'fulfilled'
                 )
                 .map((s) => s.value)
-            const fetchedKeys = new Set(fetched.map(([key]) => key))
+            // Error state keys off fulfillment: a stale-term fetch still succeeded, it just doesn't merge.
+            const fulfilledKeys = new Set(fulfilled.map(([key]) => key))
             const attemptedKeys = facets.map((f) => f.key)
             // Fires before the final breakpoint, so a superseded batch can record error state — the
             // winning batch immediately overwrites it, since every batch reports all attempted keys.
             actions.setFacetFetchErrors(
                 attemptedKeys,
-                attemptedKeys.filter((key) => !fetchedKeys.has(key))
+                attemptedKeys.filter((key) => !fulfilledKeys.has(key))
             )
+            const fetched = fulfilled.filter(([key]) => (values.facetSearch[key] ?? '') === searchAtRequest[key])
             return { ...values.facetValues, ...Object.fromEntries(fetched) }
         }
 

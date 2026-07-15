@@ -81,4 +81,40 @@ describe('facetCountsLogic', () => {
         expect(logic.values.erroredFacetKeys).toEqual([])
         expect(logic.values.facetValues['status']).toEqual([row('2', 3)])
     })
+
+    it('a full reload that raced a facet search does not overwrite the narrowed results', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+
+        // The reload's service request (no facetSearch) hangs until released; the search request
+        // (facetSearch set) and every other facet resolve immediately.
+        let releaseStaleReload: (rows: _TracingAttributeBreakdownRowApi[]) => void = () => {}
+        let staleReloadRequested: () => void = () => {}
+        const staleReloadIssued = new Promise<void>((resolve) => (staleReloadRequested = resolve))
+        mockBreakdown.mockImplementation((_, request) => {
+            if (request.query.breakdownKey === 'service_name' && !request.query.facetSearch) {
+                staleReloadRequested()
+                return new Promise((resolve) => {
+                    releaseStaleReload = (rows) => resolve({ results: rows, compare: null })
+                })
+            }
+            if (request.query.facetSearch === 'kaf') {
+                return Promise.resolve({ results: [row('kafka-consumer', 2)], compare: null })
+            }
+            return Promise.resolve({ results: [row('api', 10)], compare: null })
+        })
+
+        logic.actions.loadFacetValues(null)
+        await staleReloadIssued
+
+        logic.actions.setFacetSearch('service', 'kaf')
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesForKeySuccess'])
+        expect(logic.values.facetValues['service']).toEqual([row('kafka-consumer', 2)])
+
+        releaseStaleReload([row('api', 10), row('worker', 5)])
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+
+        expect(logic.values.facetValues['service']).toEqual([row('kafka-consumer', 2)])
+        expect(logic.values.erroredFacetKeys).toEqual([])
+    })
 })
