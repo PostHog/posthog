@@ -45,7 +45,6 @@ rules:
               - '/products/experiments/backend/experiment_summary_data_service.py'
               - '/products/experiments/backend/hogql_queries/experiment_query_runner.py'
               - '/products/experiments/backend/max_tools.py'
-              - '/products/product_tours/backend/api/product_tour.py'
       patterns:
           - pattern-either:
                 - pattern: $FLAG.filters[$KEY]
