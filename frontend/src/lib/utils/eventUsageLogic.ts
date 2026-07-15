@@ -427,6 +427,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightCompareChanged: (queryKind: string | undefined) => ({ queryKind }),
@@ -1940,6 +1941,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
+        },
+        reportInsightDatePickerOpened: ({ queryKind }) => {
+            posthog.capture('insight date picker opened', { query_kind: queryKind })
         },
         reportInsightDragToZoomed: ({ queryKind }) => {
             posthog.capture('insight drag to zoomed', { query_kind: queryKind })
