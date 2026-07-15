@@ -285,10 +285,19 @@ class TestUncoveredFacadeClasses:
             ("backend/facade", "backend/facade/api.py", True),
             ("./backend/facade/**", "backend/facade/api.py", True),
             ("backend/facade/**", "backend/logic/sink.py", False),
+            # a globstar keeps the slash a segment boundary
+            ("backend/**/runner.py", "backend/a/runner.py", True),
+            ("backend/**/runner.py", "backend/a/b/runner.py", True),
+            ("backend/**/runner.py", "backend/runner.py", True),
+            ("backend/**/runner.py", "backend/foo_runner.py", False),
         ],
     )
     def test_input_glob_follows_turbo_segment_semantics(self, glob: str, rel_path: str, expected: bool) -> None:
         assert _input_covers_path(glob, rel_path) is expected
+
+    def test_a_negated_input_unwatches_an_otherwise_covered_class(self, tmp_path: Path) -> None:
+        inputs = ["backend/facade/**", "backend/logic/**", "!backend/logic/sink.py"]
+        assert uncovered_facade_classes(self._product(tmp_path, inputs), self.REEXPORTS) == ("Runner", "Sink")
 
     @pytest.mark.parametrize(
         "glob, expected",

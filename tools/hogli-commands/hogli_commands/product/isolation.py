@@ -301,11 +301,13 @@ def _glob_matcher(glob: str) -> re.Pattern[str]:
     parts: list[str] = []
     i = 0
     while i < len(glob):
-        if glob.startswith("**", i):
+        if glob.startswith("**/", i):
+            # whole segments, so 'a/**/b.py' spans a/b.py and a/x/b.py but never a/xb.py
+            parts.append("(?:.*/)?")
+            i += 3
+        elif glob.startswith("**", i):
             parts.append(".*")
             i += 2
-            if glob.startswith("/", i):  # 'a/**/b' and 'a/**' both mean 'anything under a'
-                i += 1
         elif glob[i] == "*":
             parts.append("[^/]*")
             i += 1
@@ -328,6 +330,24 @@ def _input_covers_path(glob: str, rel_path: str) -> bool:
         return False
     directory = normalized.rstrip("/")
     return bool(directory) and rel_path.startswith(directory + "/")
+
+
+def _inputs_cover_path(inputs: Sequence[str], rel_path: str) -> bool:
+    """True if a contract-check input set re-runs the suite when `rel_path` changes.
+
+    Honours Turbo's `!` exclusions, which negate the whole glob — a file matched by
+    `backend/logic/**` but excluded by `!backend/logic/runner.py` is not watched, so treating
+    every negated entry as noise would report exactly the unsoundness this guards against.
+    Later entries win, as in Turbo.
+    """
+    covered = False
+    for glob in inputs:
+        if glob.startswith("!"):
+            if _input_covers_path(glob[1:], rel_path):
+                covered = False
+        elif _input_covers_path(glob, rel_path):
+            covered = True
+    return covered
 
 
 def _input_targets_reexport(glob: str, reexport_paths: Sequence[str]) -> bool:
@@ -385,14 +405,12 @@ def uncovered_facade_classes(product_dir: Path, reexports: Sequence[tuple[str, s
 
     An un-narrowed product watches all of backend/ by default, so nothing is uncovered there.
     """
-    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
-    if not inputs:
+    inputs = contract_check_inputs(product_dir)
+    if not any(not i.startswith("!") for i in inputs):
         return ()
     return tuple(
         sorted(
-            name
-            for name, kind, path in reexports
-            if kind == "class" and path and not any(_input_covers_path(i, path) for i in inputs)
+            name for name, kind, path in reexports if kind == "class" and path and not _inputs_cover_path(inputs, path)
         )
     )
 
