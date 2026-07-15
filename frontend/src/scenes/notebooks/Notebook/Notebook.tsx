@@ -31,6 +31,7 @@ import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookStaleCellsBanner } from './NotebookStaleCellsBanner'
 import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
 
 // Counts mounted markdown-v2 notebooks so the <body> marker class survives overlapping mounts
@@ -200,6 +201,8 @@ export function Notebook({
                             </LemonButton>
                         </div>
                     ) : null}
+
+                    <NotebookStaleCellsBanner />
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />

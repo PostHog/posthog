@@ -54,19 +54,9 @@ const Component = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const {
-        isRunning,
-        runError,
-        page,
-        pageSize,
-        pageResult,
-        pageLoading,
-        operationBlockReason,
-        isStale,
-        staleCount,
-        isChainRunning,
-    } = useValues(dataLogic)
-    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
+    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason, isStale } =
+        useValues(dataLogic)
+    const { setPage, setPageSize } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -98,17 +88,7 @@ const Component = ({
             >
                 {isStale ? (
                     <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner
-                            staleCount={staleCount}
-                            onRun={() => runStaleChain(notebookLogic.values.content ?? null)}
-                            disabledReason={
-                                isChainRunning
-                                    ? 'Stale cells are already being re-run'
-                                    : isRunning
-                                      ? 'This cell is running'
-                                      : (operationBlockReason ?? undefined)
-                            }
-                        />
+                        <NotebookStaleCellBanner />
                     </div>
                 ) : null}
                 {hasStreamOutput ? (
