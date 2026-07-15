@@ -850,3 +850,16 @@ class TestCohortConditionTypeDerivedOnSave(BaseTest):
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
         self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+    # A save that updates filters must recompute condition_type even when the caller also
+    # (redundantly) lists "condition_type" in update_fields with a stale value — the presence
+    # of "condition_type" in update_fields must not short-circuit recomputation.
+    def test_update_fields_with_both_filters_and_stale_condition_type_still_recomputes(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
+
+        cohort.filters = _BEHAVIORAL_FILTERS
+        cohort.condition_type = _condition_flags(person_properties=True)  # stale value
+        cohort.save(update_fields=["filters", "condition_type"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))

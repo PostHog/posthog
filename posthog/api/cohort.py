@@ -559,8 +559,9 @@ class CohortFiltersField(serializers.JSONField):
 class CohortConditionTypeFlags(BaseModel, extra="forbid"):
     person_properties: bool = Field(description="The filters include a person property or person_metadata condition.")
     behavioral: bool = Field(
-        description="The filters include a plain behavioral condition (performed_event, "
-        "performed_event_multiple, or performed_event_sequence)."
+        description="The filters include a behavioral condition that is not lifecycle-style "
+        "(e.g. performed_event, performed_event_multiple, performed_event_sequence, or their "
+        "negations)."
     )
     lifecycle: bool = Field(
         description="The filters include a lifecycle-style behavioral condition (first-seen/regularly/"

@@ -292,9 +292,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
         if update_fields is None:
             self.condition_type = Cohort.compute_condition_type(self.filters)
-        elif "filters" in update_fields and "condition_type" not in update_fields:
+        elif "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
-            update_fields = [*update_fields, "condition_type"]
+            if "condition_type" not in update_fields:
+                update_fields = [*update_fields, "condition_type"]
 
         maintained_update_fields = self._maintain_behavioral_shape(update_fields)
         if len(args) > 3:
@@ -426,9 +427,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         `person` and `person_metadata` are both property-style conditions (the latter reads
         top-level persons-table columns instead of the properties JSON blob, but is not
         behavioral), so either sets the `person_properties` flag. Behavioral filters split into
-        plain `behavioral` (performed_event, performed_event_multiple, performed_event_sequence)
-        and `lifecycle` (first-seen/regularly/stopped/restarted performing an event), matching
-        the frontend's "Lifecycle" cohort filter section. `cohorts` flags nested cohort references.
+        `lifecycle` (first-seen/regularly/stopped/restarted performing an event, matching the
+        frontend's "Lifecycle" cohort filter section) and `behavioral` for everything else
+        (performed_event, performed_event_multiple, performed_event_sequence, and their
+        negations). `cohorts` flags nested cohort references.
 
         Returns None when the filters have no leaf conditions to classify (e.g. empty filters).
         """
