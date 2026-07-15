@@ -115,7 +115,7 @@ def backfill_api_version(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0073_externaldatasource_api_version"),
+        ("warehouse_sources", "0074_externaldatasource_api_version"),
     ]
 
     operations = [
