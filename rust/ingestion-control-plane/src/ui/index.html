@@ -181,7 +181,7 @@
         description:
           "All ingestion consumer groups sorted by outstanding messages. Drill into a group, then analyze what a lagging partition contains.",
         timers: [],
-        selectedGroup: null,
+        selectedTarget: null,
         currentJobId: null,
         unmount() {
           this.timers.forEach(clearInterval);
@@ -189,16 +189,17 @@
         },
         mount(root) {
           const overviewBody = el("div", {}, el("div", { class: "empty" }, "Scanning consumer groups…"));
+          const overviewFetchedAt = el("span", { class: "muted mono", style: "text-transform: none; letter-spacing: 0" });
           const partitionsTitle = el("span", {}, "Partitions");
           const partitionsBody = el("div", {}, el("div", { class: "empty" }, "Select a consumer group above."));
           const analysisTitle = el("span", {}, "Analysis");
           const analysisBody = el("div", {}, el("div", { class: "empty" }, "Start an analysis from a partition row: head reads from the group's committed offset, tail samples the newest messages."));
 
-          this.ui = { overviewBody, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
+          this.ui = { overviewBody, overviewFetchedAt, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
 
           root.append(
             el("div", { class: "panel" },
-              el("h2", {}, "Consumer groups", el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh")),
+              el("h2", {}, "Consumer groups", el("span", { class: "row", style: "padding:0" }, overviewFetchedAt, el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh"))),
               overviewBody),
             el("div", { class: "panel" },
               el("h2", {}, partitionsTitle, el("button", { class: "small", onclick: () => this.refreshPartitions() }, "Refresh")),
@@ -211,9 +212,11 @@
         },
 
         async refreshOverview() {
-          const { overviewBody } = this.ui;
+          const { overviewBody, overviewFetchedAt } = this.ui;
           try {
-            const rows = await fetchJSON("api/lag/overview");
+            const data = await fetchJSON("api/lag/overview");
+            const rows = data.groups;
+            overviewFetchedAt.textContent = `as of ${new Date(data.fetched_at).toLocaleTimeString()}`;
             if (!rows.length) {
               overviewBody.replaceChildren(el("div", { class: "empty" }, "No consumer targets configured."));
               return;
@@ -230,7 +233,7 @@
                         el("td", { class: "mono" }, row.group),
                         el("td", { class: "mono" }, row.topic),
                         el("td", { colspan: "4" }, el("span", { class: "pill bad", title: row.error }, "scan failed")))
-                    : el("tr", { class: `clickable ${row.group === this.selectedGroup ? "selected" : ""}`, onclick: () => this.selectGroup(row.group) },
+                    : el("tr", { class: `clickable ${this.selectedTarget && row.group === this.selectedTarget.group && row.topic === this.selectedTarget.topic ? "selected" : ""}`, onclick: () => this.selectTarget(row) },
                         el("td", { class: "mono" }, row.group),
                         el("td", { class: "mono" }, row.topic),
                         el("td", { class: "mono" }, fmtInt(row.partitions)),
@@ -249,19 +252,19 @@
           }
         },
 
-        selectGroup(group) {
-          this.selectedGroup = group;
+        selectTarget(target) {
+          this.selectedTarget = { group: target.group, topic: target.topic };
           this.refreshOverview();
           this.refreshPartitions();
         },
 
         async refreshPartitions() {
           const { partitionsTitle, partitionsBody } = this.ui;
-          if (!this.selectedGroup) return;
-          partitionsTitle.textContent = `Partitions — ${this.selectedGroup}`;
+          if (!this.selectedTarget) return;
+          partitionsTitle.textContent = `Partitions — ${this.selectedTarget.group} (${this.selectedTarget.topic})`;
           partitionsBody.replaceChildren(el("div", { class: "empty" }, "Scanning…"));
           try {
-            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedGroup)}`);
+            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedTarget.group)}&topic=${encodeURIComponent(this.selectedTarget.topic)}`);
             const maxLag = Math.max(1, ...data.partitions.map((p) => p.lag));
             partitionsBody.replaceChildren(
               el("table", {},
@@ -300,7 +303,7 @@
             const resp = await fetchJSON("api/analyses", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ group: this.selectedGroup, partition, mode }),
+              body: JSON.stringify({ ...this.selectedTarget, partition, mode }),
             });
             this.currentJobId = resp.job_id;
             this.pollJob();
@@ -443,11 +446,11 @@
             }
             podsBody.replaceChildren(
               el("table", {},
-                el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "app"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
+                el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "namespace"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
                 el("tbody", {}, data.pods.map((pod) =>
-                  el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod.name) },
+                  el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod) },
                     el("td", { class: "mono" }, pod.name),
-                    el("td", {}, pod.labels.app || "–"),
+                    el("td", {}, pod.namespace || "–"),
                     el("td", { class: "mono" }, pod.ip || "–"),
                     el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
                     el("td", { class: "mono" }, String(pod.restarts)),
@@ -460,13 +463,13 @@
           }
         },
 
-        selectPod(name) {
-          this.selectedPod = name;
+        selectPod(pod) {
+          this.selectedPod = pod.name;
           this.refreshPods();
-          const url = `pods/${encodeURIComponent(name)}/`;
+          const url = `pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/`;
           this.ui.viewer.replaceChildren(
             el("div", { class: "panel" },
-              el("h2", {}, `Debug — ${name}`,
+              el("h2", {}, `Debug — ${pod.name}`,
                 el("a", { href: url, target: "_blank", style: "color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: 0" }, "open in new tab ↗")),
               el("iframe", { class: "debug", src: url }))
           );
