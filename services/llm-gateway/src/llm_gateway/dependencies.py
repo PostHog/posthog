@@ -132,6 +132,7 @@ async def enforce_product_access(
         application_id=user.application_id,
         model=model,
         provider=provider,
+        scopes=user.scopes,
     )
 
     if not allowed:

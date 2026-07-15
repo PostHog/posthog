@@ -5709,6 +5709,7 @@ export const API_SCOPE_OBJECTS = [
     'insight',
     'insight_variable',
     'integration',
+    'internal_run',
     'legal_document',
     'link',
     'live_debugger',

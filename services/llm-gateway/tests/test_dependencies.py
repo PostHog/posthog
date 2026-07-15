@@ -8,11 +8,13 @@ from starlette.datastructures import Headers
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
+    enforce_product_access,
     enforce_throttles,
     get_model_from_request,
     get_provider_from_request,
     resolve_plan_and_quota,
 )
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
@@ -352,5 +354,48 @@ class TestFreeTierModelGateWiring:
 
             assert exc_info.value.status_code == 403
             assert "claude-fable-5" in exc_info.value.detail
+        finally:
+            get_settings.cache_clear()
+
+
+class TestServerCredentialRequirementWiring:
+    def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=7,
+            team_id=1,
+            auth_method="oauth_access_token",
+            distinct_id="test-distinct-id-7",
+            scopes=scopes,
+            application_id=POSTHOG_CODE_US_APP_ID,
+        )
+
+    @pytest.mark.asyncio
+    async def test_marker_less_oauth_token_rejected_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # pins that enforce_product_access actually applies the server-credential check on the path
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=self._oauth_user(["*"]))
+            assert exc_info.value.status_code == 403
+            assert "server-minted" in exc_info.value.detail
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_marker_token_allowed_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # pins that enforce_product_access forwards the token scopes; without scopes=user.scopes a
+        # real server-minted token (carrying the marker) would be wrongly rejected here.
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
+            user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
+            assert await enforce_product_access(request=request, user=user) is user
         finally:
             get_settings.cache_clear()

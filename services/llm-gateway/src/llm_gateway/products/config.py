@@ -37,6 +37,14 @@ class ProductConfig:
     # so the reporter rolls them into that bucket's credit counter, and every caller
     # is blocked when the bucket's quota is exhausted.
     credit_bucket: CreditBucket | None = None
+    # When True, OAuth callers must present a server-minted credential (a token carrying
+    # the internal `internal_run:read` scope). Set on the internal products that share the
+    # PostHog Code OAuth app but are only ever driven by sandbox runs — a user's own Code
+    # OAuth token can't carry an internal scope, so this stops it routing around the
+    # posthog_code free-tier model gate through these products. Personal API keys are
+    # unaffected (they reach the gateway only with an explicit, feature-gated
+    # llm_gateway:read scope, not the wildcard a consent token uses).
+    requires_server_credential: bool = False
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -127,12 +135,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         ),
         allow_api_keys=False,
         credit_bucket=None,
+        requires_server_credential=True,
     ),
     "slack_app": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
         credit_bucket=CreditBucket.AI_CREDITS,
+        requires_server_credential=True,
     ),
     # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
     # bot. Authenticates with a personal API key (not OAuth), so no application
@@ -201,6 +211,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
+        requires_server_credential=True,
     ),
     "review_hog": ProductConfig(
         allowed_application_ids=None,
@@ -224,6 +235,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # PostHog" per the pricing RFC — it gets its own pricing later, not posthog_code's
         # pass-through bucket.
         credit_bucket=None,
+        requires_server_credential=True,
     ),
     "warehouse_semantic_enrichment": ProductConfig(
         allowed_application_ids=None,
@@ -298,6 +310,12 @@ def _model_matches_product_allowlist(
 
 FREE_TIER_RESTRICTION_REASON: Final[str] = "paid_plan_required"
 
+# Internal scope stamped on every server-minted sandbox/agent token (see INTERNAL_SCOPES in
+# posthog/temporal/oauth.py). Being an internal scope, it can't be obtained through the OAuth
+# consent flow or a personal API key, so its presence proves a token was minted server-side
+# rather than held by a user. Products with requires_server_credential demand it from OAuth callers.
+INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
+
 
 def check_free_tier_model_access(
     product: str,
@@ -339,6 +357,7 @@ def check_product_access(
     application_id: str | None,
     model: str | None,
     provider: str | None = None,
+    scopes: list[str] | None = None,
 ) -> tuple[bool, str | None]:
     """
     Check if request is authorized for product.
@@ -360,6 +379,21 @@ def check_product_access(
         allowed_application_ids = config.allowed_application_ids or frozenset()
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
+
+    # Internal products that share the PostHog Code OAuth app are only ever driven by
+    # server-minted sandbox tokens; a user's own Code OAuth token would otherwise reach them
+    # and route around the posthog_code free-tier model gate. Require the internal marker that
+    # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
+    # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
+    # shared server-side gateway key still works here. Gated behind the same flag as the
+    # free-tier gate so it stays inert until the Code billing cutover.
+    if (
+        settings.posthog_code_model_gate_enabled
+        and config.requires_server_credential
+        and is_oauth
+        and INTERNAL_RUN_SCOPE not in (scopes or [])
+    ):
+        return False, f"Product '{product}' requires a server-minted credential"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):

@@ -228,7 +228,8 @@ class TestCheckProductAccess:
         assert error is None
 
     @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+        "llm_gateway.products.config.get_settings",
+        return_value=MagicMock(debug=False, bedrock_region_name="us-east-1", posthog_code_model_gate_enabled=False),
     )
     def test_posthog_code_rejects_unallowed_model_via_bedrock_provider(self, mock_get_settings: MagicMock):
         # A model outside the allowlist with no Bedrock mapping must stay rejected on the bedrock
@@ -280,7 +281,8 @@ class TestCheckProductAccess:
         assert "not allowed" in error
 
     @patch(
-        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+        "llm_gateway.products.config.get_settings",
+        return_value=MagicMock(debug=False, bedrock_region_name="us-east-1", posthog_code_model_gate_enabled=False),
     )
     def test_background_agents_allows_claude_sonnet_4_6_via_bedrock_provider(self, mock_get_settings: MagicMock):
         allowed, error = check_product_access(
@@ -531,3 +533,67 @@ class TestCheckFreeTierModelAccess:
             usage_unlimited=False,
         )
         assert allowed is True
+
+
+class TestServerCredentialRequirement:
+    """The internal products that share the PostHog Code OAuth app (background_agents, signals,
+    slack_app, conversations) must accept only server-minted tokens — those carrying the internal
+    `internal_run:read` marker. Otherwise a user's own Code OAuth token could route around the
+    posthog_code free-tier gate through these products to premium models."""
+
+    _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
+
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    def test_oauth_without_marker_is_rejected(self, product: str):
+        # a desktop Code token (wildcard scope, no internal marker); claude-sonnet-5 is in every
+        # sibling's model list, so the rejection is unambiguously the missing server credential
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is False
+        assert error is not None and "server-minted" in error
+
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    def test_oauth_with_marker_is_allowed(self, product: str):
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=self._MARKER_SCOPES
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_posthog_code_does_not_require_the_marker(self):
+        # desktop users reach posthog_code with a marker-less token — must keep working
+        allowed, error = check_product_access(
+            "posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_personal_api_key_is_not_subject_to_the_marker(self):
+        # the shared server-side gateway key reaches signals as a PAK; the check is OAuth-only
+        allowed, error = check_product_access(
+            "signals", "personal_api_key", None, "claude-sonnet-5", scopes=["llm_gateway:read"]
+        )
+        assert allowed is True
+        assert error is None
+
+    def test_gate_disabled_leaves_sibling_access_unchanged(self, monkeypatch: pytest.MonkeyPatch):
+        # deploys inert: with the flag off, a marker-less token still reaches the siblings
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(
+            "signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=["*"]
+        )
+        assert allowed is True
+        assert error is None
