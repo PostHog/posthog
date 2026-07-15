@@ -943,6 +943,8 @@ class TestDagsterRunLink(SimpleTestCase):
 
 class TestDataDeletionRequestFormHidesPersonRemoval(SimpleTestCase):
     def test_person_removal_hidden_from_type_picker_and_fields(self):
+        from typing import cast
+
         from django import forms
 
         from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
@@ -950,7 +952,8 @@ class TestDataDeletionRequestFormHidesPersonRemoval(SimpleTestCase):
         form = DataDeletionRequestForm()
         request_type = form.fields["request_type"]
         assert isinstance(request_type, forms.ChoiceField)
-        type_values = [value for value, _ in request_type.choices]
+        choices = cast("list[tuple[str, str]]", request_type.choices)
+        type_values = [value for value, _ in choices]
         self.assertNotIn(RequestType.PERSON_REMOVAL, type_values)
         self.assertIn(RequestType.EVENT_REMOVAL, type_values)
         self.assertIn(RequestType.PROPERTY_REMOVAL, type_values)

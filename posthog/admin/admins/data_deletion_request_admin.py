@@ -222,7 +222,9 @@ class DataDeletionRequestForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         request_type = self.fields.get("request_type")
         if isinstance(request_type, forms.ChoiceField):
-            request_type.choices = [c for c in request_type.choices if c[0] != RequestType.PERSON_REMOVAL]
+            request_type.choices = [
+                (value, label) for value, label in RequestType.choices if value != RequestType.PERSON_REMOVAL
+            ]
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
