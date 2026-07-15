@@ -196,7 +196,12 @@ def resolve_suggested_reviewers(
 
     scores = _score_candidates(login_weights, activity_by_login)
 
-    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:MAX_SUGGESTED_REVIEWERS]
+    def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
+        login, score = item
+        activity = activity_by_login.get(login)
+        return (-score, -(activity.commit_count if activity else 0), login)
+
+    ranked = sorted(scores.items(), key=rank_key)[:MAX_SUGGESTED_REVIEWERS]
     reviewers: list[_ResolvedReviewer] = []
     for login, score in ranked:
         commits = list(login_commits.get(login, []))

@@ -153,7 +153,7 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
     per_area: dict[str, dict[str, dict]] = {}
     for commit in commits:  # newest-first, so the first commit seen per login is their latest
         login = login_by_email.get(commit.author_email.lower())
-        if login is None:
+        if login is None or login.endswith("[bot]"):
             continue
         commit_areas: set[str] = set()
         for path in commit.paths:

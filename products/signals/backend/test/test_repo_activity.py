@@ -134,15 +134,18 @@ class TestRebuildRepositoryActivity:
         assert repo_wide["alice"].commit_count == 2
         assert repo_wide["bobdev"].commit_count == 1
 
-    def test_personal_email_resolves_via_github_commit_lookup(self, team):
-        commits = [_commit("a" * 7, "marius.andra@gmail.com", 3, ["frontend/src/notebooks/Notebook.tsx"])]
+    def test_personal_email_resolves_via_github_commit_lookup_and_bots_are_excluded(self, team):
+        commits = [
+            _commit("a" * 7, "marius.andra@gmail.com", 3, ["frontend/src/notebooks/Notebook.tsx"]),
+            _commit("b" * 7, "bot@example.com", 1, ["frontend/src/generated.ts"]),
+        ]
 
         class FakeGitHub:
             def get_commit_author_info(self, repository, sha):
                 from posthog.models.github_integration_base import GitHubCommitAuthor
 
-                assert sha == "a" * 7
-                return GitHubCommitAuthor(login="MariusAndra", name="Marius", commit_url="")
+                login = "MariusAndra" if sha == "a" * 7 else "posthog[bot]"
+                return GitHubCommitAuthor(login=login, name=None, commit_url="")
 
         with (
             patch(_COLLECT_PATCH_TARGET, return_value=commits),
