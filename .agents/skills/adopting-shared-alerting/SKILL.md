@@ -1,93 +1,129 @@
 ---
 name: adopting-shared-alerting
-description: How PostHog's shared alerting primitives work and how a product plugs into them. Use when working on alert lifecycle (firing/resolved/snoozed/broken transitions), alert notification destinations (Slack/Teams/webhook HogFunctions), alert check scheduling, or when a product (logs, insights, billing, error tracking, AI obs) needs alerting behavior. Covers common/alerting (pure decision logic), posthog/alerting (Django glue), and the single-mutator rule. Trigger terms: alert state machine, AlertPolicy, apply_outcome, CheckInput, EventKindSpec, due_alerts_q, alert destinations, alert lifecycle.
+description: "How PostHog's shared alerting primitives work and how a product adopts them. Use when working on alert lifecycle transitions, notification destinations backed by HogFunctions, fixed-cadence scheduling, the shared AlertWizard, or when a product needs alerting behavior. Covers common/alerting, products/alerts/backend, product adapters, delivery rollback, and the single-mutator rule. Trigger terms: alert state machine, AlertPolicy, CheckInput, EventKindSpec, build_alert_destination_config, due alerts, alert destinations, AlertWizard."
 ---
 
 # Adopting shared alerting
 
-PostHog is consolidating alert lifecycle onto a shared platform, following the Prometheus/Alertmanager split: **evaluation is domain-specific per product; lifecycle decisions, notification delivery, and scheduling are shared.** A product supplies "did this check breach?"; the platform owns "so is the alert now firing, should we notify, when do we check next."
+PostHog follows the Prometheus and Alertmanager split: evaluation stays product-specific, while lifecycle decisions, destination management, and reusable scheduling math are shared. A product supplies the domain verdict and event content. Shared code decides transitions and provides the delivery building blocks.
 
 > [!IMPORTANT]
-> This skill documents what has landed so far: the shared primitives and the rules for using them. The **self-serve adoption flow** (register a product spec, provide an evaluator returning `CheckInput`, wire a Temporal harness with push/`submit_check`) is not built yet — it arrives in later phases. Until then, adopt the primitives directly the way `products/logs` does, and treat cross-product orchestration as bespoke per product.
+> There is no self-serve product registry or generic Temporal harness yet. Products still own their evaluator, persistence, due-alert query, check history, and orchestration. Adopt the shared pieces directly, following `products/logs` as the reference.
 
-## The three layers
+## Architecture
 
-| Layer               | Location                   | May import                            | Holds                                                                       |
-| ------------------- | -------------------------- | ------------------------------------- | --------------------------------------------------------------------------- |
-| Pure decision logic | `common/alerting/`         | no Django, no product code            | state machine, destination config builders, grid scheduling math            |
-| Django glue         | `posthog/alerting/`        | Django, HogFunction, ORM              | HogFunction create/delete/dispatch, the due-alerts query                    |
-| Product-owned       | `products/<name>/backend/` | its own models + the two layers above | evaluation, domain config/thresholds, check history, the thin state adapter |
+| Layer                | Location                                            | Responsibility                                                                                     |
+| -------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Pure decision logic  | `common/alerting/`                                  | Lifecycle state machine and fixed-cadence scheduling math                                          |
+| Shared alert product | `products/alerts/backend/`                          | Destination validation/configuration, HogFunction persistence, and internal-event delivery helpers |
+| Product adapter      | `products/<name>/backend/`                          | Model translation, evaluation, due-alert eligibility, event payloads, and orchestration            |
+| Shared frontend      | `frontend/src/lib/components/Alerting/AlertWizard/` | Reusable destination, trigger, and configuration flow for HogFunction-based alerts                 |
 
-`common/alerting/` is tach-enforced pure Python (`tach.toml` module `common.alerting`). It is tracked debt per [common/CLAUDE.md](../../../common/CLAUDE.md) — the graduation target is a standalone `packages/` leaf once enough products adopt it and the back-edges into app code are gone. Name that target in any PR that grows this area.
+`common/alerting/` must remain pure Python with no Django or product imports. Django-aware destination code belongs to the alerts product, not the pure layer or a top-level PostHog package.
 
-## Layer 1 — `common/alerting/state_machine.py`
+## Lifecycle state machine
 
-The heart of the platform. Pure functions over frozen dataclasses, zero I/O.
+`common/alerting/state_machine.py` contains pure functions over frozen dataclasses.
 
-- `AlertState` — `FIRING` / `NOT_FIRING` / `SNOOZED` / plus internal transition states. (Insight alerts persist legacy `"Firing"`/`"Not firing"` strings — those get mapped at the product adapter boundary, not here.)
-- `AlertPolicy` — a frozen dataclass of per-product behavior flags: cooldown gating, re-notify-while-firing, error escalation, snooze semantics, broken handling. A product expresses its semantics as a policy **instead of forking the machine.** `LOGS_ALERT_POLICY = AlertPolicy()` is all-defaults.
-- `CheckInput` — what a product's evaluation produces for one check: breached or not, plus `is_inconclusive` for not-yet-settled data (an inconclusive verdict preserves `consecutive_failures` rather than resetting).
-- `evaluate_alert_check(snapshot, check_input, policy)` / `evaluate_alert_failure(...)` — the decision functions. They return an `AlertCheckOutcome` (new state + whether to notify); they do **not** mutate anything.
+- `AlertState`: shared lifecycle states, including `FIRING`, `NOT_FIRING`, `SNOOZED`, `ERRORED`, and `BROKEN`. Map legacy persisted strings at the product adapter boundary.
+- `AlertPolicy`: per-product behavior such as cooldown gating, re-notification, transient error handling, snooze semantics, and whether broken alerts are terminal or disabled.
+- `CheckInput`: the normalized result of one product evaluation. `is_inconclusive=True` preserves state and the failure counter.
+- `evaluate_alert_check(...)` and `evaluate_alert_failure(...)`: return an `AlertCheckOutcome`; they never mutate a model.
+- `apply_user_reset`, `apply_enable`, `apply_disable`, `apply_snooze`, `apply_unsnooze`, and `apply_threshold_change`: pure control-plane transitions.
 
-Error semantics to know before adopting: failed checks never move firing state (CloudWatch's INSUFFICIENT_DATA doesn't clear ALARM — a FIRING alert rides through a failed check), transient errors skip the cycle entirely (no notification, no counter change), and the error notification fires on the 0 → 1 `consecutive_failures` edge rather than on a state transition. If your dispatch layer rolls back state after a failed notification enqueue, roll back the failure counter with it or the retry stays silent.
+Error semantics are load-bearing:
 
-- `apply_user_reset` / `apply_enable` / `apply_disable` / `apply_snooze` / `apply_unsnooze` / `apply_threshold_change` — control-plane transitions, each returning a `ControlPlaneOutcome`.
+- Failed checks do not clear a firing alert.
+- Transient errors are silent and preserve the failure counter unless the policy opts into counting them.
+- Error notification happens on the `0 -> 1` failure-counter edge unless the policy enables notification on every failure.
+- A notification delivery failure must roll back the transition and must not advance the failure counter. Otherwise the next evaluation can miss the retry edge.
 
-### The single-mutator rule (enforced)
+### Single-mutator rule
 
-Every write to an alert model's `state` / `consecutive_failures` must go through **one** product module — the state adapter — via its `apply_outcome`. Nothing else may assign those fields. This is enforced in CI by `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`; add your product's include/exclude paths there when you adopt.
+Every write to an alert model's `state` or `consecutive_failures` must pass through one product-owned adapter function, normally `apply_outcome`. CI enforces the logs implementation through `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`. Extend that rule when another product adopts the machine.
 
-Pattern (from `products/logs/backend/alert_state_machine.py`):
+Pattern from `products/logs/backend/alert_state_machine.py`:
 
 ```python
-# The product adapter bakes its policy in; the shared machine takes it as a kwarg.
 outcome = evaluate_alert_check(alert.to_snapshot(recent_events_breached=recent_breaches), check_result, now)
-update_fields = apply_outcome(alert, outcome)  # the ONLY function that writes state / consecutive_failures
+update_fields = apply_outcome(alert, outcome)
 alert.save(update_fields=update_fields)
 ```
 
-The adapter owns the product-shaped translation (model → `AlertSnapshot`, and outcome → model mutation). The shared machine stays product-agnostic.
+The product adapter owns model-to-snapshot translation and outcome-to-model mutation. Do not add product fields or persistence behavior to the shared machine.
 
-## Layer 1 — `common/alerting/destinations.py`
+## Destination configuration and persistence
 
-Pure builders for alert notification destinations, delivered as HogFunctions.
+The shared destination implementation lives in `products/alerts/backend/`.
 
-- `EventKindSpec` — describes an alert-event kind (labels, message text) so Slack/Teams/webhook bodies render consistently. Products customize within its declarative vocabulary, never by supplying their own rendering: metric-shaped products use `details` (label/value rows), prose-shaped products use `body_lines` (e.g. one breach description per series for insight alerts), and `extra_buttons` adds actions beyond the primary button. All optional fields default to the standard logs-style layout.
-- `build_slack_destination_config` / `build_webhook_destination_config` / `build_teams_destination_config` — return an `AlertDestinationConfig` (the serializer payload plus the team it belongs to, carried alongside so it never enters serializer input).
-- `destination_filter(alert_id, event_id)`, `slack_blocks`, `teams_text`, `clip_hog_function_name` — helpers.
+### `destination_configs.py`
 
-## Layer 1 — `common/alerting/scheduling.py`
+- `DestinationType`: Slack, Discord, webhook, and Microsoft Teams.
+- `validate_destination_data(...)`: validates a product's allowed destination types and required fields.
+- `EventKindSpec`: declares the content for one event kind. Use `details` for label/value rows, `intro_lines` for prose, and `additional_actions` for buttons after the required primary action.
+- `build_alert_destination_config(...)`: builds one `AlertDestinationConfig` for one event kind and destination. The config carries its `team` beside the serializer payload so tenant context never enters request data.
 
-Grid-cadence scheduling math (used by logs; billing will use it too):
+Products should define a thin event-content module like `products/logs/backend/alert_destinations.py`. Keep event IDs, headers, webhook bodies, URLs, and allowed destination types there. Do not fork Slack, Teams, Discord, or webhook rendering.
 
-- `advance_next_check_at(...)` — next check time on a fixed cadence grid.
-- `compute_shard_offset_seconds(...)` — spreads checks across a window so they don't stampede.
+### `destinations.py` and `facade/api.py`
 
-> [!NOTE]
-> Two scheduling models coexist deliberately. **Grid** (this file) is for products that check on a fixed cadence. **Calendar** anchoring (interval enum + quiet hours + weekend skip, used by insight alerts) has not been extracted into `common/alerting/` yet — it still lives in `posthog/tasks/alerts/`. Pick one when you adopt; do not mix.
+Use `products.alerts.backend.facade.api` from product APIs for:
 
-## Layer 2 — `posthog/alerting/`
+- `validate_destination_data`
+- `build_alert_destination_config`
+- `create_alert_destination_hog_functions`
+- `soft_delete_alert_destinations`
+- `soft_delete_all_alert_destinations`
 
-Django-aware glue that the pure layer can't hold:
+Deletion is intentionally strict. Always pass `team_id`, `alert_id`, and the product's allowed event IDs. By-ID deletion also validates every HogFunction ID belongs to that alert before deleting anything.
 
-- `destinations.py`: `create_alert_destination_hog_functions` (takes `AlertDestinationConfig`s), `soft_delete_alert_destinations`, `soft_delete_all_alert_destinations`, `produce_alert_internal_event`. This is where HogFunctions are actually created/deleted (via serializer) and where the internal alert event is produced onto the bus.
-- `scheduling.py`: `due_alerts_q(now, *, broken_state, snoozed_state=None)` — builds the `Q` predicate for "which alerts are due for a check now," parameterized by the product's state field names (products differ: `snoozed_until` vs `snooze_until`). Tested directly in `products/logs/backend/test/test_due_alerts_q.py`.
+Worker dispatch uses `produce_alert_internal_event`, `flush_alert_internal_events`, and `alert_internal_event_delivered` from `products.alerts.backend.destinations`. Kafka enqueue is not delivery. Flush and verify the produce result before persisting a transition that depends on notification delivery.
 
-## Adopting today (the logs pattern)
+Discord support in the shared layer does not mean every product must expose Discord. The product's allowed destination types remain the public contract.
 
-`products/logs/backend/` is the reference adopter. To wire a product to the primitives now:
+## Scheduling
 
-1. Define your `AlertPolicy` (start from defaults; only set flags where your semantics differ).
-2. Write one state adapter module (`alert_state_machine.py`-style) exposing `apply_outcome` as the single mutator, plus `to_snapshot()` on your model.
-3. Route notification create/delete/dispatch through `posthog/alerting/destinations.py`.
-4. Build your due-alerts query with `posthog/alerting/scheduling.py:due_alerts_q`, passing your state field names.
-5. Add your product's paths to the semgrep single-mutator rule.
-6. Keep evaluation, thresholds, check-history models, and your Temporal workflow in your product — they consume the primitives, they don't move.
+`common/alerting/scheduling.py` shares fixed-minute cadence math:
 
-## What's coming (not yet available)
+- `compute_shard_offset_seconds(...)`: deterministically spreads alerts across scheduler ticks.
+- `advance_next_check_at(...)`: advances and snaps `next_check_at` to the cadence grid.
 
-- A config contract (`AlertConfigLike` Protocol + abstract base model) so new products get the shape for free.
-- A generic Temporal harness with a product registry and two trigger modes: scheduled sweep (grid or calendar) and **push** (`submit_check(product, alert_id, CheckInput)`) for event-driven products.
-- Insight alerts moving onto the shared machine; calendar scheduling extracted into `common/alerting/`.
+Due-alert eligibility is product-specific. Logs keeps `due_alerts_q(...)` in `products/logs/backend/alert_utils.py` because enabled fields, state names, snooze fields, and tenancy constraints can differ. Reuse the math, but write and test the predicate against your product model.
 
-When those land, this skill gains the full "register a product and write only an evaluator" walkthrough. Until then, follow the logs pattern above.
+Calendar scheduling for insight alerts, including local-time anchors, quiet hours, and weekend skipping, still lives under `posthog/tasks/alerts/`. Do not mix calendar and fixed-grid scheduling in one adopter.
+
+## Shared AlertWizard
+
+`frontend/src/lib/components/Alerting/AlertWizard/` provides the shared flow for event-triggered HogFunction alerts. It is separate from the backend lifecycle state machine.
+
+Adopters provide `AlertWizardLogicProps`:
+
+- A unique `logicKey`.
+- Supported HogFunction `subTemplateIds`.
+- Product-specific `WizardTrigger[]` and `WizardDestination[]` definitions.
+- Optional URL-sync controls, preset trigger, preset health kinds, and creation callback.
+
+Mount the keyed `alertWizardLogic` with `BindLogic`, then render `AlertWizard`. Keep the traditional HogFunction editor as the advanced fallback. Follow the health alerts and error tracking integrations for configuration and entry-point patterns.
+
+The wizard only offers compatible destination/trigger pairs defined by HogFunction sub-templates. A destination appearing in backend shared code does not make it available in the wizard until the relevant sub-template supports it.
+
+## Adoption checklist
+
+1. Define the product's `AlertPolicy`; use defaults unless a documented semantic differs.
+2. Add one product state adapter and route every lifecycle write through `apply_outcome`.
+3. Define `EventKindSpec`s, allowed destination types, and the product's internal event properties.
+4. Validate, create, and delete destinations through the alerts product facade.
+5. Treat notification delivery and state persistence as one logical operation; roll back delivery-dependent outcomes on failure.
+6. Reuse fixed-cadence math or keep the product's calendar model, then implement a product-specific due-alert query.
+7. Keep evaluation, check history, model persistence, and Temporal orchestration in the product.
+8. If the product uses HogFunction alerts in the UI, configure and mount the shared `AlertWizard` rather than copying it.
+9. Extend the single-mutator semgrep rule and add focused tests at each product-owned boundary.
+
+## Not available yet
+
+- A shared alert configuration protocol or base model.
+- A generic product registry and Temporal harness.
+- Push-mode `submit_check(product, alert_id, CheckInput)` orchestration.
+- Shared calendar scheduling primitives.
+
+Until these exist, do not invent a parallel framework. Compose the landed primitives and keep product-specific behavior at the adapter boundary.
