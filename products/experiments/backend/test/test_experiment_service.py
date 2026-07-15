@@ -434,6 +434,31 @@ class TestExperimentService(APIBaseTest):
 
         assert "control" in str(ctx.exception)
 
+    def test_update_web_experiment_variants_dropping_control_raises(self):
+        # Same guard as create/launch, on the update path: a web experiment must not
+        # be PATCHable into a control-less variant set the toolbar can't edit.
+        self._create_flag(key="web-update-flag")
+        service = self._service()
+        experiment = service.create_experiment(name="Web Update", feature_flag_key="web-update-flag", type="web")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-a", "name": "A", "rollout_percentage": 50},
+                                {"key": "variant-b", "name": "B", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        assert "control" in str(ctx.exception)
+
     def test_update_variants_dropping_control_defers_pin_to_launch(self):
         # Replacing 'control' changes the baseline's identity. Pinning the new order's
         # first key at update time would dangle if the flag write lands via a rejected
