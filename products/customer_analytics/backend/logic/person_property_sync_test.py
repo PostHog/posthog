@@ -107,6 +107,7 @@ class TestRunOrchestration:
         assert result.produced == 2
 
         # snapshot advanced only for produced ids.
+        assert write_snapshot.await_args is not None
         written = write_snapshot.await_args.args[3]
         assert set(written) == {"a", "b"}
 
