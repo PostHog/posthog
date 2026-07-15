@@ -82,7 +82,7 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                         path: 'Activity',
                         type: 'activity',
                         iconType: 'activity',
-                        category: ProductItemCategory.TOOLS,
+                        category: ProductItemCategory.ANALYTICS,
                         href: urls.activity(ActivityTab.ExploreEvents),
                     } as FileSystemImport,
                     ...withHrefAndFlagsOn(getDefaultTreeDataAndPeople(), featureFlags),
