@@ -292,16 +292,24 @@ def test_synchronize_supersedes_prior_non_terminal_run_but_not_terminal_ones(tea
             head_sha="sha-old",
             status=ReviewRunStatus.COMPLETED,
         )
+        gated_run = ReviewRun.objects.create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="sha-older",
+            status=ReviewRunStatus.GATED,
+        )
 
     _run_task(_pr_payload(action="synchronize", head_sha="sha-2"), "delivery-sync", team.id)
 
     with team_scope(team.id):
         first_run.refresh_from_db()
         completed_run.refresh_from_db()
-        new_run = ReviewRun.objects.exclude(id__in=[first_run.id, completed_run.id]).get()
+        gated_run.refresh_from_db()
+        new_run = ReviewRun.objects.exclude(id__in=[first_run.id, completed_run.id, gated_run.id]).get()
 
     assert first_run.status == ReviewRunStatus.SUPERSEDED
     assert completed_run.status == ReviewRunStatus.COMPLETED
+    assert gated_run.status == ReviewRunStatus.GATED  # a gate block is a completed outcome, not stale state
     assert new_run.status == ReviewRunStatus.QUEUED
     assert new_run.head_sha == "sha-2"
 

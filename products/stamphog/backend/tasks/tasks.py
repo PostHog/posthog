@@ -54,7 +54,11 @@ STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
 STAMPHOG_LABEL_REREVIEW_KEY_PREFIX = "stamphog:label_rereview:"
 
 # A run in one of these states is done and must not be superseded.
-TERMINAL_STATUSES = frozenset({ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED})
+TERMINAL_STATUSES = frozenset(
+    # GATED is terminal too: a deterministic gate block is a completed outcome (completed_at is set),
+    # and superseding it on the next webhook would rewrite the gate result out of the run history.
+    {ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED, ReviewRunStatus.GATED}
+)
 
 # PR body is trimmed to this at capture time so rows (and the digest LLM prompt) stay bounded.
 PR_BODY_EXCERPT_MAX_CHARS = 2000
