@@ -3551,7 +3551,7 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
+# Handles the Dismiss button on inbox notifications delivered before that button was removed.
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 

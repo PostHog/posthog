@@ -63,6 +63,7 @@ from .attentive.source import AttentiveSource
 from .attio.source import AttioSource
 from .auth0.source import Auth0Source
 from .automox.source import AutomoxSource
+from .autumn.source import AutumnSource
 from .aviationstack.source import AviationstackSource
 from .aviator.source import AviatorSource
 from .awin.source import AwinSource
@@ -281,6 +282,7 @@ from .fulcrum.source import FulcrumSource
 from .fullstory.source import FullStorySource
 from .gainsight_px.source import GainsightPxSource
 from .gerrit.source import GerritSource
+from .getstream.source import GetStreamSource
 from .giphy.source import GiphySource
 from .gitbook.source import GitBookSource
 from .gitea.source import GiteaSource
@@ -500,6 +502,7 @@ from .notion.source import NotionSource
 from .nuget.source import NugetSource
 from .nutshell.source import NutshellSource
 from .nylas.source import NylasSource
+from .octolens.source import OctolensSource
 from .octopus_deploy.source import OctopusDeploySource
 from .okta.source import OktaSource
 from .omnisend.source import OmnisendSource

@@ -13,10 +13,12 @@ ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERR
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
-# Max attempts per metric before it's marked failed. The workflow's requeue loop owns retries (the activity
-# runs with maximum_attempts=1), so this caps how many times a transient failure is requeued. Kept low because
-# each extra attempt adds backoff (5s, 10s, 20s, ...) to the tail of a fully-failing run.
-MAX_METRIC_ATTEMPTS = 3
+# Max attempts per metric before it's marked failed on the recalculation workflow.
+MAX_METRIC_ATTEMPTS = 8
+
+# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter, applied via
+# ApplicationError(next_retry_delay=...) instead of the retry policy's 5s exponential schedule.
+CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
 # this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing

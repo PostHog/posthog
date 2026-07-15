@@ -7678,6 +7678,9 @@ export const externalDataSources = [
     'KongKonnect',
     'Kandji',
     'Automox',
+    'Autumn',
+    'GetStream',
+    'Octolens',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8158,6 +8161,7 @@ export interface ProductsData {
 }
 
 export enum UserProductListReason {
+    DEFAULT = 'default',
     ONBOARDING = 'onboarding',
     PRODUCT_INTENT = 'product_intent',
     USED_BY_COLLEAGUES = 'used_by_colleagues',

@@ -243,6 +243,7 @@ the row lists both.
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
+| lambda_labs               | HTTP                        | requests                                                        | ✅                          |
 | langfuse                  | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly              | HTTP                        | requests                                                        | ✅                          |
 | kustomer                  | HTTP                        | requests                                                        | ✅                          |
@@ -516,6 +517,7 @@ doesn't conflict with concurrent PRs.
 - asknicely
 - auth0
 - automox
+- autumn
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
@@ -621,6 +623,7 @@ doesn't conflict with concurrent PRs.
 - frill
 - fulcrum
 - gerrit
+- getstream
 - gitea
 - gitguardian
 - glassfrog
@@ -749,6 +752,7 @@ doesn't conflict with concurrent PRs.
 - nuget
 - nutshell
 - nylas
+- octolens
 - octopus_deploy
 - onedrive
 - onehundredms

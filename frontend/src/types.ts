@@ -80,6 +80,7 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -288,6 +289,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Metrics = 'metrics',
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
     EarlyAccessFeature = 'early_access_feature',
@@ -336,7 +338,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -2525,9 +2527,12 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query?: Node | null
     query_status?: QueryStatus
     is_cached?: boolean
+    filter_override_context?: InsightFilterOverrideContextApi | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
+
+export type InsightFilterOverrideContext = InsightFilterOverrideContextApi
 
 export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>> extends Omit<
     InsightModel,
@@ -5709,6 +5714,7 @@ export const API_SCOPE_OBJECTS = [
     'insight',
     'insight_variable',
     'integration',
+    'internal_run',
     'legal_document',
     'link',
     'live_debugger',
