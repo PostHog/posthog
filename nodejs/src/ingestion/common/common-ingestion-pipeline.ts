@@ -60,7 +60,10 @@ import { addTeamToContext } from './subpipelines/helpers'
  * `.resolveTeam()` resolves the team, lifts it into the element context, and
  * opens the team-aware scope: every step after it runs inside
  * `handleIngestionWarnings`, so warnings (and warnings on dropped elements)
- * route to the resolved team. The stages are enforced by the type system —
+ * route to the resolved team. The warning handler only covers that scope:
+ * warnings attached to non-OK results before `.resolveTeam()` are silently
+ * dropped (there is no team to route them to), so pre-team steps must attach
+ * warnings to OK results only. The stages are enforced by the type system —
  * body steps don't typecheck before `.parseMessage()`, team-dependent steps
  * not before `.resolveTeam()`. Redirect kinds are fixed up front via the
  * `ROut` type parameter — the configured outputs must cover every redirect any
