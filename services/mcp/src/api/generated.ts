@@ -9571,6 +9571,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
      * * `1` - 1 day
      * * `3` - 3 days
      * * `7` - 7 days
@@ -9604,8 +9616,13 @@ export namespace Schemas {
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
       metric?: VisionAlertMetricEnum;
-      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
       threshold?: number;
+      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
       /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
@@ -33091,6 +33108,7 @@ export namespace Schemas {
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
      * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
      * * `posthog-elixir` - posthog-elixir
      */
@@ -33110,6 +33128,7 @@ export namespace Schemas {
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
       PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
       PosthogDotnet: 'posthog-dotnet',
       PosthogElixir: 'posthog-elixir',
     } as const;
@@ -54805,6 +54824,7 @@ export namespace Schemas {
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
        * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
        * * `posthog-dotnet` - posthog-dotnet
        * * `posthog-elixir` - posthog-elixir */
       lib: LibEnum;

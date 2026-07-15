@@ -212,7 +212,7 @@ class AirtableSourceConfig(config.Config):
 
 @config.config
 class AivenSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1915,7 +1915,7 @@ class HerokuSourceConfig(config.Config):
 
 @config.config
 class HetznerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2775,7 +2775,7 @@ class NoCRMSourceConfig(config.Config):
 
 @config.config
 class NorthflankSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2872,7 +2872,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3191,7 +3191,8 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlatformShSourceConfig(config.Config):
-    pass
+    api_token: str
+    platform: Literal["platform_sh", "upsun"] = config.value(default="platform_sh")
 
 
 @config.config
@@ -3440,7 +3441,8 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RenderSourceConfig(config.Config):
-    pass
+    api_key: str
+    owner_id: str | None = None
 
 
 @config.config
@@ -3506,7 +3508,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RoarkSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3779,7 +3781,8 @@ class ShutterstockSourceConfig(config.Config):
 
 @config.config
 class SigNozSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -4650,7 +4653,7 @@ class ZenloopSourceConfig(config.Config):
 
 @config.config
 class ZepSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
