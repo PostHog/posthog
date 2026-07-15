@@ -3766,6 +3766,16 @@ class FeatureFlagViewSet(
                 {"error": "Feature flag evaluation service returned an unexpected response."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        except requests.exceptions.RequestException as e:
+            # Any other requests failure (SSLError, ProxyError, InvalidSchema, ...) is still an
+            # upstream availability problem, not a "no flags" state — surface the same 503 as
+            # the retryable case above rather than letting it bubble up as an unhandled 500.
+            logger.warning("evaluation_reasons flags service call failed: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
         flags_data = result.get("flags", {})
