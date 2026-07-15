@@ -1706,6 +1706,12 @@ class GoogleAdsIntegration:
                 # below it, so the raw values are not mutually comparable.
                 client_level = google_ads_hierarchy_level(client)
 
+                # Reject non-enabled accounts before deduping. Otherwise a disabled, shallower sighting
+                # of an account we already kept as enabled would evict the enabled entry here and then be
+                # skipped by the status check below, dropping the account from the picker entirely.
+                if client.get("status") != "ENABLED":
+                    continue
+
                 # One account can be reached from several accessible roots — e.g. a user with access to
                 # both a manager and one of its clients walks that client twice, once as a root (level 0)
                 # and once beneath the manager (level 1). Keep the shallowest sighting, whose `parent_id`
@@ -1716,8 +1722,6 @@ class GoogleAdsIntegration:
                         continue
                     accounts = [account for account in accounts if account["id"] != client_id]
 
-                if client.get("status") != "ENABLED":
-                    continue
                 accounts.append(
                     {
                         "parent_id": parent_id,

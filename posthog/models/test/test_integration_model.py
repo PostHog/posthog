@@ -2788,8 +2788,10 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         )
 
     @staticmethod
-    def _customer_client(customer_id: str, name: str, level: Optional[str] = None, manager: bool = False) -> dict:
-        client: dict = {"clientCustomer": f"customers/{customer_id}", "descriptiveName": name, "status": "ENABLED"}
+    def _customer_client(
+        customer_id: str, name: str, level: Optional[str] = None, manager: bool = False, status: str = "ENABLED"
+    ) -> dict:
+        client: dict = {"clientCustomer": f"customers/{customer_id}", "descriptiveName": name, "status": status}
         # Google's REST responses omit proto3 defaults, so level 0 and manager=false are absent.
         if level is not None:
             client["level"] = level
@@ -2845,6 +2847,35 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         assert [account["id"] for account in accounts] == ["1234567890", "6501924158"]
         assert accounts[0]["level"] is None
         assert accounts[0]["parent_id"] == "1234567890"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_keeps_enabled_sighting_when_shallower_root_is_disabled(self, mock_request):
+        # The same client is reachable enabled under a manager (level "1") and directly as a disabled root
+        # (level 0). The enabled path is walked first and kept; the disabled shallower root must not evict
+        # it — otherwise the account vanishes from the picker even though Google returned an enabled path.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158", "customers/1234567890"]}
+        manager_walk = MagicMock(status_code=200)
+        manager_walk.json.return_value = [
+            {
+                "results": [
+                    self._customer_client("6501924158", "Acme Corp", manager=True),
+                    self._customer_client("1234567890", "Client One", level="1"),
+                ]
+            }
+        ]
+        disabled_root_walk = MagicMock(status_code=200)
+        disabled_root_walk.json.return_value = [
+            {"results": [self._customer_client("1234567890", "Client One", status="DISABLED")]}
+        ]
+        mock_request.side_effect = [accessible, manager_walk, disabled_root_walk]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        client = next(account for account in accounts if account["id"] == "1234567890")
+        assert client["level"] == "1"
+        assert client["parent_id"] == "6501924158"
 
 
 class TestSnowflakeIntegrationModel(BaseTest):
