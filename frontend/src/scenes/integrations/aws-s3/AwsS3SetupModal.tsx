@@ -12,8 +12,8 @@ import { Region } from '~/types'
 import { AwsS3SetupModalLogicProps, awsS3SetupModalLogic } from './awsS3SetupModalLogic'
 
 const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
-    [Region.US]: 'arn:aws:iam::<US_ACCOUNT_ID>:role/<US_ROLE_NAME>',
-    [Region.EU]: 'arn:aws:iam::<EU_ACCOUNT_ID>:role/<EU_ROLE_NAME>',
+    [Region.US]: 'arn:aws:iam::309986977637:role/posthog-external-batch-exports',
+    [Region.EU]: 'arn:aws:iam::623789312881:role/posthog-external-batch-exports',
 }
 
 export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element => {
