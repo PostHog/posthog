@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonLabel } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { Link } from 'lib/lemon-ui/Link'
@@ -11,10 +11,13 @@ export function OrganizationVariables(): JSX.Element {
 
     return (
         <div className="border rounded p-4 space-y-3 bg-bg-light max-w-160">
-            <LemonLabel className="mb-0">Organization ID</LemonLabel>
-            <CodeSnippet compact thing="organization ID">
-                {String(currentOrganization?.id || '')}
-            </CodeSnippet>
+            {currentOrganization ? (
+                <CodeSnippet compact thing="organization ID">
+                    {String(currentOrganization.id)}
+                </CodeSnippet>
+            ) : (
+                <LemonSkeleton className="h-9" />
+            )}
             <p className="text-muted text-xs mb-0">
                 Use this ID to identify your organization in the{' '}
                 <Link to="https://posthog.com/docs/api">PostHog API</Link>.
