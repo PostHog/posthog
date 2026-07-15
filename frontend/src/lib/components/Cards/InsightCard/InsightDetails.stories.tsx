@@ -185,3 +185,20 @@ export const MergedFilterOverrides: Story = {
         },
     },
 }
+
+// Tile date range takes precedence over the dashboard's — the popup shows the tile range with the
+// overridden dashboard range struck-through so the precedence is visible.
+export const TileDateOverridesDashboard: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
+    },
+    args: {
+        insight: __trendsLine as any,
+        filtersOverride: {
+            date_from: '-30d',
+        },
+        tileFiltersOverride: {
+            date_from: '-7d',
+        },
+    },
+}

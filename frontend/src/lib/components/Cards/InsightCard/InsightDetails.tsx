@@ -168,6 +168,70 @@ function getEffectiveFilterOverrides(
     return { propertyGroups, breakdown }
 }
 
+interface DateRangeSource {
+    date_from?: string | null
+    date_to?: string | null
+}
+
+interface EffectiveDateOverride {
+    source: OverrideSource
+    dateFrom: string | null | undefined
+    dateTo: string | null | undefined
+    // The lower-priority layer this replaced, shown struck-through so the precedence is visible.
+    replaced?: {
+        source: OverrideSource | 'insight'
+        dateFrom: string | null | undefined
+        dateTo: string | null | undefined
+    }
+}
+
+function hasDateBound(source: DateRangeSource | null | undefined): boolean {
+    // `!= null` (not truthiness) matches the backend's `is not None`, so an explicit empty-string bound counts.
+    return source?.date_from != null || source?.date_to != null
+}
+
+// Works out which layer's date range actually applies and what it replaced, so the popup can show the
+// tile/dashboard override with the overridden range struck-through. Mirrors the backend precedence in
+// `merge_filters_by_priority` (tile beats dashboard beats the insight's own range); returns null when the
+// insight's own range wins (nothing was overridden).
+export function getDateRangeOverrideDisplay(
+    insightDateRange: DateRangeSource | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | null | undefined,
+    mergeEnabled: boolean
+): EffectiveDateOverride | null {
+    const tileWins = mergeEnabled
+        ? hasDateBound(tileFiltersOverride)
+        : Object.keys(tileFiltersOverride ?? {}).length > 0
+    const dashboardWins = mergeEnabled ? hasDateBound(filtersOverride) : Object.keys(filtersOverride ?? {}).length > 0
+
+    let winner: {
+        source: OverrideSource
+        dateFrom: string | null | undefined
+        dateTo: string | null | undefined
+    } | null = null
+    if (tileWins) {
+        winner = { source: 'tile', dateFrom: tileFiltersOverride?.date_from, dateTo: tileFiltersOverride?.date_to }
+    } else if (dashboardWins) {
+        winner = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
+    }
+    if (!winner) {
+        return null
+    }
+
+    let replaced: EffectiveDateOverride['replaced']
+    if (winner.source === 'tile' && mergeEnabled && hasDateBound(filtersOverride)) {
+        replaced = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
+    } else if (hasDateBound(insightDateRange)) {
+        replaced = { source: 'insight', dateFrom: insightDateRange?.date_from, dateTo: insightDateRange?.date_to }
+    }
+    if (replaced && replaced.dateFrom === winner.dateFrom && replaced.dateTo === winner.dateTo) {
+        replaced = undefined
+    }
+
+    return { ...winner, replaced }
+}
+
 function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
     return (
         <div className="mt-1.5 flex items-center gap-1">
@@ -631,17 +695,28 @@ export function BreakdownSummary({
 export function DateRangeSummary({
     dateFrom,
     dateTo,
+    override,
 }: {
     dateFrom: string | null | undefined
     dateTo: string | null | undefined
+    override?: EffectiveDateOverride | null
 }): JSX.Element | null {
     const dateFilterText = dateFilterToText(dateFrom, dateTo, null)
     if (!dateFilterText) {
         return null
     }
+    const replacedText = override?.replaced
+        ? dateFilterToText(override.replaced.dateFrom, override.replaced.dateTo, null)
+        : null
     return (
         <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
+            {override && <OverrideNote source={override.source}>date range replaced with:</OverrideNote>}
             <div className="font-medium">{dateFilterText}</div>
+            {replacedText && (
+                <div className="text-muted-alt text-xs mt-0.5">
+                    was <span className="line-through">{replacedText}</span> (from {override!.replaced!.source})
+                </div>
+            )}
         </InsightDetailSectionDisplay>
     )
 }
@@ -672,6 +747,13 @@ export const InsightDetails = React.memo(
             tileFiltersOverride,
             mergeEnabled
         )
+        const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
+        const dateOverride = getDateRangeOverrideDisplay(
+            insightDateRange,
+            filtersOverride,
+            tileFiltersOverride,
+            mergeEnabled
+        )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
         const hasIgnoredBreakdownOverrides =
@@ -692,6 +774,13 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
+                        {dateOverride && (
+                            <DateRangeSummary
+                                dateFrom={dateOverride.dateFrom}
+                                dateTo={dateOverride.dateTo}
+                                override={dateOverride}
+                            />
+                        )}
                         {hasDataWarehouseSeries && hasPropertyOverrides ? (
                             <PropertiesIgnoredWarning />
                         ) : (
