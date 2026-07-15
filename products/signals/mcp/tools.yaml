@@ -521,7 +521,7 @@ tools:
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
+            Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
     scout-run-now:
         operation: signals_scout_config_run
