@@ -62,11 +62,12 @@ _SEVERITY: dict[BrokenTestState, int] = {
 
 # Fingerprint aggregation over the failure-lines view. ``age_hours`` / ``span_hours`` /
 # ``last_master_hit_age`` are computed here (integer dateDiffs against now()) so the Python classifier
-# stays timezone-agnostic. The HAVING keeps only failures that spread beyond one branch or reached
-# trunk — a single PR's own fresh failure is noise here. The cap orders by urgency proxy first
-# (reached trunk, then wider spread, then recency) so the SQL can't evict a trunk-breaking fingerprint
-# in favor of newer low-signal ones before the Python classifier runs; +1 reveals truncation, and the
-# final severity ranking still happens after classification.
+# stays timezone-agnostic. No signal-floor HAVING: single-branch failures are kept too (they classify
+# as pr_only, which the UI hides by default and the toggle reveals), so the "show PR-only" affordance
+# has real rows to show. The cap does the bounding, ordered by urgency proxy first (reached trunk, then
+# wider spread, then recency) so it can't evict a trunk-breaking fingerprint in favor of newer
+# low-signal ones before the Python classifier runs; +1 reveals truncation, and the final severity
+# ranking still happens after classification.
 _FINGERPRINTS_SELECT = """
     SELECT
         fingerprint,
@@ -88,21 +89,21 @@ _FINGERPRINTS_SELECT = """
     FROM __FAILURES_SOURCE__
     WHERE timestamp >= {date_from} AND lower(repo) = lower({repository})
     GROUP BY fingerprint
-    HAVING branches >= 2 OR master_hits > 0
     ORDER BY master_hits DESC, branches DESC, last_seen DESC
     LIMIT {limit_plus_one}
 """
 
 # Per-fingerprint hourly failure counts over the last day, bucketed by how many whole hours ago the
-# hour was (0 = current hour). Its own tight 24h scan (not the analysis window) because the
-# sparkline answers "is this escalating right now"; folded into a fixed array per fingerprint below.
+# hour was (0 = current hour). Bounded to the fingerprints we actually kept ({fingerprints}) so a repo
+# with thousands of distinct 24h failures doesn't scan+group them all just to fill ~200 sparklines;
+# folded into a fixed array per fingerprint below.
 _HOURLY_SELECT = """
     SELECT
         fingerprint,
         dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now())) AS hours_ago,
         count() AS c
     FROM __FAILURES_SOURCE__
-    WHERE timestamp >= {hourly_from} AND lower(repo) = lower({repository})
+    WHERE timestamp >= {hourly_from} AND lower(repo) = lower({repository}) AND fingerprint IN {fingerprints}
     GROUP BY fingerprint, hours_ago
 """
 
@@ -110,15 +111,17 @@ _HOURLY_SELECT = """
 # workflow too, not job name alone: unrelated workflows can reuse a job name like ``test`` / ``build``,
 # and collapsing them would let one workflow's green job mask another's red one. ``created_at_raw`` is
 # the raw ISO string the scan can prune on (a parsed-column predicate forces a full scan); it floors a
-# day below the precise ``created_at`` window. ``latest_conclusion`` is the newest completed run's
-# conclusion (red = broken now); ``latest_completed_age`` is how long ago that run finished, so the
-# classifier can tell a genuine recovery from a stale-green row the logs have already overtaken.
+# day below the precise ``created_at`` window. Recency keys on ``completed_at`` (when the run actually
+# finished), not ``created_at`` — a run that started before a failure but finished green after it is a
+# real recovery. ``latest_conclusion`` is that newest-finishing completed run's conclusion (red =
+# broken now); ``latest_completed_age`` is how long ago it finished, so the classifier can tell a
+# genuine recovery from a stale-green row the logs have already overtaken.
 _MASTER_JOBS_SELECT = """
     SELECT
         workflow_name,
         name AS job_name,
-        argMaxIf(conclusion, created_at, status = 'completed') AS latest_conclusion,
-        dateDiff('second', maxIf(created_at, status = 'completed'), now()) AS latest_completed_age
+        argMaxIf(conclusion, completed_at, status = 'completed') AS latest_conclusion,
+        dateDiff('second', maxIf(completed_at, status = 'completed'), now()) AS latest_completed_age
     FROM __JOBS_SOURCE__
     WHERE head_branch IN {default_branches}
         AND created_at_raw >= {created_floor}
@@ -212,17 +215,25 @@ def query_broken_tests(
         ).results
         or []
     )
+    # Only the fingerprints we kept need a sparkline; bound the 24h scan to them (skip it entirely when
+    # the first scan found nothing) so a busy repo doesn't group every recent failure just to fill ~200.
+    selected_fingerprints = [row[0] for row in fingerprint_rows]
     hourly_rows = (
-        curated.run(
-            _HOURLY_SELECT.replace("__FAILURES_SOURCE__", failures_source),
-            query_type="engineering_analytics.broken_tests_hourly",
-            placeholders={
-                "repository": ast.Constant(value=repository),
-                "hourly_from": ast.Constant(value=hourly_from),
-            },
-            workload=Workload.LOGS,
-        ).results
-        or []
+        (
+            curated.run(
+                _HOURLY_SELECT.replace("__FAILURES_SOURCE__", failures_source),
+                query_type="engineering_analytics.broken_tests_hourly",
+                placeholders={
+                    "repository": ast.Constant(value=repository),
+                    "hourly_from": ast.Constant(value=hourly_from),
+                    "fingerprints": ast.Constant(value=selected_fingerprints),
+                },
+                workload=Workload.LOGS,
+            ).results
+            or []
+        )
+        if selected_fingerprints
+        else []
     )
 
     # Latest default-branch status per (workflow, job) — empty when the job-level source isn't synced,
