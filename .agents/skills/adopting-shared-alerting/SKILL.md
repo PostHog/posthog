@@ -52,7 +52,7 @@ The adapter owns the product-shaped translation (model → `AlertSnapshot`, and 
 
 Pure builders for alert notification destinations, delivered as HogFunctions.
 
-- `EventKindSpec` — describes an alert-event kind (labels, message text) so Slack/Teams/webhook bodies render consistently.
+- `EventKindSpec` — describes an alert-event kind (labels, message text) so Slack/Teams/webhook bodies render consistently. Products customize within its declarative vocabulary, never by supplying their own rendering: metric-shaped products use `details` (label/value rows), prose-shaped products use `body_lines` (e.g. one breach description per series for insight alerts), and `extra_buttons` adds actions beyond the primary button. All optional fields default to the standard logs-style layout.
 - `build_slack_destination_config` / `build_webhook_destination_config` / `build_teams_destination_config` — return an `AlertDestinationConfig` (the serializer payload plus the team it belongs to, carried alongside so it never enters serializer input).
 - `destination_filter(alert_id, event_id)`, `slack_blocks`, `teams_text`, `clip_hog_function_name` — helpers.
 
