@@ -72,6 +72,10 @@ _check_lazy_precompute_eligible = check_common_eligible
 # its events that spill past midnight — the HAVING clause attributes the session
 # to its start hour, but the events scan needs the trailing events to compute
 # correct `$session_duration` / `$pageview_count` / `$is_bounce`.
+# Only UUIDv7 session ids enter the no-join shape (version nibble check on both
+# sides): the events side derives the hour bucket from the v7-embedded timestamp,
+# which is garbage for v4/custom UUIDs — the join shape bucketed those via real
+# session timestamps, so excluding them symmetrically keeps both sides consistent.
 # Filtered cache keys (a `$host` user filter or applied test-account filters) keep the
 # join shape below: those filters constrain which sessions qualify and can only be
 # evaluated on the events side, so the two-scan template would cache wrong session
@@ -133,6 +137,7 @@ FROM (
     WHERE and(
         {events_session_id} IS NOT NULL,
         events.$session_id_uuid IS NOT NULL,
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
         {event_type_filter},
         timestamp >= {time_window_min},
         timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
@@ -151,6 +156,7 @@ LEFT JOIN (
     WHERE and(
         sessions.$start_timestamp >= {time_window_min},
         sessions.$start_timestamp < {time_window_max},
+        equals(bitAnd(bitShiftRight(sessions.session_id_v7, 76), 15), 7),
         or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
     )
     GROUP BY time_window_start
