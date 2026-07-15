@@ -36,9 +36,7 @@ export function ViewLogsButton({
     // Linking with the fallback key here would silently open logs filtered by the wrong
     // attribute for teams that configured a custom key, so hold the link in a loading state.
     const to =
-        sessionId && !logsConfigLoading
-            ? buildLogsSessionUrl(sessionId, configuredSessionIdKeys, timestamp)
-            : undefined
+        sessionId && !logsConfigLoading ? buildLogsSessionUrl(sessionId, configuredSessionIdKeys, timestamp) : undefined
 
     return (
         <LemonButton
