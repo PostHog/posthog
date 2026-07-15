@@ -114,18 +114,21 @@ impl ParsedNativeSymbols {
     ///    The basename fallback matches by filename and is only applied when
     ///    there is exactly one candidate (no ambiguity).
     pub fn get_source(&self, dwarf_path: &str) -> Option<&str> {
-        let sources = self.sources.as_ref()?;
-
         // 1. Exact match (fast path, works for physical-function frames)
-        if let Some(text) = sources.get(dwarf_path) {
-            return Some(text.as_str());
+        if let Some(text) = self.get_source_exact(dwarf_path) {
+            return Some(text);
         }
 
         // 2. Basename fallback for inlined cross-file frames where the embedding
         //    CU's line table records a relative path but the manifest was built
-        //    from the callee CU's absolute path (Swift WMO common case).
-        let basename = std::path::Path::new(dwarf_path).file_name()?.to_str()?;
-        let mut candidates = sources.iter().filter(|(k, _)| k.ends_with(basename));
+        //    from the callee CU's absolute path (Swift WMO common case). Compares
+        //    real file-name components, not string suffixes: "bar.c" must not
+        //    match a bundled "/src/foobar.c".
+        let sources = self.sources.as_ref()?;
+        let basename = std::path::Path::new(dwarf_path).file_name()?;
+        let mut candidates = sources
+            .iter()
+            .filter(|(k, _)| std::path::Path::new(k).file_name() == Some(basename));
         let first = candidates.next();
         // Only use the fallback if there is exactly one candidate (no ambiguity).
         if first.is_some() && candidates.next().is_none() {
@@ -133,6 +136,14 @@ impl ParsedNativeSymbols {
         }
 
         None
+    }
+
+    /// Exact manifest-key lookup only, with no basename fallback. Used where
+    /// the requested path comes from event input rather than the symcache
+    /// (the symbol-miss context salvage), so fuzzy matching can't attach
+    /// lines from a different file than the one named.
+    pub fn get_source_exact(&self, dwarf_path: &str) -> Option<&str> {
+        self.sources.as_ref()?.get(dwarf_path).map(|v| v.as_str())
     }
 
     fn extract_dwarf_from_zip(
@@ -344,5 +355,50 @@ impl Parser for NativeProvider {
 impl Display for NativeRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NativeRef")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    use super::ParsedNativeSymbols;
+
+    fn symbols_with(sources: &[(&str, &str)]) -> ParsedNativeSymbols {
+        ParsedNativeSymbols {
+            symcache_data: Vec::new(),
+            sources: Some(
+                sources
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect::<HashMap<_, _>>(),
+            ),
+            decompressed_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn source_lookup_matches_file_name_components_not_suffixes() {
+        let symbols = symbols_with(&[("/src/foobar.c", "foo"), ("/abs/path/Foo.swift", "swift")]);
+
+        // Exact key always wins.
+        assert_eq!(symbols.get_source("/src/foobar.c"), Some("foo"));
+        assert_eq!(symbols.get_source_exact("/src/foobar.c"), Some("foo"));
+
+        // The fallback compares real file-name components: a suffix of a
+        // different file's name must not match.
+        assert_eq!(symbols.get_source("bar.c"), None);
+        // A relative spelling of the same file still matches.
+        assert_eq!(symbols.get_source("sub/dir/Foo.swift"), Some("swift"));
+
+        // The exact-only lookup never falls back.
+        assert_eq!(symbols.get_source_exact("Foo.swift"), None);
+        assert_eq!(symbols.get_source_exact("bar.c"), None);
+    }
+
+    #[test]
+    fn source_fallback_requires_a_unique_candidate() {
+        let symbols = symbols_with(&[("/a/util.c", "a"), ("/b/util.c", "b")]);
+        assert_eq!(symbols.get_source("util.c"), None);
     }
 }

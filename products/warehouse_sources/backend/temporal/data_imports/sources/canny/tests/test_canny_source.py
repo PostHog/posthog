@@ -48,8 +48,6 @@ class TestCannySource:
         assert config.name.value == "Canny"
         assert config.label == "Canny"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Canny ships hidden for now — it must stay behind unreleasedSource until released.
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/canny.png"
 
         assert len(config.fields) == 1

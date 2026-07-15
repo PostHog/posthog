@@ -55,6 +55,8 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
             isClaudeUiHost: vi.fn(() => false),
+            isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',

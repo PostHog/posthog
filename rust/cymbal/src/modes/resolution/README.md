@@ -84,7 +84,15 @@ Remote resolution is opt-in on the cymbal side. There is intentionally **no sile
 
 ### Routing affinity and reroute behavior
 
-Routing is per team. The caller's `EndpointPool` rendezvous-hashes `team:{team_id}` against the pod set so every exception from a given team prefers a small, stable part of the pod set, maximizing warm-cache locality without coupling the caller to symbol-set internals. The rendezvous score is adjusted by the latest server load snapshot and the caller's own local in-flight count, so highly loaded pods become less likely to receive new work before they return overload outcomes.
+Routing is per exception. The caller derives a routing key from the first
+symbol-set reference in the exception's raw frames and rendezvous-hashes
+`team:{team_id}:symbol:{symbol_set_ref}` against the pod set. Exceptions
+without a symbol-set reference fall back to `team:{team_id}`. This keeps work
+that needs the same symbol set sticky to a small, stable part of the pod set
+while preserving the previous team-level fallback for frames that do not use
+symbol stores. The rendezvous score is adjusted by the latest server load
+snapshot and the caller's own local in-flight count, so highly loaded pods
+become less likely to receive new work before they return overload outcomes.
 
 Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
 

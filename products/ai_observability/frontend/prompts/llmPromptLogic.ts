@@ -44,7 +44,7 @@ import {
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
-import { getApiErrorDetail, openDiscardChangesDialog, validatePromptName } from './utils'
+import { getApiErrorDetail, openDiscardChangesDialog, requestPromptDuplicate, validatePromptName } from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -90,6 +90,8 @@ const STALE_PROMPT_ERROR_MESSAGE =
 export interface PublishConflict {
     latestVersion: number | null
 }
+
+export type PromptSnippetLanguage = 'python' | 'node'
 
 async function fetchResolvedPrompt(
     promptName: string,
@@ -154,6 +156,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     actions({
         setPrompt: (prompt: ResolvedLLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
+        duplicatePrompt: (sourceName: string, newName: string) => ({ sourceName, newName }),
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: PromptMode) => ({ mode }),
@@ -168,6 +171,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         openPublishReview: true,
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
+        setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
     }),
 
     reducers(({ props }) => ({
@@ -257,6 +261,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 submitPromptFormSuccess: () => '',
                 closePublishReview: () => '',
                 setMode: () => '',
+            },
+        ],
+        snippetLanguage: [
+            'python' as PromptSnippetLanguage,
+            {
+                setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
             },
         ],
     })),
@@ -727,6 +737,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             } else {
                 exitEditMode()
             }
+        },
+
+        duplicatePrompt: async ({ sourceName, newName }) => {
+            await requestPromptDuplicate(sourceName, newName)
         },
 
         deletePrompt: async () => {

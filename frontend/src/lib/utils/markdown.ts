@@ -1,3 +1,6 @@
+import { JSONContent } from '@tiptap/core'
+import { MarkdownManager } from '@tiptap/markdown'
+import { Extensions } from '@tiptap/react'
 import { marked } from 'marked'
 
 const TABLE_DELIMITER_SEGMENT_RE = /^\|(?:\s*:?-{2,}:?\s*\|)+\s*$/
@@ -136,4 +139,109 @@ export function stripMarkdown(markdown: string): string {
 
     // Replace multiple consecutive newlines (3+) with just 2 to preserve paragraph breaks
     return result.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** A TipTap doc holding a single empty paragraph — the canonical "no content" value. */
+export const EMPTY_TIPTAP_DOC: JSONContent = {
+    type: 'doc',
+    content: [{ type: 'paragraph' }],
+}
+
+/** True when a TipTap doc contains nothing but empty paragraph(s), so it should be treated as blank. */
+export function isEffectivelyEmptyTiptapDoc(doc: JSONContent): boolean {
+    if (doc.type !== 'doc') {
+        return false
+    }
+
+    if (!doc.content || doc.content.length === 0) {
+        return true
+    }
+
+    if (doc.content.length !== 1 || doc.content[0].type !== 'paragraph') {
+        return false
+    }
+
+    const paragraphContent = doc.content[0].content
+    if (!paragraphContent || paragraphContent.length === 0) {
+        return true
+    }
+
+    return paragraphContent.every((node) => node.type === 'text' && !node.text)
+}
+
+/**
+ * Parse markdown into a TipTap doc using the given manager, expanding flattened tables first.
+ * Falls back to a single plain-text paragraph if the markdown is malformed or doesn't parse to a doc.
+ */
+export function markdownToTiptapDoc(manager: MarkdownManager, markdown: string | null | undefined): JSONContent {
+    if (!markdown || markdown.trim() === '') {
+        return EMPTY_TIPTAP_DOC
+    }
+
+    try {
+        const parsed = manager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
+        if (parsed.type === 'doc') {
+            return parsed
+        }
+    } catch {
+        // Fall through to plain paragraph fallback for malformed markdown.
+    }
+
+    return {
+        type: 'doc',
+        content: [
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: markdown }],
+            },
+        ],
+    }
+}
+
+/** Serialize a TipTap doc to markdown using the given manager. Empty docs and failures yield ''. */
+export function tiptapDocToMarkdown(manager: MarkdownManager, doc: JSONContent): string {
+    try {
+        if (isEffectivelyEmptyTiptapDoc(doc)) {
+            return ''
+        }
+
+        return manager.serialize(doc).trimEnd()
+    } catch {
+        return ''
+    }
+}
+
+/** True when markdown survives a parse -> serialize -> parse round trip unchanged (i.e. the editor won't mangle it). */
+export function isTiptapMarkdownRoundTripSafe(manager: MarkdownManager, markdown: string | null | undefined): boolean {
+    if (!markdown || markdown.trim() === '') {
+        return true
+    }
+
+    try {
+        const expanded = expandFlattenedMarkdownTables(markdown)
+        const originalDoc = manager.parse(expanded) as JSONContent
+        const roundTripDoc = manager.parse(manager.serialize(originalDoc).trimEnd()) as JSONContent
+        return JSON.stringify(originalDoc) === JSON.stringify(roundTripDoc)
+    } catch {
+        return false
+    }
+}
+
+export type TiptapMarkdownConverter = {
+    markdownToDoc: (markdown: string | null | undefined) => JSONContent
+    docToMarkdown: (doc: JSONContent) => string
+    isRoundTripSafe: (markdown: string | null | undefined) => boolean
+}
+
+/**
+ * Build a markdown <-> TipTap doc converter bound to a set of extensions. Each editor (text card,
+ * AI prompt, etc.) supplies its own extensions but shares the parse/serialize/empty/round-trip logic.
+ */
+export function createTiptapMarkdownConverter(extensions: Extensions): TiptapMarkdownConverter {
+    const manager = new MarkdownManager({ extensions })
+    return {
+        markdownToDoc: (markdown) => markdownToTiptapDoc(manager, markdown),
+        docToMarkdown: (doc) => tiptapDocToMarkdown(manager, doc),
+        isRoundTripSafe: (markdown) => isTiptapMarkdownRoundTripSafe(manager, markdown),
+    }
 }

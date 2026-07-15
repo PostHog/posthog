@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
@@ -27,7 +28,6 @@ from django.db.models import Prefetch, Q
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
@@ -36,6 +36,7 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.events import emit_account_tags_added
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
@@ -45,6 +46,9 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     apply_option_side_effects,
     coerce_is_big_number,
     normalize_options,
+)
+from products.customer_analytics.backend.logic.person_property_projection import (
+    person_properties_flag_enabled as person_properties_flag_enabled,
 )
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
@@ -58,6 +62,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -256,6 +261,10 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ``properties`` is the exact ``model_dump(mode="json")`` of the validated
     pydantic properties and ``tags`` the sorted tag names — byte-identical to
     what the CDP worker consumed before this moved behind the facade.
+
+    ``custom_properties`` includes every team definition keyed by name, with the
+    account's active value (scalar) or ``None`` when unset, so workflow result
+    paths are deterministic regardless of whether the property has been set.
     """
     relationships: dict[str, list[dict]] = {}
     for relationship in (
@@ -268,6 +277,19 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         relationships.setdefault(relationship.definition.name, []).append(
             {"user_id": relationship.user.id, "email": relationship.user.email}
         )
+
+    definitions = list(CustomPropertyDefinition.objects.for_team(account.team_id).values("id", "name"))
+    active_values = {
+        row.definition_id: row
+        for row in _custom_property_values_logic.list_active_custom_property_values(
+            team_id=account.team_id, account_id=account.id
+        )
+    }
+    custom_properties: dict[str, float | bool | str | None] = {
+        defn["name"]: _scalar_value(active_values[defn["id"]]) if defn["id"] in active_values else None
+        for defn in definitions
+    }
+
     return contracts.ExternalAccount(
         id=str(account.id),
         external_id=account.external_id,
@@ -275,7 +297,18 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
+        custom_properties=custom_properties,
     )
+
+
+def _scalar_value(row: "CustomPropertyValue") -> float | bool | str | None:
+    """Return the row's value as a JSON-safe scalar; datetimes become ISO strings."""
+    v = _custom_property_values_logic.value_of(row)
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, float | bool | str):
+        return v
+    return None
 
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
@@ -293,40 +326,55 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
     return _to_external_account(account)
 
 
-def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
+def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
     normalized = list({tagify(t) for t in tags})
     if mode == "remove":
         account.tagged_items.filter(tag__name__in=normalized).delete()
     elif mode == "set":
-        set_tags_on_object(normalized, account)
+        _set_tags(normalized, account, workflow_id=workflow_id)
     else:
+        added_tags: list[Tag] = []
         for tag_name in normalized:
             tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=account.team_id)
-            account.tagged_items.get_or_create(tag_id=tag.id)
+            _, created = account.tagged_items.get_or_create(tag_id=tag.id)
+            if created:
+                added_tags.append(tag)
+        _schedule_account_tags_added(account, added_tags, actor=None, workflow_id=workflow_id)
 
 
 def _apply_external_relationship_assignments(
     account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided relationship assignments, keyed by definition name (None ends the
+    """Apply provided relationship assignments, keyed by definition UUID (None ends the
     active assignment). Each non-None user id is resolved against an
     ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
     returns (commits) on an error result rather than rolling back.
     """
+    keys_to_ids: dict[str, UUID] = {}
+    for key in assignments:
+        try:
+            keys_to_ids[key] = UUID(key)
+        except ValueError:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=key,
+            )
+
     definitions = {
-        definition.name: definition
+        definition.id: definition
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
-            name__in=assignments.keys()
+            id__in=keys_to_ids.values()
         )
     }
+
     resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
-    for name, user_id in assignments.items():
-        definition = definitions.get(name)
+    for key, user_id in assignments.items():
+        definition = definitions.get(keys_to_ids[key])
         if definition is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
-                error_field=name,
+                error_field=key,
             )
         if user_id is None:
             resolved.append((definition, None))
@@ -339,7 +387,7 @@ def _apply_external_relationship_assignments(
         if membership is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                error_field=name,
+                error_field=key,
             )
         resolved.append((definition, membership.user))
 
@@ -360,6 +408,7 @@ def update_external_account(
     relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
+    workflow_id: str | None = None,
 ) -> contracts.ExternalAccountUpdateResult:
     """Apply relationship assignments and tags to an account, transactionally, for the
     external API.
@@ -386,9 +435,9 @@ def update_external_account(
             if error_result is not None:
                 return error_result
             if tags is not None:
-                _apply_external_tags(account, tags, tags_mode)
+                _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
     except Exception as e:
-        capture_exception(e, {"account_id": str(account.id)})
+        capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
 
     account.refresh_from_db()
@@ -445,7 +494,7 @@ def set_external_account_custom_properties(
             error=contracts.ExternalAccountCustomPropertiesError.CONFLICT
         )
     except Exception as e:
-        capture_exception(e, {"external_id": external_id})
+        capture_exception(e, {"team_id": team_id, "external_id": external_id})
         return contracts.ExternalAccountCustomPropertiesResult(
             error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
         )
@@ -506,29 +555,53 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
     return messages
 
 
-def _set_tags(tags: list[str] | None, obj) -> None:
-    """Replace ``obj``'s tags, creating/deleting ``TaggedItem`` rows individually so each
-    change emits its own activity-log entry (the account activity stream depends on this).
+def _set_tags(
+    tags: list[str] | None, account: Account, actor: "User | None" = None, workflow_id: str | None = None
+) -> None:
+    """Replace the account's tags, creating/deleting ``TaggedItem`` rows individually so
+    each change emits its own activity-log entry (the account activity stream depends on
+    this).
 
     Mirrors ``posthog.api.tagged_item.set_tags_on_object`` + ``cleanup_orphan_tags`` but
     stays on pure-model imports so the facade keeps DRF off its import path. ``None`` means
     "tags not supplied" — leave them untouched (matches the serializer mixin).
 
-    Sets ``obj.prefetched_tags`` to the resulting rows so a freshly-written account renders
-    its new tags without re-reading a stale prefetch (the mixin did the same)."""
+    Sets ``account.prefetched_tags`` to the resulting rows so a freshly-written account
+    renders its new tags without re-reading a stale prefetch (the mixin did the same)."""
     if tags is None:
         return
     deduped_tags = list({tagify(t) for t in tags})
     tagged_item_objects = []
+    added_tags: list[Tag] = []
     for tag in deduped_tags:
-        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=account.team_id)
+        tagged_item_instance, created = account.tagged_items.get_or_create(tag_id=tag_instance.id)
         tagged_item_instance.tag = tag_instance
         tagged_item_objects.append(tagged_item_instance)
-    for tagged_item in obj.tagged_items.exclude(tag__name__in=deduped_tags):
+        if created:
+            added_tags.append(tag_instance)
+    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags):
         tagged_item.delete()
-    Tag.objects.filter(Q(team_id=obj.team_id) & Q(tagged_items__isnull=True)).delete()
-    obj.prefetched_tags = tagged_item_objects
+    Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
+    account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
+    _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+
+
+def _schedule_account_tags_added(
+    account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
+) -> None:
+    """Single emission point for $account_tag_added: post-commit, newly created rows only —
+    so a workflow re-adding its own trigger tag fires nothing."""
+    if not tags:
+        return
+
+    def emit() -> None:
+        try:
+            emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
 
 
 def _log_activity_swallowing(
@@ -711,6 +784,7 @@ def _to_custom_property_definition_view(
         name=definition.name,
         description=definition.description,
         display_type=definition.display_type,
+        target_type=definition.target_type,
         is_big_number=definition.is_big_number,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
@@ -799,6 +873,14 @@ def get_custom_property_definition(
     return _to_custom_property_definition_view(definition, references)
 
 
+def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
+    """Suggested filter values for a custom property — see the logic function for the per-type
+    behavior. Empty for unknown definitions."""
+    return _custom_property_values_logic.list_custom_property_value_suggestions(
+        team_id=team_id, definition_id=definition_id, search=search
+    )
+
+
 def create_custom_property_definition(
     *,
     team_id: int,
@@ -807,6 +889,7 @@ def create_custom_property_definition(
     display_type: str,
     is_big_number: bool,
     options: list[dict[str, Any]] | None = None,
+    target_type: str = TargetType.ACCOUNT.value,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -818,6 +901,7 @@ def create_custom_property_definition(
             name=name,
             description=description,
             display_type=display_type,
+            target_type=target_type,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
             options=normalize_options(DisplayType(display_type), options),
         )
@@ -926,8 +1010,10 @@ def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.C
         id=source.id,
         definition=source.definition_id,
         saved_query=source.saved_query_id,
+        external_data_schema=source.external_data_schema_id,
         source_column=source.source_column,
         key_column=source.key_column,
+        column_property_map=source.column_property_map,
         is_enabled=source.is_enabled,
         consecutive_failures=source.consecutive_failures,
         last_synced_at=source.last_synced_at,
@@ -943,6 +1029,25 @@ def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
     customer_analytics never imports data_modeling (which isn't a dependency)."""
     saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
     return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
+
+
+def _external_data_schema_belongs_to_team(team_id: int, schema_id) -> bool:
+    """Whether the warehouse schema (raw synced table) exists for this team. ``apps.get_model`` keeps
+    customer_analytics from importing warehouse_sources internals (isolation)."""
+    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+    return schema_model.objects.filter(id=schema_id, team_id=team_id).exists()
+
+
+def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
+    """A person-source's column->property map must be a non-empty {str: non-empty str} object."""
+    if not isinstance(column_property_map, dict) or not column_property_map:
+        raise CustomPropertySourceValidationError("column_property_map must be a non-empty object.")
+    for column, property_name in column_property_map.items():
+        if not isinstance(column, str) or not column:
+            raise CustomPropertySourceValidationError("column_property_map keys must be non-empty column names.")
+        if not isinstance(property_name, str) or not property_name:
+            raise CustomPropertySourceValidationError("column_property_map values must be non-empty property names.")
+    return column_property_map
 
 
 def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
@@ -984,26 +1089,55 @@ def create_custom_property_source(
     *,
     team_id: int,
     definition_id: str | UUID,
-    saved_query_id: str | UUID,
-    source_column: str,
     key_column: str,
     is_enabled: bool,
     user: "User",
+    saved_query_id: str | UUID | None = None,
+    source_column: str | None = None,
+    external_data_schema_id: str | UUID | None = None,
+    column_property_map: dict | None = None,
 ) -> contracts.CustomPropertySourceView:
-    if not _saved_query_belongs_to_team(team_id, saved_query_id):
-        raise CustomPropertySourceValidationError("Saved query not found for this team.")
-    if _get_team_scoped(CustomPropertyDefinition, team_id, definition_id) is None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
+
+    # The definition's target decides which binding is valid: account sources read a saved query
+    # column; person sources read a raw incremental schema and map columns onto person properties.
+    create_kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "created_by": user,
+        "definition_id": definition_id,
+        "key_column": key_column,
+        "is_enabled": is_enabled,
+    }
+    if definition.target_type == TargetType.PERSON.value:
+        if external_data_schema_id is None:
+            raise CustomPropertySourceValidationError("A person property source needs an external_data_schema.")
+        if saved_query_id is not None or source_column:
+            raise CustomPropertySourceValidationError(
+                "A person property source uses external_data_schema + column_property_map, not saved_query."
+            )
+        # Validate the map shape in memory before the DB lookup below.
+        create_kwargs["column_property_map"] = _validate_column_property_map(column_property_map)
+        if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
+            raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
+        create_kwargs["external_data_schema_id"] = external_data_schema_id
+    else:
+        if saved_query_id is None or not source_column:
+            raise CustomPropertySourceValidationError(
+                "An account property source needs a saved_query and source_column."
+            )
+        if external_data_schema_id is not None or column_property_map is not None:
+            raise CustomPropertySourceValidationError(
+                "An account property source uses saved_query + source_column, not external_data_schema."
+            )
+        if not _saved_query_belongs_to_team(team_id, saved_query_id):
+            raise CustomPropertySourceValidationError("Saved query not found for this team.")
+        create_kwargs["saved_query_id"] = saved_query_id
+        create_kwargs["source_column"] = source_column
+
     try:
-        source = CustomPropertySource.objects.for_team(team_id).create(
-            team_id=team_id,
-            created_by=user,
-            definition_id=definition_id,
-            saved_query_id=saved_query_id,
-            source_column=source_column,
-            key_column=key_column,
-            is_enabled=is_enabled,
-        )
+        source = CustomPropertySource.objects.for_team(team_id).create(**create_kwargs)
     except IntegrityError as exc:
         # Both FKs are team-validated above, so the only expected violation is the definition's
         # one-to-one uniqueness; re-raise anything else instead of mislabeling it as a duplicate.
@@ -1310,7 +1444,7 @@ def create_account_for_view(
                 external_id=input.external_id,
                 properties=input.properties,
             )
-            _set_tags(input.tags, account)
+            _set_tags(input.tags, account, actor=user)
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
@@ -1356,7 +1490,7 @@ def update_account_for_view(
     try:
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
-            _set_tags(input.tags, account)
+            _set_tags(input.tags, account, actor=user)
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:

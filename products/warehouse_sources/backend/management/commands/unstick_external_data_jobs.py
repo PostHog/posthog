@@ -80,6 +80,14 @@ class Command(BaseCommand):
             required=True,
             help="Only consider Running jobs created before this ISO-8601 timestamp (e.g. 2026-07-02T00:00:00Z)",
         )
+        parser.add_argument(
+            "--created-after",
+            type=str,
+            help=(
+                "Only consider Running jobs created at or after this ISO-8601 timestamp. "
+                "Bounds the sweep to an incident window instead of the full historical backlog."
+            ),
+        )
         parser.add_argument("--team-id", type=int, help="Scope by team")
         parser.add_argument("--source-type", type=str, help="Scope by source type, e.g. Stripe")
         parser.add_argument(
@@ -106,7 +114,7 @@ class Command(BaseCommand):
         parser.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        cutoff = self._parse_cutoff(options["created_before"])
+        cutoff = self._parse_cutoff(options["created_before"], flag="--created-before")
         live_run: bool = options["live_run"]
         reason: str = options["reason"]
         terminate_healthy: bool = options["terminate_healthy"]
@@ -115,6 +123,8 @@ class Command(BaseCommand):
         jobs = ExternalDataJob.objects.filter(status=ExternalDataJob.Status.RUNNING, created_at__lt=cutoff).order_by(
             "created_at"
         )
+        if options.get("created_after"):
+            jobs = jobs.filter(created_at__gte=self._parse_cutoff(options["created_after"], flag="--created-after"))
         if options.get("team_id") is not None:
             jobs = jobs.filter(team_id=options["team_id"])
         if options.get("source_type"):
@@ -327,11 +337,11 @@ class Command(BaseCommand):
         )
 
     @staticmethod
-    def _parse_cutoff(raw: str) -> datetime:
+    def _parse_cutoff(raw: str, *, flag: str) -> datetime:
         try:
             cutoff = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
-            raise CommandError(f"--created-before is not a valid ISO-8601 timestamp: {raw!r}")
+            raise CommandError(f"{flag} is not a valid ISO-8601 timestamp: {raw!r}")
         if cutoff.tzinfo is None:
             cutoff = cutoff.replace(tzinfo=UTC)
         return cutoff

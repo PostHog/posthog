@@ -41,6 +41,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,12 +55,13 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
+
+import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
@@ -454,7 +456,7 @@ function TraceSceneWrapper(): JSX.Element {
         feedbackEvents,
         metricEvents,
         eventMetadata,
-        effectiveEventId,
+        highlightedEventId,
     } = useValues(traceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -541,13 +543,13 @@ function TraceSceneWrapper(): JSX.Element {
                     </div>
                     <TraceTimeline
                         events={trace.events}
-                        selectedEventId={effectiveEventId ?? null}
+                        selectedEventId={highlightedEventId}
                         onSelectEvent={setEventId}
                     />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={effectiveEventId}
+                            eventId={highlightedEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />
@@ -612,7 +614,7 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 
 function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+        generationEvaluationRunsLogic({ traceId })
     )
     const { hasLoadedSentimentEvaluations, hasSentimentEvaluations, sentimentEvaluationsLoading } = useValues(
         sentimentEvaluationAvailabilityLogic
@@ -671,7 +673,7 @@ function CostChip({
                         <hr className="my-0.5 border-border" />
                         <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
                         {typeof markupUsd === 'number' && markupUsd > 0 && (
-                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                            <div>Markup: {formatLLMCost(markupUsd)}</div>
                         )}
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
@@ -996,6 +998,42 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     )
 }
 
+function TraceGitChip({
+    branch,
+    repo,
+    branchPRMatches,
+}: {
+    branch: string
+    repo: string | null
+    branchPRMatches: BranchPRMatchApi[]
+}): JSX.Element {
+    // Repo lives in the tooltip only; the chip content is the branch name.
+    const repoPrefix = repo ? `${repo} - ` : ''
+
+    // The loader gates on the engineering-analytics flag, so a populated match already implies it's on.
+    // While the resolution request is in flight (or stale for this branch) matches is empty, so this
+    // renders the plain chip.
+    const match = branchPRMatches[0]
+    if (match) {
+        const [owner, name] = match.repo.split('/')
+        const prTitle = match.title ? `: ${match.title}` : ''
+        const tooltip = `${repoPrefix}Branch - click to view PR #${match.number} in engineering analytics${prTitle}`
+        return (
+            <Chip title="Branch" tooltipTitle={tooltip}>
+                <Link to={urls.engineeringAnalyticsPullRequest(owner, name, match.number)} subtle>
+                    <span className="font-mono">{branch}</span>
+                </Link>
+            </Chip>
+        )
+    }
+
+    return (
+        <Chip title="Branch" tooltipTitle={repoPrefix ? `${repoPrefix}Branch` : 'Branch'}>
+            <span className="font-mono">{branch}</span>
+        </Chip>
+    )
+}
+
 function TraceMetadata({
     trace,
     metricEvents,
@@ -1014,6 +1052,8 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
+    const { traceGitMetadata } = useValues(aiObservabilityTraceDataLogic)
+    const { branchPRMatches } = useValues(aiObservabilityTraceLogic)
     const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
@@ -1039,6 +1079,13 @@ function TraceMetadata({
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
                 </Chip>
+            )}
+            {traceGitMetadata?.branch && (
+                <TraceGitChip
+                    branch={traceGitMetadata.branch}
+                    repo={traceGitMetadata.repo}
+                    branchPRMatches={branchPRMatches}
+                />
             )}
             <UsageChip event={trace} />
             {traceCostContext && (
@@ -1433,10 +1480,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
-        // Check if the originally selected event (effectiveEventId) is a generation event
-        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
-        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
-        // the first generation in the tree so the Evals tab remains visible.
+        // The Evaluations tab is trace-scoped, but manually running an evaluation targets a single
+        // generation. When the selected event isn't a generation (or nothing is selected), fall back
+        // to the first generation in the tree so the run action stays available.
         const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
         const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
         const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
@@ -1451,12 +1497,14 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
-        const showCreateSentimentEvalButton =
-            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
+        const showCreateSentimentEvalButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = !!effectiveGenerationEvent
+        // Badges are context-sensitive: a generation shows its own results, the trace root shows
+        // trace-target results. Other events (spans, embeddings) have no evaluation context.
+        const isTraceRoot = !!event && !isLLMEvent(event)
+        const showEvalBadges = isGenerationEvent || isTraceRoot
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
         // If the user is viewing the Tags tab but it's no longer available (flag off or
@@ -1543,7 +1591,7 @@ const EventContent = React.memo(
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {(aggregation || showEvalsTab) && (
+                            {(aggregation || showEvalBadges) && (
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
@@ -1565,8 +1613,11 @@ const EventContent = React.memo(
                                             )}
                                         </div>
                                     )}
-                                    {showEvalsTab && (
-                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
+                                    {showEvalBadges && (
+                                        <EvalResultBadges
+                                            traceId={trace.id}
+                                            generationEventId={isGenerationEvent ? event.id : undefined}
+                                        />
                                     )}
                                 </div>
                             )}
@@ -1768,23 +1819,18 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showEvalsTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Evals,
-                                              label: 'Evaluations',
-                                              'data-attr': 'llma-trace-evals-tab',
-                                              content: (
-                                                  <EvalsTabContent
-                                                      generationEventId={effectiveGenerationEvent.id}
-                                                      timestamp={effectiveGenerationEvent.createdAt}
-                                                      event={effectiveGenerationEvent.event}
-                                                      distinctId={trace.distinctId}
-                                                  />
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: TraceViewMode.Evals,
+                                    label: 'Evaluations',
+                                    'data-attr': 'llma-trace-evals-tab',
+                                    content: (
+                                        <EvalsTabContent
+                                            traceId={trace.id}
+                                            generationEvent={effectiveGenerationEvent}
+                                            distinctId={trace.distinctId}
+                                        />
+                                    ),
+                                },
                                 ...(showTagsTab
                                     ? [
                                           {

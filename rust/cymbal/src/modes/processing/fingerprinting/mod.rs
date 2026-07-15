@@ -82,6 +82,13 @@ impl Fingerprint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FingerprintVersion {
+    // Legacy-order twins of V1/V2: the same strategies computed over the pre-flip wire order
+    // of SDKs whose ordering the pipeline normalizes (see `normalization::legacy_wire_order`).
+    // They exist so issues keyed before wire-order normalization stay addressable; being
+    // non-newest, they can never create issues — they only match existing ones. Delete them
+    // once legacy-keyed traffic decays (watch `$exception_fingerprint_version`).
+    V1Legacy,
+    V2Legacy,
     // The historical algorithm — bit-for-bit (guarded by tests/fingerprint_golden.rs).
     V1,
     // Normalizing strategy: hashes all frames of every chain entry, drops unresolved
@@ -94,14 +101,35 @@ impl FingerprintVersion {
     // All registered versions, ascending. Order is meaningful: selection keeps the newest
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
-        &[FingerprintVersion::V1, FingerprintVersion::V2]
+        // Each legacy twin sits immediately below its canonical version, so the
+        // newest-first selection walk prefers V2, then V2's legacy order, then
+        // V1, then V1's — an event matching both a V2-era legacy row and an
+        // older V1 row stays on the newer issue. The last entry (the new-issue
+        // fallback) must never be a legacy version.
+        &[
+            FingerprintVersion::V1Legacy,
+            FingerprintVersion::V1,
+            FingerprintVersion::V2Legacy,
+            FingerprintVersion::V2,
+        ]
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            FingerprintVersion::V1Legacy => "v1_legacy",
+            FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
         }
+    }
+
+    // Legacy versions hash the reconstructed pre-flip order instead of the canonical list;
+    // the grouping stage supplies the right list per version.
+    pub fn is_legacy(&self) -> bool {
+        matches!(
+            self,
+            FingerprintVersion::V1Legacy | FingerprintVersion::V2Legacy
+        )
     }
 
     pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
@@ -110,8 +138,8 @@ impl FingerprintVersion {
 
     pub fn strategy(&self) -> FingerprintStrategy {
         match self {
-            FingerprintVersion::V1 => FingerprintStrategy::default(),
-            FingerprintVersion::V2 => FingerprintStrategy {
+            FingerprintVersion::V1 | FingerprintVersion::V1Legacy => FingerprintStrategy::default(),
+            FingerprintVersion::V2 | FingerprintVersion::V2Legacy => FingerprintStrategy {
                 frame_selection: FrameSelection::AllFrames,
                 // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
                 // chain order — current SDKs put the root cause last, the legacy python SDK put

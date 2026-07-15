@@ -27,6 +27,8 @@ from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
 
+from posthog.hogql.database.models import FieldOrTable
+
 
 class GitHubSourceNotConnectedError(Exception):
     """Raised when a team has no GitHub warehouse source — the curated queries
@@ -83,6 +85,35 @@ class MetricQuality(StrEnum):
     PRECISE = "precise"
     COARSE = "coarse"
     PARTIAL = "partial"
+
+
+class WorkflowHealthRunScope(StrEnum):
+    ALL = "all"
+    PULL_REQUEST = "pull_request"
+
+
+class BrokenTestState(StrEnum):
+    """How a live CI-failure fingerprint is behaving right now — the broken-tests classifier's
+    verdict, ordered by triage urgency (``breaking_master`` on top, ``pr_only`` last). Inferred
+    from the failure fingerprints and the latest default-branch job status; see
+    ``logic/queries/broken_tests.py`` for the thresholds.
+
+    - ``breaking_master``: has failed on the default branch and that job's latest completed run
+      is still red — trunk is broken by this right now.
+    - ``novel_burst``: first seen within the last day and already spreading across several PR
+      branches, not on the default branch yet — a new failure catching on.
+    - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
+      probably already fixed.
+    - ``flaky``: sporadic across two or more branches over more than a day, never on the default
+      branch — a recurring flake, not a trunk break.
+    - ``pr_only``: confined to a single branch — one PR's own problem, the lowest signal.
+    """
+
+    BREAKING_MASTER = "breaking_master"
+    NOVEL_BURST = "novel_burst"
+    POTENTIALLY_RESOLVED = "potentially_resolved"
+    FLAKY = "flaky"
+    PR_ONLY = "pr_only"
 
 
 class PRLifecycleEventKind(StrEnum):
@@ -142,6 +173,22 @@ class GitHubSource:
     repo: str
     # User-chosen warehouse table-name prefix for this source, or '' when none was set.
     prefix: str
+
+
+@dataclass(frozen=True)
+class ExpectedWarehouseView:
+    """A code-generated warehouse view this product exposes as a team-scoped DataWarehouse saved
+    query. data_modeling adapts it into its own ``ExpectedView`` without importing this product's
+    internals (avoids a dependency cycle). ``query`` is the HogQL SELECT body; ``fields`` maps column
+    name -> a ``FieldOrTable`` instance, from which data_modeling derives the stored
+    ``{"hogql": <field class>, "clickhouse": <type>, "valid": True}`` metadata via its shared
+    ``_get_columns_from_fields`` path (the same one revenue analytics uses) — so the type strings are
+    never hand-written here and can't drift from the real field classes.
+    """
+
+    name: str
+    query: str
+    fields: dict[str, FieldOrTable]
 
 
 @dataclass(frozen=True)
@@ -237,6 +284,8 @@ class WorkflowRunActivityPoint:
     head_branch: str
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
+    head_sha: str
 
 
 @dataclass(frozen=True)
@@ -321,6 +370,23 @@ class RunCost:
 
 
 @dataclass(frozen=True)
+class PRLLMSpend:
+    """Agent LLM token spend attributed to one PR, summed over the ``$ai_generation`` events stamped
+    with the PR's git branch (``$ai_git_branch``).
+
+    Attribution is by branch, not head SHA: a coding agent stamps the branch at capture time — before
+    the PR exists — and the ``github_pull_requests`` snapshot keeps only the latest head, so a SHA join
+    would drop every push but the last. Surfaced as ``PRCostSummary.llm_spend``, and None there when no
+    generation matched (so the UI hides the row rather than showing a $0 line).
+    """
+
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    generations: int
+
+
+@dataclass(frozen=True)
 class PRCostSummary:
     """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
 
@@ -350,6 +416,10 @@ class PRCostSummary:
     # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
+    # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
+    # $ai_generation matched — independent of the CI cost figures above, so it can be present even when
+    # jobs_available is False (the two spend sources sync separately).
+    llm_spend: PRLLMSpend | None = None
 
 
 @dataclass(frozen=True)
@@ -451,6 +521,9 @@ class FlakyTestItem:
     failed_count: int
     # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
     failed_pr_count: int
+    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
+    # the default branch); the "matters right now" signal.
+    master_failed_count: int
     # Distinct git branches across all of the test's signal spans in the window.
     branch_count: int
     # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
@@ -488,6 +561,23 @@ class CIStatusRollup:
 
 
 @dataclass(frozen=True)
+class PushCISample:
+    """One CI round (push) on a pull request, for the compact push-history sparkline:
+    when the round started, its wall-clock CI time, and its verdict.
+    """
+
+    head_sha: str
+    # Earliest run start on this push.
+    started_at: datetime
+    # First run start → last completed run end on this push; None while nothing has completed.
+    wall_seconds: int | None
+    # Any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.
+    failed: bool
+    # Any latest-per-workflow run on this push hasn't completed yet.
+    pending: bool
+
+
+@dataclass(frozen=True)
 class PullRequestListItem:
     """One row of the PR list: the PR plus its head-SHA CI rollup. No ``id`` or
     ``head_sha`` — this is a display/triage row, not the full ``PullRequest``.
@@ -515,6 +605,9 @@ class PullRequestListItem:
     estimated_cost_usd: float | None = None
     # Billable (self-hosted) minutes summed over this PR's jobs; None when the job source isn't synced.
     billable_minutes: float | None = None
+    # This PR's CI rounds oldest-first, capped to the most recent pushes (see the list query) — the
+    # push-history sparkline. ``pushes`` stays the uncapped count.
+    push_history: list[PushCISample] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -529,6 +622,19 @@ class PullRequestList:
     items: list[PullRequestListItem]
     truncated: bool
     limit: int
+
+
+@dataclass(frozen=True)
+class BranchPRMatch:
+    """A pull request a git branch resolves to — the cross-product link seam so a caller
+    (e.g. the LLM analytics UI) can turn a git branch into a PR detail link. ``repo`` is 'owner/name'.
+    ``title`` / ``state`` are null only when the snapshot carries no value for them.
+    """
+
+    repo: str
+    number: int
+    title: str | None
+    state: str | None
 
 
 @dataclass(frozen=True)
@@ -635,8 +741,10 @@ class QuarantineRequestResult:
 
 @dataclass(frozen=True)
 class WorkflowHealthItem:
-    """Per-workflow CI health over a window. Rates and percentiles are over
-    completed runs only, so they are ``None`` when the window has none.
+    """Per-workflow CI health over a window. ``success_rate`` is over completed runs;
+    ``p50_seconds``/``p95_seconds`` are over successful runs only (cancelled, skipped,
+    and failed runs end early and would bias a duration percentile low). Each is
+    ``None`` when the window has no qualifying runs.
     """
 
     repo: RepoRef
@@ -695,11 +803,57 @@ class CostPerMergeBucket:
 
 
 @dataclass(frozen=True)
+class TimeToGreenBucket:
+    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
+    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
+    and failed runs end early and would bias the percentile low, so they are excluded — the same
+    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
+    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
+    dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
+    # bucket had no successful PR run.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
+class PassRateBucket:
+    """One time bucket of the repo's CI pass rate: the fraction of completed runs (all branches) started in
+    this bucket that succeeded. ``success_rate`` is None for a bucket with no completed run (a gap, not a
+    0% pass rate); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Fraction (0-1) of completed runs started in this bucket that succeeded. None when none completed.
+    success_rate: float | None
+
+
+@dataclass(frozen=True)
+class OpenToMergeBucket:
+    """One time bucket of the repo's median time-to-merge: the p50 of ``merged_at - created_at`` over PRs
+    merged in this bucket, bots and drafts excluded (the locked cycle-time recipe). Coarse by design (draft
+    and ready time fused). ``p50_seconds`` is None for a bucket where nothing merged (a gap, not instant
+    merges); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median merged_at - created_at seconds over PRs merged in this bucket. None when nothing merged.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
     and ends where it starts. Cost figures are None when the job-level source isn't synced
     (``jobs_available``); the PR merge median excludes bots and drafts per the locked recipe.
+    The chart series are empty when the caller asked to skip them (``include_series=false``) —
+    headline-only consumers like the weekly digest shouldn't pay for chart queries they never read.
     """
 
     run_count: int
@@ -708,6 +862,10 @@ class RepoOverview:
     success_rate_prev: float | None
     rerun_cycles: int
     rerun_cycles_prev: int
+    # All merged PRs in the window, bots included — the merge population that triggered the CI spend,
+    # so cost-per-merge ratios use the same denominator as the cost series' bucket-local merges.
+    merged_pr_count: int
+    merged_pr_count_prev: int
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
@@ -723,6 +881,34 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
+    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
+    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
+    time_to_green_series: list[TimeToGreenBucket]
+    # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    time_to_green_series_granularity: str
+    # Pass-rate trend: fraction of completed runs (all branches) that succeeded per bucket, oldest first,
+    # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no completed run).
+    success_rate_series: list[PassRateBucket]
+    # Bucket width of `success_rate_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    success_rate_series_granularity: str
+    # Time-to-merge trend: median open_to_merge_seconds over PRs merged per bucket (bots/drafts excluded),
+    # oldest first, bucketed by `open_to_merge_series_granularity`. Empty buckets carry None (nothing merged).
+    open_to_merge_series: list[OpenToMergeBucket]
+    # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    open_to_merge_series_granularity: str
+
+
+@dataclass(frozen=True)
+class CurrentBranchHealth:
+    """Current default-branch CI verdict over the last 24 hours.
+
+    Counts cover every workflow with a completed run; names are a bounded preview for UI copy.
+    """
+
+    default_branch: str
+    settled_workflows: int
+    failing_workflows: int
+    failing_workflow_names: list[str]
 
 
 @dataclass(frozen=True)
@@ -740,6 +926,62 @@ class MasterFailureGroup:
     last_seen: datetime
     # The most recent failing run in the group — the drill-down anchor.
     latest_run_id: int
+
+
+# The sparkline is a fixed-width hourly histogram; the width is the contract so a caller can render
+# it without inspecting the array length. 24 slots = the last 24 hours, oldest first.
+BROKEN_TEST_SPARKLINE_HOURS = 24
+
+
+@dataclass(frozen=True)
+class BrokenTestRow:
+    """One classified CI-failure fingerprint — a distinct failing test/error, with its recent
+    behavior and the classifier's verdict. Aggregated from the fingerprinted failure lines
+    (``engineering_analytics_ci_failures``) over the analysis window, joined to the latest
+    default-branch job status for the ``state``.
+
+    ``trend_24h`` is a ``BROKEN_TEST_SPARKLINE_HOURS``-slot hourly failure count (oldest first)
+    for the row sparkline — all zeros when nothing failed in the last day. ``latest_run_id`` is the
+    most recent failing run, the anchor a drill-down passes to ``run_failure_logs`` for the log lines.
+    """
+
+    fingerprint: str
+    # The pytest node id from the FAILED line (the failing test's identity).
+    test_id: str
+    # The normalized trailing failure detail shared across runs of the same failure; '' when none.
+    error_signature: str
+    # The CI job the failure most recently came from — the key joined to default-branch job status.
+    job_name: str
+    # 'owner/name' the failure belongs to.
+    repo: str
+    state: BrokenTestState
+    first_seen: datetime
+    last_seen: datetime
+    # Total failure lines for this fingerprint in the window (absolute count, never a rate).
+    occurrences: int
+    # Distinct branches the failure appeared on.
+    branches: int
+    # Failure lines on the default branch (master/main) — 0 means it never hit trunk.
+    master_hits: int
+    latest_run_id: int
+    latest_branch: str
+    trend_24h: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BrokenTestsResult:
+    """The broken-tests panel payload: classified failure fingerprints ranked by triage urgency
+    (breaking trunk first), plus the default-branch jobs whose latest completed run is red — the
+    "what's on fire right now" summary. ``rows`` is capped at ``limit`` with a ``truncated`` flag,
+    same shape as ``FlakyTestList``. ``window_days`` is the analysis window the counts cover.
+    """
+
+    rows: list[BrokenTestRow]
+    # Default-branch job names whose latest completed run is failing — drives the summary banner.
+    breaking_master_jobs: list[str]
+    window_days: int
+    truncated: bool
+    limit: int
 
 
 @dataclass(frozen=True)
@@ -760,8 +1002,9 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    Rates and percentiles are over completed jobs; cost is None when every instance ran on
-    an unknown tier."""
+    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    successful jobs only (cancelled and failed instances end early and would bias a
+    duration percentile low); cost is None when every instance ran on an unknown tier."""
 
     job_name: str
     # Job instances observed in the window (all shards, all attempts).

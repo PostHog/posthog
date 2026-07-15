@@ -406,3 +406,36 @@ class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
         indexes = [
             models.Index(fields=["expires_at"], name="ails_expires_idx"),
         ]
+
+
+class AgentTransportBinding(ProductTeamModel, UUIDModel):
+    """Durable transport→canonical-identity binding.
+
+    Records that a transport principal (a Slack/Discord/HTTP agent_user) was
+    authenticated, via the agent's authoritative provider, AS a canonical
+    identity (another agent_user keyed `identity:<provider>` / subject). The
+    ingress resolves this at admission so a session only runs once a verified
+    identity exists. One canonical identity may have many bindings (the same
+    person across transports); unlink = delete a binding.
+    """
+
+    application_id = models.UUIDField()
+    # The transport principal (agent_user.id, principal_kind = transport).
+    transport_agent_user_id = models.UUIDField()
+    # The canonical identity (agent_user.id, principal_kind = identity:<provider>).
+    canonical_agent_user_id = models.UUIDField()
+    # Authoritative provider that established the binding.
+    provider = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+
+    class Meta:
+        db_table = "agent_transport_binding"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["application_id", "transport_agent_user_id"],
+                name="agent_transport_binding_unique_transport",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["application_id", "canonical_agent_user_id"], name="atb_canonical_idx"),
+        ]

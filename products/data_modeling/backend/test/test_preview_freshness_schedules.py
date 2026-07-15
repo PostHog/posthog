@@ -78,8 +78,8 @@ class TestPreviewFreshnessSchedules(BaseTest):
         delete.assert_not_called()
 
         output = out.getvalue()
-        self.assertIn("CREATE", output)
-        self.assertIn("0:15:00", output)
+        self.assertIn("tiers: 15min", output)
+        self.assertIn("plan: CREATE 1", output)
         self.assertIn("dry run", output)
 
     def test_seed_mode_models_go_live_from_current_cadence(self):
@@ -108,9 +108,9 @@ class TestPreviewFreshnessSchedules(BaseTest):
         create.assert_not_called()
         delete.assert_not_called()
         output = out.getvalue()
-        self.assertIn("seeded from current cadence", output)
-        self.assertIn("CREATE", output)
-        self.assertIn("6:00:00", output)
+        self.assertIn("[seeded]", output)
+        self.assertIn("plan: CREATE 1", output)
+        self.assertIn("6hour", output)
 
     def test_flags_unsupported_tier_and_invalid_declared_target(self):
         # go-live audit: a 45min legacy cadence (seeded) must be flagged as unschedulable, and a
@@ -139,3 +139,43 @@ class TestPreviewFreshnessSchedules(BaseTest):
         output = out.getvalue()
         self.assertIn("unsupported tier: 0:45:00", output)
         self.assertIn("invalid declared target: mv", output)
+
+    def test_verbose_flag_gates_per_node_detail(self):
+        # the per-node cadence wall is what floods the terminal; it must be verbose-only
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
+        set_declared_target(endpoint, M15)
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        summary, verbose = StringIO(), StringIO()
+        with mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=_no_existing_schedules())):
+            call_command("preview_freshness_schedules", "--team-id", str(self.team.pk), stdout=summary)
+            call_command("preview_freshness_schedules", "--team-id", str(self.team.pk), "--verbose", stdout=verbose)
+
+        self.assertNotIn("Effective cadences", summary.getvalue())
+        self.assertIn("Effective cadences", verbose.getvalue())
+        self.assertIn("0:15:00", verbose.getvalue())
+
+    def test_cross_dag_duplication_flags_unsafe_drop(self):
+        # one saved query materialized by two DAGs is double-materialized; a query unique to a DAG
+        # makes that DAG unsafe to drop, one whose queries all live elsewhere is safe
+        shared = DataWarehouseSavedQuery.objects.create(
+            name="shared_mv", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        default_dag = DAG.objects.create(team=self.team, name="Default")
+        canonical_dag = DAG.objects.create(team=self.team, name="posthog_team")
+        Node.objects.create(team=self.team, dag=default_dag, saved_query=shared, type=NodeType.MAT_VIEW)
+        Node.objects.create(team=self.team, dag=canonical_dag, saved_query=shared, type=NodeType.MAT_VIEW)
+        _saved_query_node(self.team, default_dag, "only_in_default", NodeType.MAT_VIEW)
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        out = StringIO()
+        with mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=_no_existing_schedules())):
+            call_command("preview_freshness_schedules", "--team-id", str(self.team.pk), stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("in >1 DAG (double-materialized): 1", output)
+        self.assertIn("only in Default (unsafe to drop): 1", output)
+        self.assertIn("only in posthog_team (safe to drop): 0", output)

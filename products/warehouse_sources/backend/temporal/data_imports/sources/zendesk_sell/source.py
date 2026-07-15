@@ -52,7 +52,6 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
             iconPath="/static/services/zendesk_sell.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zendesk-sell",
             # Alpha: ships hidden until the end-to-end sync is verified against a live account.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

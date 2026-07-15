@@ -54,7 +54,6 @@ You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashbo
             iconPath="/static/services/onfleet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onfleet",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

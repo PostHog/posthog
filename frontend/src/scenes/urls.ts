@@ -167,7 +167,6 @@ export const urls = {
     credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    emailMFAVerify: (): string => '/login/verify',
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
@@ -326,10 +325,6 @@ export const urls = {
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
-    subscriptionNew: (): string => '/subscriptions/new',
-    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

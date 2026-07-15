@@ -104,12 +104,12 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.email_mfa_bypass_admin import (
-        EmailMFABypassViewSet,
-        EmailMFAGlobalDisableViewSet,
-        email_mfa_bypass_view,
+    from posthog.admin.admins.code_based_verification_bypass_admin import (
+        CodeBasedVerificationBypassViewSet,
+        CodeBasedVerificationGlobalDisableViewSet,
+        code_based_verification_bypass_view,
     )
+    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -123,7 +123,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -155,24 +155,24 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass-api-detail",
         ),
         path(
-            "admin/email-mfa-bypass/",
-            admin.site.admin_view(email_mfa_bypass_view),
-            name="email-mfa-bypass",
+            "admin/code-based-verification-bypass/",
+            admin.site.admin_view(code_based_verification_bypass_view),
+            name="code-based-verification-bypass",
         ),
         path(
-            "admin/api/email-mfa-bypass/",
-            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="email-mfa-bypass-api-list",
+            "admin/api/code-based-verification-bypass/",
+            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="code-based-verification-bypass-api-list",
         ),
         path(
-            "admin/api/email-mfa-bypass/<str:email>/",
-            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
-            name="email-mfa-bypass-api-detail",
+            "admin/api/code-based-verification-bypass/<str:email>/",
+            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
+            name="code-based-verification-bypass-api-detail",
         ),
         path(
-            "admin/api/email-mfa-global-disable/",
-            EmailMFAGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
-            name="email-mfa-global-disable-api",
+            "admin/api/code-based-verification-global-disable/",
+            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
+            name="code-based-verification-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",
@@ -198,6 +198,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/tophog/",
             admin.site.admin_view(tophog_dashboard_view),
             name="tophog-dashboard",
+        ),
+        path(
+            "admin/tophog/restrictions/",
+            admin.site.admin_view(tophog_restrictions_view),
+            name="tophog-restrictions",
         ),
         path(
             "admin/health-checks/",
@@ -342,6 +347,16 @@ urlpatterns: list[Any] = [
         name="agentic_provisioning_resource_remove",
     ),
     path(
+        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="agentic_provisioning_github_integration",
+    ),
+    path(
+        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="agentic_provisioning_wizard_runs",
+    ),
+    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="agentic_provisioning_resource_detail",
@@ -350,6 +365,16 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="agentic_provisioning_github_grants_create",
+    ),
+    path(
+        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="agentic_provisioning_github_grant_repositories",
     ),
     path(
         "agentic/login",
@@ -398,6 +423,16 @@ urlpatterns: list[Any] = [
         name="provisioning_resource_remove",
     ),
     path(
+        "api/provisioning/resources/<str:resource_id>/github_integration",
+        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
+        name="provisioning_github_integration",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/wizard_runs",
+        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
+        name="provisioning_wizard_runs",
+    ),
+    path(
         "api/provisioning/resources/<str:resource_id>",
         csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
         name="provisioning_resource_detail",
@@ -406,6 +441,16 @@ urlpatterns: list[Any] = [
         "api/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="provisioning_deep_links",
+    ),
+    path(
+        "api/provisioning/github/grants",
+        csrf_exempt(agentic_provisioning_views.github_grants_create),
+        name="provisioning_github_grants_create",
+    ),
+    path(
+        "api/provisioning/github/grants/<str:grant_id>/repositories",
+        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
+        name="provisioning_github_grant_repositories",
     ),
     *admin_urlpatterns,
 ]

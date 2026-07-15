@@ -69,6 +69,7 @@ from ee.hogai.context.insight.format import (
     SQLResultsFormatter,
     StickinessResultsFormatter,
     TrendsResultsFormatter,
+    format_access_control_warnings,
     format_warehouse_sync_warnings,
     get_boxplot_results,
     is_boxplot_query,
@@ -446,12 +447,18 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
             raise MaxToolRetryableError(err_message)
-        except:
+        except Exception as err:
             elapsed = time.time() - start_time
-            # Catch-all for unexpected errors during query execution
+            # Catch-all for unexpected errors during query execution. Surface the underlying error
+            # text (truncated) so callers can diagnose the failure instead of an opaque message —
+            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8().
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
-            raise Exception("There was an unknown error running this query.")
+            err_message = str(err).strip() or repr(err)
+            max_len = 500
+            if len(err_message) > max_len:
+                err_message = err_message[:max_len] + "… (truncated)"
+            raise Exception(f"There was an unknown error running this query: {err_message}")
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
@@ -553,7 +560,7 @@ class AssistantQueryExecutor:
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
 
-            warning_prefix = format_warehouse_sync_warnings(response)
+            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
             if warning_prefix:
                 result = warning_prefix + result
             return result

@@ -45,6 +45,7 @@ Possible values:
 - `E2E` for **e2e tests**.
 - Unset for **self-hosted** environments.
 """
+COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
@@ -67,6 +68,10 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
+
+# Shared secret for EU→US personal-spend proxy calls (products/ai_observability).
+# Must hold the same value in both regions; unset disables the proxy.
+PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
 
 # Override for the AI observability trial-eval deprecation cutoff
 AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE: str | None = get_from_env(

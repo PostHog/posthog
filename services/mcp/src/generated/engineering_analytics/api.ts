@@ -3,10 +3,30 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ */
+export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsBrokenTestsQueryParams = /* @__PURE__ */ zod.object({
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
 
 /**
  * The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to its workflow runs via the pull_requests association (all of the PR's pushes, not just the latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association. Each line carries its original 1-based line number in the full pre-thinning log; lines are the failure region (errors plus surrounding context, with omission markers), capped per job and overall.
@@ -71,7 +91,7 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const EngineeringAnalyticsPrCostParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -137,6 +157,27 @@ export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
+ * The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.
+ */
+export const EngineeringAnalyticsRunFailureLogsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod.object({
+    run_id: zod.number().describe('Workflow run id whose failure logs to fetch.'),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
  * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
  */
 export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
@@ -148,7 +189,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -167,6 +208,12 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    run_scope: zod
+        .enum(['all', 'pull_request'])
+        .optional()
+        .describe(
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
+        ),
     source_id: zod
         .string()
         .optional()

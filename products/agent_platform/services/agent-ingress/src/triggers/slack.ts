@@ -29,6 +29,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
+import { buildAdmission } from '../enqueue/admission-gate'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { getOwnedSession } from './session-access'
 import { verifySlackSignature } from './slack-signature'
@@ -225,11 +226,61 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         agentUserId = agentUser.id
     }
 
+    // Edge admission: if the agent declares an authoritative provider, the Slack
+    // claim must resolve a verified identity before we run. Unauthenticated →
+    // deliver an auth link and enqueue nothing.
+    let canonicalAgentUserId: string | undefined
+    const admission = buildAdmission(deps, resolved.revision)
+    if (admission) {
+        const result = await admission.resolve(
+            {
+                transport: 'slack',
+                subjectId: principalId,
+                attributes: { workspace: workspaceId, slack_user: event.user },
+            },
+            { application: resolved.application, revision: resolved.revision }
+        )
+        if (result.kind === 'auth_required') {
+            // Deliver the link privately with chat.postEphemeral so only the
+            // original sender sees it — otherwise any channel member could open
+            // the state-bearing URL and bind their provider account to the
+            // sender's Slack transport principal. A thread fallback would
+            // re-open that hijack, so on delivery failure we return non-2xx
+            // instead — Slack retries the event (recovers from transient
+            // errors) and ops gets an error log for persistent failures.
+            const delivered = await postEphemeralMessage(deps, resolved.application, resolved.revision, {
+                channel: event.channel,
+                user: event.user,
+                thread_ts: event.thread_ts ?? event.ts,
+                text: `Before I can help, please connect your account: ${result.authorizeUrl}`,
+            }).catch(() => false)
+            if (!delivered) {
+                log.error(
+                    { slug: resolved.application.slug, provider: result.provider },
+                    'slack_admission_link_delivery_failed'
+                )
+                res.status(500).json({ error: 'auth_link_delivery_failed' })
+                return
+            }
+            res.json({ ok: true, auth_required: true, provider: result.provider, authorize_url: result.authorizeUrl })
+            return
+        }
+        if (result.kind === 'error') {
+            log.warn({ slug: resolved.application.slug, reason: result.reason }, 'slack_admission_error')
+            res.status(500).json({ error: 'admission_failed' })
+            return
+        }
+        if (result.kind === 'admitted') {
+            canonicalAgentUserId = result.identity.canonicalId
+        }
+    }
+
     const slackPrincipal: SessionPrincipal = {
         kind: 'slack',
         workspace_id: workspaceId,
         slack_user_id: event.user,
         agent_user_id: agentUserId,
+        ...(canonicalAgentUserId ? { canonical_agent_user_id: canonicalAgentUserId } : {}),
     }
     // Embed the Slack envelope context in the seed message so the model knows
     // which channel/ts/thread_ts to use when calling Slack APIs.
@@ -628,6 +679,63 @@ async function postAckReaction(
         return
     }
     log.info({ slug: application.slug, channel: opts.channel, ts: opts.ts, reaction: opts.name }, 'ack_reaction_ok')
+}
+
+/**
+ * Post an ephemeral message visible only to `user` using the agent's bot token.
+ * Used to deliver admission auth links privately so the state-bearing URL is
+ * not visible to other channel members. Same error-swallow contract as
+ * `postThreadMessage`. Returns true if the message posted.
+ */
+async function postEphemeralMessage(
+    deps: TriggerDeps,
+    application: AgentApplication,
+    revision: AgentRevision,
+    opts: { channel: string; user: string; thread_ts: string; text: string }
+): Promise<boolean> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
+    if (!token || !deps.http) {
+        log.warn(
+            { slug: application.slug, has_token: Boolean(token), has_http: Boolean(deps.http) },
+            'ephemeral_message_skipped'
+        )
+        return false
+    }
+    try {
+        const res = await deps.http.fetch('https://slack.com/api/chat.postEphemeral', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({
+                channel: opts.channel,
+                user: opts.user,
+                thread_ts: opts.thread_ts,
+                text: opts.text,
+            }),
+        })
+        let body: { ok?: boolean; error?: string } = {}
+        try {
+            body = (await res.json()) as { ok?: boolean; error?: string }
+        } catch {
+            // Non-JSON response — treat as failure but don't throw.
+        }
+        if (!res.ok || body.ok === false) {
+            log.warn(
+                { slug: application.slug, channel: opts.channel, status: res.status, slack_error: body.error ?? null },
+                'ephemeral_message_failed'
+            )
+            return false
+        }
+        return true
+    } catch (err) {
+        log.warn(
+            { slug: application.slug, channel: opts.channel, err: err instanceof Error ? err.message : String(err) },
+            'ephemeral_message_threw'
+        )
+        return false
+    }
 }
 
 /**

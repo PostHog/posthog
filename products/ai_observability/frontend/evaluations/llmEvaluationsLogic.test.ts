@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -140,9 +137,6 @@ describe('llmEvaluationsLogic', () => {
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
         it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT], {
-                [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
-            })
             keysLogic.actions.loadEvaluationConfigSuccess({
                 trial_eval_limit: 100,
                 trial_evals_used: 100,
@@ -247,6 +241,25 @@ describe('llmEvaluationsLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 unhealthyProviderKeysUsedByEvaluations: [],
+            })
+        })
+    })
+
+    describe('filteredEvaluations', () => {
+        const enabledEval = evaluationWithKey('eval-enabled', null)
+        const disabledEval = { ...evaluationWithKey('eval-disabled', null), enabled: false }
+
+        it('includes disabled evaluations by default and excludes them when hidden', async () => {
+            logic.actions.loadEvaluationsSuccess([enabledEval, disabledEval])
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval, disabledEval],
+            })
+
+            logic.actions.setShowDisabledEvaluations(false)
+
+            await expectLogic(logic).toMatchValues({
+                filteredEvaluations: [enabledEval],
             })
         })
     })

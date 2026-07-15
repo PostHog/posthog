@@ -16,6 +16,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -84,6 +85,7 @@ FieldType = Union[
     SourceFieldSwitchGroupConfig,
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
