@@ -398,6 +398,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onCancelQuery,
+    cancelQueryLoading,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
     /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
@@ -405,6 +407,9 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
+    onCancelQuery?: () => void
+    cancelQueryLoading?: boolean
 }): JSX.Element {
     const tabId = useMemo(
         () => getNotebookSqlEditorTabId(attributes.nodeId, tabIdSuffix),
@@ -452,6 +457,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}
+                onCancelQuery={onCancelQuery}
+                cancelQueryLoading={cancelQueryLoading}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>
