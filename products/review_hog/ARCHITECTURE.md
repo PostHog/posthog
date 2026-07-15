@@ -649,12 +649,12 @@ Mirrors the Inbox scope switch: the block can now list every review on the proje
   The `scope` ChoiceField's enum stays inline in the OpenAPI query parameter, so no `ScopeEnum` component collision (verified with `--fail-on-warn`).
 - **`retrieve` is now project-wide** (queries with `SCOPE_EVERYONE` internally) so any listed review opens;
   another team's report id still 404s (`for_team`), garbage ids still 404.
-  `perspective_stats` stays personal — it describes *your* reviewers' effectiveness.
+  `perspective_stats` stays personal — it describes _your_ reviewers' effectiveness.
 - **Index:** `(team, -last_run_at)` `reviewhog_rpt_team_recent_idx` (migration 0016, `SafeAddIndexConcurrently`) serves the everyone-scope completed slice;
   the mine slice keeps the 0011 `(team, acting_user, -last_run_at)` index.
 - **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
   `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
-  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is *not* marked as a user choice so a later explicit pick wins (both directions jest-tested);
+  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is _not_ marked as a user choice so a later explicit pick wins (both directions jest-tested);
   scope mirrored to `?reviews_scope=` (hydrating from a shared link counts as an explicit choice);
   the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
   rows show `by <pr_author>` in everyone scope only;

@@ -181,7 +181,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         recentReviews: [
             null as ReviewRecentReviewApi[] | null,
             {
-                loadRecentReviews: async (_, breakpoint) => {
+                // The default param keeps the action zero-arg in the generated logic type.
+                loadRecentReviews: async (_ = null, breakpoint) => {
                     const scope = values.reviewsScope
                     const response = await reviewHogReviewsList(currentProjectId(), { scope })
                     // A scope switch mid-flight dispatched a newer load — drop this stale response.
