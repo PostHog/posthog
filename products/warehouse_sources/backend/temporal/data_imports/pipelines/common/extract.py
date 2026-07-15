@@ -31,10 +31,12 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -189,16 +191,38 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def _match_friendly_non_retryable_message(job_type: ExternalDataSourceType, error_msg: str) -> str | None:
+    """Find the source's user-facing message for a matched non-retryable error, if any.
+
+    Mirrors the CDC path (``cdc/activities.py`` raises ``NonRetryableException(friendly_message)``)
+    so the actionable message reaches error tracking and the job's ``latest_error`` instead of a
+    bare, message-less exception.
+    """
+    try:
+        source = SourceRegistry.get_source(job_type)
+    except ValueError:
+        return None
+    for pattern, friendly_message in source.get_non_retryable_errors().items():
+        if friendly_message and pattern in error_msg:
+            return friendly_message
+    return None
+
+
 async def handle_non_retryable_error(
     job_inputs: "PipelineInputs",
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
+    friendly_message = _match_friendly_non_retryable_message(job_inputs.job_type, error_msg)
+
+    def _non_retryable() -> NonRetryableException:
+        return NonRetryableException(friendly_message) if friendly_message else NonRetryableException()
+
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
+            raise _non_retryable() from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
@@ -213,7 +237,7 @@ async def handle_non_retryable_error(
             raise error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
+    raise _non_retryable() from error
 
 
 async def reset_rows_synced_if_needed(

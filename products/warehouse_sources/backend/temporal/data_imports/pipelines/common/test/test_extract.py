@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,13 +14,18 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -379,3 +385,66 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestHandleNonRetryableError:
+    @parameterized.expand(
+        [
+            # A matched pattern with a friendly message must reach the raised exception, so it lands
+            # in error tracking and the job's latest_error instead of a bare, message-less
+            # NonRetryableException (the SendGrid missing-scope 403 the report is about).
+            (
+                "matched_pattern_attaches_friendly_message",
+                {
+                    "403 Client Error: Forbidden for url: https://api.sendgrid.com": "Grant the read scope and reconnect."
+                },
+                "403 Client Error: Forbidden for url: https://api.sendgrid.com/v3/marketing/lists",
+                "Grant the read scope and reconnect.",
+            ),
+            # A matched pattern whose friendly message is None stays message-less (the key is only a
+            # match target, not something to show the user).
+            (
+                "matched_pattern_without_message_stays_bare",
+                {"The DNS query name does not exist": None},
+                "The DNS query name does not exist: cluster0.example.mongodb.net.",
+                "",
+            ),
+            # No pattern matches: message-less, exactly as before the fix.
+            (
+                "unmatched_error_stays_bare",
+                {"403 Client Error": "Grant the read scope and reconnect."},
+                "connection reset by peer",
+                "",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_friendly_message_flows_into_exception(
+        self, _name: str, non_retryable: dict[str, str | None], error_msg: str, expected: str
+    ):
+        inputs = PipelineInputs(
+            source_id=uuid.uuid4(),
+            run_id=str(uuid.uuid4()),
+            schema_id=uuid.uuid4(),
+            dataset_name="dataset",
+            job_type=ExternalDataSourceType.SENDGRID,
+            team_id=1,
+        )
+        original = Exception(error_msg)
+        source = MagicMock()
+        source.get_non_retryable_errors.return_value = non_retryable
+
+        @asynccontextmanager
+        async def _fake_get_redis():
+            # incr past the retry limit so we reach the give-up branch that raises NonRetryableException
+            yield MagicMock(incr=AsyncMock(return_value=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1), expire=AsyncMock())
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.SourceRegistry.get_source", return_value=source),
+            patch(f"{_EXTRACT_MODULE}._get_redis", _fake_get_redis),
+            pytest.raises(NonRetryableException) as exc_info,
+        ):
+            await handle_non_retryable_error(inputs, error_msg, MagicMock(adebug=AsyncMock()), original)
+
+        assert str(exc_info.value) == expected
+        assert exc_info.value.__cause__ is original
