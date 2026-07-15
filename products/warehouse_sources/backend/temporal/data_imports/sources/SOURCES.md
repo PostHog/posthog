@@ -50,6 +50,7 @@ the row lists both.
 | aircall                   | HTTP                        | requests                                                        | ✅                          |
 | airops                    | HTTP                        | requests                                                        | ✅                          |
 | airtable                  | HTTP                        | requests                                                        | ✅                          |
+| aiven                     | HTTP                        | requests                                                        | ✅                          |
 | algolia                   | HTTP                        | requests                                                        | ✅                          |
 | alguna                    | HTTP                        | requests                                                        | ✅                          |
 | alpha_vantage             | HTTP                        | requests                                                        | ✅                          |
@@ -503,6 +504,7 @@ doesn't conflict with concurrent PRs.
 - aikido_security
 - airbrake
 - airbyte
+- airops
 - aiven
 - akeneo
 - alpaca_broker_api
