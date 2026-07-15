@@ -147,12 +147,15 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     }
                     // Capture only a delete that actually landed: the callback runs after the API
                     // call resolves and not at all on failure, and we skip it on undo. Mirrors the
-                    // create event so adoption of each destination type stays measurable. A
+                    // create event, which always carries a known type — so skip an unrecognized
+                    // template rather than emit a null type that can't be classified. A
                     // delete-then-undo still counts once — acceptable for optimistic-undo analytics.
-                    posthog.capture('insight alert destination deleted', {
-                        alert_id: props.alertId,
-                        type,
-                    })
+                    if (type) {
+                        posthog.capture('insight alert destination deleted', {
+                            alert_id: props.alertId,
+                            type,
+                        })
+                    }
                 },
             })
         },
