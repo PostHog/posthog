@@ -16061,6 +16061,64 @@ export namespace Schemas {
       query_id?: string;
     }
 
+    export interface DataCatalogRelationshipProposal {
+      readonly id: string;
+      /**
+         * Name of the table the join starts from.
+         * @maxLength 400
+         */
+      source_table_name: string;
+      /**
+         * HogQL key expression on the source table (casts allowed).
+         * @maxLength 400
+         */
+      source_table_key: string;
+      /**
+         * Name of the table being joined in.
+         * @maxLength 400
+         */
+      joining_table_name: string;
+      /**
+         * HogQL key expression on the joining table (casts allowed).
+         * @maxLength 400
+         */
+      joining_table_key: string;
+      /**
+         * Accessor the join adds to the source table.
+         * @maxLength 400
+         */
+      field_name: string;
+      /** Extra join configuration, e.g. a field mapping. */
+      configuration?: unknown;
+      /**
+         * Discovery confidence in this join, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** Why this join is proposed. */
+      reasoning?: string;
+      /** Sampling evidence: match rates, sample values. */
+      evidence?: unknown;
+      /** proposed, accepted (promoted to a real join), or rejected (never re-proposed). */
+      readonly status: string;
+      /** User who accepted or rejected the proposal. */
+      readonly reviewed_by: UserBasic | null;
+      /** @nullable */
+      readonly reviewed_at: string | null;
+      /** Why the proposal was rejected. */
+      readonly rejection_reason: string;
+      /**
+         * The join created when this proposal was accepted (promotion provenance).
+         * @nullable
+         */
+      readonly created_join: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
     export interface DataColorTheme {
       readonly id: number;
       /** @maxLength 100 */
@@ -32841,6 +32899,53 @@ export namespace Schemas {
      */
     export type LogsViewFilters = { [key: string]: unknown };
 
+    /**
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom
+     */
+    export type LogsViewColumnTypeEnum = typeof LogsViewColumnTypeEnum[keyof typeof LogsViewColumnTypeEnum];
+
+
+    export const LogsViewColumnTypeEnum = {
+      Timestamp: 'timestamp',
+      Level: 'level',
+      Source: 'source',
+      TraceId: 'trace_id',
+      SpanId: 'span_id',
+      Message: 'message',
+      Custom: 'custom',
+    } as const;
+
+    export interface LogsViewColumn {
+      /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+      id: string;
+      /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+       *
+       * * `timestamp` - timestamp
+       * * `level` - level
+       * * `source` - source
+       * * `trace_id` - trace_id
+       * * `span_id` - span_id
+       * * `message` - message
+       * * `custom` - custom */
+      type: LogsViewColumnTypeEnum;
+      /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+      name?: string;
+      /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+      expression?: string;
+      /**
+         * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+         * @minimum 1
+         * @maximum 2000
+         */
+      width?: number;
+    }
+
     export interface LogsView {
       readonly id: string;
       readonly short_id: string;
@@ -32848,6 +32953,11 @@ export namespace Schemas {
       name: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
       filters?: LogsViewFilters;
+      /**
+         * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+         * @nullable
+         */
+      columns?: LogsViewColumn[] | null;
       pinned?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -35590,6 +35700,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataCatalogMetric[];
+    }
+
+    export interface PaginatedDataCatalogRelationshipProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataCatalogRelationshipProposal[];
     }
 
     export interface PaginatedDataColorThemeList {
@@ -43425,6 +43544,11 @@ export namespace Schemas {
       name?: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
       filters?: PatchedLogsViewFilters;
+      /**
+         * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+         * @nullable
+         */
+      columns?: LogsViewColumn[] | null;
       pinned?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -52198,6 +52322,11 @@ export namespace Schemas {
     export interface RecordVisitResponse {
       /** True once today's visit row exists for the user. */
       recorded: boolean;
+    }
+
+    export interface RelationshipReject {
+      /** Why the proposal is rejected. Persisted so it is never re-proposed. */
+      rejection_reason?: string;
     }
 
     /**
@@ -63609,6 +63738,10 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
     export type EnvironmentsExternalDataSchemasLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -69489,6 +69622,21 @@ export namespace Schemas {
       ForceCache: 'force_cache',
     } as const;
 
+    export type DataCatalogRelationshipProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by proposed/accepted/rejected.
+     */
+    status?: string;
+    };
+
     export type DataColorThemesListParams = {
     /**
      * Number of results to return per page.
@@ -70730,6 +70878,10 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
     };
 
     export type ExternalDataSchemasLogsRetrieveParams = {
