@@ -59,6 +59,8 @@ _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 # A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
 _PAGE_POST_TIMEOUT_SECONDS = 60
+# An interrupt only sets a cancel event and sends a SIGINT in the sandbox: near-instant.
+_INTERRUPT_POST_TIMEOUT_SECONDS = 5
 # Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
 # worker killed before its finally-release can't wedge the user's paging for long.
 PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
@@ -269,27 +271,42 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
     return runtime
 
 
-def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
+def dispatch_sql_v2_run(
+    notebook: Notebook,
+    user: User | None,
+    run: NotebookNodeRun,
+    code: str,
+    node_type: str = "hogql",
+    output_name: str = "",
+    inputs: list[dict] | None = None,
+) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
-    Returns as soon as the server accepts (202); the result arrives via the callback.
+    Returns as soon as the server accepts (202); the result arrives via the callback. A
+    kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
+    a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
+    payload: dict = {
+        "run_id": str(run.id),
+        "callback_url": build_callback_url(str(run.id)),
+        "callback_token": mint_callback_token(str(run.id), notebook.team_id),
+        "data_plane_url": build_data_plane_url(),
+        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+        "page_limit": DISPLAY_PAGE_LIMIT,
+        "cache_limit": RESULT_CACHE_ROWS,
+    }
+    if node_type in ("python", "duckdb"):
+        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
+        payload["inputs"] = inputs or []
+    else:
+        payload["code"] = code
     response = requests.post(
         f"{runtime.server_url.rstrip('/')}/run",
-        json={
-            "run_id": str(run.id),
-            "code": code,
-            "callback_url": build_callback_url(str(run.id)),
-            "callback_token": mint_callback_token(str(run.id), notebook.team_id),
-            "data_plane_url": build_data_plane_url(),
-            "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
-            "page_limit": DISPLAY_PAGE_LIMIT,
-            "cache_limit": RESULT_CACHE_ROWS,
-        },
+        json=payload,
         headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )
@@ -297,10 +314,13 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
 
 
 def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRun, offset: int, limit: int) -> dict:
-    """Fetch one result page through the kernel — a bounded synchronous re-query.
+    """Fetch one result page through the kernel — a bounded synchronous read.
 
-    Unlike a run this never bootstraps the server (no control plane from a web
-    worker); a missing or unreachable server means the user has to re-run.
+    A hogql run pages by re-querying its stored code through the data plane with
+    LIMIT/OFFSET; a kernel run (python/duckdb) pages by slicing its on-sandbox result
+    frame, keyed by `result_id` — its code is not a HogQL query, so no data-plane
+    fallback exists for it. Unlike a run this never bootstraps the server (no control
+    plane from a web worker); a missing or unreachable server means the user has to re-run.
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None or not runtime.server_url:
@@ -308,17 +328,21 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
 
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
+    payload: dict = {
+        "run_id": str(run.id),
+        "offset": offset,
+        "limit": limit,
+    }
+    if run.node_type == NotebookNodeRun.NodeType.HOGQL:
+        payload["code"] = run.code
+        payload["data_plane_url"] = build_data_plane_url()
+        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id)
+    else:
+        payload["result_id"] = str(run.result_id)
     try:
         response = requests.post(
             f"{runtime.server_url.rstrip('/')}/page",
-            json={
-                "run_id": str(run.id),
-                "code": run.code,
-                "offset": offset,
-                "limit": limit,
-                "data_plane_url": build_data_plane_url(),
-                "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
-            },
+            json=payload,
             headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
             timeout=_PAGE_POST_TIMEOUT_SECONDS,
         )
@@ -336,6 +360,38 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
         # Any other non-200 (e.g. a kernel 500) is an infrastructure problem, not a bad query.
         raise SQLV2KernelNotRunning()
     return response.json()
+
+
+def interrupt_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun) -> bool:
+    """Ask the kernel-server to interrupt a run; return whether the kernel knew the run.
+
+    False means the run never reached the kernel (dispatch still in flight) or already
+    finished there; the caller decides how to surface that. Raises SQLV2KernelNotRunning
+    when no reachable kernel exists at all, in which case the run's callback can never
+    arrive and the caller may mark the run terminal itself.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        raise SQLV2KernelNotRunning()
+
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
+    try:
+        response = requests.post(
+            f"{runtime.server_url.rstrip('/')}/interrupt",
+            json={"run_id": str(run.id)},
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
+            timeout=_INTERRUPT_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise SQLV2KernelNotRunning() from exc
+    if response.status_code != 200:
+        raise SQLV2KernelNotRunning()
+    try:
+        body = response.json()
+    except ValueError:
+        return True
+    # A pre-run-scoped kernel-server omits `known`; treat its interrupt as delivered.
+    return bool(body.get("known", True))
 
 
 def _kernel_error_detail(response: requests.Response) -> str:

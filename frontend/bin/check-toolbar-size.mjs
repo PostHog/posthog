@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-import { eagerOutputs, jsOutputs, readToolbarMetafile } from './toolbar-metafile.mjs'
+import { eagerOutputs, findEntryOutput, jsOutputs, readToolbarMetafile } from './toolbar-metafile.mjs'
 
 // Size guards for the split toolbar build (dist/toolbar.js loader + dist/toolbar/ ESM app).
 //
@@ -14,13 +14,11 @@ import { eagerOutputs, jsOutputs, readToolbarMetafile } from './toolbar-metafile
 const MAX_FILE_BYTES = 10_000_000
 
 // 2. Eager-set budget: the entry plus everything statically imported from it — the bytes every
-//    toolbar load fetches before any feature runs. Ratchet policy: when a cut lands, lower the
+//    toolbar load fetches before any feature runs. Ratchet policy: when an edge is cut, lower the
 //    budget to lock it in; raise it only as a conscious, reviewed decision in the PR that needs it.
-//    2026-07-07: 2,967,721 bytes measured when splitting landed; ~10% headroom.
-const MAX_EAGER_BYTES = 3_300_000
+const MAX_EAGER_BYTES = 1_650_000
 
 // 3. The loader is injected on every customer page that enables the toolbar and must stay tiny.
-//    2026-07-07: 1,153 bytes minified.
 const MAX_LOADER_BYTES = 20_000
 
 function humanBytes(bytes) {
@@ -68,6 +66,29 @@ function main() {
         }
     }
 
+    // CSS completeness: only the entry stylesheet is loaded into the toolbar's shadow root, so
+    // styles reachable solely through a lazy chunk would silently never render. Every CSS input
+    // that lands in any chunk stylesheet must also land in the entry stylesheet — if this fails,
+    // make the owning feature import its styles statically (or hoist the style import).
+    // Note: with code splitting, every dynamically-imported module also carries an entryPoint
+    // in the metafile — findEntryOutput matches the real toolbar entry specifically.
+    const entryCss = outputs[findEntryOutput(outputs)]?.cssBundle
+    if (entryCss) {
+        const entryCssInputs = new Set(Object.keys(outputs[entryCss].inputs || {}))
+        for (const [file, output] of Object.entries(outputs)) {
+            if (!file.endsWith('.css') || file.endsWith('.map') || file === entryCss) {
+                continue
+            }
+            const missing = Object.keys(output.inputs || {}).filter((inp) => !entryCssInputs.has(inp))
+            if (missing.length) {
+                fail(
+                    `${file} contains styles missing from the entry stylesheet (${missing.join(', ')}) — ` +
+                        'they would never load into the shadow root. Import them statically.'
+                )
+            }
+        }
+    }
+
     // Eager-set budget.
     const eagerJs = [...eagerOutputs(outputs)].filter((o) => o.endsWith('.js'))
     const eagerBytes = eagerJs.reduce((sum, o) => sum + outputs[o].bytes, 0)
@@ -77,7 +98,7 @@ function main() {
         fail(
             `Eager toolbar JS is ${humanBytes(eagerBytes)} across ${eagerJs.length} files, over the ` +
                 `${humanBytes(MAX_EAGER_BYTES)} budget. Something newly reachable through static imports — ` +
-                'lazy-load it (import()) or cut the import edge. See .agents/toolbar-migration.md.'
+                'lazy-load it (import()) or cut the import edge.'
         )
     }
 

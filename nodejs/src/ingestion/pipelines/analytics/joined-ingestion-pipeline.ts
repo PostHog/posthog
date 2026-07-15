@@ -73,6 +73,7 @@ export interface JoinedIngestionPipelineConfig {
     overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
+    groupsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
     outputs: IngestionOutputs<
         | EventOutput
@@ -153,6 +154,7 @@ export function createJoinedIngestionPipeline<
         overflowMode,
         preservePartitionLocality,
         personsPrefetchEnabled,
+        groupsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         outputs,
         perDistinctIdOptions,
@@ -195,6 +197,8 @@ export function createJoinedIngestionPipeline<
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
+        groupsPrefetchEnabled,
+        groupTypeManager,
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -244,7 +248,7 @@ export function createJoinedIngestionPipeline<
                         // Cookieless events (headers.distinct_id === sentinel) pass through and are
                         // handled by the matching only-cookieless step in post-team, which keys on
                         // the hashed distinct_id assigned by the cookieless step.
-                        .pipeBatch(
+                        .pipeChunk(
                             createSkipCookielessRateLimitToOverflowStep(
                                 preservePartitionLocality,
                                 overflowRedirectService

@@ -125,8 +125,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
-  and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
-  `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
+  and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
   it returns the project's members (those with access to the team) with `user_uuid` / `email` /
   `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
   is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object
@@ -177,6 +177,14 @@ one sandbox session → zero or more emitted signals.
   `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
   (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
   with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
+  (plus customer-facing `$scout_report_*` copies), stamped with derived classification
+  properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
+  via `_report_classification_props` in `tools/report.py` — classified server-side off the
+  prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so
+  self-improvement reports are separable without downstream title heuristics. That helper
+  is the single extension point for future derived telemetry dimensions on these events —
+  add new flags there (both events pick them up), not as model columns.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path

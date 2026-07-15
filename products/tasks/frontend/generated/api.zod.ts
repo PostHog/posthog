@@ -295,6 +295,33 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
 /**
+ * API for a channel's system-announcement feed — durable "PostHog agent" rows
+ * (context created, CONTEXT.md being built) rendered alongside the channel's task
+ * cards. Read by any team member for a public channel; personal channels are owner-only.
+ * @summary Post a channel feed message
+ */
+export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
+    .object({
+        event: zod
+            .enum(['context_created', 'context_md_building'])
+            .describe('\* `context_created` - context_created\n\* `context_md_building` - context_md_building')
+            .describe(
+                'Lifecycle event key.\n\n\* `context_created` - context_created\n\* `context_md_building` - context_md_building'
+            ),
+        payload: zod
+            .unknown()
+            .optional()
+            .describe('Structured event data, e.g. {\"context_name\": \"mobile\"}. At most 8 KB of JSON.'),
+        created_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements.'
+            ),
+    })
+    .describe("Request body for posting a system announcement into a channel's feed.")
+
+/**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
  * provisions the requester's personal "#me" channel; creation is resolve-or-create
  * by normalized name so clients can map channel-like surfaces onto backend channels.
@@ -318,6 +345,8 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
 export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
+
+export const tasksCreateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksCreateBodyBranchMax = 255
 
@@ -354,14 +383,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -375,9 +405,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksCreateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -451,6 +484,8 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
+export const tasksUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksUpdateBodyBranchMax = 255
 
 export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -486,14 +521,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -507,9 +543,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -583,6 +622,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksPartialUpdateBodyBranchMax = 255
 
 export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -618,14 +659,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'signals_scout',
                 'support_reply',
                 'hogdesk',
+                'review_hog',
                 'image_builder',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `image_builder` - Image Builder'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder'
             ),
         repository: zod
             .string()
@@ -639,9 +681,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -1641,6 +1686,20 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreateBodyReasonMax = 500
+
+export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(tasksRunsCancelCreateBodyReasonMax)
+        .nullish()
+        .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+})
+
+/**
  * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
  * @summary Send command to task run
  */
@@ -1755,7 +1814,7 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.'
         ),
     content_type: zod
         .string()
@@ -1767,11 +1826,15 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the initial content source.'),
+        .describe(
+            'Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the initial content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1811,11 +1874,15 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the next version content source.'),
+        .describe(
+            'Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the next version content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1841,6 +1908,9 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         task: zod.uuid(),
+        author_kind: zod.string(),
+        event: zod.string(),
+        payload: zod.record(zod.string(), zod.unknown()),
         content: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         author: zod

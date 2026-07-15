@@ -8,12 +8,15 @@ import pandas as pd
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
+    list_github_sources,
 )
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -24,6 +27,8 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
+from ee.models.rbac.access_control import AccessControl
+
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
 # Non-default prefix on purpose: every fixture below lands tables named
@@ -33,7 +38,7 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 def create_github_source(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, source_id: str = "gh-source"
+    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, source_id: str = "gh-source", repository: str = ""
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -42,6 +47,7 @@ def create_github_source(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.GITHUB,
         prefix=prefix,
+        job_inputs={"repository": repository} if repository else {},
     )
 
 
@@ -70,26 +76,28 @@ def create_warehouse_table_row(
     )
 
 
-def connect_github_source_without_data(team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX) -> GitHubTables:
+def connect_github_source_without_data(
+    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = ""
+) -> GitHubTables:
     """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
 
     The resolver finds these without touching object storage; pair with a mocked query
     when only resolution (not real warehouse data) matters.
     """
-    source = create_github_source(team, prefix=prefix)
+    source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
     link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
     link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
-    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name)
+    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name, repository=repository)
 
 
 def _user(login: str) -> str:
     return f'{{"login": "{login}", "avatar_url": "https://avatars/{login}"}}'
 
 
-def _base(full_name: str) -> str:
-    return f'{{"repo": {{"full_name": "{full_name}"}}}}'
+def _base(full_name: str, ref: str = "") -> str:
+    return f'{{"ref": "{ref}", "repo": {{"full_name": "{full_name}"}}}}'
 
 
 def _labels(*names: str) -> str:
@@ -105,6 +113,8 @@ def _pr_row(
     *,
     merged_at: str | None = None,
     head_sha: str = "",
+    head_ref: str = "",
+    base_ref: str = "",
     full_name: str = "PostHog/posthog",
     labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
@@ -119,8 +129,8 @@ def _pr_row(
         "merged_at": merged_at,
         "closed_at": merged_at,
         "user": _user(login),
-        "head": f'{{"sha": "{head_sha}"}}',
-        "base": _base(full_name),
+        "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
+        "base": _base(full_name, base_ref),
         "labels": _labels(*labels),
     }
 
@@ -155,6 +165,42 @@ def _run_row(
         "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
         "repository": f'{{"full_name": "{full_name}"}}',
     }
+
+
+class TestListGithubSourcesAccessControl(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
+        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
+        # resource access and no object grants — without the guard, such a user enumerates every
+        # GitHub source on the team.
+        mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
+        mine.created_by = self.user
+        mine.save()
+        theirs = create_github_source(self.team, prefix="theirs_", source_id="gh-theirs")
+        access_control = UserAccessControl(user=self.user, team=self.team)
+
+        assert len(list_github_sources(team=self.team, user_access_control=access_control)) == 2
+
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        visible = list_github_sources(
+            team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
+        )
+        assert [source.id for source in visible] == [str(mine.id)]
+
+        # An explicit object grant survives the fail-closed guard.
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+        )
+        visible = list_github_sources(
+            team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
+        )
+        assert {source.id for source in visible} == {str(mine.id), str(theirs.id)}
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
@@ -265,7 +311,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         raw = (
             "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
             f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
-            "'2026-01-10 10:00:00' AS created_at, nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+            "'2026-01-10 10:00:00' AS created_at, '2026-01-10 10:00:00' AS updated_at, "
+            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
         )
         rows = self._select(
             f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"

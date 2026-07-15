@@ -6,7 +6,10 @@ a single ``head_branch`` and/or attributed pull-request runs. Rates are over com
 runs. Duration percentiles are over successful runs only — cancelled/skipped runs
 (common on PR branches, where a new push supersedes in-flight CI) and failed runs
 end early and would bias a "how long does CI take" percentile low — so they are
-``None`` for a window with no successful runs.
+``None`` for a window with no successful runs. No-op gate runs are excluded from the
+percentiles too, with an all-successful fallback for legitimately all-fast workflows
+(see ``run_duration_percentile_expr``), so the Workflows table agrees with the
+activity chart and the detail-page KPIs.
 
 The per-bucket history adapts its granularity to the window length (hour / day / week)
 so the trend sparkline keeps a readable number of points — per-day buckets are useless
@@ -25,6 +28,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
+    Granularity,
     bucket_expr,
     normalize_bucket,
     pick_granularity,
@@ -32,10 +36,12 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
-    DURATION_PERCENTILE_CONDITION,
+    LATEST_COMPLETED_RUN_FAILED,
     branch_filter_clause,
     date_to_filter_clause,
+    run_duration_percentile_expr,
     run_scope_filter_clause,
+    run_started_floor_constant,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -50,12 +56,12 @@ _SELECT = f"""
         workflow_name,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
-        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
+        {run_duration_percentile_expr(0.5)} AS p50_seconds,
+        {run_duration_percentile_expr(0.95)} AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
+        argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
         countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
@@ -98,7 +104,7 @@ _BUCKET_SELECT = f"""
 _TIME_TO_GREEN_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds
+        {run_duration_percentile_expr(0.5)} AS p50_seconds
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __RUN_SCOPE__
     GROUP BY bucket_start
@@ -111,17 +117,20 @@ def query_time_to_green_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[str, list[TimeToGreenBucket]]:
+    granularity: Granularity,
+) -> list[TimeToGreenBucket]:
     """Median time-to-green per bucket across the window, oldest first: the p50 wall-clock duration of
     successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
     population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
     master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
-    granularity = pick_granularity(date_from, date_to)
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
     sql = (
-        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__RUN_SCOPE__", run_scope_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity))
@@ -131,11 +140,10 @@ def query_time_to_green_series(
         normalize_bucket(bucket_start, granularity): opt_float(p50_seconds)
         for bucket_start, p50_seconds in response.results or []
     }
-    buckets = [
+    return [
         TimeToGreenBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
-    return granularity, buckets
 
 
 def query_workflow_health(
@@ -147,12 +155,15 @@ def query_workflow_health(
     run_scope: WorkflowHealthRunScope,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
 
-    runs_source = curated.run_source()
+    runs_source = curated.run_source(started_floor=True)
 
     def fill(template: str) -> str:
         return (
@@ -182,7 +193,13 @@ def query_workflow_health(
     prev_response = curated.run(
         fill(_PREV_SELECT),
         query_type="engineering_analytics.workflow_health_prev",
-        placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
+        # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
+        # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
+        placeholders={
+            **placeholders,
+            "prev_from": ast.Constant(value=prev_from),
+            "run_started_floor": run_started_floor_constant(prev_from),
+        },
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)

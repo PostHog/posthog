@@ -1,9 +1,17 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_ORGANIZATION_ID,
+    MOCK_TEAM_ID,
+} from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -42,6 +50,16 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
+import { featureFlagsLogic } from './featureFlagsLogic'
+
+// jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+        warning: jest.fn(),
+    },
+}))
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -198,6 +216,46 @@ describe('featureFlagLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('stale list-cache reconciliation on mount', () => {
+        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/projects/:projectId/feature_flags/': () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, active: true },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+            })
+
+            featureFlagsLogic.mount()
+            featureFlagsLogic.actions.loadFeatureFlags()
+            await expectLogic(featureFlagsLogic).toFinishAllListeners()
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+
+            featureFlagsLogic.unmount()
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -1276,6 +1334,87 @@ describe('featureFlagLogic', () => {
             ])
             expect(logic.values.featureFlag.active).toBe(true)
             expect(logic.values.projectFlagsToggling).toEqual({})
+        })
+    })
+
+    describe('toggleFeatureFlagActive', () => {
+        it('opens one confirmation with matching disable copy', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('copyFlagSuccess', () => {
+        const copyFlagsUrl = `/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/copy_flags/`
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    // Hit by the loadProjectsWithCurrentFlag() the listener always triggers afterward.
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/${MOCK_FEATURE_FLAG.key}/`]: () => [
+                        200,
+                        [],
+                    ],
+                },
+            })
+            logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
+        })
+
+        it('shows a pending-approval warning, not a raw error, when the target project gates the write', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [
+                                {
+                                    project_id: MOCK_TEAM_ID,
+                                    error_message: 'Approval required',
+                                    approval_pending: true,
+                                    change_request_id: 'cr-1',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                `A change request was created for ${MOCK_DEFAULT_TEAM.name}; the copy will apply once approved.`
+            )
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows a plain error toast for a hard failure', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [{ project_id: MOCK_TEAM_ID, error_message: 'Project not found.' }],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Error while copying feature flag: Project not found.')
+            expect(lemonToast.warning).not.toHaveBeenCalled()
         })
     })
 })

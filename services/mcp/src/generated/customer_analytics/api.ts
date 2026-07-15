@@ -3,10 +3,107 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const AccountRelationshipDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountRelationshipDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AccountRelationshipDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountRelationshipDefinitionsCreateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const AccountRelationshipDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountRelationshipDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
+
+export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const AccountRelationshipDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const AccountsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -187,6 +284,48 @@ export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
+export const AccountsRelationshipsListParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsRelationshipsListQueryParams = /* @__PURE__ */ zod.object({
+    include_history: zod
+        .boolean()
+        .optional()
+        .describe('Include ended assignments (the full timeline), not just active ones.'),
+})
+
+export const AccountsRelationshipsCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod.string().describe('Id of the relationship definition to assign.'),
+        user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
+    })
+    .describe('Input for assigning a user to an account relationship.')
+
+export const AccountsRelationshipsEndCreateParams = /* @__PURE__ */ zod.object({
+    account_id: zod.string().describe('UUID of the parent account.'),
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
 export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
@@ -294,6 +433,7 @@ export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object(
 
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
+export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
@@ -311,6 +451,13 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('* `account` - account\n* `person` - person')
+            .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -399,6 +546,13 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n* `text` - text\n* `number` - number\n* `currency` - currency\n* `percent` - percent\n* `date` - date\n* `datetime` - datetime\n* `boolean` - boolean\n* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person'])
+            .describe('* `account` - account\n* `person` - person')
+            .optional()
+            .describe(
+                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n* `account` - account\n* `person` - person"
             ),
         is_big_number: zod
             .boolean()
@@ -527,7 +681,7 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n*\*Events*\* (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n*\*Data warehouse*\* (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
@@ -609,7 +763,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n*\*Events*\* (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n*\*Data warehouse*\* (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])

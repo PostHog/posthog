@@ -252,6 +252,17 @@ export async function performQuery<N extends DataNode>(
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
+            if (response && typeof response === 'object') {
+                // Web analytics responses report which read path served them and whether
+                // a lazy-precompute read was served stale. Undefined elsewhere, so these
+                // props only land on events that carry them.
+                const { preComputeStrategy, preComputeStale } = response as {
+                    preComputeStrategy?: string
+                    preComputeStale?: boolean
+                }
+                logParams.precompute_strategy = preComputeStrategy
+                logParams.precompute_stale = preComputeStale
+            }
         }
         posthog.capture('query completed', {
             query: queryNode,
@@ -262,10 +273,14 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
+        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+        const error = e as (Error & { status?: number; code?: string | null }) | null
         posthog.capture('query failed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            error_status: error?.status ?? null,
+            error_code: error?.code ?? null,
             ...logParams,
         })
         throw e

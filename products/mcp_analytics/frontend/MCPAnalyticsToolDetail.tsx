@@ -5,14 +5,12 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
-    MetricCard,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 import {
     Card,
-    CardContent,
     CardDescription,
     CardHeader,
     CardTitle,
@@ -39,8 +37,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
@@ -57,52 +56,6 @@ export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     paramsToProps: ({ params: { toolName } }) => ({
         toolName: decodeURIComponent(toolName ?? ''),
     }),
-}
-
-function StatTile({
-    label,
-    value,
-    formatValue,
-    data,
-    theme,
-    color,
-    goodDirection,
-    loading,
-}: {
-    label: string
-    value: number
-    formatValue: (n: number) => string
-    data?: number[]
-    theme: ChartTheme
-    color?: string
-    goodDirection?: 'up' | 'down'
-    loading: boolean
-}): JSX.Element {
-    return (
-        <Card size="sm" className="flex-1">
-            {loading ? (
-                <CardContent className="flex flex-col gap-2">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-7 w-20" />
-                </CardContent>
-            ) : (
-                <CardContent>
-                    <MetricCard
-                        className="text-primary"
-                        title={label}
-                        value={value}
-                        data={data}
-                        theme={theme}
-                        color={color}
-                        formatValue={formatValue}
-                        goodDirection={goodDirection}
-                        sparklineHeight={40}
-                        sparklineClassName="mt-2 -mx-3 -mb-3"
-                    />
-                </CardContent>
-            )}
-        </Card>
-    )
 }
 
 // Renderer for the "person" column in the Top users table. The loader maps each row's
@@ -260,69 +213,79 @@ function StatTiles({
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
+    const sparkLabels = daily.labels.slice(-SPARKLINE_DAYS).map(formatBucketLabel)
+
+    const tiles: {
+        label: string
+        value: number
+        formatValue: (n: number) => string
+        data: number[]
+        color: string
+        goodDirection: 'up' | 'down'
+    }[] = [
+        {
+            label: 'Calls',
+            value: calls,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.calls),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Error rate',
+            value: errorRate,
+            formatValue: (n) => `${n.toFixed(1)}%`,
+            data: spark(errorRateDaily),
+            color: theme.colors[4],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p50 latency',
+            value: summary?.p50_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p50),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p95 latency',
+            value: summary?.p95_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p95),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'Users',
+            value: summary?.users ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.users),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Sessions',
+            value: summary?.conversations ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.sessions),
+            color: theme.colors[6],
+            goodDirection: 'up',
+        },
+    ]
 
     return (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
-            <StatTile
-                label="Calls"
-                loading={loading}
-                value={calls}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.calls)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Error rate"
-                loading={loading}
-                value={errorRate}
-                formatValue={(n) => `${n.toFixed(1)}%`}
-                data={spark(errorRateDaily)}
-                theme={theme}
-                color={theme.colors[4]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p50 latency"
-                loading={loading}
-                value={summary?.p50_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p50)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p95 latency"
-                loading={loading}
-                value={summary?.p95_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p95)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="Users"
-                loading={loading}
-                value={summary?.users ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.users)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Sessions"
-                loading={loading}
-                value={summary?.conversations ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.sessions)}
-                theme={theme}
-                color={theme.colors[6]}
-                goodDirection="up"
-            />
+            {tiles.map((tile) => (
+                <MetricTile
+                    key={tile.label}
+                    {...tile}
+                    loading={loading}
+                    labels={sparkLabels}
+                    theme={theme}
+                    restingSubtitle="Last 7 days"
+                    sparklineHeight={40}
+                />
+            ))}
         </div>
     )
 }
@@ -519,7 +482,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <SceneTitleSection
                 name={toolName}
                 description={null}
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
                     path: urls.mcpAnalyticsToolQuality(),
@@ -677,13 +640,13 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Top exception messages paired with this tool. Sourced from $exception events."
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
                     rows={failureRows}
                     loading={failureRowsLoading}
-                    emptyMessage="No exceptions recorded for this tool in the last 7 days."
+                    emptyMessage="No errored calls recorded for this tool in the last 7 days."
                     columns={[
                         {
-                            header: 'Message',
+                            header: 'Error type',
                             expand: true,
                             render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
                         },
