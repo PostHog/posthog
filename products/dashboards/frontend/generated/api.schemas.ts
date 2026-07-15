@@ -4532,6 +4532,7 @@ export const IntegrationKindApi = {
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
