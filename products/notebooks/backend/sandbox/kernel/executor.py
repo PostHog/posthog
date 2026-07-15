@@ -53,8 +53,14 @@ class KernelExecutor:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
             try:
                 self._ensure_kernel()
-                inputs = self._materialize_inputs(payload)
-                return self._invoke_run_node(payload, inputs)
+                fetch_notes: list[str] = []
+                inputs = self._materialize_inputs(payload, fetch_notes)
+                result = self._invoke_run_node(payload, inputs)
+                if fetch_notes:
+                    # Surface where each frame's bytes came from (truncated presigned host,
+                    # never the full URL) in the node's stdout, next to the run's own output.
+                    result["stdout"] = "\n".join([*fetch_notes, result.get("stdout") or ""]).strip("\n")
+                return result
             except data_plane.DataPlaneError as exc:
                 return envelope.from_python_execution(status="error", error=str(exc))
             except Exception as exc:  # noqa: BLE001 — a run must always yield a callback envelope
@@ -98,7 +104,9 @@ class KernelExecutor:
         if status != "ok":
             raise RuntimeError("failed to initialize the kernel session")
 
-    def _materialize_inputs(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def _materialize_inputs(
+        self, payload: dict[str, Any], fetch_notes: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only)."""
         kernel_inputs: list[dict[str, Any]] = []
         for spec in payload.get("inputs") or []:
@@ -115,13 +123,17 @@ class KernelExecutor:
             frame_path = os.path.join(self._frames_dir, f"{node_token}.{spec['run_id']}.arrow")
             if not os.path.exists(frame_path):
                 self._evict_superseded_frames(node_token, keep=frame_path)
-                data_plane.materialize_query_to_file(
+                _row_count, fetched_from = data_plane.materialize_query_to_file(
                     payload["data_plane_url"],
                     payload["data_plane_token"],
                     spec["query"],
                     frame_path,
                     limit=_MATERIALIZE_ROW_CAP,
                 )
+                if fetched_from and fetch_notes is not None:
+                    # Only object deliveries carry a source (the inline fallback has none) —
+                    # this makes the frame-store path visible in the node output.
+                    fetch_notes.append(f"[frame store] {name} fetched from {fetched_from}…")
             kernel_inputs.append({"name": name, "kind": "hogql", "path": frame_path})
         return kernel_inputs
 

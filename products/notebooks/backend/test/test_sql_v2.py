@@ -1378,7 +1378,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
                 patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
                 patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
             ):
-                rows = kernel_data_plane.materialize_query_to_file(
+                rows, fetched_from = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "secret-token", "select 1", dest, limit=1000
                 )
             self.assertEqual(rows, 2)
@@ -1387,6 +1387,10 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         (download,) = download_requests
         self.assertEqual(download.full_url, presigned_url)
         self.assertFalse(download.has_header("Authorization"))
+        # The surfaced source is a bearer secret truncated to a host-only preview: it must
+        # never carry the signature query parameters.
+        self.assertEqual(fetched_from, presigned_url[:30])
+        self.assertNotIn("X-Amz-Signature", fetched_from or "")
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()
@@ -1425,10 +1429,11 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                 "urlopen",
                 side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
             ):
-                rows = kernel_data_plane.materialize_query_to_file(
+                rows, fetched_from = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
             self.assertEqual(rows, 2)
+            self.assertIsNone(fetched_from)  # inline body — no presigned source to surface
             table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
             self.assertEqual(table.num_rows, 2)
             self.assertEqual(table.column_names, ["id", "v"])
