@@ -12,6 +12,7 @@ import {
     extractJsonAttributesFromBody,
     flattenJson,
     processLogMessageBuffer,
+    stampRetentionOnLogMessageBuffer,
 } from './log-record-avro'
 
 const LOG_RECORD_SCHEMA = avro.parse(`{
@@ -105,6 +106,12 @@ const LOG_RECORD_SCHEMA = avro.parse(`{
     "name": "bytes_uncompressed",
     "type": ["null", "long"],
     "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+    },
+    {
+    "name": "retention_days",
+    "type": ["null", "int"],
+    "default": null,
+    "doc": "Per-row retention in days, stamped by the consumer from team retention rules."
     }
 ]
 }`)
@@ -216,6 +223,7 @@ describe('log-record-avro', () => {
                     event_name: null,
                     attributes: { key: 'value1' },
                     bytes_uncompressed: 123,
+                    retention_days: null,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -233,6 +241,7 @@ describe('log-record-avro', () => {
                     event_name: null,
                     attributes: { key: 'value2' },
                     bytes_uncompressed: 456,
+                    retention_days: null,
                 },
             ]
 
@@ -260,6 +269,7 @@ describe('log-record-avro', () => {
                     event_name: null,
                     attributes: null,
                     bytes_uncompressed: null,
+                    retention_days: null,
                 },
             ]
 
@@ -785,6 +795,43 @@ describe('log-record-avro', () => {
             const [_, __, decoded] = await decodeLogRecords(outputBuffer!)
 
             expect(Object.keys(decoded[0]?.attributes || {}).length).toBe(50)
+        })
+    })
+
+    describe('stampRetentionOnLogMessageBuffer', () => {
+        const baseRecord = (overrides: Partial<LogRecord>): LogRecord => ({
+            uuid: 'u',
+            trace_id: null,
+            span_id: null,
+            trace_flags: null,
+            timestamp: 1704067200000000,
+            observed_timestamp: 1704067200000000,
+            body: 'x',
+            severity_text: 'info',
+            severity_number: 9,
+            service_name: 'api',
+            resource_attributes: null,
+            instrumentation_scope: null,
+            event_name: null,
+            attributes: null,
+            bytes_uncompressed: 1,
+            retention_days: null,
+            ...overrides,
+        })
+
+        it('stamps per-record retention from the resolver, falling back to the default', async () => {
+            const records = [baseRecord({ service_name: 'api' }), baseRecord({ service_name: 'billing' })]
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+
+            const { value: outputBuffer } = await stampRetentionOnLogMessageBuffer(
+                inputBuffer,
+                {},
+                (record) => (record.service_name === 'api' ? 90 : null),
+                14
+            )
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+
+            expect(decoded.map((r) => r.retention_days)).toEqual([90, 14])
         })
     })
 })

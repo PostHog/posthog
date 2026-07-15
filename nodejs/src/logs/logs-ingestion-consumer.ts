@@ -26,13 +26,21 @@ import {
     recordLogsReceived,
 } from './ingestion-otel-metrics'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { type LogRecord, type LogRecordsTransform, processLogMessageBuffer } from './log-record-avro'
+import {
+    type LogRecord,
+    type LogRecordsTransform,
+    processLogMessageBuffer,
+    stampRetentionOnLogMessageBuffer,
+} from './log-record-avro'
 import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { safeEvaluateRetentionDays } from './retention/evaluate-retention'
+import { RetentionRulesCache } from './retention/retention-rules-cache'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -51,6 +59,8 @@ export interface LogsIngestionConsumerDeps {
     metricsEmitter?: LogsMetricsEmitter
     /** When set, enabled teams run hog log transformations after the built-in processing. */
     logsTransformer?: LogsTransformerService
+    /** When set, enabled teams stamp per-row retention from retention rules before produce. */
+    retentionRulesCache?: RetentionRulesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -274,6 +284,8 @@ export class LogsIngestionConsumer {
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
+    private readonly retentionEnabledTeamsRaw: string
+    private readonly retentionKillswitch: boolean
     private readonly billingProrateEnabled: boolean
     private readonly metricRulesEnabledTeamsRaw: string
     private readonly metricRulesKillswitch: boolean
@@ -321,6 +333,8 @@ export class LogsIngestionConsumer {
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
+        this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
+        this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.billingProrateEnabled = mergedConfig.LOGS_BILLING_PRORATE_ENABLED
         this.metricRulesEnabledTeamsRaw = mergedConfig.LOGS_METRICS_RULES_ENABLED_TEAMS
         this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
@@ -347,6 +361,13 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.transformationsEnabledTeamsRaw, teamId)
+    }
+
+    private isRetentionEvalEnabledForTeam(teamId: number): boolean {
+        if (this.retentionKillswitch) {
+            return false
+        }
+        return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
     }
 
     /**
@@ -409,6 +430,26 @@ export class LogsIngestionConsumer {
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
 
+        // Per-row retention: resolve the team's retention rules when enabled. When any rule exists we
+        // stamp `retention_days` per record (falling back to the team default); ClickHouse then reads
+        // the per-row value. With no rules we leave it unset and the batch `retention-days` header —
+        // still emitted below — carries the team default, preserving the fast passthrough path.
+        const retentionCache = this.deps.retentionRulesCache
+        const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
+        let retentionRuleSet: CompiledRetentionRuleSet | null = null
+        if (retentionCache && retentionEvalEnabled) {
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+        }
+        const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
+        const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+        const retention = useRetention
+            ? {
+                  resolveRetentionDays: (record: LogRecord): number | null =>
+                      safeEvaluateRetentionDays(retentionRuleSet, record, message.teamId),
+                  defaultRetentionDays,
+              }
+            : undefined
+
         trace.getActiveSpan()?.setAttributes({
             'logs.sampling.killswitch': this.samplingKillswitch,
             'logs.sampling.enabled_teams_configured': Boolean((this.samplingEnabledTeamsRaw || '').trim()),
@@ -417,9 +458,15 @@ export class LogsIngestionConsumer {
             'logs.sampling.eval_enabled_for_team': samplingEvalEnabled,
             'logs.sampling.compiled_rule_count': ruleSet?.rules.length ?? 0,
             'logs.transformations.enabled_for_team': Boolean(recordsTransform),
+            'logs.retention.cache_present': Boolean(retentionCache),
+            'logs.retention.eval_enabled_for_team': retentionEvalEnabled,
+            'logs.retention.compiled_rule_count': retentionRuleSet?.rules.length ?? 0,
+            'logs.retention.use_retention': useRetention,
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
-                : 'passthrough_processLogMessageBuffer',
+                : useRetention
+                  ? 'decode_stamp_retention_encode'
+                  : 'passthrough_processLogMessageBuffer',
         })
 
         if (useSamplingPipeline && ruleSet) {
@@ -430,7 +477,8 @@ export class LogsIngestionConsumer {
                 message.teamId,
                 message.bytesUncompressed,
                 onRecordsDecoded,
-                recordsTransform
+                recordsTransform,
+                retention
             )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
@@ -465,12 +513,45 @@ export class LogsIngestionConsumer {
             }
         }
 
-        // Passthrough (sampling disabled / no rules): drop rules removed nothing, so nothing to credit.
+        // Retention-only fast path: retention rules exist but there's no head sampling, no hog
+        // transform, and no metric-rule visitor. Decode once to stamp per-row retention, then encode.
+        if (retention && !recordsTransform && !onRecordsDecoded) {
+            const res = await stampRetentionOnLogMessageBuffer(
+                message.message.value!,
+                logsSettings,
+                retention.resolveRetentionDays,
+                retention.defaultRetentionDays
+            )
+            return {
+                outcome: 'produce',
+                processedValue: res.value,
+                pii: res.pii,
+                recordsDropped: 0,
+                recordsDroppedByRuleId: new Map(),
+                bytesDroppedByRuleId: new Map(),
+                contentBytesDropped: 0,
+                contentBytesTotal: 0,
+            }
+        }
+
+        // General non-sampling path (transformations and/or metric extraction, optionally with
+        // retention). Fold retention into the transform chain so it stamps survivors after any hog
+        // transform (which may drop records). Passthrough when nothing forces a decode.
+        const nonSamplingTransform: LogRecordsTransform | undefined = retention
+            ? async (records) => {
+                  if (recordsTransform) {
+                      await recordsTransform(records)
+                  }
+                  for (const record of records) {
+                      record.retention_days = retention.resolveRetentionDays(record) ?? retention.defaultRetentionDays
+                  }
+              }
+            : recordsTransform
         const res = await processLogMessageBuffer(
             message.message.value!,
             logsSettings,
             onRecordsDecoded,
-            recordsTransform
+            nonSamplingTransform
         )
         if (res.value === null) {
             return {

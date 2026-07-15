@@ -119,7 +119,11 @@ export class LogsSamplingService {
         teamId?: number,
         headerBytesUncompressed: number = 0,
         onRecordsDecoded?: (records: LogRecord[]) => void,
-        recordsTransform?: LogRecordsTransform
+        recordsTransform?: LogRecordsTransform,
+        // When set, each surviving record is stamped with a per-row retention resolved from the
+        // team's retention rules (falling back to `defaultRetentionDays`). Folded into this decode
+        // cycle so a team with both sampling and retention rules only decodes/encodes once.
+        retention?: { resolveRetentionDays: (record: LogRecord) => number | null; defaultRetentionDays: number }
     ): Promise<ProcessBufferWithSamplingResult> {
         const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
         if (!logRecordType) {
@@ -236,6 +240,11 @@ export class LogsSamplingService {
                 // Sampling left survivors and the transform removed the rest — attribute
                 // the full-message drop to transformations, not the drop rules.
                 allDroppedBy: keptBeforeTransform > 0 ? 'transformations' : 'sampling',
+            }
+        }
+        if (retention) {
+            for (const record of kept) {
+                record.retention_days = retention.resolveRetentionDays(record) ?? retention.defaultRetentionDays
             }
         }
         const value = await encodeLogRecords(logRecordType, compressionCodec, kept)

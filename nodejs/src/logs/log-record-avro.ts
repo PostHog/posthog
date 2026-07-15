@@ -44,6 +44,9 @@ export interface LogRecord {
     event_name: string | null
     attributes: Record<string, string> | null
     bytes_uncompressed?: number | null
+    /** Per-row retention in days, stamped by the consumer from team retention rules. Null/undefined
+     * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
+    retention_days?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {
@@ -368,3 +371,27 @@ export const processLogMessageBuffer = instrumented({
     onRecordsDecoded?: (records: LogRecord[]) => void,
     recordsTransform?: LogRecordsTransform
 ) => Promise<{ value: Buffer | null; pii: PiiScrubStats }>
+
+/**
+ * Decode → optional PII scrub / JSON enrich → stamp per-row `retention_days` → encode.
+ * Used on the retention-only path (retention rules exist but no head sampling): unlike
+ * `processLogMessageBuffer` it always decodes, since retention must be resolved per record.
+ * Each record's retention is `resolveRetentionDays(record) ?? defaultRetentionDays`.
+ */
+export async function stampRetentionOnLogMessageBuffer(
+    buffer: Buffer,
+    settings: LogsSettings,
+    resolveRetentionDays: (record: LogRecord) => number | null,
+    defaultRetentionDays: number
+): Promise<{ value: Buffer; pii: PiiScrubStats }> {
+    const [logRecordType, compressionCodec, records] = await decodeLogRecordsInstrumented(buffer)
+    if (!logRecordType) {
+        throw new Error('avro schema metadata not found')
+    }
+    const pii = await transformDecodedLogRecordsInPlace(records, settings)
+    for (const record of records) {
+        record.retention_days = resolveRetentionDays(record) ?? defaultRetentionDays
+    }
+    const value = await encodeLogRecordsInstrumented(logRecordType, compressionCodec, records)
+    return { value, pii }
+}
