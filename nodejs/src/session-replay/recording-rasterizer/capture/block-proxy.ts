@@ -12,6 +12,28 @@ type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'
 
 export { BLOCK_REQUEST_PREFIX }
 
+// undici error codes that mean "the request timed out" rather than "the server refused/reset".
+const TIMEOUT_ERROR_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'])
+
+/**
+ * Map a transport-level failure talking to the recording API onto a status + detail we can respond with.
+ *
+ * A blanket 502 collapses connection failures, timeouts, and DNS errors into one opaque signal that's
+ * undebuggable downstream. Instead surface the real cause: 504 for timeouts, 502 for everything else, with
+ * the underlying error name/code and message in the body so it survives through to error tracking.
+ */
+function describeUpstreamError(err: unknown): { status: number; detail: string } {
+    const name = err instanceof Error ? err.name : undefined
+    const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : undefined
+    const message = err instanceof Error ? err.message : String(err)
+    const isTimeout = name === 'TimeoutError' || (code !== undefined && TIMEOUT_ERROR_CODES.has(code))
+    const label = code ?? name ?? 'Error'
+    return {
+        status: isTimeout ? 504 : 502,
+        detail: `block proxy upstream error [${label}]: ${message}`,
+    }
+}
+
 export class BlockProxy {
     private blocks: RecordingBlock[] = []
     private teamId = 0
@@ -87,11 +109,12 @@ export class BlockProxy {
                 body: await resp.text(),
             })
         } catch (err) {
-            this.log.error({ path, err }, 'block proxy failed')
+            const { status, detail } = describeUpstreamError(err)
+            this.log.error({ path, err, status }, 'block proxy failed')
             try {
-                await request.respond({ status: 502, body: 'block proxy error' })
+                await request.respond({ status, body: detail })
             } catch (respondErr) {
-                this.log.debug({ path, respondErr }, 'could not send 502 response, page likely closed')
+                this.log.debug({ path, respondErr }, 'could not send error response, page likely closed')
             }
         }
     }
