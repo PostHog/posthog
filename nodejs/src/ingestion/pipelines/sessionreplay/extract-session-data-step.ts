@@ -17,59 +17,21 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 
-/**
- * Extracts one parsed message's session data the recorder aggregates: the serialized JSONL block
- * chunks plus the counts, urls, and segmentation events derived from the events. Handles both
- * parsed events and the native anonymizer's pre-serialized fast path.
- */
-export function extractSessionData(message: ParsedMessageData): SerializedSessionData {
-    const base = {
-        eventsRange: { start: message.eventsRange.start, end: message.eventsRange.end },
-        distinctId: message.distinct_id,
-        snapshotSource: (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH),
-        snapshotLibrary: message.snapshot_library ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH) : null,
-    }
+/** The event-derived half of {@link SerializedSessionData} — everything but the message-level fields. */
+type ExtractedEventData = Pick<
+    SerializedSessionData,
+    | 'chunks'
+    | 'rawBytes'
+    | 'eventCount'
+    | 'segmentationEvents'
+    | 'urls'
+    | 'clickCount'
+    | 'keypressCount'
+    | 'mouseActivityCount'
+>
 
-    if (message.preSerialized) {
-        // The native anonymizer already serialized the block lines; the counts, segmentation, and
-        // urls come from the per-event metadata instead of walking parsed events.
-        const { lines, events } = message.preSerialized
-        const segmentationEvents: SegmentationEvent[] = []
-        const urls: string[] = []
-        let clickCount = 0
-        let keypressCount = 0
-        let mouseActivityCount = 0
-        for (const event of events) {
-            segmentationEvents.push({
-                timestamp: event.ts,
-                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
-            })
-            if (event.href) {
-                urls.push(event.href)
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
-                clickCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
-                keypressCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
-                mouseActivityCount += 1
-            }
-        }
-        return {
-            ...base,
-            chunks: [lines],
-            rawBytes: lines.length,
-            eventCount: events.length,
-            segmentationEvents,
-            urls,
-            clickCount,
-            keypressCount,
-            mouseActivityCount,
-        }
-    }
-
+/** Serializes parsed events into JSONL chunks and derives the counts, urls, and segmentation events. */
+function serializeEvents(eventsByWindowId: ParsedMessageData['eventsByWindowId']): ExtractedEventData {
     const chunks: Buffer[] = []
     const segmentationEvents: SegmentationEvent[] = []
     const urls: string[] = []
@@ -78,7 +40,7 @@ export function extractSessionData(message: ParsedMessageData): SerializedSessio
     let clickCount = 0
     let keypressCount = 0
     let mouseActivityCount = 0
-    for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
+    for (const [windowId, events] of Object.entries(eventsByWindowId)) {
         for (const event of events) {
             const serializedLine = JSON.stringify([windowId, event]) + '\n'
             const chunk = Buffer.from(serializedLine)
@@ -104,10 +66,49 @@ export function extractSessionData(message: ParsedMessageData): SerializedSessio
         }
     }
     return {
-        ...base,
         chunks,
         rawBytes,
         eventCount,
+        segmentationEvents,
+        urls,
+        clickCount,
+        keypressCount,
+        mouseActivityCount,
+    }
+}
+
+/** Derives the counts, urls, and segmentation events from the native anonymizer's per-event metadata. */
+function extractPreSerializedEvents(
+    preSerialized: NonNullable<ParsedMessageData['preSerialized']>
+): ExtractedEventData {
+    const { lines, events } = preSerialized
+    const segmentationEvents: SegmentationEvent[] = []
+    const urls: string[] = []
+    let clickCount = 0
+    let keypressCount = 0
+    let mouseActivityCount = 0
+    for (const event of events) {
+        segmentationEvents.push({
+            timestamp: event.ts,
+            isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
+        })
+        if (event.href) {
+            urls.push(event.href)
+        }
+        if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
+            clickCount += 1
+        }
+        if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
+            keypressCount += 1
+        }
+        if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
+            mouseActivityCount += 1
+        }
+    }
+    return {
+        chunks: [lines],
+        rawBytes: lines.length,
+        eventCount: events.length,
         segmentationEvents,
         urls,
         clickCount,
@@ -140,6 +141,7 @@ export function createExtractSessionDataStep<T extends ExtractSessionDataStepInp
 > {
     return function extractSessionDataStep(input) {
         const { team, parsedMessage, retentionPeriod, sessionKey } = input
+
         const session: SessionRef = {
             teamId: team.teamId,
             sessionId: parsedMessage.session_id,
@@ -147,12 +149,23 @@ export function createExtractSessionDataStep<T extends ExtractSessionDataStepInp
             retentionPeriod,
             sessionKey,
         }
-        return Promise.resolve(
-            ok({
-                ...input,
-                session,
-                data: extractSessionData(parsedMessage),
-            })
-        )
+
+        // The native anonymizer already serialized the block lines; the counts, segmentation, and
+        // urls come from the per-event metadata instead of walking parsed events.
+        const eventData = parsedMessage.preSerialized
+            ? extractPreSerializedEvents(parsedMessage.preSerialized)
+            : serializeEvents(parsedMessage.eventsByWindowId)
+
+        const data: SerializedSessionData = {
+            ...eventData,
+            eventsRange: { start: parsedMessage.eventsRange.start, end: parsedMessage.eventsRange.end },
+            distinctId: parsedMessage.distinct_id,
+            snapshotSource: (parsedMessage.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH),
+            snapshotLibrary: parsedMessage.snapshot_library
+                ? parsedMessage.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+                : null,
+        }
+
+        return Promise.resolve(ok({ ...input, session, data }))
     }
 }

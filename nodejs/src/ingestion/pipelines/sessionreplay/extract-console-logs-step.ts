@@ -42,11 +42,10 @@ function payloadToSafeString(payload: unknown[]): string {
 }
 
 /**
- * Extracts the console log events from one parsed message: the level counts plus the entries to
- * store. Respects the team's console log ingestion setting and handles the native anonymizer's
- * pre-serialized fast path, which carries level counts in its metadata and no entries.
+ * Walks the parsed events and extracts the console log data: the level counts plus the entries to
+ * store, both including duplicates — dedup for storage is the recorder's job.
  */
-export function extractConsoleLogs(team: TeamForReplay, message: ParsedMessageData): ExtractedConsoleLogs {
+function extractConsoleLogsFromEvents(eventsByWindowId: ParsedMessageData['eventsByWindowId']): ExtractedConsoleLogs {
     const extracted: ExtractedConsoleLogs = {
         consoleLogCount: 0,
         consoleWarnCount: 0,
@@ -54,19 +53,7 @@ export function extractConsoleLogs(team: TeamForReplay, message: ParsedMessageDa
         entries: [],
     }
 
-    if (!team.consoleLogIngestionEnabled) {
-        return extracted
-    }
-
-    if (message.preSerialized) {
-        const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.preSerialized
-        extracted.consoleLogCount = consoleLogCount
-        extracted.consoleWarnCount = consoleWarnCount
-        extracted.consoleErrorCount = consoleErrorCount
-        return extracted
-    }
-
-    for (const events of Object.values(message.eventsByWindowId)) {
+    for (const events of Object.values(eventsByWindowId)) {
         for (const event of events) {
             const eventData = event.data as
                 | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
@@ -107,9 +94,10 @@ export interface ExtractConsoleLogsStepOutput {
 }
 
 /**
- * Extracts the per-message console log data from a parsed message. Pure business logic — the
- * record step aggregates the result into the session batch without looking at the raw events
- * again.
+ * Extracts the per-message console log data from a parsed message. Respects the team's console log
+ * ingestion setting and handles the native anonymizer's pre-serialized fast path, which carries
+ * level counts in its metadata and no entries. Pure business logic — the record step aggregates
+ * the result into the session batch without looking at the raw events again.
  */
 export function createExtractConsoleLogsStep<T extends ExtractConsoleLogsStepInput>(): ProcessingStep<
     T,
@@ -117,11 +105,17 @@ export function createExtractConsoleLogsStep<T extends ExtractConsoleLogsStepInp
 > {
     return function extractConsoleLogsStep(input) {
         const { team, parsedMessage } = input
-        return Promise.resolve(
-            ok({
-                ...input,
-                logs: extractConsoleLogs(team, parsedMessage),
-            })
-        )
+
+        let logs: ExtractedConsoleLogs
+        if (!team.consoleLogIngestionEnabled) {
+            logs = { consoleLogCount: 0, consoleWarnCount: 0, consoleErrorCount: 0, entries: [] }
+        } else if (parsedMessage.preSerialized) {
+            const { consoleLogCount, consoleWarnCount, consoleErrorCount } = parsedMessage.preSerialized
+            logs = { consoleLogCount, consoleWarnCount, consoleErrorCount, entries: [] }
+        } else {
+            logs = extractConsoleLogsFromEvents(parsedMessage.eventsByWindowId)
+        }
+
+        return Promise.resolve(ok({ ...input, logs }))
     }
 }

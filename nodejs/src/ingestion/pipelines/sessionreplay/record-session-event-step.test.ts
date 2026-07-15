@@ -1,8 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
-import { extractSessionData } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
@@ -46,12 +44,14 @@ describe('createRecordSessionEventStep', () => {
         ...overrides,
     })
 
-    // Builds the step's input the way the serialize step does in the pipeline.
+    // Builds the step's input in the shape the extract steps produce. The record step passes the
+    // extracted data through untouched, so its content doesn't matter here — only the call order.
     const createInput = (
         overrides: Partial<ParsedMessageData> = {},
         team: TeamForReplay = defaultTeam
     ): RecordSessionEventStepInput => {
         const parsedMessage = createParsedMessage(overrides)
+        const chunk = Buffer.from(JSON.stringify(['window1', { type: 3, timestamp: 1000 }]) + '\n')
         return {
             session: {
                 teamId: team.teamId,
@@ -60,8 +60,21 @@ describe('createRecordSessionEventStep', () => {
                 retentionPeriod: '30d',
                 sessionKey: createMockSessionKey(),
             },
-            data: extractSessionData(parsedMessage),
-            logs: extractConsoleLogs(team, parsedMessage),
+            data: {
+                chunks: [chunk],
+                rawBytes: chunk.length,
+                eventCount: 1,
+                segmentationEvents: [],
+                urls: [],
+                clickCount: 0,
+                keypressCount: 0,
+                mouseActivityCount: 0,
+                eventsRange: parsedMessage.eventsRange,
+                distinctId: parsedMessage.distinct_id,
+                snapshotSource: 'web',
+                snapshotLibrary: null,
+            },
+            logs: { consoleLogCount: 0, consoleWarnCount: 0, consoleErrorCount: 0, entries: [] },
             parsedMessage,
             // The recorder is tagged onto the element by the pipeline's beforeBatch.
             sessionBatchRecorder: mockBatchRecorder,

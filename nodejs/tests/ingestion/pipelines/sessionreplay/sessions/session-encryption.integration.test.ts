@@ -3,15 +3,16 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
-import { extractSessionData } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
+import { isOkResult } from '~/ingestion/framework/results'
+import { createExtractConsoleLogsStep } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { createExtractSessionDataStep } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
     WriteSessionData,
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
-import { SessionBatchRecorder, SessionRef } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
@@ -92,9 +93,12 @@ describe('session recording encryption integration', () => {
     // the pre-record resolve-key step does in production.
     let seenSessions: Set<string>
 
-    // Resolves the session's key the way the pre-record step would (generate once, then get) and
-    // records the serialized message, following the record step's call order: session data first,
-    // then logs and features only when the data was accepted.
+    const extractDataStep = createExtractSessionDataStep()
+    const extractLogsStep = createExtractConsoleLogsStep()
+
+    // Resolves the session's key the way the pre-record step would (generate once, then get),
+    // extracts the message through the real extract steps, and records it following the record
+    // step's call order: session data first, then logs and features only when the data was accepted.
     const recordMessage = async (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d'
@@ -106,16 +110,20 @@ describe('session recording encryption integration', () => {
             ? await keyStore.getKey(sessionId, teamId)
             : await keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[retentionPeriod])
         seenSessions.add(cacheKey)
-        const session: SessionRef = {
-            teamId,
-            sessionId,
-            partition: message.message.metadata.partition,
+        const extracted = await extractDataStep({
+            team: message.team,
+            parsedMessage: message.message,
             retentionPeriod,
             sessionKey,
+        })
+        const extractedLogs = await extractLogsStep({ team: message.team, parsedMessage: message.message })
+        if (!isOkResult(extracted) || !isOkResult(extractedLogs)) {
+            throw new Error('extract steps returned a non-ok result')
         }
-        const { accepted, bytesWritten } = recorder.recordSessionData(session, extractSessionData(message.message))
+        const { session, data } = extracted.value
+        const { accepted, bytesWritten } = recorder.recordSessionData(session, data)
         if (accepted) {
-            await recorder.recordSessionLogs(session, extractConsoleLogs(message.team, message.message))
+            await recorder.recordSessionLogs(session, extractedLogs.value.logs)
             recorder.recordSessionFeatures(session, message.message)
         }
         return bytesWritten
