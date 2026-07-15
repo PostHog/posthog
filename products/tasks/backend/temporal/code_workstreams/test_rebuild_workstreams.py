@@ -3,6 +3,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -149,6 +150,7 @@ def _task_with_run_at(team: Team, user: User, activity_at: datetime) -> Task:
 
 
 @pytest.mark.django_db
+@freeze_time("2026-06-01")
 def test_select_recent_task_ids_caps_per_user_and_keeps_low_volume_user():
     org = _org()
     team = _team(org)
@@ -173,6 +175,7 @@ def test_select_recent_task_ids_caps_per_user_and_keeps_low_volume_user():
 
 
 @pytest.mark.django_db
+@freeze_time("2026-06-01")
 def test_select_recent_task_ids_applies_team_cap_across_users():
     org = _org()
     team = _team(org)
