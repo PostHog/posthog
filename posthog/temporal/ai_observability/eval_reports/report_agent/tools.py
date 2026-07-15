@@ -21,6 +21,7 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.output_types import (
@@ -68,7 +69,7 @@ def _run_with_ch_retry(query_type: str, run: Callable[[], _T]) -> _T:
             if attempt >= _CH_MAX_RETRIES:
                 raise
             max_delay = _CH_BASE_DELAY_SECONDS * (2**attempt)
-            delay = random.uniform(max_delay / 2, max_delay)
+            delay = random.uniform(0, max_delay)
             logger.warning(
                 "eval_report_agent_ch_retry",
                 error=str(e),
@@ -194,6 +195,7 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
                 query=query,
                 placeholders=placeholders or {},
                 team=team,
+                workload=Workload.OFFLINE,
             )
 
     result = _run_with_ch_retry("EvalReportAgent", run)
@@ -226,10 +228,34 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
                 team=team,
                 query_type="EvalReportAgent",
                 fall_back_to_events=True,
+                workload=Workload.OFFLINE,
             )
 
     result = _run_with_ch_retry("EvalReportAgent", run)
     return result.results or []
+
+
+def _resolve_trace_ids_with_retry(
+    team: "Team",
+    generation_uuids: list[str],
+    ts_start: datetime,
+    ts_end: datetime,
+) -> dict[str, str]:
+    from posthog.hogql_queries.ai.trace_id_resolver import (  # noqa: PLC0415 -- keeps HogQL query machinery off the import path
+        resolve_trace_ids_for_generation_uuids,
+    )
+
+    return _run_with_ch_retry(
+        "EvalReportAgentTraceIdResolve",
+        lambda: resolve_trace_ids_for_generation_uuids(
+            team=team,
+            generation_uuids=generation_uuids,
+            ts_start=ts_start,
+            ts_end=ts_end,
+            query_type="EvalReportAgentTraceIdResolve",
+            workload=Workload.OFFLINE,
+        ),
+    )
 
 
 def _fetch_period_summary(
@@ -559,17 +585,15 @@ def sample_generation_details(
     # native columns). On the events fallback the column rewriter rewrites these
     # native columns back to `properties.$ai_*`, so the coalesce semantics are
     # preserved on both branches.
-    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
     from posthog.models import Team
 
     team = Team.objects.get(id=state["team_id"])
     ts_start, ts_end = _widened_ts_window(state)
-    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+    trace_id_by_uuid = _resolve_trace_ids_with_retry(
         team=team,
         generation_uuids=ids_to_fetch,
         ts_start=ts_start,
         ts_end=ts_end,
-        query_type="EvalReportAgentTraceIdResolve",
     )
     trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
     if not trace_ids:
@@ -656,7 +680,6 @@ def get_generation_detail(
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
-    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
@@ -667,12 +690,11 @@ def get_generation_detail(
         "ts_end": ast.Constant(value=ts_end),
     }
 
-    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+    trace_id_by_uuid = _resolve_trace_ids_with_retry(
         team=team,
         generation_uuids=[generation_id],
         ts_start=ts_start,
         ts_end=ts_end,
-        query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
     if not trace_id:
@@ -813,7 +835,6 @@ def get_generation_text_repr(
     Args:
         generation_id: The generation event UUID to look up
     """
-    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
     from posthog.models import Team
 
     from products.ai_observability.backend.text_repr.formatters import format_event_text_repr_from_ai_events_row
@@ -824,12 +845,11 @@ def get_generation_text_repr(
     team = Team.objects.get(id=state["team_id"])
     ts_start, ts_end = _widened_ts_window(state)
 
-    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+    trace_id_by_uuid = _resolve_trace_ids_with_retry(
         team=team,
         generation_uuids=[generation_id],
         ts_start=ts_start,
         ts_end=ts_end,
-        query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
     if not trace_id:

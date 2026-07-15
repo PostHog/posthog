@@ -28,6 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ def resolve_trace_ids_for_generation_uuids(
     ts_end: datetime,
     *,
     query_type: str = "TraceIdResolveForHeavyFetch",
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[str, str]:
     """Map generation event UUIDs → parent trace_id by reading `events`.
 
@@ -79,6 +81,7 @@ def resolve_trace_ids_for_generation_uuids(
                 "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in generation_uuids]),
             },
             team=team,
+            workload=workload,
         )
 
     return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}

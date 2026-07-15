@@ -4,13 +4,14 @@ import json
 import datetime as dt
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -22,6 +23,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _CH_MAX_RETRIES,
     _UUID_RE,
     _ch_ts,
+    _execute_hogql,
+    _execute_hogql_via_ai_events,
+    _resolve_trace_ids_with_retry,
     _run_with_ch_retry,
     _widened_ts_window,
     add_citation,
@@ -522,22 +526,6 @@ class TestToolsCoordinate(SimpleTestCase):
 
 
 class TestRunWithChRetry(SimpleTestCase):
-    """Transient ClickHouse capacity errors are retried instead of failing the query."""
-
-    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
-    def test_recovers_after_transient_capacity_errors(self, mock_sleep):
-        calls = {"n": 0}
-
-        def run():
-            calls["n"] += 1
-            if calls["n"] <= 2:
-                raise ClickHouseAtCapacity()
-            return "ok"
-
-        self.assertEqual(_run_with_ch_retry("Test", run), "ok")
-        self.assertEqual(calls["n"], 3)
-        self.assertEqual(mock_sleep.call_count, 2)
-
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
     def test_reraises_after_exhausting_retries(self, mock_sleep):
         def run():
@@ -555,3 +543,50 @@ class TestRunWithChRetry(SimpleTestCase):
         with self.assertRaises(ValueError):
             _run_with_ch_retry("Test", run)
         mock_sleep.assert_not_called()
+
+
+class TestClickHouseQueryRouting(SimpleTestCase):
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    @patch("posthog.models.Team.objects.get")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_events_query_retries_on_offline_workload(self, mock_execute, mock_get_team, mock_sleep):
+        mock_get_team.return_value = MagicMock()
+        mock_execute.side_effect = [ClickHouseAtCapacity(), MagicMock(results=[["ok"]])]
+
+        self.assertEqual(_execute_hogql(1, "SELECT 1"), [["ok"]])
+
+        self.assertEqual(mock_execute.call_count, 2)
+        self.assertTrue(all(call.kwargs["workload"] == Workload.OFFLINE for call in mock_execute.call_args_list))
+        mock_sleep.assert_called_once()
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
+    def test_ai_events_query_retries_on_offline_workload(self, mock_query_ai_events, mock_sleep):
+        mock_query_ai_events.side_effect = [ClickHouseAtCapacity(), MagicMock(results=[["ok"]])]
+
+        self.assertEqual(_execute_hogql_via_ai_events(MagicMock(pk=1), "SELECT 1"), [["ok"]])
+
+        self.assertEqual(mock_query_ai_events.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs["workload"] == Workload.OFFLINE for call in mock_query_ai_events.call_args_list)
+        )
+        mock_sleep.assert_called_once()
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    @patch("posthog.hogql_queries.ai.trace_id_resolver.execute_hogql_query")
+    def test_trace_id_query_retries_on_offline_workload(self, mock_execute, mock_sleep):
+        generation_uuid = "12345678-1234-1234-1234-123456789abc"
+        trace_id = "abcdefab-cdef-abcd-efab-cdefabcdefab"
+        mock_execute.side_effect = [ClickHouseAtCapacity(), MagicMock(results=[[generation_uuid, trace_id]])]
+
+        result = _resolve_trace_ids_with_retry(
+            team=MagicMock(),
+            generation_uuids=[generation_uuid],
+            ts_start=dt.datetime(2026, 4, 1, tzinfo=dt.UTC),
+            ts_end=dt.datetime(2026, 4, 2, tzinfo=dt.UTC),
+        )
+
+        self.assertEqual(result, {generation_uuid: trace_id})
+        self.assertEqual(mock_execute.call_count, 2)
+        self.assertTrue(all(call.kwargs["workload"] == Workload.OFFLINE for call in mock_execute.call_args_list))
+        mock_sleep.assert_called_once()
