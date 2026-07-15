@@ -64,14 +64,15 @@ def is_trusted_posthog_mcp_resource(resource_url: str) -> bool:
 
 @lru_cache(maxsize=1)
 def _tool_required_scopes() -> frozenset[str]:
-    scopes: set[str] = set()
+    # Keyed merge, later files winning — same precedence as the MCP server's
+    # getToolDefinitions() ({ ...handwritten, ...generated }), so a hand-written
+    # tool overridden by a generated one doesn't leak its scopes into consent.
+    merged: dict[str, dict] = {}
     for path in _TOOL_DEFINITIONS_PATHS:
         with open(path) as definitions_file:
-            definitions = json.load(definitions_file)
-        scopes.update(
-            scope for definition in definitions.values() for scope in (definition.get("required_scopes") or [])
-        )
-    return frozenset(scopes)
+            merged.update(json.load(definitions_file))
+
+    return frozenset(scope for definition in merged.values() for scope in (definition.get("required_scopes") or []))
 
 
 def mcp_advertised_scopes() -> list[str]:
