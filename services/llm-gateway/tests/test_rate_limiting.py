@@ -244,10 +244,14 @@ class TestRateLimitResponseHeaders:
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
+            # The reason is repeated in the message (SDK error strings often
+            # surface only error.message) and the throttle scope rides along as
+            # a machine-readable code.
             assert response.json() == {
                 "error": {
-                    "message": "Rate limit exceeded",
+                    "message": "Rate limit exceeded: Product rate limit exceeded",
                     "type": "rate_limit_error",
                     "reason": "Product rate limit exceeded",
+                    "code": "test_throttle",
                 }
             }
