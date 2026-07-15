@@ -575,7 +575,10 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     })),
 
     urlToAction(({ actions, cache }) => ({
-        [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
+        [`${urls.aiObservabilityTraces()}/:id`]: (
+            { id },
+            { event, timestamp, exception_ts, search, line, tab, msg }
+        ) => {
             actions.setTraceId(tryDecodeURIComponent(id ?? ''))
             void addProductIntent({
                 product_type: ProductKey.AI_OBSERVABILITY,

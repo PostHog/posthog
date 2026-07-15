@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { AIObservabilityTrace: blankScene }
@@ -41,15 +41,28 @@ describe('aiObservabilityTraceLogic', () => {
         expect(logic.values.traceId).toBe(traceIdWithColon)
     })
 
-    it('decodes an opaque trace ID from a citation URL', async () => {
-        const traceId = 'trace](id'
-        const encodedTraceId = encodeURIComponent(encodeURIComponent(traceId))
-        const traceUrl = combineUrl(urls.aiObservabilityTrace(encodedTraceId))
+    it('preserves an opaque trace ID when trace URL state changes', async () => {
+        const traceId = 'trace](id /?#'
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId))
 
         router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
         await expectLogic(logic).toMatchValues({
             traceId,
         })
+
+        logic.actions.setSearchQuery('needle')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.traceId).toBe(traceId)
+        expect(router.values.searchParams).toMatchObject({ search: 'needle' })
+
+        logic.actions.setViewMode(TraceViewMode.Raw)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.traceId).toBe(traceId)
+        expect(router.values.location.pathname).toBe(
+            addProjectIdIfMissing(urls.aiObservabilityTrace(traceId), MOCK_TEAM_ID)
+        )
     })
 
     it('handles trace ID with event and timestamp parameters', async () => {

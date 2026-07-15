@@ -26,18 +26,6 @@ import type {
 // replacement rather than surviving around a link.
 const SAFE_CITATION_LABEL_RE = /^[A-Za-z0-9._~-]{1,8}$/
 
-function encodePathSegment(value: string): string {
-    // kea-router decodes the pathname once before matching, so preserve an encoded layer for the scene.
-    const encodedValue = encodeURIComponent(value).replace(
-        /[!'()*]/g,
-        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-    )
-    return encodeURIComponent(encodedValue).replace(
-        /[!'()*]/g,
-        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-    )
-}
-
 function citationLinkLabel(citedId: string, isGenerationCitation: boolean): string {
     const preview = citedId.slice(0, 8)
     return SAFE_CITATION_LABEL_RE.test(preview) ? `${preview}...` : isGenerationCitation ? 'generation' : 'trace'
@@ -57,7 +45,7 @@ function linkifyCitations(content: string, citations: EvaluationReportCitation[]
         }
         const token = `\0CITE${idx}\0`
         const url = urls.aiObservabilityTrace(
-            encodePathSegment(traceId),
+            traceId,
             c.generation_id && c.trace_id ? { event: c.generation_id } : undefined
         )
         const link = `[\`${citationLinkLabel(citedId, Boolean(c.generation_id))}\`](${url})`
