@@ -49,8 +49,6 @@ class TestCoinMarketCapSource:
 
         assert config.name.value == "CoinMarketCap"
         assert config.label == "CoinMarketCap"
-        # Shipped hidden behind unreleasedSource for now, labelled alpha.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/coinmarketcap.png"
 

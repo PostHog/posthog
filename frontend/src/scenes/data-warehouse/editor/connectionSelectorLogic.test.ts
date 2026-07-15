@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
 
 import {
     connectionSelectorLogic,
@@ -12,12 +13,18 @@ import {
     POSTHOG_WAREHOUSE,
 } from './connectionSelectorLogic'
 
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataSourcesConnectionsList: jest.fn(),
+}))
+
+const mockConnectionsList = externalDataSourcesConnectionsList as jest.Mock
+
 describe('connectionSelectorLogic', () => {
     let logic: ReturnType<typeof connectionSelectorLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.externalDataSources, 'connections').mockResolvedValue([
+        mockConnectionsList.mockReset().mockResolvedValue([
             {
                 id: 'conn-123',
                 prefix: 'warehouse',
@@ -34,12 +41,11 @@ describe('connectionSelectorLogic', () => {
                 access_method: 'warehouse',
                 supports_hogql: true,
             },
-        ] as any)
+        ])
     })
 
     afterEach(() => {
         logic?.unmount()
-        jest.restoreAllMocks()
     })
 
     it('does not fetch on mount — embedded editors mount this logic without the selector', async () => {
@@ -48,7 +54,7 @@ describe('connectionSelectorLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(api.externalDataSources.connections).not.toHaveBeenCalled()
+        expect(mockConnectionsList).not.toHaveBeenCalled()
     })
 
     it('loads connection options when the selector requests them', async () => {
@@ -58,7 +64,7 @@ describe('connectionSelectorLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(api.externalDataSources.connections).toHaveBeenCalledTimes(1)
+        expect(mockConnectionsList).toHaveBeenCalledTimes(1)
         expect(logic.values.connectionSelectOptions[0].options).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ value: POSTHOG_WAREHOUSE }),

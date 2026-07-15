@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import IconPostHog from 'public/posthog-icon.svg'
@@ -12,6 +12,7 @@ import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
@@ -105,7 +106,9 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             {
                 loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOptionApi[]> => {
                     try {
-                        return await api.externalDataSources.connections()
+                        // The projects route treats the path param as a team id (environments transition),
+                        // so pass the current team id to keep per-environment scoping.
+                        return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 403) {
                             return []

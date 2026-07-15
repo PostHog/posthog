@@ -204,7 +204,7 @@ describe('sqlEditorLogic', () => {
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
                 '/api/environments/:team_id/data_modeling_jobs/running/': [],
                 '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
-                '/api/environments/:team_id/external_data_sources/connections/': [],
+                '/api/projects/:team_id/external_data_sources/connections/': [],
                 '/api/user_home_settings/@me/': {},
             },
             post: {
@@ -1396,7 +1396,7 @@ describe('sqlEditorLogic', () => {
         it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/external_data_sources/connections/': [
+                    '/api/projects/:team_id/external_data_sources/connections/': [
                         200,
                         [
                             {

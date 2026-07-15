@@ -186,7 +186,7 @@ class AikidoSecuritySourceConfig(config.Config):
 
 @config.config
 class AirOpsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -388,7 +388,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AviatorSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -445,7 +445,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BasetenSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -569,7 +569,7 @@ class BrowserUseSourceConfig(config.Config):
 
 @config.config
 class BrowserbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -842,7 +842,7 @@ class CodySourceConfig(config.Config):
 
 @config.config
 class CohereSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1055,7 +1055,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DigitalOceanSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1093,6 +1093,11 @@ class DocusealSourceConfig(config.Config):
 
 @config.config
 class DocusignSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DodoPaymentsSourceConfig(config.Config):
     pass
 
 
@@ -1361,17 +1366,20 @@ class FloatAppSourceConfig(config.Config):
 
 @config.config
 class FlowluSourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
 class FlyIoSourceConfig(config.Config):
-    pass
+    api_token: str
+    organization_slug: str
 
 
 @config.config
 class FormbricksSourceConfig(config.Config):
-    pass
+    api_key: str
+    host: str | None = None
 
 
 @config.config
@@ -1573,7 +1581,8 @@ class GoogleFormsSourceConfig(config.Config):
 
 @config.config
 class GooglePageSpeedInsightsSourceConfig(config.Config):
-    pass
+    api_key: str
+    urls: str
 
 
 @config.config
@@ -1637,7 +1646,7 @@ class GridlySourceConfig(config.Config):
 
 @config.config
 class GroqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1679,7 +1688,9 @@ class HarveySourceConfig(config.Config):
 
 @config.config
 class HatchetSourceConfig(config.Config):
-    pass
+    api_token: str
+    host: str | None = None
+    tenant_id: str | None = None
 
 
 @config.config
@@ -1784,7 +1795,9 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class HyperspellSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    user_id: str | None = None
 
 
 @config.config
@@ -1805,7 +1818,8 @@ class IlluminaBasespaceSourceConfig(config.Config):
 
 @config.config
 class ImaggaSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -1976,7 +1990,7 @@ class KekaSourceConfig(config.Config):
 
 @config.config
 class KernelSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2043,7 +2057,9 @@ class LangSmithSourceConfig(config.Config):
 
 @config.config
 class LangfuseSourceConfig(config.Config):
-    pass
+    public_key: str
+    secret_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2437,7 +2453,7 @@ class NavanSourceConfig(config.Config):
 
 @config.config
 class NebiusAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2605,7 +2621,7 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenRouterSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2983,7 +2999,7 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PyPISourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
@@ -3121,7 +3137,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplicateSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3232,7 +3248,8 @@ class SafetyCultureSourceConfig(config.Config):
 
 @config.config
 class SageHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -3263,6 +3280,11 @@ class SalesforceMarketingCloudSourceConfig(config.Config):
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class SalestricsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3297,7 +3319,7 @@ class SavvyCalSourceConfig(config.Config):
 
 @config.config
 class ScaleAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3849,7 +3871,7 @@ class TwelveDataSourceConfig(config.Config):
 
 @config.config
 class TwelveLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3917,7 +3939,8 @@ class UpPromoteSourceConfig(config.Config):
 
 @config.config
 class UpstashSourceConfig(config.Config):
-    pass
+    email: str
+    api_key: str
 
 
 @config.config
@@ -3937,12 +3960,12 @@ class VWOSourceConfig(config.Config):
 
 @config.config
 class VantageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class VapiSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3952,7 +3975,7 @@ class VeeqoSourceConfig(config.Config):
 
 @config.config
 class VellumSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4136,7 +4159,7 @@ class ZapSignSourceConfig(config.Config):
 
 @config.config
 class ZapierSupportedStorageSourceConfig(config.Config):
-    pass
+    secret: str
 
 
 @config.config
@@ -4438,6 +4461,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DOCKERHUB: DockerhubSourceConfig,
         ExternalDataSourceType.DOCUSEAL: DocusealSourceConfig,
         ExternalDataSourceType.DOCUSIGN: DocusignSourceConfig,
+        ExternalDataSourceType.DODOPAYMENTS: DodoPaymentsSourceConfig,
         ExternalDataSourceType.DOLIBARR: DolibarrSourceConfig,
         ExternalDataSourceType.DREMIO: DremioSourceConfig,
         ExternalDataSourceType.DRIP: DripSourceConfig,
@@ -4841,6 +4865,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SALESTRICS: SalestricsSourceConfig,
         ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,

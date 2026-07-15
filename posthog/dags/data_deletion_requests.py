@@ -88,13 +88,15 @@ class PersonRemovalContext:
 # ---------------------------------------------------------------------------
 
 
-def _record_execution_attempt(request: DataDeletionRequest) -> None:
+def _record_execution_attempt(request: DataDeletionRequest, run_id: str) -> None:
     """Mark the request IN_PROGRESS and update execution-tracking fields.
 
     Called from inside the ``select_for_update`` block of each ``load_*`` op so
-    the counter and timestamps are bumped exactly once per APPROVED → IN_PROGRESS
-    transition. ``first_executed_at`` is preserved across retries; ``attempt_count``
-    counts every actual execution attempt (not Retry button clicks).
+    the counter, timestamps and Dagster run id are set exactly once per
+    APPROVED → IN_PROGRESS transition. ``first_executed_at`` is preserved across
+    retries; ``attempt_count`` counts every actual execution attempt (not Retry
+    button clicks). ``last_dagster_run_id`` always points at the newest run, so an
+    operator debugging a stuck or failed request can jump straight to its logs.
     """
     from django.utils import timezone
 
@@ -102,7 +104,8 @@ def _record_execution_attempt(request: DataDeletionRequest) -> None:
     request.status = RequestStatus.IN_PROGRESS
     request.attempt_count = (request.attempt_count or 0) + 1
     request.last_executed_at = now
-    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at"]
+    request.last_dagster_run_id = run_id
+    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at", "last_dagster_run_id"]
     if request.first_executed_at is None:
         request.first_executed_at = now
         update_fields.append("first_executed_at")
@@ -354,7 +357,7 @@ def load_deletion_request(
                 f"Request {config.request_id} is not an approved event_removal request.",
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -515,7 +518,7 @@ def load_property_removal_request(
                 f"Request {config.request_id} has no properties or person_properties specified.",
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
 
         # Set once and reused verbatim by every retry: all attempts must agree on which
         # inserted_at value identifies cleaned re-inserts, or re-runs duplicate them.
@@ -934,7 +937,7 @@ def load_person_removal_request(
                 "they are mutually exclusive."
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
 
     # The fields are nullable on the model (NULL for non-person_removal rows), but
     # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.
