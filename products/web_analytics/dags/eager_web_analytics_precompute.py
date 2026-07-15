@@ -468,6 +468,24 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
     team_ids, gate_reason, diagnostics = _resolve_eager_audience(
         active_teams_pct=config.active_teams_pct, active_lookback_hours=config.active_lookback_hours
     )
+    # The active-audience fetch is best-effort ([] on any ClickHouse error) so the
+    # hourly warmer never skips a cycle. For the backfill that leniency is wrong: a
+    # transient cluster error would silently shrink a fleet-wide run to the static
+    # lists and the run would report SUCCESS having warmed nothing (this happened —
+    # an ALL_CONNECTION_TRIES_FAILED blip produced a 14-minute no-op "backfill").
+    # Fail loudly instead so the launcher knows to relaunch.
+    if (
+        job_name == "web_analytics_eager_backfill"
+        and config.active_teams_pct > 0
+        and not diagnostics.get("active_teams")
+    ):
+        raise dagster.Failure(
+            description=(
+                f"active-audience fetch returned no teams (active_teams_pct={config.active_teams_pct}) — "
+                "likely a transient ClickHouse error during the query_log scan; relaunch the backfill"
+            ),
+            metadata=diagnostics,
+        )
     # Captured before the ramp enrollment below mutates the setting — this set is
     # what "statically enrolled" means for the priority sort further down.
     static_ids = {

@@ -26,6 +26,7 @@ from products.web_analytics.dags.eager_web_analytics_precompute import (
     _resolve_eager_audience,
     _warm_baseline_for_team,
     warm_eager_baseline_op,
+    web_analytics_eager_backfill_job,
     web_analytics_eager_baseline_warming_job,
 )
 
@@ -284,6 +285,21 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         # setting is updated; the run should not crash.
         result = warm_eager_baseline_op(dagster.build_op_context())
         assert result == {"teams": 1, "warmed": 0, "failed": 0, "skipped": 1}
+        get_runner.assert_not_called()
+
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    @patch(f"{_EAGER_MODULE}._fetch_active_wa_team_ids", return_value=[])
+    def test_backfill_fails_when_active_audience_fetch_returns_nothing(self, _fetch, get_runner, _tag, _is_cloud):
+        # The fetch is best-effort ([] on ClickHouse errors) so the hourly warmer
+        # never skips a cycle — but a backfill run that gets [] would silently warm
+        # only the static lists and report SUCCESS. It must fail instead.
+        get_runner.return_value = Mock(
+            run=Mock(return_value=Mock(preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE))
+        )
+        with _eager_audience([self.team.pk]):
+            result = web_analytics_eager_backfill_job.execute_in_process(raise_on_error=False)
+        assert not result.success
         get_runner.assert_not_called()
 
 
