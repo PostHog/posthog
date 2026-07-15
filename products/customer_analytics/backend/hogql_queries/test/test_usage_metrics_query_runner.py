@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetricsQuery
+from posthog.schema import CachedUsageMetricsQueryResponse, HogQLQueryModifiers, PersonsOnEventsMode, UsageMetricsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group.util import create_group
@@ -197,6 +197,75 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[1]["id"], str(another_metric.id))
         self.assertEqual(results[1]["value"], 5.0)
+
+    @freeze_time("2025-10-09T12:11:00")
+    def test_person_property_test_account_filter(self):
+        # Person-property test-account filters used to be inlined into the countIf argument, which
+        # ClickHouse can't resolve for a JOIN-ed column under GROUP BY (CHQueryErrorNotFoundColumnInBlock).
+        # They must be hoisted into WHERE. POE is disabled here to force the events->person JOIN, and a
+        # second metric without test-account filtering guards against the WHERE filter leaking across the
+        # metrics batched into one runner.
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "@internal.com", "operator": "not_icontains"},
+        ]
+        self.team.save()
+
+        group_key = "acme"
+        self._create_group(group_key=group_key, group_type_index=0)
+        real_person = _create_person(distinct_ids=["real-user"], team=self.team, properties={"email": "real@acme.com"})
+        bot_person = _create_person(distinct_ids=["bot-user"], team=self.team, properties={"email": "bot@internal.com"})
+
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Filtered usage",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={
+                "events": [{"id": "used_feature", "type": "events", "order": 0}],
+                "filter_test_accounts": True,
+            },
+        )
+        GroupUsageMetric.objects.create(
+            id=self.another_test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Unfiltered usage",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "used_feature", "type": "events", "order": 0}]},
+        )
+        for _ in range(3):
+            _create_event(
+                event="used_feature",
+                team=self.team,
+                person_id=str(real_person.uuid),
+                distinct_id="real-user",
+                properties={"$group_0": group_key},
+            )
+        for _ in range(2):
+            _create_event(
+                event="used_feature",
+                team=self.team,
+                person_id=str(bot_person.uuid),
+                distinct_id="bot-user",
+                properties={"$group_0": group_key},
+            )
+        flush_persons_and_events()
+
+        runner = UsageMetricsQueryRunner(
+            team=self.team,
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", group_key=group_key, group_type_index=0),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+        )
+        results = runner.calculate().model_dump()["results"]
+
+        results_by_name = {r["name"]: r for r in results}
+        self.assertEqual(results_by_name["Filtered usage"]["value"], 3.0)
+        self.assertEqual(results_by_name["Unfiltered usage"]["value"], 5.0)
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
