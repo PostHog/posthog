@@ -12,6 +12,7 @@ use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY, QUOTA_LIMITING_SUSPENDED_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use serde_json::Value;
 
 use capture::api::CaptureError;
@@ -247,10 +248,32 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
         .collect()
 }
 
+fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| {
+            if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+                return None;
+            }
+            let metric_resource = key
+                .key()
+                .labels()
+                .find(|label| label.key() == "resource")
+                .map(|label| label.value());
+            if metric_resource != Some(resource) {
+                return None;
+            }
+            match value {
+                DebugValue::Counter(count) => Some(count),
+                _ => None,
+            }
+        })
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn test_recording_grace_period_counts_admitted_snapshots() {
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
     let token = "test_token_recording_grace_period";
     let (router, sink) =
         setup_router_with_limits_and_grace(token, CaptureMode::Recordings, false, true, vec![])
@@ -272,29 +295,32 @@ async fn test_recording_grace_period_counts_admitted_snapshots() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(sink.events().len(), 1);
-    let grace_period_count =
-        snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .find_map(|(key, _, _, value)| {
-                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
-                    return None;
-                }
-                let resource = key
-                    .key()
-                    .labels()
-                    .find(|label| label.key() == "resource")
-                    .map(|label| label.value());
-                if resource != Some("recordings") {
-                    return None;
-                }
-                match value {
-                    DebugValue::Counter(count) => Some(count),
-                    _ => None,
-                }
-            });
-    assert_eq!(grace_period_count, Some(1));
+    assert_eq!(grace_period_count(&snapshotter, "recordings"), Some(1));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_global_limit_takes_precedence_over_global_grace_period() {
+    let token = "test_token_global_limit_and_grace";
+    let (router, sink) =
+        setup_router_with_limits_and_grace(token, CaptureMode::Events, true, true, vec![]).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+    let client = TestClient::new(router);
+
+    let response = client
+        .post("/e")
+        .body(create_batch_payload_with_token(&["$exception"], token))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sink.events().len(), 1);
+    assert_eq!(grace_period_count(&snapshotter, "events"), None);
 }
 
 #[tokio::test]

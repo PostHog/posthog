@@ -1,4 +1,3 @@
-use common_types::HasEventName;
 use limiters::redis::QuotaResource;
 use metrics::counter;
 

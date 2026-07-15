@@ -264,7 +264,10 @@ impl CaptureQuotaLimiter {
     }
 
     pub async fn report_global_grace_period_admission(&self, token: &str, event_count: u64) {
-        if event_count == 0 || !self.grace_period_limiter.is_limited(token).await {
+        if event_count == 0
+            || !self.grace_period_limiter.is_limited(token).await
+            || self.global_limiter.is_limited(token).await
+        {
             return;
         }
 
@@ -285,7 +288,7 @@ impl CaptureQuotaLimiter {
         // every limiter up front and skip the EventInfo allocation entirely when
         // this token isn't in any grace period — the common case on every request.
         let scoped_in_grace = self.scoped_limiters_in_grace_period(token).await;
-        if scoped_in_grace.is_empty() && !self.grace_period_limiter.is_limited(token).await {
+        if scoped_in_grace.is_empty() && !self.is_in_global_grace_period(token).await {
             return;
         }
 
@@ -340,6 +343,7 @@ impl CaptureQuotaLimiter {
     /// there's any grace-admission work to do for `token`.
     pub async fn is_in_global_grace_period(&self, token: &str) -> bool {
         self.grace_period_limiter.is_limited(token).await
+            && !self.global_limiter.is_limited(token).await
     }
 
     /// Returns the indices into `self.scoped_limiters` that are currently in
@@ -350,7 +354,7 @@ impl CaptureQuotaLimiter {
     pub async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
         let mut in_grace = Vec::new();
         for (i, limiter) in self.scoped_limiters.iter().enumerate() {
-            if limiter.is_in_grace_period(token).await {
+            if limiter.is_in_grace_period(token).await && !limiter.is_limited(token).await {
                 in_grace.push(i);
             }
         }
