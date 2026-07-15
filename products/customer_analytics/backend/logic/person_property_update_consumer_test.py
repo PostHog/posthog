@@ -92,14 +92,16 @@ class TestProcessRecord:
         [
             ("client_error_400", 400, DLQ),
             ("client_error_404", 404, DLQ),
+            ("retryable_408", 408, RETRY),
+            ("retryable_429", 429, RETRY),
             ("server_error_503", 503, RETRY),
             ("transport_error_0", 0, RETRY),
         ]
     )
     def test_whole_request_error_routes_by_status_code(self, _name, status_code, expected):
-        # A permanent 4xx (bad/stale token, validation) is poison -> DLQ; a 5xx or transport error
-        # (status 0) is transient -> retry. Without this split a 4xx retries forever and wedges the
-        # partition, since capture returns the failure as a result rather than a dropped uid.
+        # A permanent 4xx (bad/stale token, validation) is poison -> DLQ; a retryable 4xx (408/429),
+        # 5xx, or transport error (status 0) is transient -> retry. Without this split a 4xx retries
+        # forever and wedges the partition, or a transient 408/429 gets dropped instead of retried.
         capture = MagicMock(
             return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=status_code)
         )
@@ -261,13 +263,12 @@ class TestRateGate:
         # A grant that raises (an unexpected limiter/Redis error the limiter's own fallback didn't
         # absorb) must not crash the loop: back off and retry the acquire until it succeeds, leaving
         # the message uncommitted meanwhile. Without this it escapes and crash-loops the pod.
-        outcomes = iter([RuntimeError("redis down"), RuntimeError("redis down"), True])
+        raises = iter([True, True, False])  # raise on the first two acquires, then admit
 
         def grant() -> bool:
-            nxt = next(outcomes)
-            if isinstance(nxt, Exception):
-                raise nxt
-            return nxt
+            if next(raises):
+                raise RuntimeError("redis down")
+            return True
 
         capture = MagicMock(return_value=_capture_result(succeeded=True))
         sleeps: list[float] = []

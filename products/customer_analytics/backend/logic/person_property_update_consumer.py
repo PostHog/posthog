@@ -62,6 +62,10 @@ THROTTLED_TOTAL = Counter(
 _DEFAULT_RATE_PER_SEC = float(CONSTANCE_CONFIG[_RATE_SETTING][0])
 _MIN_RATE_PER_SEC = 1.0
 
+# 4xx statuses that are transient despite being client errors: request timeout and rate limiting
+# (capture returns 408 with Retry-After for timeouts, 429 when throttled). These must retry, not DLQ.
+_RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 
@@ -131,6 +135,13 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
 SENT = "sent"
 DLQ = "dlq"
 RETRY = "retry"
+
+
+def _is_permanent_client_error(status_code: object) -> bool:
+    """True for a 4xx that can never succeed on retry (bad/stale token, validation) -> DLQ. The
+    retryable 4xx (408 timeout, 429 throttled) are excluded so a client hammering capture into
+    timeouts can't get queued updates dropped instead of retried."""
+    return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
 class PersonPropertyUpdateConsumer:
@@ -246,13 +257,13 @@ class PersonPropertyUpdateConsumer:
         try:
             result = self._capture(**kwargs)
         except Exception as exc:
-            # A client-side/4xx rejection (bad/stale token, validation) can never succeed on retry,
-            # so DLQ it rather than retrying forever and wedging the partition. capture surfaces most
-            # permanent rejections as a returned result (handled below); this covers the case where
-            # it raises one instead — decoupling us from capture's exact validation set. status_code
-            # 0 (transport/client-side) and 5xx (server) stay transient -> leave uncommitted.
+            # A permanent client-side/4xx rejection (bad/stale token, validation) can never succeed on
+            # retry, so DLQ it rather than retrying forever and wedging the partition. capture surfaces
+            # most permanent rejections as a returned result (handled below); this covers the case
+            # where it raises one instead — decoupling us from capture's exact validation set. status
+            # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
-            if isinstance(status_code, int) and 400 <= status_code < 500:
+            if _is_permanent_client_error(status_code):
                 return self._dlq(value, f"capture_client_error:{status_code}")
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
@@ -264,9 +275,10 @@ class PersonPropertyUpdateConsumer:
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
         if result.dropped:
             return self._dlq(value, "capture_dropped")
-        # A whole-request 4xx is likewise permanent (bad/stale token, validation), so DLQ it too.
-        # Everything else (exhausted retries, unaccounted, 5xx, transport) is transient -> retry.
-        if result.error and isinstance(result.status_code, int) and 400 <= result.status_code < 500:
+        # A permanent whole-request 4xx is likewise poison (bad/stale token, validation), so DLQ it
+        # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
+        # transient -> retry.
+        if result.error and _is_permanent_client_error(result.status_code):
             return self._dlq(value, f"capture_error:{result.status_code}")
         RETRY_TOTAL.inc()
         return RETRY
