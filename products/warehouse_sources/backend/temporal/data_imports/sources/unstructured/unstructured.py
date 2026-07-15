@@ -99,6 +99,12 @@ def _fetch(
 ) -> list[dict[str, Any]]:
     response = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
 
+    # The session never follows redirects (SSRF hardening); surface a 30x as an error rather than
+    # parsing the redirect body, so a customer-controlled host can't quietly point the sync elsewhere.
+    if response.is_redirect or response.is_permanent_redirect:
+        logger.error(f"Unstructured API returned an unexpected redirect: status={response.status_code}, url={url}")
+        raise requests.HTTPError(f"Unexpected redirect from Unstructured API (status={response.status_code})")
+
     if response.status_code == 429 or response.status_code >= 500:
         raise UnstructuredRetryableError(
             f"Unstructured API error (retryable): status={response.status_code}, url={url}"
@@ -135,7 +141,10 @@ def get_rows(
     headers = _headers(api_key)
     url = f"{normalize_base_url(base_url)}{config.path}"
     # One session reused across pages so urllib3 keeps the connection alive between requests.
-    session = make_tracked_session()
+    # `allow_redirects=False` keeps the credentialed request pinned to the validated host so a
+    # customer-controlled host can't 30x the `unstructured-api-key` header off-origin (SSRF). The
+    # key is also registered for value-based redaction so it never lands in a captured HTTP sample.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if not config.paginated:
         rows = _fetch(session, url, headers, None, logger)
@@ -216,7 +225,10 @@ def validate_credentials(base_url: str | None, api_key: str, team_id: int) -> tu
 
     url = f"{normalize_base_url(base_url)}/api/v1/workflows/"
     try:
-        response = make_tracked_session().get(
+        # `allow_redirects=False` stops a validated-but-hostile host from 30x-ing the probe (and the
+        # `unstructured-api-key` header) to another origin; a redirect then fails the status check
+        # below. The key is registered for value-based redaction so it never lands in a captured sample.
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
             url,
             headers=_headers(api_key),
             params={"page": 1, "page_size": 1},

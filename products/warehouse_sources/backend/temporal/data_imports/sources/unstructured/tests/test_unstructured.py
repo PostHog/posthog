@@ -19,10 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unstructur
 )
 
 
-def _response(status_code: int, body: Any) -> MagicMock:
+def _response(status_code: int, body: Any, is_redirect: bool = False) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.ok = 200 <= status_code < 300
+    resp.is_redirect = is_redirect
+    resp.is_permanent_redirect = is_redirect
     resp.json.return_value = body
     resp.text = str(body)
 
@@ -61,6 +63,15 @@ class TestFetch:
     def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
         session = MagicMock()
         session.get.return_value = _response(status, {"detail": "nope"})
+        with pytest.raises(requests.HTTPError):
+            cast(Any, unstructured._fetch).__wrapped__(session, "https://x/y", {}, None, MagicMock())
+
+    @parameterized.expand([("moved_permanently", 301), ("found", 302), ("temporary_redirect", 307)])
+    def test_redirect_response_raises(self, _name: str, status: int) -> None:
+        # The session never follows redirects (SSRF hardening); a 30x must surface as an error so a
+        # customer-controlled host can't quietly point a credentialed request at another origin.
+        session = MagicMock()
+        session.get.return_value = _response(status, "", is_redirect=True)
         with pytest.raises(requests.HTTPError):
             cast(Any, unstructured._fetch).__wrapped__(session, "https://x/y", {}, None, MagicMock())
 
@@ -154,6 +165,18 @@ class TestGetRows:
 
         assert session.get.call_args.kwargs["headers"]["unstructured-api-key"] == "secret-key"
 
+    def test_session_pins_redirects_off_and_redacts_key(self) -> None:
+        # Locks in the SSRF hardening: the credentialed session must never follow redirects and must
+        # register the key for value-based redaction so it can't leak off-origin or into a sample.
+        manager = self._manager()
+        session = MagicMock()
+        session.get.return_value = _response(200, [])
+        with patch.object(unstructured, "make_tracked_session", return_value=session) as make_session:
+            list(get_rows(DEFAULT_BASE_URL, "secret-key", "jobs", MagicMock(), manager, team_id=1))
+
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
     def test_unsafe_host_blocks_fetch(self) -> None:
         # A host resolving to an internal address must be rejected before the key is ever sent.
         manager = self._manager()
@@ -187,6 +210,16 @@ class TestValidateCredentials:
         with patch.object(unstructured, "make_tracked_session", return_value=session):
             ok, _msg = validate_credentials(DEFAULT_BASE_URL, "key", team_id=1)
         assert ok is expected
+
+    def test_session_pins_redirects_off_and_redacts_key(self) -> None:
+        # Validation carries the key to a user-configurable host; pin redirects off and redact the key.
+        session = MagicMock()
+        session.get.return_value = _response(200, [])
+        with patch.object(unstructured, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials(DEFAULT_BASE_URL, "secret-key", team_id=1)
+
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
     def test_network_error_is_invalid(self) -> None:
         session = MagicMock()
