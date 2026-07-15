@@ -1,3 +1,5 @@
+import typing
+import collections.abc
 from types import SimpleNamespace
 
 import pytest
@@ -1142,6 +1144,7 @@ class TestGoogleAdsQueryConstruction:
             captured["query"] = query
             return iter([])
 
+        assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
         with (
             mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
@@ -1155,7 +1158,7 @@ class TestGoogleAdsQueryConstruction:
                 resumable_source_manager=mock.Mock(),
                 **source_kwargs,
             )
-            list(response.items())
+            list(typing.cast(collections.abc.Iterable, response.items()))
         return response, captured["query"]
 
     def test_incremental_query_is_bounded_and_ordered_by_cursor(self):
