@@ -1802,24 +1802,79 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
     @extend_schema(request=ExternalDataSourceCreateSerializer, responses=ExternalDataSourceSerializers)
+    def _resolve_stored_credential(
+        self, source_type: str, payload: dict
+    ) -> tuple[dict, PendingSourceCredential | None, Response | None]:
+        """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
+
+        Lets the create and setup flows reference credentials the user entered on the connect page
+        instead of passing secrets inline. Returns the (possibly merged) payload, the resolved
+        credential (which the caller deletes once consumed — stored credentials are single-use), and
+        a 400 Response to return as-is on a lookup miss or source-type mismatch.
+        """
+        credential_id = payload.pop("credential_id", None)
+        if credential_id is None:
+            return payload, None, None
+        try:
+            credential = PendingSourceCredential.objects.for_team(self.team_id).get(
+                id=credential_id, expires_at__gt=timezone.now()
+            )
+        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+            return (
+                payload,
+                None,
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
+                ),
+            )
+        if credential.source_type != source_type:
+            return (
+                payload,
+                None,
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Stored credential '{credential_id}' is for "
+                        f"'{credential.source_type}', not '{source_type}'"
+                    },
+                ),
+            )
+        # Stored credentials win over inline keys so an agent can't override what the user entered.
+        return {**payload, **credential.payload}, credential, None
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        secret_ref_response = _unresolved_secret_ref_response(serializer.validated_data["payload"])
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data["payload"] or {})
+
+        secret_ref_response = _unresolved_secret_ref_response(payload)
         if secret_ref_response is not None:
             return secret_ref_response
 
-        return self._create_external_data_source(
+        # A `credential_id` in the payload references connection details the user entered on the
+        # connect-link page — resolve it to the real secrets so `create` can target a specific
+        # `schemas` set (unlike `setup`, which discovers and enables every table).
+        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
+        if credential_error is not None:
+            return credential_error
+
+        response = self._create_external_data_source(
             request,
-            source_type=serializer.validated_data["source_type"],
-            payload=serializer.validated_data["payload"],
+            source_type=source_type,
+            payload=payload,
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
+        # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
+        if credential is not None and response.status_code == status.HTTP_201_CREATED:
+            credential.delete()
+        return response
 
     @extend_schema(
         parameters=[
@@ -1995,7 +2050,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         },
                     )
             elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
+                    },
+                )
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
@@ -3082,28 +3142,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        credential: PendingSourceCredential | None = None
-        credential_id = payload.pop("credential_id", None)
-        if credential_id is not None:
-            try:
-                credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                    id=credential_id, expires_at__gt=timezone.now()
-                )
-            except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
-                )
-            if credential.source_type != source_type:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
-                    },
-                )
-            # Stored credentials win over inline keys so an agent can't override what the user entered.
-            payload = {**payload, **credential.payload}
+        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
+        if credential_error is not None:
+            return credential_error
 
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
@@ -4096,7 +4137,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     },
                 )
         elif self.prefix_exists(source_type, prefix):
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
+                },
+            )
 
         return Response(status=status.HTTP_200_OK)
 
