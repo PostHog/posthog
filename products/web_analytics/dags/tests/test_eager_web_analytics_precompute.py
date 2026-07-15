@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 import dagster
+from dagster import DagsterInstance
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
@@ -25,6 +26,7 @@ from products.web_analytics.dags.eager_web_analytics_precompute import (
     EagerWarmConfig,
     _resolve_eager_audience,
     _warm_baseline_for_team,
+    _warm_complete_kv_key,
     warm_eager_baseline_op,
     web_analytics_eager_backfill_job,
     web_analytics_eager_baseline_warming_job,
@@ -69,7 +71,7 @@ class TestResolveEagerAudience:
         team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == [2, 7]
         assert reason == "ok"
-        assert diag == {"teams_configured": 2, "active_teams_pct": 0, "active_teams": 0}
+        assert diag == {"teams_configured": 2, "active_teams_pct": 0, "active_teams": 0, "active_fetch_failed": 0}
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
@@ -100,7 +102,12 @@ class TestResolveEagerAudience:
             team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == expected
         assert reason == "ok"
-        assert diag == {"teams_configured": len(expected), "active_teams_pct": 0, "active_teams": 0}
+        assert diag == {
+            "teams_configured": len(expected),
+            "active_teams_pct": 0,
+            "active_teams": 0,
+            "active_fetch_failed": 0,
+        }
 
     @parameterized.expand(
         [
@@ -123,7 +130,12 @@ class TestResolveEagerAudience:
             team_ids, reason, diag = _resolve_eager_audience(active_teams_pct=pct)
         assert team_ids == expected
         assert reason == "ok"
-        assert diag == {"teams_configured": len(expected), "active_teams_pct": pct, "active_teams": expected_active}
+        assert diag == {
+            "teams_configured": len(expected),
+            "active_teams_pct": pct,
+            "active_teams": expected_active,
+            "active_fetch_failed": 0,
+        }
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
@@ -192,37 +204,72 @@ class TestWarmEagerBaselineOp(APIBaseTest):
 
     @parameterized.expand(
         [
-            # skip_fresh_hours=24: the freshly-warmed team is dropped from the walk;
-            # the stale and never-warmed teams are still processed (never-warmed must
-            # survive the filter — it has no last_computed entry).
-            ("skip_enabled", 24, {"never", "stale"}, 1),
+            # skip_fresh_hours=24: only the team with a fresh completion marker is
+            # dropped. `partial` has a recent PreaggregationJob row but no marker —
+            # the shared-table case (interrupted run, on-demand read, another
+            # product's job) that must NOT hide a cold team.
+            ("skip_enabled", 24, {"never", "stale", "partial"}, 1),
             # None (hourly-job default): every team is processed, nothing skipped.
-            ("skip_disabled", None, {"never", "stale", "fresh"}, 0),
+            ("skip_disabled", None, {"never", "stale", "partial", "fresh"}, 0),
         ]
     )
     @patch(f"{_EAGER_MODULE}.WARM_TEAM_CONCURRENCY", 1)
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")
-    def test_skip_fresh_hours_drops_only_freshly_warmed_teams(
+    def test_skip_fresh_hours_drops_only_marker_complete_teams(
         self, _name, skip_fresh_hours, expected_processed, expected_skipped, get_runner, _tag, _is_cloud
     ):
-        never, stale, fresh = self._enroll_teams(count=3)
-        labels = {never.pk: "never", stale.pk: "stale", fresh.pk: "fresh"}
+        never, stale, fresh, partial = self._enroll_teams(count=4)
+        labels = {never.pk: "never", stale.pk: "stale", fresh.pk: "fresh", partial.pk: "partial"}
         now = timezone.now()
-        _make_preagg_job(fresh, computed_at=now - timedelta(hours=1))
-        _make_preagg_job(stale, computed_at=now - timedelta(days=2))
+        instance = DagsterInstance.ephemeral()
+        instance.run_storage.set_cursor_values({_warm_complete_kv_key(fresh.pk): now.isoformat()})
+        instance.run_storage.set_cursor_values({_warm_complete_kv_key(stale.pk): (now - timedelta(days=2)).isoformat()})
+        _make_preagg_job(partial, computed_at=now)
         get_runner.return_value = Mock(
             run=Mock(return_value=Mock(preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE))
         )
 
-        with _eager_audience([never.pk, stale.pk, fresh.pk]):
+        with _eager_audience([never.pk, stale.pk, fresh.pk, partial.pk]):
             result = warm_eager_baseline_op(
-                dagster.build_op_context(), EagerWarmConfig(skip_fresh_hours=skip_fresh_hours)
+                dagster.build_op_context(instance=instance), EagerWarmConfig(skip_fresh_hours=skip_fresh_hours)
             )
 
         processed = {labels[(call.kwargs.get("team") or call.args[1]).pk] for call in get_runner.call_args_list}
         assert processed == expected_processed
         assert result["skipped"] == expected_skipped
+
+    @parameterized.expand(
+        [
+            # A clean full warm writes the completion marker, so a second run with
+            # skip_fresh_hours skips the team without touching the runners.
+            ("clean_warm_marks_complete", False, 1, 0),
+            # A warm with a failing tile must NOT write the marker — the second run
+            # re-processes the team instead of hiding the hole.
+            ("failed_tile_blocks_marker", True, 0, _QUERIES_PER_TEAM),
+        ]
+    )
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_completion_marker_round_trip(
+        self, _name, tile_fails, expected_skipped, expected_second_run_calls, get_runner, _tag, _is_cloud
+    ):
+        ok_result = Mock(preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE)
+        get_runner.return_value = Mock(
+            run=Mock(side_effect=Exception("tile blew up") if tile_fails else None, return_value=ok_result)
+        )
+        instance = DagsterInstance.ephemeral()
+
+        with _eager_audience([self.team.pk]):
+            warm_eager_baseline_op(dagster.build_op_context(instance=instance))
+            get_runner.return_value.run.side_effect = None
+            get_runner.reset_mock()
+            result = warm_eager_baseline_op(
+                dagster.build_op_context(instance=instance), EagerWarmConfig(skip_fresh_hours=24)
+            )
+
+        assert result["skipped"] == expected_skipped
+        assert get_runner.return_value.run.call_count == expected_second_run_calls
 
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")
@@ -287,20 +334,33 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         assert result == {"teams": 1, "warmed": 0, "failed": 0, "skipped": 1}
         get_runner.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # Fetch errored (None): the backfill must fail loudly instead of
+            # silently shrinking to the static lists and reporting SUCCESS —
+            # the production incident this guards against.
+            ("fetch_error_fails_run", None, False),
+            # Fetch succeeded but found no active teams ([]): a legitimate
+            # result — the run proceeds and warms the static lists.
+            ("legitimately_empty_proceeds", [], True),
+        ]
+    )
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")
-    @patch(f"{_EAGER_MODULE}._fetch_active_wa_team_ids", return_value=[])
-    def test_backfill_fails_when_active_audience_fetch_returns_nothing(self, _fetch, get_runner, _tag, _is_cloud):
-        # The fetch is best-effort ([] on ClickHouse errors) so the hourly warmer
-        # never skips a cycle — but a backfill run that gets [] would silently warm
-        # only the static lists and report SUCCESS. It must fail instead.
+    def test_backfill_distinguishes_fetch_error_from_empty_audience(
+        self, _name, fetch_result, expected_success, get_runner, _tag, _is_cloud
+    ):
         get_runner.return_value = Mock(
             run=Mock(return_value=Mock(preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE))
         )
-        with _eager_audience([self.team.pk]):
+        with (
+            _eager_audience([self.team.pk]),
+            patch(f"{_EAGER_MODULE}._fetch_active_wa_team_ids", return_value=fetch_result),
+        ):
             result = web_analytics_eager_backfill_job.execute_in_process(raise_on_error=False)
-        assert not result.success
-        get_runner.assert_not_called()
+        assert result.success == expected_success
+        if not expected_success:
+            get_runner.assert_not_called()
 
 
 class TestWarmBaselineForTeam(APIBaseTest):

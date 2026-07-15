@@ -175,6 +175,21 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
 )
 
 
+# Full tile matrix size per team: WebOverview + WebGoals + WebVitalsPathBreakdown
+# plus one WebStatsTableQuery per baseline breakdown. A team's warm pass is
+# "complete" only when exactly this many tiles ran without error.
+BASELINE_TILE_COUNT = 3 + len(BASELINE_BREAKDOWNS)
+
+
+# Dagster run-storage KV key recording when a team last completed a *full* warm
+# pass (every tile in the matrix, zero failures). `skip_fresh_hours` trusts only
+# this marker — never the shared `PreaggregationJob` table, where a single recent
+# job from an interrupted run, an on-demand read, or another product would make
+# a cold team look freshly warmed.
+def _warm_complete_kv_key(team_id: int) -> str:
+    return f"web_analytics_eager_warm_complete:{team_id}"
+
+
 EAGER_PRECOMPUTE_BASELINE_WARMED = Counter(
     "web_analytics_eager_precompute_baseline_warmed_total",
     "Total baseline queries warmed by the eager web analytics precompute job, labeled by query kind.",
@@ -203,13 +218,15 @@ EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED = Counter(
 ACTIVE_AUDIENCE_MAX_TEAMS = 20000
 
 
-def _fetch_active_wa_team_ids(limit: int, lookback_hours: int = 24) -> list[int]:
+def _fetch_active_wa_team_ids(limit: int, lookback_hours: int = 24) -> list[int] | None:
     """Top teams by deliberate WA dashboard activity (stats-table tile queries),
     most active first. Powers the warm-audience ramp experiment via the job's
     run config (`active_teams_pct`).
 
-    Best-effort: any failure returns [] so the warmer falls back to the static
-    lists rather than skipping a run."""
+    Returns None on failure so callers can tell a broken fetch apart from a
+    legitimately empty audience — the hourly warmer treats both as "fall back
+    to the static lists", but the backfill must fail loudly on the former and
+    proceed on the latter."""
     from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — keep dagster import path light
 
     try:
@@ -233,7 +250,7 @@ def _fetch_active_wa_team_ids(limit: int, lookback_hours: int = 24) -> list[int]
         return [int(row[0]) for row in rows]
     except Exception:
         logger.exception("eager_warm_active_audience_fetch_failed")
-        return []
+        return None
 
 
 def _resolve_eager_audience(active_teams_pct: int = 0, active_lookback_hours: int = 24) -> tuple[list[int], str, dict]:
@@ -254,8 +271,12 @@ def _resolve_eager_audience(active_teams_pct: int = 0, active_lookback_hours: in
     # baseline warmed — otherwise its reads land on cold on-demand inserts.
     # dict.fromkeys preserves order and dedupes teams in both lists.
     active_team_ids: list[int] = []
+    active_fetch_failed = False
     if active_teams_pct > 0:
         all_active = _fetch_active_wa_team_ids(ACTIVE_AUDIENCE_MAX_TEAMS, lookback_hours=active_lookback_hours)
+        if all_active is None:
+            active_fetch_failed = True
+            all_active = []
         take = max(1, len(all_active) * min(active_teams_pct, 100) // 100) if all_active else 0
         active_team_ids = all_active[:take]
 
@@ -274,6 +295,7 @@ def _resolve_eager_audience(active_teams_pct: int = 0, active_lookback_hours: in
         "teams_configured": len(team_ids),
         "active_teams_pct": active_teams_pct,
         "active_teams": len(active_team_ids),
+        "active_fetch_failed": int(active_fetch_failed),
     }
     if not team_ids:
         return [], "no_teams_configured", diag
@@ -443,13 +465,14 @@ class EagerWarmConfig(dagster.Config):
     # None = use WARM_TEAM_CONCURRENCY (resolved at run time, so tests patching the
     # constant still control the pool).
     team_concurrency: int | None = pydantic.Field(default=None, ge=1, le=25)
-    # Skip teams whose latest READY job in the baseline window is fresher than this
-    # many hours, instead of merely sorting them last. Without it, a fleet-scale run
-    # spends hours re-verifying the tile matrix of thousands of already-warm teams
-    # before reaching the never-warmed tail — in the worst case never getting there
-    # within max_runtime. Teams with no precompute jobs at all are never skipped.
-    # None = process every eligible team (the hourly job's behavior — its static
-    # audience is small and should always be topped up).
+    # Skip teams whose full tile matrix completed within this many hours (per the
+    # run-storage completion marker), instead of merely sorting them last. Without
+    # it, a fleet-scale run spends hours re-verifying the tile matrix of thousands
+    # of already-warm teams before reaching the never-warmed tail — in the worst
+    # case never getting there within max_runtime. Teams without a fresh marker
+    # (never warmed, interrupted mid-matrix, or marker predates this feature) are
+    # never skipped. None = process every eligible team (the hourly job's behavior
+    # — its static audience is small and should always be topped up).
     skip_fresh_hours: int | None = pydantic.Field(default=None, ge=1, le=168)
 
 
@@ -468,20 +491,18 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
     team_ids, gate_reason, diagnostics = _resolve_eager_audience(
         active_teams_pct=config.active_teams_pct, active_lookback_hours=config.active_lookback_hours
     )
-    # The active-audience fetch is best-effort ([] on any ClickHouse error) so the
-    # hourly warmer never skips a cycle. For the backfill that leniency is wrong: a
-    # transient cluster error would silently shrink a fleet-wide run to the static
-    # lists and the run would report SUCCESS having warmed nothing (this happened —
-    # an ALL_CONNECTION_TRIES_FAILED blip produced a 14-minute no-op "backfill").
-    # Fail loudly instead so the launcher knows to relaunch.
-    if (
-        job_name == "web_analytics_eager_backfill"
-        and config.active_teams_pct > 0
-        and not diagnostics.get("active_teams")
-    ):
+    # The active-audience fetch is best-effort (falls back to the static lists) so
+    # the hourly warmer never skips a cycle. For the backfill that leniency is
+    # wrong: a transient cluster error would silently shrink a fleet-wide run to
+    # the static lists and the run would report SUCCESS having warmed nothing
+    # (this happened — an ALL_CONNECTION_TRIES_FAILED blip produced a 14-minute
+    # no-op "backfill"). Fail loudly on fetch *errors* so the launcher knows to
+    # relaunch; a fetch that succeeded but found no active teams proceeds with
+    # the static lists like any other run.
+    if job_name == "web_analytics_eager_backfill" and diagnostics.get("active_fetch_failed"):
         raise dagster.Failure(
             description=(
-                f"active-audience fetch returned no teams (active_teams_pct={config.active_teams_pct}) — "
+                f"active-audience fetch failed (active_teams_pct={config.active_teams_pct}) — "
                 "likely a transient ClickHouse error during the query_log scan; relaunch the backfill"
             ),
             metadata=diagnostics,
@@ -577,10 +598,23 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
         never_computed = datetime.min.replace(tzinfo=UTC)
 
         if config.skip_fresh_hours is not None:
-            # Teams with no READY jobs in the window have no `last_computed` entry
-            # and are therefore never skipped — they're the audience this exists for.
+            # Skip only teams whose *own* full warm completed recently, recorded by
+            # the completion marker `_warm` writes. Teams with no marker — never
+            # warmed, interrupted mid-matrix, or only touched by other products'
+            # jobs in the shared table — are never skipped.
             fresh_cutoff = datetime.now(UTC) - timedelta(hours=config.skip_fresh_hours)
-            fresh_ids = {t.pk for t in eligible if (last_computed.get(t.pk) or never_computed) >= fresh_cutoff}
+            markers = context.instance.run_storage.get_cursor_values({_warm_complete_kv_key(t.pk) for t in eligible})
+
+            def _marker_fresh(team: Team) -> bool:
+                raw = markers.get(_warm_complete_kv_key(team.pk))
+                if not raw:
+                    return False
+                try:
+                    return datetime.fromisoformat(raw) >= fresh_cutoff
+                except ValueError:
+                    return False
+
+            fresh_ids = {t.pk for t in eligible if _marker_fresh(t)}
             if fresh_ids:
                 eligible = [t for t in eligible if t.pk not in fresh_ids]
                 skipped += len(fresh_ids)
@@ -618,6 +652,19 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
                 # out of `pool.map`, abort the teams not yet iterated, and discard the
                 # counts of teams that already warmed. Contain it so the pool drains.
                 logger.exception("eager_baseline_warming_team_errored", team_id=team.pk)
+            else:
+                if team_failed == 0 and team_warmed == BASELINE_TILE_COUNT:
+                    # Full matrix warmed cleanly — record it so `skip_fresh_hours`
+                    # can trust this team is genuinely covered. Written per team
+                    # (not batched at run end) so a run killed by max_runtime keeps
+                    # the markers for everything it finished. Best-effort: a marker
+                    # write failure only costs a redundant re-verify next run.
+                    try:
+                        context.instance.run_storage.set_cursor_values(
+                            {_warm_complete_kv_key(team.pk): datetime.now(UTC).isoformat()}
+                        )
+                    except Exception:
+                        logger.exception("eager_baseline_warming_marker_write_failed", team_id=team.pk)
             finally:
                 # Each pool thread holds its own Django DB connections; close them on
                 # the way out so the run doesn't leak one connection per team.
