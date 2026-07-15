@@ -9,7 +9,7 @@ import type { teamsLogicType } from './teamsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-export type TeamsWindow = '-7d' | '-14d' | '-30d'
+export type TeamsWindow = '-24h' | '-7d' | '-14d' | '-30d'
 
 export const UNOWNED_TEAM = 'unowned'
 

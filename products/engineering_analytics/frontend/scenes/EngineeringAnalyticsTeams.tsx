@@ -122,6 +122,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     value={teamsWindow}
                     onChange={(value) => setTeamsWindow(value as TeamsWindow)}
                     options={[
+                        { value: '-24h', label: '1d' },
                         { value: '-7d', label: '7d' },
                         { value: '-14d', label: '14d' },
                         { value: '-30d', label: '30d' },

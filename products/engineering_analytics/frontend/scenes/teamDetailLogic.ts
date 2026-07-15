@@ -35,7 +35,7 @@ export interface TeamActivityData {
     truncatedTests: boolean
 }
 
-const WINDOW_DAYS: Record<TeamsWindow, number> = { '-7d': 7, '-14d': 14, '-30d': 30 }
+const WINDOW_DAYS: Record<TeamsWindow, number> = { '-24h': 1, '-7d': 7, '-14d': 14, '-30d': 30 }
 
 export const teamDetailLogic = kea<teamDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'teamDetailLogic']),
