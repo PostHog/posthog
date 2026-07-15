@@ -9,6 +9,7 @@ members = [
   "capture-logs",
   "cohort-core",
   "cohort-event-shuffler",
+  "cohort-seeder",
   "cohort-stream-processor",
   "common/alloc",
   "common/assignment-coordination",
