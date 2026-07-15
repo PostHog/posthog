@@ -23,11 +23,15 @@ insight_cache_read_counter = Counter(
 # the results payload, which dominates CPU for large cached insights. Blobs without the magic prefix
 # are the legacy single-JSON format and stay readable.
 QUERY_CACHE_SPLIT_MAGIC = b"PHQC2\x00"
+# The flags byte is a bitmask: readers must test individual bits, never compare the whole byte,
+# so new flags can be added without breaking existing readers.
 _SPLIT_FLAG_CUSTOM_NAMES = 0b00000001
 
 
 @dataclass(frozen=True)
 class SplitCachedResponse:
+    """A cached query response with the `results` segment kept as raw, unparsed JSON bytes."""
+
     header: dict
     results_bytes: Optional[bytes]
     """Raw JSON bytes of the `results` field; None means `header` is the full legacy response."""

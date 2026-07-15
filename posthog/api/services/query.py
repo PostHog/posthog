@@ -252,7 +252,7 @@ def process_query_model(
             query_runner.apply_pagination_cursor(pagination_cursor)
         query_runner.is_query_service = is_query_service
         if allow_raw_results:
-            query_runner._serve_raw_cached_results = True
+            query_runner.serve_raw_cached_results = True
 
         result = query_runner.run(
             execution_mode=execution_mode,
@@ -263,7 +263,7 @@ def process_query_model(
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
         )
-        raw_results = query_runner._raw_cached_results_bytes
+        raw_results = query_runner.raw_cached_results_bytes
         if raw_results is not None and isinstance(result, BaseModel):
             return RawCachedQueryResponse(response=result, raw_results=raw_results)
 

@@ -1318,10 +1318,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     is_query_service: bool = False
     workload: Workload
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
-    # cached response as raw JSON bytes in _raw_cached_results_bytes instead of parsing it,
+    # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
     # leaving a `results=[]` placeholder on the returned model.
-    _serve_raw_cached_results: bool = False
-    _raw_cached_results_bytes: Optional[bytes] = None
+    serve_raw_cached_results: bool = False
+    raw_cached_results_bytes: Optional[bytes] = None
 
     def __init__(
         self,
@@ -1474,9 +1474,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
-        self._raw_cached_results_bytes = None
+        self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
-        if self._serve_raw_cached_results:
+        if self.serve_raw_cached_results:
             # Serving results as raw bytes skips parsing (and later re-serializing) the results
             # payload. Only safe when the caller opted in AND neither the query nor the cached
             # results carry custom series names — otherwise apply_series_custom_names below must
@@ -1501,7 +1501,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             try:
                 cached_response = CachedResponse(**cached_response_candidate)
                 if raw_results is not None:
-                    self._raw_cached_results_bytes = raw_results
+                    self.raw_cached_results_bytes = raw_results
             except Exception as e:
                 capture_exception(Exception(f"Error parsing cached response: {e}"))
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -1576,7 +1576,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # Nothing useful out of cache, nor async query status. A recomputation follows, so the
         # cached raw results (if any) must not leak onto the fresh response.
-        self._raw_cached_results_bytes = None
+        self.raw_cached_results_bytes = None
         return None
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:

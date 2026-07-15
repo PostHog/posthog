@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import orjson
 import structlog
@@ -36,11 +36,20 @@ def _model_field_as_dict(model: BaseModel, field: str) -> Optional[dict]:
     return value
 
 
+def _list_item_as_dict(item: Any) -> Any:
+    if isinstance(item, BaseModel):
+        return item.model_dump(by_alias=True)
+    if isinstance(item, list):
+        # e.g. funnel-breakdown / marketing-analytics results are lists of lists of items
+        return [inner.model_dump(by_alias=True) if isinstance(inner, BaseModel) else inner for inner in item]
+    return item
+
+
 def _model_list_field_as_dicts(model: BaseModel, field: str) -> Optional[list]:
     value = getattr(model, field, None)
     if value is None:
         return None
-    return [item.model_dump(by_alias=True) if isinstance(item, BaseModel) else item for item in value]
+    return [_list_item_as_dict(item) for item in value]
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
@@ -137,10 +146,13 @@ def calculate_for_query_based_insight(
         return InsightResult(
             # orjson.Fragment embeds the cached results bytes into the JSON response as-is,
             # skipping the parse/re-serialize round trip. Callers passing allow_raw_results
-            # guarantee the result feeds an orjson renderer.
+            # guarantee the result feeds an orjson renderer. The parsed path must convert
+            # model-typed result items (e.g. RetentionResult, PathsLink) to dicts like
+            # model_dump did — DRF's JSON encoder would otherwise mangle them into
+            # (field, value) tuple arrays.
             result=orjson.Fragment(raw_results)
             if raw_results is not None
-            else getattr(process_response, "results", None),
+            else _model_list_field_as_dicts(process_response, "results"),
             has_more=getattr(process_response, "hasMore", None),
             columns=getattr(process_response, "columns", None),
             last_refresh=getattr(process_response, "last_refresh", None),
