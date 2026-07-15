@@ -53,7 +53,6 @@ class TestSigNozSource:
         assert config.name.value == "SigNoz"
         assert config.label == "SigNoz"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/signoz.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/signoz"
 
