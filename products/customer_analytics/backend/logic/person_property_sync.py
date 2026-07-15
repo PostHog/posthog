@@ -29,7 +29,7 @@ import s3fs
 import structlog
 import pyarrow.parquet as pq
 
-from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import Team
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
@@ -138,8 +138,9 @@ async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[d
         files = [f["Key"] for f in values if f.get("type") != "directory"]
         for file_path in files:
             data = await s3_client._cat_file(f"s3://{file_path}" if not file_path.startswith("s3://") else file_path)
-            table = pq.read_table(_bytes_reader(data))
-            rows.extend(table.to_pylist())
+            # Decode off the event loop: a large parquet chunk would otherwise block the async
+            # activity long enough to starve the heartbeater and trip its timeout.
+            rows.extend(await asyncio.to_thread(_decode_parquet_rows, data))
     return rows
 
 
@@ -149,6 +150,10 @@ def _bytes_reader(data: bytes):
     return io.BytesIO(data)
 
 
+def _decode_parquet_rows(data: bytes) -> list[dict]:
+    return pq.read_table(_bytes_reader(data)).to_pylist()
+
+
 async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
     path = _snapshot_path(team_id, schema_id, source_id)
     async with _aget_s3_client() as s3_client:
@@ -156,8 +161,7 @@ async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) ->
             data = await s3_client._cat_file(f"s3://{path}")
         except FileNotFoundError:
             return {}
-    table = pq.read_table(_bytes_reader(data))
-    records = table.to_pylist()
+    records = await asyncio.to_thread(_decode_parquet_rows, data)
     return {r["distinct_id"]: r["sent_hash"] for r in records}
 
 
@@ -190,22 +194,21 @@ def _filter_existing_persons(team_id: int, distinct_ids: list[str]) -> set[str]:
 def _produce_intents(team_id: int, token: str, items: list[tuple[str, dict]]) -> int:
     """Produce one $set intent per person to Kafka, keyed by team:distinct_id so the consumer can
     throttle per team and preserve per-person ordering. Returns the count produced."""
-    producer = _KafkaProducer()
     produced = 0
-    for distinct_id, bundle in items:
-        producer.produce(
-            topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
-            data={
-                "team_id": team_id,
-                "token": token,
-                "distinct_id": distinct_id,
-                "properties": bundle,
-                "event_source": EVENT_SOURCE,
-            },
-            key=f"{team_id}:{distinct_id}",
-        )
-        produced += 1
-    producer.flush()
+    with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
+        for distinct_id, bundle in items:
+            producer.produce(
+                topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
+                data={
+                    "team_id": team_id,
+                    "token": token,
+                    "distinct_id": distinct_id,
+                    "properties": bundle,
+                    "event_source": EVENT_SOURCE,
+                },
+                key=f"{team_id}:{distinct_id}",
+            )
+            produced += 1
     return produced
 
 
@@ -258,13 +261,17 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         produced = await asyncio.to_thread(_produce_intents, team_id, team.api_token, to_send)
         result.produced += produced
 
+        # Stamp provenance before advancing the snapshot: the snapshot is the checkpoint that makes
+        # these rows look unchanged on the next run, so anything that must accompany a produce has to
+        # happen first. Stamping is an idempotent update, safe to repeat if a retry re-produces.
+        await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
+            team_id, team.project_id, source, list((source.column_property_map or {}).values())
+        )
+
         # Only advance the snapshot for distinct_ids we actually produced.
         sent_ids = {distinct_id for distinct_id, _ in to_send}
         merged = {**prior, **{d: h for d, h in new_hashes.items() if d in sent_ids}}
         await _write_snapshot_hashes(team_id, str(schema_id), str(source.id), merged)
-        await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
-            team_id, team.project_id, source, list((source.column_property_map or {}).values())
-        )
 
     await _clear_staged(team_id, str(schema_id), job_id)
     return result
