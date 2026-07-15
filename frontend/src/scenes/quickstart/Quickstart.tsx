@@ -834,29 +834,37 @@ export function Quickstart(): JSX.Element {
             <section className="flex items-center justify-between gap-8">
                 <div className="flex flex-col gap-4 min-w-0 flex-1">
                     <div>
+                        {/* Workspace context reads as an eyebrow, separate from the usage numbers below
+                            (grouping by domain, not by shape) */}
+                        {currentOrganization?.name || currentTeam?.name ? (
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-tertiary mb-2">
+                                {currentOrganization?.name ? (
+                                    <span className="flex items-center gap-1">
+                                        <IconBuilding />
+                                        {currentOrganization.name}
+                                    </span>
+                                ) : null}
+                                {currentOrganization?.name && currentTeam?.name ? <span>/</span> : null}
+                                {currentTeam?.name ? (
+                                    <span className="flex items-center gap-1">
+                                        <IconFolder />
+                                        {currentTeam.name}
+                                    </span>
+                                ) : null}
+                            </div>
+                        ) : null}
                         <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
                             Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                         </h1>
-                        <p className="text-secondary mb-0 max-w-200">
+                        <p className="text-secondary mb-0 max-w-140">
                             Every tool here runs on the same events. Get data flowing once, then turn things on as you
                             need them. No extra installs.
                         </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        {currentOrganization?.name ? (
-                            <HeaderStat icon={<IconBuilding />}>{currentOrganization.name}</HeaderStat>
-                        ) : null}
-                        {currentTeam?.name ? <HeaderStat icon={<IconFolder />}>{currentTeam.name}</HeaderStat> : null}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <HeaderStat icon={<IconApps />}>
                             {activeProductCount} of {totalProductCount} tools active
                         </HeaderStat>
-                        {currentOrganization?.member_count ? (
-                            <HeaderStat icon={<IconPeople />}>
-                                {currentOrganization.member_count === 1
-                                    ? '1 teammate'
-                                    : `${currentOrganization.member_count} teammates`}
-                            </HeaderStat>
-                        ) : null}
                         <UsageThisPeriod />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
