@@ -6,6 +6,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -40,6 +41,7 @@ export interface ExperimentsFilters {
     status?: ExperimentStatus | 'all'
     created_by_id?: number[]
     archived?: boolean
+    deleted?: boolean
     page?: number
     order?: string
 }
@@ -58,6 +60,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     status: 'all',
     created_by_id: undefined,
     archived: false,
+    deleted: false,
     page: 1,
     order: undefined,
 }
@@ -176,6 +179,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         }),
         resetFeatureFlagModalFilters: true,
         openFeatureFlagModal: true,
+        restoreExperiment: (experiment: Experiment) => ({ experiment }),
     }),
     reducers({
         filters: [
@@ -233,6 +237,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
         },
         openFeatureFlagModal: () => {
             actions.loadFeatureFlagModalFeatureFlags()
+        },
+        restoreExperiment: async ({ experiment }) => {
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/experiments`,
+                object: { name: experiment.name, id: experiment.id },
+                undo: true,
+                callback: () => actions.loadExperiments(),
+            })
         },
         loadCurrentTeamSuccess: () => {
             if (values.featureFlagModalFeatureFlags.results.length > 0) {
@@ -579,7 +591,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(tabInURL)
             }
 
-            const { page, search, status, created_by_id, order, archived } = searchParams
+            const { page, search, status, created_by_id, order, archived, deleted } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
                 created_by_id: parseNumericArrayFilter(created_by_id),
@@ -589,6 +601,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             pageFiltersFromUrl.status = normalizeExperimentFilterStatus(status)
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
             pageFiltersFromUrl.archived = String(archived) === 'true'
+            pageFiltersFromUrl.deleted = String(deleted) === 'true'
 
             actions.setExperimentsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
