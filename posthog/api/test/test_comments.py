@@ -570,6 +570,50 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
+    def _scoped_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        return {"authorization": f"Bearer {value}"}
+
+    @parameterized.expand(
+        [
+            ("comment_read_ticket_discussions", ["comment:read"], "Ticket", status.HTTP_403_FORBIDDEN),
+            ("comment_read_ticket_messages", ["comment:read"], "conversations_ticket", status.HTTP_403_FORBIDDEN),
+            ("ticket_read_ticket_discussions", ["ticket:read"], "Ticket", status.HTTP_200_OK),
+            ("comment_read_other_scopes", ["comment:read"], "Notebook", status.HTTP_200_OK),
+        ]
+    )
+    def test_ticket_scoped_comments_require_ticket_api_scope(
+        self, _name: str, scopes: list[str], comment_scope: str, expected_status: int
+    ) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope={comment_scope}",
+            headers=self._scoped_key_headers(scopes),
+        )
+        assert response.status_code == expected_status
+
+    def test_creating_ticket_scoped_comment_requires_ticket_write_scope(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "internal note", "scope": "Ticket", "item_id": "some-ticket-id"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_scoped_comments_excluded_from_default_list(self) -> None:
+        Comment.objects.create(team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user)
+        Comment.objects.create(
+            team=self.team, scope="conversations_ticket", item_id="t1", content="message", created_by=self.user
+        )
+        self._create_comment({"scope": "Notebook", "content": "normal"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments")
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["scope"] for c in response.json()["results"]] == ["Notebook"]
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")

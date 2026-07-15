@@ -18,7 +18,9 @@ import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
@@ -430,6 +432,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         values: [
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
             conversationsDraftModeLogic,
             ['draftModeDefault'],
             userLogic,
@@ -731,11 +735,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.ticket],
-            (ticket): SidePanelSceneContext | null =>
-                ticket?.id
+            (s) => [s.ticket, s.featureFlags],
+            (ticket, featureFlags): SidePanelSceneContext | null =>
+                ticket?.id && featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_DISCUSSIONS]
                     ? {
-                          activity_scope: ActivityScope.SUPPORT_TICKET,
+                          activity_scope: ActivityScope.TICKET,
                           activity_item_id: `${ticket.id}`,
                       }
                     : null,
