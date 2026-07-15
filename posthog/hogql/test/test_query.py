@@ -37,9 +37,9 @@ from posthog.hogql.test.utils import (
 
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
-from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople

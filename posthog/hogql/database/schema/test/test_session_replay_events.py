@@ -22,9 +22,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
-from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.uuidt import uuid7
 
 
 @freeze_time("2021-01-01T13:46:23")

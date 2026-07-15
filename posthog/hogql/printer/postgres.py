@@ -20,7 +20,7 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
