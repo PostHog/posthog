@@ -6,6 +6,7 @@ from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
+import orjson
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -1316,6 +1317,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
+    # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
+    # cached response as raw JSON bytes in _raw_cached_results_bytes instead of parsing it,
+    # leaving a `results=[]` placeholder on the returned model.
+    _serve_raw_cached_results: bool = False
+    _raw_cached_results_bytes: Optional[bytes] = None
 
     def __init__(
         self,
@@ -1388,6 +1394,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
             isinstance(data, dict) and "is_cached" in data
         )
+
+    def _query_has_series_custom_names(self) -> bool:
+        series = getattr(self.query, "series", None)
+        if not series:
+            return False
+        return any(getattr(s, "custom_name", None) is not None for s in series)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -1462,14 +1474,34 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
-        cached_response_candidate = cache_manager.get_cache_data()
+        self._raw_cached_results_bytes = None
+        raw_results: Optional[bytes] = None
+        if self._serve_raw_cached_results:
+            # Serving results as raw bytes skips parsing (and later re-serializing) the results
+            # payload. Only safe when the caller opted in AND neither the query nor the cached
+            # results carry custom series names — otherwise apply_series_custom_names below must
+            # be able to patch the parsed results.
+            split_candidate = cache_manager.get_cache_data_split()
+            cached_response_candidate = split_candidate.header if split_candidate is not None else None
+            if split_candidate is not None and split_candidate.results_bytes is not None:
+                if split_candidate.results_have_custom_names or self._query_has_series_custom_names():
+                    cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)  # type: ignore[index]
+                else:
+                    raw_results = split_candidate.results_bytes
+        else:
+            cached_response_candidate = cache_manager.get_cache_data()
 
         if self.is_cached_response(cached_response_candidate):
+            assert cached_response_candidate is not None
+            if raw_results is not None:
+                cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
                 cached_response = CachedResponse(**cached_response_candidate)
+                if raw_results is not None:
+                    self._raw_cached_results_bytes = raw_results
             except Exception as e:
                 capture_exception(Exception(f"Error parsing cached response: {e}"))
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -1542,7 +1574,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 )
                 return cached_response
 
-        # Nothing useful out of cache, nor async query status
+        # Nothing useful out of cache, nor async query status. A recomputation follows, so the
+        # cached raw results (if any) must not leak onto the fresh response.
+        self._raw_cached_results_bytes = None
         return None
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:

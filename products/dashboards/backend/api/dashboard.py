@@ -2768,6 +2768,9 @@ class DashboardsViewSet(
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
+        # _format_insight_for_llm consumes results as Python data, so raw cached
+        # result bytes (orjson.Fragment) must not be used here.
+        context["require_parsed_results"] = True
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
             Prefetch(

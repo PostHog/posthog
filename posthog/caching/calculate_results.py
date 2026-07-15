@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, Union
 
+import orjson
 import structlog
 from pydantic import BaseModel
 
@@ -7,7 +8,7 @@ from posthog.schema import CacheMissResponse, DashboardFilter
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.services.query import ExecutionMode, process_query_dict
+from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
@@ -76,6 +77,7 @@ def calculate_for_query_based_insight(
     query_override: Optional[dict] = None,
     cache_age_seconds: Optional[int] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    allow_raw_results: bool = False,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
@@ -113,7 +115,13 @@ def calculate_for_query_based_insight(
         limit_context=LimitContext.QUERY_ASYNC,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
+        allow_raw_results=allow_raw_results,
     )
+
+    raw_results: Optional[bytes] = None
+    if isinstance(process_response, RawCachedQueryResponse):
+        raw_results = process_response.raw_results
+        process_response = process_response.response
 
     if isinstance(process_response, CacheMissResponse):
         return NothingInCacheResult(
@@ -127,7 +135,12 @@ def calculate_for_query_based_insight(
         # (which is what model_dump produced before). The response class may not carry every
         # field (legacy insights shape), hence the getattr defaults.
         return InsightResult(
-            result=getattr(process_response, "results", None),
+            # orjson.Fragment embeds the cached results bytes into the JSON response as-is,
+            # skipping the parse/re-serialize round trip. Callers passing allow_raw_results
+            # guarantee the result feeds an orjson renderer.
+            result=orjson.Fragment(raw_results)
+            if raw_results is not None
+            else getattr(process_response, "results", None),
             has_more=getattr(process_response, "hasMore", None),
             columns=getattr(process_response, "columns", None),
             last_refresh=getattr(process_response, "last_refresh", None),
