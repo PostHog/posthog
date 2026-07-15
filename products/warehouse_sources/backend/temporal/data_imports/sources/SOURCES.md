@@ -181,7 +181,9 @@ the row lists both.
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
+| flowlu                    | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -474,6 +476,12 @@ sync logic yet — picking up any of them means following the [implementing-ware
 One source per line (kept alphabetical) so adding or removing a source only touches its own line and
 doesn't conflict with concurrent PRs.
 
+- \*\*Add
+- \*\*Implement
+- \*\*Migrate
+- \*\*Switch
+- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml)
+- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml)
 - active_campaign
 - acuity_scheduling
 - adapty
@@ -484,6 +492,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - ahrefs
 - aikido_security
+- airbrake
 - airbyte
 - aiven
 - akeneo
@@ -497,19 +506,28 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
+- appdynamics
 - apple_search_ads
+- appsignal
 - appstack
 - apptivo
 - appwrite
+- argocd
+- asknicely
 - auth0
+- automox
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
 - babelforce
 - backblaze
 - basecamp
+- better_stack
+- bettermode
 - bigcommerce
+- bitbucket
 - bitly
+- bitrise
 - box
 - braintrust
 - branch
@@ -522,63 +540,89 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - castor_edc
 - chatwoot
+- checkmarx
 - chift
 - chorus
 - cin7
+- circleci_insights
+- cisco_duo
 - cisco_meraki
 - clarifai
 - clazar
+- clickhouse_cloud
 - cloudbeds
 - coassemble
 - cockroachdb
+- codacy
+- codecov
 - cody
+- confluent_cloud
 - constant_contact
 - copper
+- coralogix
 - cosmosdb
 - couchbase
+- coveralls
+- crates_io
 - criteo
+- cronitor
 - curve
 - customerly
+- dagster_cloud
 - databricks
+- datahub
 - datascope
 - datorama
 - db2
 - dbt
+- deepsource
 - deno_deploy
 - deputy
 - display_video_360
 - docusign
+- dodopayments
 - dolibarr
+- doppler
+- drata
 - dremio
 - dropbox
 - dub
 - dwolla
 - dynamics365
 - dynamodb
+- dynatrace
 - e2b
 - ebay
 - eloqua
 - employment_hero
 - encharge
+- env0
 - expensify
 - facebook_pages
 - fastbill
 - fauna
+- featurebase
 - feishu
 - fintoc
 - firebase
 - firebolt
 - fireworks_ai
+- flagsmith
 - flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
 - freshbooks
 - freshchat
 - freshservice
+- frill
 - fulcrum
+- gerrit
+- gitea
+- gitguardian
 - glassfrog
 - gmail
 - gnews
@@ -613,6 +657,8 @@ doesn't conflict with concurrent PRs.
 - hibob
 - high_level
 - hightouch
+- honeybadger
+- honeycomb
 - hoorayhr
 - hubplanner
 - humanitix
@@ -624,13 +670,19 @@ doesn't conflict with concurrent PRs.
 - inngest
 - insightful
 - instagram
+- instana
 - instantly
 - interzoid
 - jamf_pro
+- jellyfish
+- jenkins
+- jfrog_artifactory
 - jobber
 - judgeme_reviews
+- jumpcloud
 - justsift
 - kafka
+- kandji
 - kapa_ai
 - keka
 - kickscale
@@ -639,8 +691,11 @@ doesn't conflict with concurrent PRs.
 - klarna
 - klaus
 - knock
+- kong_konnect
 - koyeb
+- kubecost
 - kyve
+- lacework
 - lambda_labs
 - langsmith
 - leexi
@@ -648,10 +703,12 @@ doesn't conflict with concurrent PRs.
 - lever
 - liana
 - lightfield
+- linearb
 - lingo_dev
 - linkedin_pages
 - linnworks
 - llama_cloud
+- logz_io
 - lokalise
 - looker
 - loops
@@ -664,6 +721,7 @@ doesn't conflict with concurrent PRs.
 - mercado_ads
 - mercury
 - merge
+- metaplane
 - metricool
 - metriport
 - metronome
@@ -676,6 +734,7 @@ doesn't conflict with concurrent PRs.
 - missive
 - mode
 - mono
+- monte_carlo
 - nasa
 - navan
 - neon
@@ -687,10 +746,13 @@ doesn't conflict with concurrent PRs.
 - nocrm
 - northflank
 - northpass_lms
+- nuget
 - nutshell
 - nylas
+- octopus_deploy
 - onedrive
 - onehundredms
+- onepassword
 - onesignal
 - open_data_dc
 - openai
@@ -700,10 +762,12 @@ doesn't conflict with concurrent PRs.
 - oracle_ebs
 - oracle_fusion
 - orbit
+- orca_security
 - outlook
 - outreach
 - oveit
 - pabbly_subscriptions_billing
+- packagist
 - pagerduty
 - pardot
 - paylocity
@@ -726,15 +790,21 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
+- prefect_cloud
 - prestashop
 - primetric
 - productive
 - prompting_company
+- pulumi_cloud
 - qdrant
 - qonto
 - qualtrics
+- qualys_vmdr
 - quickbooks
+- railway
 - railz
+- rapid7_insightvm
+- raygun
 - razorpay
 - rb2b
 - rd_station_marketing
@@ -761,6 +831,7 @@ doesn't conflict with concurrent PRs.
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
+- salestrics
 - sanity
 - sap_concur
 - sap_erp
@@ -771,8 +842,12 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - search_ads_360
+- secureframe
+- semaphore
+- semgrep
 - sendpulse
 - senseforce
+- sentinelone
 - serpstat
 - sevenshifts
 - sftp
@@ -795,28 +870,44 @@ doesn't conflict with concurrent PRs.
 - smaily
 - smartengage
 - smartwaiver
+- snowplow
+- snyk
 - solarwinds_service_desk
 - sonar_cloud
+- sonarqube
+- sonatype_nexus
+- sourcegraph
+- spacelift
+- splunk_observability_cloud
 - spotify_ads
 - spotlercrm
+- squadcast
 - statsig
+- statuscake
 - stockdata
 - strava
 - streamelements
 - streamlabs
+- stytch
+- sumo_logic
 - sumsub
 - superwall
 - surveymonkey
 - survicate
 - svix
+- swarmia
 - swonkie
 - synthesia
 - systeme
+- tailscale
 - tawk_to
 - teachable
+- teamcity
 - telli
 - tempo
+- tenable_vulnerability_management
 - terra_api
+- terraform_cloud
 - thinkific_courses
 - thrive_learning
 - ticketmaster
@@ -826,6 +917,7 @@ doesn't conflict with concurrent PRs.
 - tinyemail
 - toggl
 - track_pms
+- travis_ci
 - tremendous
 - trustpilot
 - turso
@@ -838,9 +930,12 @@ doesn't conflict with concurrent PRs.
 - unstructured
 - uppromote
 - uptick
+- uptimerobot
 - us_census
+- usersnap
 - uservoice
 - veeqo
+- veracode
 - vespa
 - visma_economic
 - vultr
@@ -848,6 +943,7 @@ doesn't conflict with concurrent PRs.
 - waiteraid
 - wasabi
 - watchmode
+- weights_and_biases
 - when_i_work
 - wikipedia_pageviews
 - workday
@@ -855,6 +951,7 @@ doesn't conflict with concurrent PRs.
 - workramp
 - wufoo
 - xero
+- xmatters
 - xsolla
 - yahoo_finance
 - yandex_metrica
@@ -867,6 +964,7 @@ doesn't conflict with concurrent PRs.
 - zapsign
 - zellify
 - zendesk_sunshine
+- zenduty
 - zenefits
 - zenloop
 - zep
@@ -881,30 +979,3 @@ doesn't conflict with concurrent PRs.
 - zoho_inventory
 - zoho_invoice
 - zoominfo
-
----
-
-## When to update this file
-
-Update SOURCES.md whenever you:
-
-- **Add a new source** (move it from the scaffolded list into the implemented table once it actually syncs).
-- **Implement an existing scaffolded source** (move it into the implemented table; record the comm method
-  and tracked-transport state).
-- **Migrate a vendor SDK** to use `make_tracked_session()` (flip the source from ⚠️ to ✅).
-- **Switch a source's protocol** (e.g. swap a REST client for a gRPC SDK, or add webhook support
-  alongside the pull API).
-
-Two semgrep rules enforce the tracked transports inside `sources/`:
-
-- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml) bans direct
-  `requests.<verb>` / `requests.Session()` / `httpx.*` — route through `make_tracked_session()`.
-- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml) bans raw
-  `grpc.*_channel(...)` and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction —
-  route through `make_tracked_channel(...)` (for `channel=`/`transport=` SDKs) or
-  `tracked_interceptors(host)` (for `interceptors=` SDKs).
-
-Vendor SDKs that genuinely cannot be intercepted should both:
-
-1. Carry a `# nosemgrep: data-imports-...-transport-...` pragma at the call site, with a one-line reason.
-2. Be listed here under "Notes on partially-tracked sources" with the `⚠️ Vendor SDK` row state.

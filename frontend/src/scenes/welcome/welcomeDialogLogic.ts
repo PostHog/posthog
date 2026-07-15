@@ -137,7 +137,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
     path(['scenes', 'welcome', 'welcomeDialogLogic']),
 
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user', 'isProvisionedUser']],
     })),
 
     actions({
@@ -238,12 +238,13 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             (s) => [s.welcomeData, s.user],
             (data, user): string => data.organization_name || user?.organization?.name || '',
         ],
-        // Only open for invitees (not the org creator) who haven't already dismissed it.
+        // Open for invitees (not the org creator) and for partner-provisioned accounts (which have no
+        // inviter, so they'd otherwise never see it), when not already dismissed.
         // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
-            (s) => [s.user, s.locallyClosed, s.storageTick],
-            (user, locallyClosed): boolean => {
-                if (!user || user.is_organization_first_user !== false) {
+            (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.storageTick],
+            (user, isProvisionedUser, locallyClosed): boolean => {
+                if (!user || (user.is_organization_first_user !== false && !isProvisionedUser)) {
                     return false
                 }
                 const orgId = user.organization?.id

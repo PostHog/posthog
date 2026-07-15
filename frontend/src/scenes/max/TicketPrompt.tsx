@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -20,6 +20,8 @@ interface TicketPromptProps {
     summary?: string
     /** If provided, pre-populate the input field with this text */
     initialText?: string
+    /** Target area inferred from the conversation; falls back to product analytics when absent */
+    targetArea?: SupportTicketTargetArea | null
 }
 
 /**
@@ -27,7 +29,13 @@ interface TicketPromptProps {
  * - If `summary` is provided: shows "Create support ticket" button with pre-filled summary
  * - If no `summary`: shows input field for user to describe their issue
  */
-export function TicketPrompt({ conversationId, traceId, summary, initialText }: TicketPromptProps): JSX.Element {
+export function TicketPrompt({
+    conversationId,
+    traceId,
+    summary,
+    initialText,
+    targetArea,
+}: TicketPromptProps): JSX.Element {
     const [issueText, setIssueText] = useState(initialText ?? '')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
@@ -80,7 +88,7 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
             name: '',
             email: '',
             kind: 'bug',
-            target_area: 'posthog-ai',
+            target_area: targetArea ?? 'analytics',
             severity_level: 'low',
             message: messageContent,
             tags: ['raised_from_posthog_ai_chat'],
