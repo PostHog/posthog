@@ -2866,7 +2866,9 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
+ "common-database",
  "common-dns",
  "common-kafka",
  "common-metrics",
@@ -7590,6 +7592,30 @@ dependencies = [
  "clap",
  "personhog-coordination",
  "stateright",
+]
+
+[[package]]
+name = "personhog-test-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assignment-coordination",
+ "chrono",
+ "clap",
+ "futures",
+ "hdrhistogram",
+ "humantime",
+ "personhog-coordination",
+ "personhog-proto",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

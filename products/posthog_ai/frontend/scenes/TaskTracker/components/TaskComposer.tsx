@@ -11,6 +11,7 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
@@ -60,6 +61,9 @@ export function TaskComposer(): JSX.Element {
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>
+                                <Composer.Header>
+                                    <AttachedContextBar />
+                                </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                                     <Composer.Textarea autoFocus data-attr="task-composer-input" />

@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.8.3 — 2026-07-15
+
+### Patch changes
+
+- [97457ef9b4](https://github.com/PostHog/posthog/commit/97457ef9b493debd3975f12b8b6d1c4baaee2d93) Sourcemap upload concurrency can now be configured with `--concurrency` or `POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY`, while keeping the existing default of 10 uploads at a time. — Thanks @DebadityaHait!
+
 ## 0.8.2 — 2026-07-13
 
 ### Patch changes

@@ -10,7 +10,13 @@ deploy pipeline for each selected one against a target PostHog project:
 
 Idempotent: a bundle whose live revision already matches (per-file sha256 AND
 spec) is a no-op; a drifted bundle branches a new draft and re-promotes,
-leaving the previously-live revision archived.
+leaving the previously-live revision archived. Bundles that receive
+platform-injected content at freeze (kernel skills) never match the on-disk
+manifest, so they get a second, post-freeze check: if the new frozen
+bundle_sha256 AND the frozen spec both equal the live revision's, the
+revision is identical — the draft is archived and promote is skipped, so
+repeated seeds don't churn revisions. (Both checks are needed: the sha only
+covers bundle files, while the spec lives on the revision row.)
 
 Usage:
     # Seed every discovered bundle into the default local project:
@@ -99,12 +105,30 @@ METADATA: dict[str, dict[str, str]] = {
 # auth modes. Mirrors the declarative/intrinsic split in `spec.ts`.
 DECLARATIVE_TRIGGERS: set[str] = {"webhook", "chat", "mcp"}
 
-# Secret keys each trigger type requires before promote — mirrors
-# TRIGGER_REQUIRED_SECRETS in products/agent_platform/backend/spec_schema.py.
-# Used only by the optional SEED_DUMMY_SECRETS placeholder path below.
-TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = {
-    "slack": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"],
-}
+
+def _load_trigger_required_secrets() -> dict[str, list[str]]:
+    """Required secret keys per trigger type, read from the checked-in
+    generated artifact (`trigger_required_secrets.generated.json`, emitted
+    from `services/agent-shared/src/spec/trigger-secrets.ts`) rather than
+    hand-copied — the same registry `backend/logic/spec_schema.py`'s promote
+    gate reads via `backend/logic/generated.py`. Only `required: true`
+    entries block promote, matching that gate's filter. Used only by the
+    optional SEED_DUMMY_SECRETS placeholder path below."""
+    backend_logic_dir = next(
+        (p / "backend" / "logic" for p in EXAMPLES_ROOT.parents if (p / "backend" / "logic").is_dir()),
+        None,
+    )
+    if backend_logic_dir is None:
+        raise RuntimeError("couldn't locate products/agent_platform/backend/logic from seed.py's path")
+    artifact = backend_logic_dir / "trigger_required_secrets.generated.json"
+    raw: dict[str, list[dict[str, object]]] = json.loads(artifact.read_text(encoding="utf-8"))
+    return {
+        trigger_type: [str(r["key"]) for r in requirements if r.get("required")]
+        for trigger_type, requirements in raw.items()
+    }
+
+
+TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = _load_trigger_required_secrets()
 
 # Opt-in: set obviously-fake placeholder values for any secret an agent requires
 # (declared `spec.secrets[]` + per-trigger required keys) that isn't already
@@ -611,20 +635,41 @@ def promote(slug: str, app_id: str, rev_id: str) -> None:
         raise SeedError(f"promote failed for {slug}: {status} {payload}")
 
 
-def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None]:
-    """Returns (live_revision_id, {path: sha256}, spec) or (None, None, None)."""
+def archive(slug: str, app_id: str, rev_id: str) -> None:
+    """Archive a duplicate ready revision. Cosmetic cleanup — a failure here
+    leaves a stray ready revision but the live deployment is already correct,
+    so log instead of failing the run."""
+    if DRY_RUN:
+        return
+    status, payload = _req("POST", f"/agent_applications/{app_id}/revisions/{rev_id}/archive/")
+    if status != 200:
+        log(slug, f"WARNING: failed to archive duplicate revision {rev_id}: {status} {payload}")
+
+
+def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None, str | None]:
+    """Returns (live_revision_id, {path: sha256}, spec, bundle_sha256) or Nones."""
     status, payload = _req("GET", f"/agent_applications/{app_id}/")
     if status != 200:
-        return None, None, None
+        return None, None, None, None
     rev_id = payload.get("live_revision")
     if not rev_id:
-        return None, None, None
+        return None, None, None, None
     status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
     spec = rev.get("spec") if status == 200 else None
+    live_sha = rev.get("bundle_sha256") if status == 200 else None
     status, manifest = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/manifest/")
     if status != 200:
-        return rev_id, None, spec
-    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec
+        return rev_id, None, spec, live_sha
+    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec, live_sha
+
+
+def get_frozen_spec(app_id: str, rev_id: str) -> dict | None:
+    """The revision's spec as stamped at freeze (defaults filled, skills[]/tools[]
+    derived) — the same normalized shape `get_live` reads off the live revision,
+    so the two compare apples-to-apples. None when the read fails."""
+    status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
+    spec = rev.get("spec") if status == 200 else None
+    return spec if isinstance(spec, dict) else None
 
 
 def seed_bundle(bundle_root: Path) -> None:
@@ -641,7 +686,7 @@ def seed_bundle(bundle_root: Path) -> None:
         log(slug, "would deploy: draft -> bundle -> spec -> validate -> freeze -> promote")
         return
 
-    live_rev, live_manifest, live_spec = get_live(app_id)
+    live_rev, live_manifest, live_spec, live_sha = get_live(app_id)
     log(slug, f"current live: rev={live_rev}")
 
     if live_rev and live_manifest == target_manifest and live_spec == spec:
@@ -663,6 +708,19 @@ def seed_bundle(bundle_root: Path) -> None:
     validate(slug, app_id, rev_id)
     new_sha = freeze(slug, app_id, rev_id)
     log(slug, f"frozen sha={new_sha[:12]}...")
+    # The frozen sha hashes the materialized bundle FILES (author files +
+    # freeze-injected kernel skills) — the spec (trigger auth, tool approvals,
+    # limits) lives on the revision row, not in the bundle, so a spec-only
+    # change freezes to the same sha and must still promote. Skip promote only
+    # when the bundle sha AND the frozen spec both match the live revision:
+    # then the "drift" above was only platform-injected content the on-disk
+    # bundle can't carry, and promoting would churn an identical revision.
+    if live_sha and new_sha == live_sha:
+        if get_frozen_spec(app_id, rev_id) == live_spec:
+            log(slug, "frozen artifact identical to live — archiving duplicate, skipping promote")
+            archive(slug, app_id, rev_id)
+            return
+        log(slug, "bundle identical but frozen spec changed — promoting")
     promote(slug, app_id, rev_id)
     log(slug, f"DONE: live at {rev_id}")
 

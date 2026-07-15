@@ -35,6 +35,10 @@ class TestResolvePrimaryKeys:
             ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
             # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
             ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
         ]
     )
     def test_precedence(

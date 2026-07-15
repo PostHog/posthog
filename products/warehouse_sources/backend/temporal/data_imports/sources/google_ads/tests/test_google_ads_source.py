@@ -377,6 +377,27 @@ class TestValidateCredentials:
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
 
+    def test_permission_denied_returns_actionable_message(self):
+        # A connected login that can't access the customer ID surfaces as a raw gRPC PERMISSION_DENIED
+        # dump (with a per-request peer IP) at validate time. Surface a clean, actionable prompt rather
+        # than leaking the protobuf dump to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.PERMISSION_DENIED\n\tdetails = "The caller does not have permission"\n\t'
+            'debug_error_string = "peer_address:ipv4:216.239.36.223:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
+        assert "216.239.36.223" not in (message or "")
+        assert "StatusCode" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.

@@ -7,41 +7,20 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
 import type {
     ManagedWarehouseDatasetStatusApi,
-    ManagedWarehouseReadinessStateEnumApi,
-    ManagedWarehouseSourceTableStatusApi,
+    ManagedWarehouseSourceSummaryApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { managedWarehouseDataStatusLogic } from './managedWarehouseDataStatusLogic'
-
-const STATUS_LABELS: Record<ManagedWarehouseReadinessStateEnumApi, string> = {
-    not_configured: 'Not configured',
-    waiting: 'Waiting',
-    backfilling: 'Backfilling',
-    catching_up: 'Catching up',
-    up_to_date: 'Up to date',
-    needs_attention: 'Needs attention',
-    unknown: 'Status unavailable',
-}
-
-const STATUS_TAG_TYPES: Record<ManagedWarehouseReadinessStateEnumApi, LemonTagType> = {
-    not_configured: 'muted',
-    waiting: 'warning',
-    backfilling: 'primary',
-    catching_up: 'primary',
-    up_to_date: 'success',
-    needs_attention: 'danger',
-    unknown: 'muted',
-}
-
-function StatusTag({ readinessState }: { readinessState: ManagedWarehouseReadinessStateEnumApi }): JSX.Element {
-    return <LemonTag type={STATUS_TAG_TYPES[readinessState]}>{STATUS_LABELS[readinessState]}</LemonTag>
-}
+import { SourceSchemasModal } from './SourceSchemasModal'
+import { sourceSchemasModalLogic } from './sourceSchemasModalLogic'
+import { STATUS_SEVERITY, StatusTag } from './warehouseStatusDisplay'
 
 function DatasetCard({
     title,
@@ -58,7 +37,7 @@ function DatasetCard({
     const progress = hasProgress ? Math.round((status.completed_partitions / status.total_partitions!) * 100) : null
 
     return (
-        <LemonCard className="p-4 space-y-4">
+        <LemonCard className="p-4 space-y-4" hoverEffect={false}>
             <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                     <div className="text-xl text-muted mt-0.5">{icon}</div>
@@ -97,72 +76,55 @@ function DatasetCard({
     )
 }
 
-// Most severe first, matching the order the API returns tables in.
-const STATUS_SEVERITY: Record<ManagedWarehouseReadinessStateEnumApi, number> = {
-    needs_attention: 0,
-    backfilling: 1,
-    catching_up: 2,
-    waiting: 3,
-    unknown: 4,
-    up_to_date: 5,
-    not_configured: 6,
-}
-
-const sourceColumns: LemonTableColumns<ManagedWarehouseSourceTableStatusApi> = [
-    {
-        title: 'Source',
-        key: 'source',
-        render: (_, table) => (
-            <div>
-                <div className="font-medium">{table.source_name}</div>
-                <div className="text-xs text-muted">{table.source_type}</div>
-            </div>
-        ),
-        sorter: (a, b) => a.source_name.localeCompare(b.source_name) || a.table_name.localeCompare(b.table_name),
-    },
-    {
-        title: 'Table',
-        dataIndex: 'table_name',
-        render: (tableName) => <code>{tableName}</code>,
-        sorter: (a, b) => a.table_name.localeCompare(b.table_name),
-    },
-    {
-        title: 'Warehouse status',
-        key: 'readiness_state',
-        render: (_, table) => (
-            <div className="space-y-1 max-w-96">
-                <StatusTag readinessState={table.readiness_state} />
-                <div className="text-xs text-muted">{table.detail}</div>
-            </div>
-        ),
-        sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
-    },
-    {
-        title: 'Backfill',
-        key: 'backfill',
-        render: (_, table) =>
-            table.total_chunks ? `${table.completed_chunks} / ${table.total_chunks} chunks` : 'No active backfill',
-    },
-    {
-        title: 'Pending imports',
-        dataIndex: 'pending_batches',
-        render: (pendingBatches) =>
-            typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
-        // Unavailable counts sort last rather than as zero, which would read as "nothing pending".
-        sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
-    },
-    {
-        title: 'Last source import',
-        dataIndex: 'last_synced_at',
-        render: (lastSyncedAt) =>
-            typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
-        sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
-    },
-]
-
 export function OverviewTab(): JSX.Element {
     const { managedWarehouseDataStatus, managedWarehouseDataStatusLoading } = useValues(managedWarehouseDataStatusLogic)
     const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
+    const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
+
+    const sourceSummaryColumns: LemonTableColumns<ManagedWarehouseSourceSummaryApi> = [
+        {
+            title: 'Source',
+            key: 'source',
+            render: (_, source) => (
+                <div>
+                    <div className="font-medium">{source.source_name}</div>
+                    <div className="text-xs text-muted">{source.source_type}</div>
+                </div>
+            ),
+            sorter: (a, b) => a.source_name.localeCompare(b.source_name),
+        },
+        {
+            title: 'Warehouse status',
+            key: 'readiness_state',
+            render: (_, source) => (
+                <div className="space-y-1 max-w-96">
+                    <StatusTag readinessState={source.readiness_state} />
+                    <div className="text-xs text-muted">{source.detail}</div>
+                </div>
+            ),
+            sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
+        },
+        {
+            title: 'Schemas backfilled',
+            key: 'backfilled_schemas',
+            render: (_, source) => `${source.backfilled_schemas} / ${source.total_schemas}`,
+            sorter: (a, b) => a.backfilled_schemas / a.total_schemas - b.backfilled_schemas / b.total_schemas,
+        },
+        {
+            title: 'Pending imports',
+            dataIndex: 'pending_batches',
+            render: (pendingBatches) =>
+                typeof pendingBatches === 'number' ? pendingBatches.toLocaleString() : 'Unavailable',
+            sorter: (a, b) => (a.pending_batches ?? -1) - (b.pending_batches ?? -1),
+        },
+        {
+            title: 'Last source import',
+            dataIndex: 'last_synced_at',
+            render: (lastSyncedAt) =>
+                typeof lastSyncedAt === 'string' ? humanFriendlyDetailedTime(lastSyncedAt) : 'Not synced yet',
+            sorter: (a, b) => new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
+        },
+    ]
 
     if (managedWarehouseDataStatusLoading && !managedWarehouseDataStatus) {
         return (
@@ -240,26 +202,36 @@ export function OverviewTab(): JSX.Element {
                 />
             </div>
 
-            <LemonCard className="p-0 overflow-hidden">
+            <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
                 <div className="p-4 flex items-start justify-between gap-3 border-b">
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>
-                        <p className="text-muted mb-0">{managedWarehouseDataStatus.sources.detail}</p>
+                        <p className="text-xs text-muted mb-0">
+                            Reflects the warehouse source imports currently enabled to sync.{' '}
+                            <Link to={urls.sources()}>Manage sources</Link>
+                        </p>
                     </div>
                     <StatusTag readinessState={managedWarehouseDataStatus.sources.readiness_state} />
                 </div>
-                {managedWarehouseDataStatus.sources.tables.length ? (
+                {managedWarehouseDataStatus.sources.sources.length ? (
                     <LemonTable
                         embedded
-                        columns={sourceColumns}
-                        dataSource={managedWarehouseDataStatus.sources.tables}
-                        rowKey="schema_id"
+                        columns={sourceSummaryColumns}
+                        dataSource={managedWarehouseDataStatus.sources.sources}
+                        rowKey="source_id"
                         pagination={{ pageSize: 20 }}
+                        onRow={(source) => ({
+                            onClick: () =>
+                                loadSourceSchemas({ sourceId: source.source_id, sourceName: source.source_name }),
+                            className: 'cursor-pointer',
+                        })}
                     />
                 ) : (
                     <div className="p-6 text-muted">No imported source tables are configured for this warehouse.</div>
                 )}
             </LemonCard>
+
+            <SourceSchemasModal />
         </div>
     )
 }
