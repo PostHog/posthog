@@ -13985,7 +13985,7 @@ export namespace Schemas {
     export interface CohortConditionTypeFlags {
       /** The filters include a person property or person_metadata condition. */
       person_properties: boolean;
-      /** The filters include a plain behavioral condition (performed_event, performed_event_multiple, or performed_event_sequence). */
+      /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
       behavioral: boolean;
       /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
       lifecycle: boolean;
