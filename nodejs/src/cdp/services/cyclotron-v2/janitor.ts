@@ -98,7 +98,7 @@ export class CyclotronV2Janitor {
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
-                'CyclotronV2Janitor poison-pill recovery DISABLED via CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED=false — giving up is paused; poison pills accumulate and are retried, never dropped'
+                'CyclotronV2Janitor poison-pill recovery DISABLED via CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED=false — reverting to legacy behavior: poison pills are marked failed with no replay record'
             )
         }
     }
@@ -122,12 +122,13 @@ export class CyclotronV2Janitor {
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
         // Give up on genuine poison pills. The kill-switch picks between two
-        // self-contained paths — record-then-delete, or pause — with no inline
-        // flag checks beyond this branch, so the paused path can be deleted
-        // wholesale once we trust recording in production.
+        // self-contained paths with no inline flag checks beyond this branch:
+        // the new record-then-delete path, or master's legacy mark-failed path.
+        // The legacy path (and the flag) can be deleted wholesale once we trust
+        // recording in production.
         const poisonedIds = this.poisonRecoveryEnabled
             ? await this.recordAndDeletePoisonPills()
-            : this.pausePoisonPills()
+            : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
@@ -176,14 +177,40 @@ export class CyclotronV2Janitor {
     }
 
     /**
-     * Kill-switch OFF path — poison-pill recovery disabled. The janitor does not
-     * give up on poison pills at all: it leaves them for `resetStalledJobs` to
-     * keep retrying rather than deleting them without a recovery record. Kept as
-     * a named counterpart to `recordAndDeletePoisonPills` so the two paths stay
-     * separate and this one can be removed wholesale once recording is trusted.
+     * Kill-switch OFF path — restores master's pre-recovery behavior verbatim:
+     * mark poison pills `failed` (then `cleanupTerminalJobs` sweeps them like any
+     * other failed job) with no recovery record. A give-up here is lost to replay,
+     * exactly as before this change — that is what OFF means. Kept as a
+     * self-contained counterpart to `recordAndDeletePoisonPills` so this whole
+     * path, and the flag, can be deleted once recording is trusted in production.
      */
-    private pausePoisonPills(): string[] {
-        return []
+    private async failPoisonPills(): Promise<string[]> {
+        const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
+
+        const result = await this.pool.query<{ id: string }>(
+            `UPDATE cyclotron_jobs
+             SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
+                 last_transition = NOW(), transition_count = transition_count + 1
+             WHERE id IN (
+                 SELECT id
+                 FROM cyclotron_jobs
+                 WHERE status = 'running'
+                   AND COALESCE(last_heartbeat, $1) <= $1
+                   AND janitor_touch_count >= $2
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id`,
+            [heartbeatCutoff, this.maxTouchCount]
+        )
+
+        const ids = result.rows.map((r) => r.id)
+        if (ids.length > 0) {
+            janitorPoisonedCounter.inc(ids.length)
+            logger.warn('CyclotronV2Janitor failed poison pill jobs (recovery disabled, no replay record)', {
+                count: ids.length,
+            })
+        }
+        return ids
     }
 
     /**

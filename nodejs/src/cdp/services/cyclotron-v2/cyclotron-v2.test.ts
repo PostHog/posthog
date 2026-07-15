@@ -1647,7 +1647,7 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(1)
         })
 
-        it('pauses giving up (keeps the job, no record, no delete) when recovery is disabled (kill-switch)', async () => {
+        it('marks poison pills failed (legacy behavior, no record) when recovery is disabled (kill-switch)', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -1658,8 +1658,8 @@ describe('Cyclotron V2', () => {
                 janitor_touch_count: 3,
             })
 
-            // A results service is wired, but the kill-switch pauses giving up:
-            // the poison pill is neither recorded nor deleted — never dropped.
+            // A results service is wired, but the kill-switch reverts to master's
+            // pre-recovery path: mark the pill failed, never record a replay row.
             const { service, recordTerminalFailureDurably } = createMockResults(true)
             const janitor = createJanitor(
                 { stallTimeoutMs: 1_000, maxTouchCount: 2, poisonRecoveryEnabled: false },
@@ -1668,11 +1668,9 @@ describe('Cyclotron V2', () => {
             const result = await janitor.runOnce()
             await janitor.stop()
 
-            expect(result.poisoned).toBe(0)
+            expect(result.poisoned).toBe(1)
             expect(recordTerminalFailureDurably).not.toHaveBeenCalled()
-            // Still present, and reset to available so it keeps being retried.
-            expect(await totalJobCount()).toBe(1)
-            expect((await queryJob(jobId)).status).toBe('available')
+            expect((await queryJob(jobId)).status).toBe('failed')
         })
 
         it('gives up on poison pills before stalled jobs are reset', async () => {

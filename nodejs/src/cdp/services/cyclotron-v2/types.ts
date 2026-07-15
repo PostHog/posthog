@@ -128,8 +128,8 @@ export type CyclotronV2JanitorConfig = {
     stallTimeoutMs?: number
     maxTouchCount?: number
     cleanupGraceMs?: number
-    // Kill-switch. When false the janitor pauses giving up on poison pills (they
-    // are reset/retried and accumulate, never recorded or deleted). Defaults to true.
+    // Kill-switch. When false the janitor reverts to master's legacy path — mark
+    // poison pills failed with no replay record (a give-up is lost). Defaults to true.
     poisonRecoveryEnabled?: boolean
 }
 
