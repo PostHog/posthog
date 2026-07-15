@@ -15,18 +15,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from policy import OwnershipSource, load_policy
 
-# The resolver lives in the posthog-owners package, a sibling under tools/. It is
-# not installed in this script's uv env, so put it on the path and import the
-# library directly (it needs only pyyaml, which review_pr.py declares).
-_OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
-if str(_OWNERS_PKG) not in sys.path:
-    sys.path.insert(0, str(_OWNERS_PKG))
+if TYPE_CHECKING:
+    from posthog_owners.resolver import OwnersResolver
 
-from posthog_owners.resolver import OwnersResolver  # noqa: E402
+# The resolver lives in the posthog-owners package, a sibling under tools/. It is
+# not installed in this script's uv env, so it is put on the path and imported as
+# a library (it needs only pyyaml, which review_pr.py declares). The import is
+# deferred to _build_hogli_resolver: downstream repos vendor this directory
+# (plus .stamphog/) without tools/owners, and a module-level import would
+# disable their stamphog copy before any gate runs — the package is only
+# required once a policy actually declares a hogli-resolver ownership source.
+_OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -184,7 +187,7 @@ class _HogliResolver:
     the separate product.yaml reader — one ownership semantics, many consumers.
     """
 
-    def __init__(self, resolver: OwnersResolver) -> None:
+    def __init__(self, resolver: "OwnersResolver") -> None:
         self._resolver = resolver
 
     def owners(self, filepath: str) -> set[str]:
@@ -193,6 +196,18 @@ class _HogliResolver:
 
 
 def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliResolver:
+    if str(_OWNERS_PKG) not in sys.path:
+        sys.path.insert(0, str(_OWNERS_PKG))
+    try:
+        from posthog_owners.resolver import (
+            OwnersResolver,  # noqa: PLC0415 — absent in vendored copies; needed only for this format
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "ownership format 'hogli-resolver' requires the posthog-owners package: "
+            "vendor tools/owners alongside tools/pr-approval-agent, or drop the "
+            "hogli-resolver source from .stamphog/policy.yml"
+        ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
     return _HogliResolver(OwnersResolver(repo_root=repo_root / source.path))
 
