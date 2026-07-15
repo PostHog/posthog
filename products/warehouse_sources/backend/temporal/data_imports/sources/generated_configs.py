@@ -2255,7 +2255,7 @@ class KongKonnectSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
