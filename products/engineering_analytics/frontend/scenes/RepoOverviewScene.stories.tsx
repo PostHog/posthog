@@ -1,5 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { delay } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -345,13 +344,14 @@ export const RepoOverviewEmptyDuration: Story = {
 
 export const RepoOverviewDurationLoading: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalytics() },
+    parameters: {
+        pageUrl: urls.engineeringAnalytics(),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/engineering_analytics/repo_overview/': async () => {
-                    await delay('infinite')
-                },
+                'api/projects/:team_id/engineering_analytics/repo_overview/': () => new Promise<never>(() => {}),
             },
         }),
     ],
