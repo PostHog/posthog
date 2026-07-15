@@ -381,6 +381,12 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         event type don't collide in the mapping."""
         return self.webhook_resource_map.get(schema_name, schema_name)
 
+    def webhook_template_inputs(self, config: ConfigType) -> dict[str, Any]:
+        """Extra static `inputs` to persist on the webhook HogFunction beyond `schema_mapping` and
+        `source_id`. None by default; GitHub uses it to pin the legacy repository so the template's
+        bare-event-key fallback can't route a secondary repo's events into the legacy repo's schema."""
+        return {}
+
     def get_external_webhook_info(
         self, config: ConfigType, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo | None:

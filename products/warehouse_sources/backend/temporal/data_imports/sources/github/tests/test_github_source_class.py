@@ -285,6 +285,19 @@ class TestGithubSource:
             GithubSource.effective_repositories(_pat_config(None, None))
         assert "No repositories configured" in self.source.get_non_retryable_errors()
 
+    def test_effective_repositories_rejects_storage_collision(self):
+        # `acme/repo.name` and `acme/repo__name` collapse to the same table/folder identifier; the
+        # source must reject the pair rather than silently mix two repos' data into one table.
+        with pytest.raises(ValueError, match="resolve to the same warehouse table"):
+            GithubSource.effective_repositories(_pat_config(None, ["acme/repo.name", "acme/repo__name"]))
+        assert "resolve to the same warehouse table" in self.source.get_non_retryable_errors()
+
+    def test_effective_repositories_rejects_over_the_maximum(self):
+        too_many = [f"acme/repo{i}" for i in range(GithubSource.MAX_REPOSITORIES + 1)]
+        with pytest.raises(ValueError, match="Too many repositories configured"):
+            GithubSource.effective_repositories(_pat_config(None, too_many))
+        assert "Too many repositories configured" in self.source.get_non_retryable_errors()
+
     @pytest.mark.parametrize(
         "name,expected",
         [

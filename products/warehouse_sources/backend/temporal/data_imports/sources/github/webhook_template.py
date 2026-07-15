@@ -75,7 +75,11 @@ let schemaId := null
 if (not empty(repoFullName)) {
   schemaId := inputs.schema_mapping?.[concat(lower(repoFullName), '.', eventType)]
 }
-if (empty(schemaId)) {
+// The bare event-type key belongs to the legacy repository only. Restricting the fallback to the
+// legacy repo (or to functions with no legacy binding — pure multi-repo mappings have no bare key,
+// and pre-multi-repo functions predate this input) stops a secondary repo whose qualified schema
+// is disabled/removed from leaking its events into the legacy repo's schema.
+if (empty(schemaId) and (empty(inputs.legacy_repository) or lower(repoFullName) = lower(inputs.legacy_repository))) {
   schemaId := inputs.schema_mapping?.[eventType]
 }
 
@@ -173,6 +177,15 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "label": "Source ID",
             "description": "The ExternalDataSource ID this webhook is associated with",
             "required": True,
+            "secret": False,
+            "hidden": True,
+        },
+        {
+            "type": "string",
+            "key": "legacy_repository",
+            "label": "Legacy repository",
+            "description": "For multi-repo GitHub sources, the 'owner/repo' whose schema rows keep bare event keys. The bare-key fallback only routes events from this repository, so other repos can't leak into it. Empty for single-repo or pure multi-repo sources.",
+            "required": False,
             "secret": False,
             "hidden": True,
         },

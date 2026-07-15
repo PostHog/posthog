@@ -3435,6 +3435,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 source=source,
                 source_id=str(instance.pk),
                 eligible_schemas=eligible_schemas,
+                config=source_config,
             )
             if hog_fn_result.error or hog_fn_result.hog_function is None:
                 return failure(hog_fn_result.error)
@@ -4552,6 +4553,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source=source,
             source_id=str(instance.pk),
             eligible_schemas=eligible_schemas,
+            config=config,
         )
 
         if hog_fn_result.error:

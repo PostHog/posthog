@@ -48,6 +48,7 @@ def get_or_create_webhook_hog_function(
     source_id: str,
     eligible_schemas: list[ExternalDataSchema],
     extra_inputs: dict[str, Any] | None = None,
+    config: Config | None = None,
 ) -> WebhookHogFunctionCreateResult:
     """Create or update a HogFunction for webhook-based data imports."""
 
@@ -76,6 +77,11 @@ def get_or_create_webhook_hog_function(
         "schema_mapping": {"value": schema_mapping},
         "source_id": {"value": source_id},
     }
+    # Static template inputs the source pins on every write (GitHub's legacy_repository, which gates
+    # the template's bare-event fallback). Set here rather than merged so it survives a rewrite of
+    # `inputs` on update and can't drift out of sync with the schema mapping.
+    if config is not None:
+        inputs.update({key: {"value": value} for key, value in source.webhook_template_inputs(config).items()})
     if extra_inputs:
         inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
 

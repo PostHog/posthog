@@ -143,5 +143,11 @@ def _reconcile_repo_webhooks(
         name__in=webhook_capable,
     ).exclude(deleted=True)
     schema_mapping = {source.webhook_mapping_key(schema.name): str(schema.id) for schema in eligible_schemas}
-    hog_function.inputs = {**(hog_function.inputs or {}), "schema_mapping": {"value": schema_mapping}}
+    # Re-pin the legacy repository alongside the mapping so the template's bare-key fallback stays
+    # bound to it — a mixed legacy+multi-repo source is exactly the case the fallback could leak.
+    hog_function.inputs = {
+        **(hog_function.inputs or {}),
+        "schema_mapping": {"value": schema_mapping},
+        **{key: {"value": value} for key, value in source.webhook_template_inputs(new_config).items()},
+    }
     hog_function.save(update_fields=["inputs", "encrypted_inputs"])

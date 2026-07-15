@@ -20,7 +20,7 @@ SCHEMA_METADATA_REPOSITORY_KEY = "source_repository"
 SCHEMA_METADATA_ENDPOINT_KEY = "source_endpoint"
 
 # Longest first so `pull_requests` wins over any shorter overlapping endpoint name.
-_ENDPOINT_SUFFIXES = sorted(ENDPOINTS, key=len, reverse=True)
+_ENDPOINT_SUFFIXES = sorted(ENDPOINTS, key=lambda name: len(name), reverse=True)
 
 
 def qualified_schema_name(repository: str, endpoint: str) -> str:

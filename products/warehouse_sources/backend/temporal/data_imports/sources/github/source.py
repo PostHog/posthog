@@ -1,5 +1,5 @@
 import secrets
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -239,6 +239,8 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Missing GitHub integration ID": "No GitHub account is connected. Please reconnect your GitHub account.",
             "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
+            "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
+            "Too many repositories configured": "Too many repositories are selected for this source. Please reduce the list and try again.",
             "GitHub access token not found": "GitHub OAuth access token is missing. Please reconnect your GitHub account.",
             "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
@@ -268,21 +270,49 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             if repo.get("full_name")
         ]
 
+    # One schema row per repository × endpoint, and — when a webhook exists — one hook per
+    # repository, both fan out linearly over this list. Bound it so a single oversized/malformed
+    # config (the update path accepts a large JSON body) can't drive unbounded schema creation or
+    # a serial stream of GitHub hook operations. Generous versus any real use.
+    MAX_REPOSITORIES = 100
+
     @staticmethod
     def effective_repositories(config: GithubSourceConfig) -> list[str]:
         """The repos this source syncs. `repositories` wins when set; legacy sources fall back to
         the single `repository`. Deduped, stripped, lowercased (GitHub full names are
-        case-insensitive and the repo half of schema names/webhook keys must compare stably)."""
+        case-insensitive and the repo half of schema names/webhook keys must compare stably).
+
+        Rejects a config that would resolve two repositories to the same warehouse storage, or that
+        exceeds `MAX_REPOSITORIES`, so a malformed/oversized list fails fast with a curated,
+        non-retryable message rather than mixing repos' data or exhausting a worker."""
         raw = config.repositories if config.repositories else ([config.repository] if config.repository else [])
         seen: set[str] = set()
+        # Storage identifier (table name + S3 folder) -> the repo that claimed it. Two repositories
+        # that collapse to the same identifier — the classic case is `owner/repo.name` vs
+        # `owner/repo__name`, which the separator flattening isn't injective over — would share one
+        # table and folder, silently mixing their data. Reject rather than merge.
+        storage_owners: dict[str, str] = {}
         repositories: list[str] = []
         for repo in raw:
             normalized = repo.strip().lower()
-            if normalized and normalized not in seen:
-                seen.add(normalized)
-                repositories.append(normalized)
+            if not normalized or normalized in seen:
+                continue
+            storage_key = NamingConvention.normalize_identifier(normalized)
+            if storage_key in storage_owners:
+                raise ValueError(
+                    f"Repositories '{storage_owners[storage_key]}' and '{normalized}' resolve to the "
+                    "same warehouse table; remove or rename one."
+                )
+            storage_owners[storage_key] = normalized
+            seen.add(normalized)
+            repositories.append(normalized)
         if not repositories:
             raise ValueError("No repositories configured")
+        if len(repositories) > GithubSource.MAX_REPOSITORIES:
+            raise ValueError(
+                f"Too many repositories configured ({len(repositories)}); the maximum is "
+                f"{GithubSource.MAX_REPOSITORIES}."
+            )
         return repositories
 
     @staticmethod
@@ -457,6 +487,12 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         if repository is None:
             return event
         return f"{repository.strip().lower()}.{event}"
+
+    def webhook_template_inputs(self, config: GithubSourceConfig) -> dict[str, Any]:
+        # Pin the legacy repository (the one whose rows keep bare event keys) so the template's
+        # bare-key fallback only fires for its events. Empty when there's no legacy repo (pure
+        # multi-repo sources have no bare keys, so nothing to bind).
+        return {"legacy_repository": (config.repository or "").strip().lower()}
 
     def get_desired_webhook_events(
         self, config: GithubSourceConfig, eligible_schema_names: list[str]
