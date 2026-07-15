@@ -27,6 +27,7 @@ import { subscriptionsLogic } from 'products/subscriptions/frontend/components/S
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import { DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD, dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
+import { DashboardSubscribeNudgeToast } from './DashboardSubscribeNudgeToast'
 import {
     DASHBOARD_VIEW_DEDUPE_WINDOW_MS,
     DASHBOARD_VIEW_LOG_WINDOW_MS,
@@ -236,13 +237,19 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(1)
         })
 
-        it('routes the toast action to the prefilled new-subscription form', async () => {
+        it('shows a sticky rich toast whose CTA routes to the prefilled new-subscription form', async () => {
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()
 
-            const [message, options] = (lemonToast.info as jest.Mock).mock.calls[0]
-            expect(message).toBe('Get Test dashboard delivered to your inbox every Monday.')
+            const [body, options] = (lemonToast.info as jest.Mock).mock.calls[0]
+            // Sticky: persists until the CTA (which auto-dismisses via the toastId) or the X.
+            expect(options).toMatchObject({
+                autoClose: false,
+                toastId: `dashboard-subscribe-nudge-${DASHBOARD_ID}`,
+            })
+            expect(body.type).toBe(DashboardSubscribeNudgeToast)
+            expect(body.props).toEqual({ dashboardName: 'Test dashboard' })
 
             options.button.action()
             expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))

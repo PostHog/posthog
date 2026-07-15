@@ -1,24 +1,22 @@
 import { BreakPointFunction, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { dashboardsSubscribeNudgeCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardSubscribeNudgeResponseApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { showDashboardSubscribeNudgeToast } from 'scenes/dashboard/DashboardSubscribeNudgeToast'
 import { dashboardViewLogLogic, freshTimestamps } from 'scenes/dashboard/dashboardViewLogLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardPlacement } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
-import { urlForSubscription } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import type { dashboardSubscribeNudgeLogicType } from './dashboardSubscribeNudgeLogicType'
@@ -181,18 +179,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 dashboard_id: props.dashboardId,
                 view_count_7d: values.viewCount7d,
             })
-            lemonToast.info(`Get ${values.dashboard?.name || 'this dashboard'} delivered to your inbox every Monday.`, {
-                toastId: `dashboard-subscribe-nudge-${props.dashboardId}`,
-                button: {
-                    label: 'Set up subscription',
-                    action: () =>
-                        router.actions.push(urlForSubscription('new', { dashboardId: props.dashboardId }), {
-                            prefill: 'nudge',
-                            via: 'toast',
-                        }),
-                    dataAttr: 'dashboard-subscribe-nudge-toast-cta',
-                },
-            })
+            showDashboardSubscribeNudgeToast(props.dashboardId, values.dashboard?.name)
         },
         sendNudgeNotificationFailure: ({ error, errorObject }) => {
             // Not marked notified: the next qualifying visit retries.
