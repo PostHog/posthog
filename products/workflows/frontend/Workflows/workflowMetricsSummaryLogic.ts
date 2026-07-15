@@ -17,7 +17,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { isEmailAction } from './hogflows/steps/types'
+import { isEmailAction, isPushAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
 
@@ -44,6 +44,14 @@ export type EmailMetric =
     | 'email_spam'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
+
+export type PushMetricRow = {
+    id: string
+    push: string
+    sent: number
+    skipped: number
+    failed: number
+}
 
 export type EmailMetricRow = {
     id: string
@@ -243,6 +251,8 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_spam',
 ]
 
+const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
+
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
     id: string
@@ -306,6 +316,28 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     await breakpoint(10)
 
                     return mapEmailMetricsToActions(totalsResponse)
+                },
+            },
+        ],
+        pushTotalsByActionId: [
+            {} as Record<string, Partial<Record<PushMetric, number>>>,
+            {
+                loadPushTotals: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const dateRange = values.getDateRangeAbsolute()
+                    const request: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['instance_id', 'metric_name'],
+                        metricName: [...PUSH_METRICS],
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
+                    }
+
+                    const totalsResponse = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return mapPushMetricsToActions(totalsResponse)
                 },
             },
         ],
@@ -381,6 +413,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         emailActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isEmailAction)],
+
+        pushActions: [(s) => [s.workflow], (workflow) => workflow.actions.filter(isPushAction)],
 
         metricNameBySummaryMetric: [
             (s) => [s.appMetricsTrends],
@@ -520,10 +554,26 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     }
                 }),
         ],
+
+        pushMetricsRows: [
+            (s) => [s.pushActions, s.pushTotalsByActionId],
+            (pushActions, pushTotalsByActionId): PushMetricRow[] =>
+                pushActions.map((action: { id: string; name: string }) => {
+                    const totals = pushTotalsByActionId[action.id] || {}
+                    return {
+                        id: action.id,
+                        push: action.name,
+                        sent: totals.push_sent ?? 0,
+                        skipped: totals.push_skipped ?? 0,
+                        failed: totals.push_failed ?? 0,
+                    }
+                }),
+        ],
     }),
 
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
+        actions.loadPushTotals({})
         actions.loadInProgressTotal({})
         actions.loadConversionStats({})
     }),
@@ -540,6 +590,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateTo: values.params.dateTo,
             })
             actions.loadEmailTotals({})
+            actions.loadPushTotals({})
             actions.loadConversionStats({})
         },
     })),
@@ -612,4 +663,26 @@ function mapEmailMetricsToActions(
 
 function isEmailMetric(metricName: string): metricName is EmailMetric {
     return EMAIL_METRICS.includes(metricName as EmailMetric)
+}
+
+function mapPushMetricsToActions(
+    totalsResponse: AppMetricsTotalsResponse
+): Record<string, Partial<Record<PushMetric, number>>> {
+    const result: Record<string, Partial<Record<PushMetric, number>>> = {}
+
+    Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
+        const [instanceId, metricName] = breakdowns
+        if (!instanceId || !isPushMetric(metricName)) {
+            return
+        }
+
+        result[instanceId] = result[instanceId] || {}
+        result[instanceId][metricName] = total
+    })
+
+    return result
+}
+
+function isPushMetric(metricName: string): metricName is PushMetric {
+    return PUSH_METRICS.includes(metricName as PushMetric)
 }
