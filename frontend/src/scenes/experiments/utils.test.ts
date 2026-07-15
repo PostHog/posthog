@@ -594,6 +594,10 @@ describe('checkFeatureFlagEligibility', () => {
             'Feature flag must have at most 20 variants.'
         )
     })
+    it('returns true for a feature flag with exactly 20 variants', () => {
+        const maxVariants = Array.from({ length: 20 }, (_, i) => `variant-${i}`)
+        expect(featureFlagEligibleForExperiment(withVariants(maxVariants))).toEqual(true)
+    })
     it('returns true for a feature flag with control and test variants', () => {
         expect(featureFlagEligibleForExperiment(withVariants(['control', 'test']))).toEqual(true)
     })
