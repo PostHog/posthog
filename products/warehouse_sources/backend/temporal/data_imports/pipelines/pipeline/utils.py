@@ -296,11 +296,12 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     # A narrowing cast overflowed. The usual causes are the source column's type
                     # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
                     # column was created with the narrower type, or an integer-created column now
-                    # receiving fractional values (e.g. a price field whose first-synced rows were
-                    # all whole numbers). delta-rs cannot widen an existing column in place, so
-                    # retrying is futile — surface an actionable error telling the user to reset
-                    # and fully re-sync the table. Whole-valued floats/decimals still cast into an
-                    # integer column losslessly, so this only fires on genuine data loss.
+                    # receiving fractional values — e.g. a price field whose first-synced rows were
+                    # all whole numbers, later failing with "ArrowInvalid: Float value 19.990000
+                    # was truncated converting to int64". delta-rs cannot widen an existing column
+                    # in place, so retrying is futile — surface an actionable error telling the
+                    # user to reset and fully re-sync the table. Whole-valued floats/decimals still
+                    # cast into an integer column losslessly, so this only fires on genuine data loss.
                     if pa.types.is_integer(delta_field.type) and (
                         pa.types.is_integer(incoming_column.type)
                         or pa.types.is_floating(incoming_column.type)
