@@ -30,9 +30,11 @@ jobs:
         name: Trigger ReviewHog review
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run only for the `reviewhog` label on a non-fork PR — any author (drafts and bots included).
+        # Run only when a human applies the `reviewhog` label to a non-fork PR — any author (drafts
+        # and bots included), but the labeler must be a person: the label is the explicit human request.
         if: >-
             github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type != 'Bot'
             && github.event.label.name == 'reviewhog'
         steps:
             - name: Trigger ReviewHog review
