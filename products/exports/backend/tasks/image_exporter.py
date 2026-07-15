@@ -194,9 +194,13 @@ def _export_to_png(
             is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
             # A metric renders as a square card whose height derives from the viewport width, so a
             # narrower viewport keeps it at dashboard-tile size instead of an 800px-tall square.
+            # Mirrors the frontend's check (InsightVizNode wrapper required), which gates the square
+            # metric CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
             trends_filter = source.get("trendsFilter") or {}
-            is_metric = source.get("kind") == NodeKind.TRENDS_QUERY and (
-                trends_filter.get("display") == ChartDisplayType.METRIC
+            is_metric = (
+                query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
+                and source.get("kind") == NodeKind.TRENDS_QUERY
+                and trends_filter.get("display") == ChartDisplayType.METRIC
             )
             # Set initial window size large enough for wide content like left-to-right funnels with many steps
             # Small funnels will be constrained later.
