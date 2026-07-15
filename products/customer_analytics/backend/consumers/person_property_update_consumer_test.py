@@ -152,15 +152,15 @@ class TestProcessRecord:
 
         assert c.process_record(b"not json") == RETRY
 
-    def test_dlq_producer_is_created_once_and_reused(self):
-        # A poison-heavy partition must not open a new Kafka producer per message; the producer is
-        # built lazily on first use and cached.
+    def test_dlq_producer_is_resolved_once_and_reused(self):
+        # A poison-heavy partition must not resolve a new producer per message; the routed singleton
+        # is fetched lazily on first use and cached.
         with patch(
-            "products.customer_analytics.backend.consumers.person_property_update_consumer._KafkaProducer"
-        ) as producer_cls:
+            "products.customer_analytics.backend.consumers.person_property_update_consumer.get_producer"
+        ) as get_producer:
             c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), bucket=MagicMock())
             c.process_record(b"not json")
             c.process_record(b"still not json")
 
-        producer_cls.assert_called_once()
-        assert producer_cls.return_value.produce.call_count == 2
+        get_producer.assert_called_once()
+        assert get_producer.return_value.produce.call_count == 2

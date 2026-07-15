@@ -19,7 +19,7 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
-from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
@@ -131,11 +131,12 @@ class PersonPropertyUpdateConsumer:
         self._shutdown = False
 
     def _get_dlq_producer(self) -> Any:
-        # Kafka producers are heavyweight (connections, buffers, threads); create once and reuse
-        # rather than per-message. Lazy so a consumer that never hits a poison message never
-        # opens a producer, and so tests inject their own without touching the Kafka stack.
+        # Reuse the routed, process-wide singleton producer for the DLQ topic rather than
+        # constructing one per message (Kafka producers are heavyweight). Resolved lazily so a
+        # consumer that never hits a poison message never opens a producer, and tests inject their
+        # own without touching the Kafka stack.
         if self._dlq_producer is None:
-            self._dlq_producer = _KafkaProducer()
+            self._dlq_producer = get_producer(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ)
         return self._dlq_producer
 
     def _dlq(self, value: bytes, reason: str) -> str:
@@ -207,7 +208,7 @@ class PersonPropertyUpdateConsumer:
 
         consumer = ConfluentConsumer(
             {
-                "bootstrap.servers": settings.KAFKA_HOSTS,
+                "bootstrap.servers": ",".join(settings.KAFKA_HOSTS),
                 "group.id": CONSUMER_GROUP,
                 "auto.offset.reset": "earliest",
                 "enable.auto.commit": False,
@@ -223,7 +224,12 @@ class PersonPropertyUpdateConsumer:
                 if message.error():
                     logger.warning("person_property_update.kafka_error", error=str(message.error()))
                     continue
-                outcome = self.process_record(message.value())
+                value = message.value()
+                if value is None:
+                    # Tombstone / empty payload: nothing to $set. Commit past it so it doesn't replay.
+                    consumer.commit(message=message, asynchronous=False)
+                    continue
+                outcome = self.process_record(value)
                 if outcome in (SENT, DLQ):
                     consumer.commit(message=message, asynchronous=False)
         finally:
