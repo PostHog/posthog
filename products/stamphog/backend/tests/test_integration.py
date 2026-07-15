@@ -243,10 +243,22 @@ def test_dismiss_stale_approvals(
         assert prior.approval_dismissed_at is None
 
 
+@pytest.mark.parametrize(
+    "raw_error,expected_stored",
+    [
+        ("sandbox exploded", "sandbox exploded"),
+        # A multi-line raw error (e.g. a yaml.YAMLError echoing .stamphog/policy.yml source lines) must
+        # be reduced to its first line — run.error and the event are exposed to stamphog:read, so the
+        # continuation lines could leak repository file content.
+        ("bad policy at line 3\n  secret_token: sk-live-leak\n  more source", "bad policy at line 3"),
+    ],
+    ids=["single_line", "multiline_truncated_to_first_line"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_mark_review_failed_captures_failure_event(team) -> None:
+def test_mark_review_failed_captures_failure_event(team, raw_error, expected_stored) -> None:
     # Hosted failures used to be visible only in worker logs; the dashboards need the
-    # stamphog_review_failed event next to the review-completed ones.
+    # stamphog_review_failed event next to the review-completed ones. The stored error is scrubbed to
+    # its first line so raw exception text can't leak repo file content to stamphog:read.
     repo_config = _repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
@@ -261,15 +273,16 @@ def test_mark_review_failed_captures_failure_event(team) -> None:
     with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
-        mark_review_failed.__wrapped__(MarkReviewFailedInput(str(run.id), team.id, "sandbox exploded"))
+        mark_review_failed.__wrapped__(MarkReviewFailedInput(str(run.id), team.id, raw_error))
 
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.FAILED
+    assert run.error == expected_stored
     assert capture_fn.call_args.kwargs["event"] == "stamphog_review_failed"
     assert capture_fn.call_args.kwargs["distinct_id"] == "devex-dev"
     props = capture_fn.call_args.kwargs["properties"]
     assert props["stamphog_repo"] == REPO
-    assert props["stamphog_error"] == "sandbox exploded"
+    assert props["stamphog_error"] == expected_stored
 
 
 def _refused_engine_output() -> str:

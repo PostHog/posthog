@@ -272,8 +272,20 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
     base_sha = (pr.get("base") or {}).get("sha") or ""
 
-    run.status = ReviewRunStatus.REVIEWING
-    run.save(update_fields=["status", "updated_at"])
+    # Flip to REVIEWING only if a delivery hasn't superseded this run since the early guard above.
+    # A plain save() would blindly overwrite a run that was superseded between the read and the write,
+    # reviving it back to REVIEWING and letting a stale run post its verdict. A conditional update that
+    # refuses to touch a SUPERSEDED row closes that window — 0 rows means it lost the race, so bail
+    # before provisioning the sandbox or fetching a token.
+    updated = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .update(status=ReviewRunStatus.REVIEWING, updated_at=timezone.now())
+    )
+    if not updated:
+        activity.logger.info(f"Skipping sandbox for superseded run {run.id} (superseded before REVIEWING)")
+        return {"skipped": "superseded"}
 
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
@@ -418,8 +430,13 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         .select_related("pull_request__repo_config")
         .get(id=input.review_run_id)
     )
+    # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
+    # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
+    # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
+    # already in the worker logs — the workflow logs the complete error before calling this activity.
+    first_error_line = (input.error.splitlines() or [""])[0][:300]
     run.status = ReviewRunStatus.FAILED
-    run.error = input.error
+    run.error = first_error_line
     run.completed_at = timezone.now()
     run.save(update_fields=["status", "error", "completed_at", "updated_at"])
 
@@ -437,7 +454,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_pr_number": pull_request.pr_number,
                 "stamphog_team_id": input.team_id,
                 "stamphog_runtime": "hosted",
-                "stamphog_error": input.error[:300],
+                "stamphog_error": first_error_line,
             },
         )
 
@@ -512,23 +529,29 @@ def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, pr_
     auth = f"git -c http.extraheader={shlex.quote(f'AUTHORIZATION: basic {basic}')}"
     repo_url = f"https://github.com/{repo}.git"
 
+    def _execute_or_raise(command: str, failure_prefix: str) -> None:
+        # sandbox.execute failures raised by the Docker/Modal layer can embed the full command string —
+        # including the AUTHORIZATION: basic <token> header — in the exception text, which then flows into
+        # Temporal failure details and run.error. Scrub any raised exception (from None so the unscrubbed
+        # original context isn't chained), and keep scrubbing stderr on a non-zero exit.
+        try:
+            result = sandbox.execute(command, timeout_seconds=10 * 60)
+        except Exception as exc:
+            raise RuntimeError(_scrub_credentials(str(exc), token, basic)) from None
+        if result.exit_code != 0:
+            raise RuntimeError(f"{failure_prefix}: {_scrub_credentials(result.stderr, token, basic)[:500]}")
+
     clone = (
         f"rm -rf {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"{auth} clone --single-branch {shlex.quote(repo_url)} {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)}"
     )
-    clone_result = sandbox.execute(clone, timeout_seconds=10 * 60)
-    if clone_result.exit_code != 0:
-        raise RuntimeError(f"Failed to clone {repo}: {_scrub_credentials(clone_result.stderr, token, basic)[:500]}")
+    _execute_or_raise(clone, f"Failed to clone {repo}")
 
     fetch_specs = f"{auth} fetch origin {shlex.quote(f'pull/{pr_number}/head')}"
     if base_sha:
         fetch_specs = f"{auth} fetch origin {shlex.quote(base_sha)} && {fetch_specs}"
     checkout = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && git checkout {shlex.quote(head_sha)}"
-    checkout_result = sandbox.execute(checkout, timeout_seconds=10 * 60)
-    if checkout_result.exit_code != 0:
-        raise RuntimeError(
-            f"Failed to check out {head_sha}: {_scrub_credentials(checkout_result.stderr, token, basic)[:500]}"
-        )
+    _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
 def _read_default_policy_file(path: str) -> str:

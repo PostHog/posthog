@@ -47,7 +47,11 @@ async def execute_stamphog_review_workflow(review_run_id: str, team_id: int) -> 
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=_stamphog_task_queue(),
-        retry_policy=RetryPolicy(maximum_attempts=3),
+        # Single attempt at the workflow level. A workflow retry would restart the whole review AFTER
+        # mark_review_failed already ran — re-provisioning the sandbox and possibly re-posting a verdict
+        # for a run already marked FAILED (run_review_in_sandbox only bails on SUPERSEDED). Retries belong
+        # on the individual activities, which have their own idempotent retry policies.
+        retry_policy=RetryPolicy(maximum_attempts=1),
     )
     logger.info(
         "stamphog_review_workflow_started",

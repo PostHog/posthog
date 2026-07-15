@@ -4270,7 +4270,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.400.1)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.401.0)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4288,7 +4288,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.400.1
+        version: 1.401.0
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -30048,7 +30048,7 @@ snapshots:
 
   '@posthog/core@1.38.0':
     dependencies:
-      '@posthog/types': 1.394.0
+      '@posthog/types': 1.395.0
 
   '@posthog/core@1.41.1':
     dependencies:

@@ -9,7 +9,7 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 from typing import Any, cast
 
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -288,15 +288,22 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     logger.info("stamphog_merged_pr_recorded", repo=repo, pr_number=pr_number, team_id=team_id)
 
 
-def _resolve_installation_team_id(installation_id: str) -> int | None:
-    """Team owning this installation: the oldest config row carrying it, mirroring _resolve_repo_config."""
-    config = (
+def _resolve_installation_team_ids(installation_id: str) -> list[int]:
+    """Every distinct team carrying this installation.
+
+    An installation's repos can legitimately be split across teams — each team syncs only the repos its
+    members can access — so lifecycle events must fan out to all owning teams, not just the oldest
+    config's. Resolving to a single (oldest) team would leave other teams' rows live after an uninstall
+    and could bind a newly added repo to a team its adder never intended. unscoped(): the owning teams
+    are exactly what's being resolved here — the one cross-team read on this path (mirrors
+    _resolve_repo_config).
+    """
+    return list(
         StamphogRepoConfig.objects.unscoped()
         .filter(provider="github", installation_id=installation_id)
-        .order_by("created_at", "id")
-        .first()
+        .values_list("team_id", flat=True)
+        .distinct()
     )
-    return config.team_id if config else None
 
 
 def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
@@ -306,6 +313,10 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
     stays a human decision. Conflicts (another team owns the triple, or this team already has the repo)
     skip that one repo, never the batch: the same cross-team uniqueness the sync endpoint enforces.
     """
+    # Bind the transaction to the model's routed DB (stamphog_db_writer when the product DB is
+    # configured, else default) — a bare atomic() would open on the default connection and leave
+    # the create running outside any transaction on the product DB.
+    write_db = router.db_for_write(StamphogRepoConfig)
     for repo in repos:
         full_name = (repo or {}).get("full_name") or ""
         if not full_name:
@@ -318,7 +329,7 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
         if exists:
             continue
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=write_db):
                 StamphogRepoConfig.objects.for_team(team_id).create(
                     team_id=team_id,
                     provider="github",
@@ -351,8 +362,15 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     Without this, a repo added to the installation after the initial sync never appears in the toggle
     list until a manual re-sync. `installation_repositories` payloads carry repositories_added/removed;
-    a plain `installation` event with action "deleted" means the app was uninstalled, which disables
-    every row for the installation (tombstone semantics — rows and history are kept).
+    a plain `installation` event with action "deleted" means the app was uninstalled.
+
+    An installation's repos can be split across several teams, so removals and uninstalls fan out to
+    EVERY owning team (tombstone semantics — rows and history are kept). Auto-adding a newly installed
+    repo, on the other hand, is only a convenience for the unambiguous single-team case: when one team
+    owns the installation the new repo appears as a disabled row automatically. When multiple teams
+    share it, ownership is ambiguous — auto-binding could attach the repo to a team its adder never
+    intended — so the add is skipped and left to the authenticated sync flow, which verifies the acting
+    user's repo access. Rows always start disabled either way, so enabling reviews stays a human decision.
     """
     if delivery_id and _is_duplicate_pr_event(delivery_id):
         logger.info("stamphog_installation_event_duplicate_skipped", delivery_id=delivery_id)
@@ -363,23 +381,41 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         logger.warning("stamphog_installation_event_missing_installation")
         return
 
-    team_id = _resolve_installation_team_id(installation_id)
-    if team_id is None:
+    team_ids = _resolve_installation_team_ids(installation_id)
+    if not team_ids:
         # No config carries this installation yet — the user-driven sync flow will bind it to a team.
         logger.info("stamphog_installation_event_unbound", installation_id=installation_id)
         return
 
     action = payload.get("action", "")
     if "repositories_added" in payload or "repositories_removed" in payload:
-        _add_installation_repos(team_id, installation_id, payload.get("repositories_added") or [])
-        _disable_installation_repos(team_id, installation_id, payload.get("repositories_removed") or [])
+        added = payload.get("repositories_added") or []
+        if added:
+            if len(team_ids) == 1:
+                _add_installation_repos(team_ids[0], installation_id, added)
+            else:
+                # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
+                logger.info(
+                    "stamphog_installation_repo_add_ambiguous",
+                    installation_id=installation_id,
+                    team_count=len(team_ids),
+                )
+        removed = payload.get("repositories_removed") or []
+        for team_id in team_ids:
+            _disable_installation_repos(team_id, installation_id, removed)
     elif action == "deleted":
-        disabled = (
-            StamphogRepoConfig.objects.for_team(team_id)
-            .filter(provider="github", installation_id=installation_id)
-            .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-        )
-        logger.info("stamphog_installation_uninstalled", installation_id=installation_id, disabled=disabled)
+        for team_id in team_ids:
+            disabled = (
+                StamphogRepoConfig.objects.for_team(team_id)
+                .filter(provider="github", installation_id=installation_id)
+                .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+            )
+            logger.info(
+                "stamphog_installation_uninstalled",
+                installation_id=installation_id,
+                team_id=team_id,
+                disabled=disabled,
+            )
     else:
         logger.info("stamphog_installation_event_ignored", action=action)
 
@@ -470,8 +506,13 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
             return
 
+    # Bind the transaction and its on_commit hook to the model's routed DB. A bare atomic() opens on
+    # the default connection, so when the product DB is configured the select_for_update in
+    # _supersede_prior_runs and this create would run outside any transaction, and on_commit would fire
+    # against the wrong connection.
+    write_db = router.db_for_write(ReviewRun)
     try:
-        with transaction.atomic():
+        with transaction.atomic(using=write_db):
             pr_obj = _upsert_pull_request(repo_config, pr)
             _supersede_prior_runs(pr_obj)
             head = pr.get("head") or {}
@@ -489,7 +530,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             # below and retries the Celery task. The retry re-enters through the recovery fast
             # path above and restarts the still-QUEUED run — the durable recovery for a
             # committed-but-unstarted run.
-            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id))
+            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=write_db)
     except IntegrityError:
         # The unique delivery_id already has a run — two near-simultaneous deliveries raced past the
         # fast-path check and both tried to create. Resume the winner's run: if it committed QUEUED but

@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from posthog.models import Project, Team
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
@@ -54,7 +55,7 @@ def _run_task(payload: dict[str, Any], delivery_id: str, team_id: int):
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked.
     with (
         team_scope(team_id),
-        patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn: fn()),
+        patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
     ):
         process_pull_request_event(payload, delivery_id)
@@ -364,3 +365,48 @@ def test_installation_event_for_unbound_installation_is_a_noop(team, repo_config
     process_installation_event(payload, "delivery-inst-unbound")
 
     assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/orphan-repo").exists() is False
+
+
+def _make_second_team(organization) -> Team:
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+    return Team.objects.create(id=project.id, project=project, organization=organization)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
+    # An installation's repos can be split across teams. An uninstall must tombstone all of them —
+    # resolving to a single (oldest) team would leave the other team's rows live after the app is gone.
+    second_team = _make_second_team(team.organization)
+    with team_scope(second_team.id):
+        second_config = StamphogRepoConfig.objects.create(
+            team_id=second_team.id, repository="acme/other", installation_id=INSTALLATION_ID, digest_enabled=True
+        )
+    with team_scope(team.id):
+        repo_config.digest_enabled = True
+        repo_config.save()
+
+    process_installation_event(_installation_payload(action="deleted"), "delivery-multi-uninstall")
+
+    with team_scope(team.id):
+        repo_config.refresh_from_db()
+    with team_scope(second_team.id):
+        second_config.refresh_from_db()
+    assert (repo_config.enabled, repo_config.digest_enabled) == (False, False)
+    assert (second_config.enabled, second_config.digest_enabled) == (False, False)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_installation_repos_added_skips_when_installation_spans_multiple_teams(team, repo_config):
+    # Ambiguous ownership: two teams share the installation, so auto-binding a newly added repo could
+    # attach it to a team its adder never intended. The webhook add is skipped and left to the
+    # authenticated sync flow — no row is created for either team.
+    second_team = _make_second_team(team.organization)
+    with team_scope(second_team.id):
+        StamphogRepoConfig.objects.create(
+            team_id=second_team.id, repository="acme/other", installation_id=INSTALLATION_ID
+        )
+
+    payload = _installation_payload(action="added", added=["acme/brand-new"])
+    process_installation_event(payload, "delivery-multi-add")
+
+    assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/brand-new").exists() is False
