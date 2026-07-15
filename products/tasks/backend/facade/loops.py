@@ -625,10 +625,22 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     if "context_target" in data and data["context_target"] is None:
         data["context_target"] = {}
 
+    enabled_before = loop.enabled
     with transaction.atomic():
         for field_name, value in data.items():
             setattr(loop, field_name, value)
         loop.save()
+
+    # Toggling `enabled` must drive the Temporal Schedules, not just the row. Without this,
+    # re-enabling a loop after an auto-pause (the documented recovery) returns 200 but never
+    # resumes its schedule, so the loop silently never fires again. When triggers are being
+    # re-synced in the same call, `_sync_triggers` already re-evaluates schedule state, so skip
+    # the redundant pause/resume here.
+    if trigger_payloads is None and "enabled" in data and loop.enabled != enabled_before:
+        if loop.enabled:
+            loop_service.resume_loop_schedules(loop)
+        else:
+            loop_service.pause_loop_schedules(loop)
 
     if trigger_payloads is not None:
         _sync_triggers(loop, trigger_payloads)
@@ -678,6 +690,13 @@ def _sync_triggers(loop: Loop, trigger_payloads: list[dict]) -> None:
             trigger_id = payload.get("id")
             existing = existing_by_id.get(trigger_id) if trigger_id else None
             if existing is not None:
+                # A schedule trigger repointed to github/api must tear down its old Temporal
+                # Schedule now, while the row still reads SCHEDULE. `sync_loop_trigger_schedule`
+                # below no-ops for non-schedule types, so without this the old cron schedule
+                # would keep firing forever and no later delete could reach it (delete keys off
+                # the row's current type).
+                if existing.type == LoopTrigger.TriggerType.SCHEDULE and payload["type"] != existing.type:
+                    loop_service.delete_loop_trigger_schedule(existing)
                 existing.type = payload["type"]
                 existing.enabled = payload.get("enabled", True)
                 existing.config = payload.get("config") or {}

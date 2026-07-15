@@ -137,9 +137,12 @@ def sync_loop_trigger_schedule(trigger: LoopTrigger) -> None:
 
 
 def delete_loop_trigger_schedule(trigger: LoopTrigger) -> None:
-    """Delete the Temporal Schedule for a trigger. Idempotent: swallows not-found and Temporal errors."""
-    if trigger.type != LoopTrigger.TriggerType.SCHEDULE:
-        return
+    """Delete the Temporal Schedule for a trigger. Idempotent: swallows not-found and Temporal errors.
+
+    Deliberately keys off `schedule_id`/`schedule_exists`, not `trigger.type`: a trigger whose
+    type was just changed away from `schedule` still has a live Schedule to tear down, and a
+    non-schedule trigger simply has no Schedule to find, so this is safe to call for any type.
+    """
     try:
         temporal = sync_connect()
         if schedule_exists(temporal, trigger.schedule_id):

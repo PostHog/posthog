@@ -47,6 +47,9 @@ class LoopsAPITestCase(TestCase):
         self.mock_pause_loop_schedules = self._start_patch(
             "products.tasks.backend.facade.loops.loop_service.pause_loop_schedules"
         )
+        self.mock_resume_loop_schedules = self._start_patch(
+            "products.tasks.backend.facade.loops.loop_service.resume_loop_schedules"
+        )
 
     def _start_patch(self, target: str):
         patcher = patch(target)
@@ -304,6 +307,63 @@ class LoopTriggerSyncAPITest(LoopsAPITestCase):
         response = self.owner_client.patch(self._loop_url(created["id"]), {"name": "renamed"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual([trigger["id"] for trigger in response.json()["triggers"]], [trigger_id])
+
+    def test_changing_a_trigger_type_tears_down_its_old_schedule(self):
+        # Repointing a schedule trigger to github/api must delete the old Temporal Schedule, or
+        # it keeps firing forever and no later delete can reach it (delete keys off current type).
+        created = self._create_loop(
+            self.owner_client,
+            triggers=[{"type": "schedule", "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"}}],
+        )
+        trigger_id = created["triggers"][0]["id"]
+        self.mock_delete_loop_trigger_schedule.reset_mock()
+
+        response = self.owner_client.patch(
+            self._loop_url(created["id"]),
+            {"triggers": [{"id": trigger_id, "type": "api", "config": {}}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["triggers"][0]["type"], "api")
+        deleted_ids = {str(call.args[0].id) for call in self.mock_delete_loop_trigger_schedule.call_args_list}
+        self.assertIn(trigger_id, deleted_ids)
+
+
+class LoopEnableToggleAPITest(LoopsAPITestCase):
+    def test_re_enabling_a_loop_resumes_its_temporal_schedule(self):
+        # Re-enabling after an auto-pause is the documented recovery: it must resume the schedule,
+        # not just flip the row, or the loop silently never fires again.
+        created = self._create_loop(
+            self.owner_client,
+            enabled=False,
+            triggers=[{"type": "schedule", "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"}}],
+        )
+        self.mock_resume_loop_schedules.reset_mock()
+        self.mock_pause_loop_schedules.reset_mock()
+
+        response = self.owner_client.patch(self._loop_url(created["id"]), {"enabled": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response.json()["enabled"])
+        self.mock_resume_loop_schedules.assert_called_once()
+        self.mock_pause_loop_schedules.assert_not_called()
+
+    def test_pausing_a_loop_pauses_its_temporal_schedule(self):
+        created = self._create_loop(
+            self.owner_client,
+            enabled=True,
+            triggers=[{"type": "schedule", "config": {"cron_expression": "0 9 * * *", "timezone": "UTC"}}],
+        )
+        self.mock_resume_loop_schedules.reset_mock()
+        self.mock_pause_loop_schedules.reset_mock()
+
+        response = self.owner_client.patch(self._loop_url(created["id"]), {"enabled": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(response.json()["enabled"])
+        self.mock_pause_loop_schedules.assert_called_once()
+        self.mock_resume_loop_schedules.assert_not_called()
 
 
 class LoopScopeAPITest(LoopsAPITestCase):
