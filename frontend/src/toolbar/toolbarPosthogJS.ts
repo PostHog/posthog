@@ -20,6 +20,10 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
+        // The toolbar runs on customer sites, so exception autocapture would report the host
+        // page's unhandled errors into our own project. Only capture explicit toolbar errors
+        // via captureToolbarException (tagged with toolbar_context).
+        capture_exceptions: false,
         capture_pageview: false,
         capture_pageleave: false,
         disable_surveys: true,
