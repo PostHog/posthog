@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('signals', '0061_signalteamconfig_autostart_enabled')]
+    dependencies = [("signals", "0061_signalteamconfig_autostart_enabled")]
 
     operations = [
         migrations.AlterField(

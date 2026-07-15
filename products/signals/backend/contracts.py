@@ -365,17 +365,15 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
 class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     alert_id: str
     alert_name: str
-    insight_short_id: str
-    insight_name: str | None = None
-    # Value the alert calculated on the firing check, and the anomaly detector that flagged it.
-    calculated_value: float | None = None
-    detector_type: str | None = None
-    # The investigation agent's conclusion on the firing alert, plus its short summary and the
-    # notebook it wrote (all absent when the signal is emitted before the agent runs).
-    verdict: Literal["true_positive", "false_positive", "inconclusive"] | None = None
-    investigation_summary: str | None = None
-    notebook_id: str | None = None
+    alert_check_id: str
+    insight_id: str
+    detector_type: str
+    verdict: Literal["true_positive", "false_positive", "inconclusive"]
     url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+    notebook_short_id: str | None = None
 
 
 class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):

@@ -9652,26 +9652,18 @@ export namespace Schemas {
       Evaluation: 'evaluation',
     } as const;
 
-    export type AnalyticsAnomalyInvestigationSignalExtraVerdict = typeof AnalyticsAnomalyInvestigationSignalExtraVerdict[keyof typeof AnalyticsAnomalyInvestigationSignalExtraVerdict] | null;
-
-
-    export const AnalyticsAnomalyInvestigationSignalExtraVerdict = {
-      TruePositive: 'true_positive',
-      FalsePositive: 'false_positive',
-      Inconclusive: 'inconclusive',
-    } as const;
-
     export interface AnalyticsAnomalyInvestigationSignalExtra {
       alert_id: string;
       alert_name: string;
-      insight_short_id: string;
-      insight_name?: string | null;
-      calculated_value?: number | null;
-      detector_type?: string | null;
-      verdict?: AnalyticsAnomalyInvestigationSignalExtraVerdict;
-      investigation_summary?: string | null;
-      notebook_id?: string | null;
+      alert_check_id: string;
+      insight_id: string;
+      detector_type: string;
+      verdict: InvestigationVerdictEnum;
       url: string;
+      insight_name?: string | null;
+      insight_short_id?: string | null;
+      triggered_dates?: string[] | null;
+      notebook_short_id?: string | null;
     }
 
     /**

@@ -18,10 +18,10 @@ export function isAnalyticsAnomalyInvestigationExtra(
         return false
     }
     const extra = value as Record<string, unknown>
-    return typeof extra.alert_id === 'string' && typeof extra.insight_short_id === 'string'
+    return typeof extra.alert_id === 'string' && typeof extra.insight_id === 'string'
 }
 
-/** Maps the investigation verdict to a badge; falls back to a plain "Firing" tag when no verdict yet. */
+/** Maps the investigation verdict to a badge, with a fallback for malformed legacy payloads. */
 function VerdictBadge({ verdict }: { verdict: AnalyticsAnomalyInvestigationSignalExtraApi['verdict'] }): JSX.Element {
     if (verdict === 'true_positive') {
         return (
@@ -57,6 +57,7 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
         return <SignalCardShell signal={signal}>{null}</SignalCardShell>
     }
     const extra = signal.extra
+    const insightLabel = extra.insight_name || extra.insight_short_id || extra.insight_id
 
     return (
         <SignalCardShell signal={signal} label={extra.alert_name} rightSlot={<VerdictBadge verdict={extra.verdict} />}>
@@ -64,31 +65,21 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
                 <div className="flex flex-col gap-1">
                     <p className="text-sm m-0">
                         Anomaly detected on{' '}
-                        <Link to={urls.insightView(extra.insight_short_id as InsightShortId)} className="font-medium">
-                            {extra.insight_name || extra.insight_short_id}
-                        </Link>
+                        {extra.insight_short_id ? (
+                            <Link
+                                to={urls.insightView(extra.insight_short_id as InsightShortId)}
+                                className="font-medium"
+                            >
+                                {insightLabel}
+                            </Link>
+                        ) : (
+                            <span className="font-medium">{insightLabel}</span>
+                        )}
                     </p>
-                    {(extra.calculated_value !== null || extra.detector_type) && (
-                        <p className="text-xs text-tertiary m-0">
-                            {extra.calculated_value !== null && (
-                                <>
-                                    Observed value{' '}
-                                    <span className="font-semibold text-primary">{extra.calculated_value}</span>
-                                </>
-                            )}
-                            {extra.calculated_value !== null && extra.detector_type && ' · '}
-                            {extra.detector_type && <>Detector {extra.detector_type}</>}
-                        </p>
-                    )}
+                    {extra.detector_type && <p className="text-xs text-tertiary m-0">Detector {extra.detector_type}</p>}
                 </div>
 
-                {extra.investigation_summary && (
-                    <LemonMarkdown className="text-sm text-secondary" disableImages>
-                        {extra.investigation_summary}
-                    </LemonMarkdown>
-                )}
-
-                {!extra.investigation_summary && signal.content && (
+                {signal.content && (
                     <LemonMarkdown className="text-sm text-secondary" disableImages>
                         {signal.content}
                     </LemonMarkdown>
@@ -96,8 +87,8 @@ export function AnalyticsAnomalyInvestigationSignalCard({ signal }: SignalCardPr
 
                 <div className="flex items-center gap-3 text-xs">
                     <span className="flex-1" />
-                    {extra.notebook_id && (
-                        <Link to={urls.notebook(extra.notebook_id)} className="font-medium shrink-0">
+                    {extra.notebook_short_id && (
+                        <Link to={urls.notebook(extra.notebook_short_id)} className="font-medium shrink-0">
                             View investigation
                         </Link>
                     )}

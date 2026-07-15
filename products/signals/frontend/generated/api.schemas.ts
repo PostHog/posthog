@@ -594,11 +594,14 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
-export type AnalyticsAnomalyInvestigationSignalExtraApiVerdict =
-    | (typeof AnalyticsAnomalyInvestigationSignalExtraApiVerdict)[keyof typeof AnalyticsAnomalyInvestigationSignalExtraApiVerdict]
-    | null
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
 
-export const AnalyticsAnomalyInvestigationSignalExtraApiVerdict = {
+export const InvestigationVerdictEnumApi = {
     TruePositive: 'true_positive',
     FalsePositive: 'false_positive',
     Inconclusive: 'inconclusive',
@@ -607,14 +610,15 @@ export const AnalyticsAnomalyInvestigationSignalExtraApiVerdict = {
 export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     alert_id: string
     alert_name: string
-    insight_short_id: string
-    insight_name?: string | null
-    calculated_value?: number | null
-    detector_type?: string | null
-    verdict?: AnalyticsAnomalyInvestigationSignalExtraApiVerdict
-    investigation_summary?: string | null
-    notebook_id?: string | null
+    alert_check_id: string
+    insight_id: string
+    detector_type: string
+    verdict: InvestigationVerdictEnumApi
     url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
+    notebook_short_id?: string | null
 }
 
 export type HealthCheckSignalExtraSeverityEnumApi =
