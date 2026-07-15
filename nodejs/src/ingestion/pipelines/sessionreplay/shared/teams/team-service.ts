@@ -62,6 +62,18 @@ export class TeamService {
     }
 }
 
+// Spreading a non-array here must never reach firstPartyHostPatterns: spreading a bare string
+// would explode it into single characters.
+function asStringArray(value: string[] | string | null | undefined): string[] {
+    if (Array.isArray(value)) {
+        return value
+    }
+    if (typeof value === 'string') {
+        return [value]
+    }
+    return []
+}
+
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<TeamServiceData> {
     const selectResult = await client.query<
         {
@@ -96,7 +108,10 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                firstPartyHosts: firstPartyHostPatterns([...(row.recording_domains ?? []), ...(row.app_urls ?? [])]),
+                firstPartyHosts: firstPartyHostPatterns([
+                    ...asStringArray(row.recording_domains),
+                    ...asStringArray(row.app_urls),
+                ]),
             }
             return acc
         },
