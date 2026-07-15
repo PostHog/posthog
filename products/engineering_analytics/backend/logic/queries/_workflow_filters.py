@@ -15,6 +15,21 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 # answers "how long until CI stopped", not "how long does CI take to pass".
 DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
 
+# A completed run that settled in under this many seconds with a benign conclusion did no real CI
+# work — the common shape is a gate job deciding the rest of the workflow should be skipped (path
+# filters, eligibility checks). The run-activity chart query excludes these BEFORE its row cap, so a
+# workflow dominated by no-op runs still fills the window with its real executions instead of
+# returning a capped slice of pure gate runs. Mirrors ``isNoOpRun`` in ``frontend/lib/runHealth.ts``
+# (keep the two in sync): decisive failures and attention-needing conclusions (``action_required``,
+# ``startup_failure``) are kept regardless of speed — failing in seconds is signal, not noise.
+NO_OP_RUN_MAX_SECONDS = 10
+NO_OP_RUN_EXCLUSION_CONDITION = (
+    # NULL-safe on purpose: an in-flight run has a NULL duration, and `NOT (duration < 10 AND ...)`
+    # would evaluate to NULL and drop it — so the keep-conditions are OR'd instead.
+    f"(r.duration_seconds IS NULL OR r.duration_seconds >= {NO_OP_RUN_MAX_SECONDS} "
+    "OR r.conclusion NOT IN ('success', 'skipped', 'neutral', 'completed', 'cancelled'))"
+)
+
 # The one "failing right now" signal, per workflow: did the latest completed run fail?
 # Ordered by (run_started_at, id) so a same-second tie resolves deterministically to the
 # later-created run. argMaxIf defaults to 0 (false) over zero matching rows, so consumers must

@@ -1251,6 +1251,8 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_workflow_run_activity_projects_and_windows(self) -> None:
         # The chart endpoint returns compact per-run points over the window, newest first, with the
         # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        # No-op gate runs (benign conclusion, settled in seconds) are excluded in the query — before
+        # the cap — while fast failures and in-flight runs stay.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -1260,23 +1262,37 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
+                # A fast failure is signal (broken config fails in seconds) — never filtered as no-op.
                 _run_row(
-                    8101, "CI", "sha-a", "completed", "failure", _ago(2), _ago(2), pr_number=80, head_branch="feat"
+                    8101,
+                    "CI",
+                    "sha-a",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(2, 4),
+                    pr_number=80,
+                    head_branch="feat",
                 ),
-                _run_row(8102, "CI", "sha-b", "completed", "success", _ago(1), _ago(1)),
-                _run_row(8103, "Deploy", "sha-c", "completed", "success", _ago(1), _ago(1)),
+                _run_row(8102, "CI", "sha-b", "completed", "success", *_ago_with_duration(1, 300)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", *_ago_with_duration(1, 300)),
                 # Older than the default -30d window — excluded unless the caller widens it.
-                _run_row(8104, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+                _run_row(8104, "CI", "sha-d", "completed", "success", *_ago_with_duration(60, 120)),
+                # A no-op gate run: succeeded in seconds without doing real work — off the chart.
+                _run_row(8105, "CI", "sha-e", "completed", "success", *_ago_with_duration(1, 4)),
+                # Still running: no duration yet, but it must stay (it feeds the in-flight band).
+                _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
-        assert [p.run_id for p in activity.points] == [8102, 8101]  # only CI runs in window, newest first
+        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 kept.
+        assert [p.run_id for p in activity.points] == [8102, 8101, 8106]
         assert activity.truncated is False
         assert activity.limit == 2000
         # Each field maps to the right column — guards a wrong unpack order in _to_point.
-        newest, failed = activity.points
+        newest, failed, in_flight = activity.points
         assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
         assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        assert (in_flight.conclusion, in_flight.duration_seconds) == (None, None)
         # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
         assert all(p.run_started_at is not None for p in activity.points)
 
@@ -1284,7 +1300,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         wide = api.get_workflow_run_activity(
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
-        assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8104]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
@@ -1342,9 +1358,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(8501, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
-                _run_row(8502, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
-                _run_row(8503, "CI", "sha-r1", "completed", "success", _ago(1), _ago(1), head_branch="release"),
+                _run_row(8501, "CI", "sha-m1", "completed", "success", *_ago_with_duration(2, 60), head_branch="main"),
+                _run_row(8502, "CI", "sha-m2", "completed", "failure", *_ago_with_duration(1, 60), head_branch="main"),
+                _run_row(
+                    8503, "CI", "sha-r1", "completed", "success", *_ago_with_duration(1, 60), head_branch="release"
+                ),
             ],
         )
         self._create_table(

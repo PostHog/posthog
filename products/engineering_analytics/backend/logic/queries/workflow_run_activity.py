@@ -10,6 +10,11 @@ silently dropped.
 The ``run_started_at >= date_from`` filter also excludes runs whose start timestamp didn't parse
 (``NULL``), which is intended: a run with no start time can't be placed on the chart's time axis. That
 is why ``WorkflowRunActivityPoint.run_started_at`` is non-null while the shared run-detail shape is not.
+
+No-op gate runs (benign conclusion, settled in seconds — see ``NO_OP_RUN_EXCLUSION_CONDITION``) are
+excluded here, before the cap, rather than client-side: on a workflow where most runs are no-ops the
+newest ``_LIMIT`` rows could be pure gate runs, and a post-cap filter would leave the chart empty even
+though real executions exist in the window. The run-detail table keeps them — only the chart hides them.
 """
 
 from datetime import datetime
@@ -19,6 +24,7 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    NO_OP_RUN_EXCLUSION_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
 )
@@ -35,6 +41,7 @@ _SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
         AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        AND {NO_OP_RUN_EXCLUSION_CONDITION}
     ORDER BY run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT + 1}
 """
