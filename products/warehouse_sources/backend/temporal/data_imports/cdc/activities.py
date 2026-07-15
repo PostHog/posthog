@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCSchemaMergeError,
+    CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
@@ -710,6 +711,7 @@ class CDCExtractActivity:
             self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
+            self._require_configured_slot()
             self.reader.connect()
 
             self._load_pk_columns()
@@ -1284,6 +1286,19 @@ class CDCExtractActivity:
                 continue
             self._update_schema_sync_type_config(schema, updates={"cdc_last_log_position": self.last_end_lsn})
 
+    def _require_configured_slot(self) -> None:
+        """Fail fast when a CDC-enabled source has no replication slot name stored.
+
+        Streaming an empty slot name surfaces as ``replication slot "" does not exist``, which
+        the invalidation check reads as a recoverable slot drop — so recovery (and Repair CDC)
+        run, only to dead-end because there is no slot name to recreate. Raise the non-retryable
+        misconfiguration up front instead, with guidance that actually resolves it.
+        """
+        assert self.adapter is not None
+        assert self.source is not None
+        if not self.adapter.parse_cdc_config(self.source).slot_name:
+            raise CDCSlotNotConfiguredError()
+
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
@@ -1358,7 +1373,11 @@ class CDCExtractActivity:
         # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
         # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
         # safety net produces). Any other failure just fails this run's schemas.
-        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        marked_broken = info.category in (
+            CDCErrorCategory.SLOT_MISSING,
+            CDCErrorCategory.SLOT_NOT_CONFIGURED,
+            CDCErrorCategory.PUBLICATION_MISSING,
+        )
         if marked_broken:
             assert self.source is not None
             mark_cdc_broken(self.source, info.category.value, friendly)
