@@ -38,14 +38,19 @@ def _json_safe_value(val: Any) -> Any:
     return to_jsonable_python(val, fallback=lambda x: str(x))
 
 
-def _strip_null_bytes(value: Any) -> Any:
-    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it."""
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
+
+    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
+    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
+    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
+    """
     if isinstance(value, str):
         return value.replace("\x00", "")
     if isinstance(value, list):
-        return [_strip_null_bytes(v) for v in value]
+        return [strip_null_bytes(v) for v in value]
     if isinstance(value, dict):
-        return {k: _strip_null_bytes(v) for k, v in value.items()}
+        return {k: strip_null_bytes(v) for k, v in value.items()}
     return value
 
 
@@ -102,7 +107,7 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     # orjson emits that same escape sequence for a real NUL, so gate the (rare) recursive strip on
     # its presence to avoid walking multi-MB payloads on every delivery.
     if b"\\u0000" in dumped:
-        parsed = _strip_null_bytes(parsed)
+        parsed = strip_null_bytes(parsed)
     return parsed
 
 

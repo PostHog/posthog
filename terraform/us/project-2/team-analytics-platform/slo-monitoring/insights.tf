@@ -354,7 +354,6 @@ resource "posthog_insight" "slo_success_rate" {
                 properties.operation AS operation,
                 coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
                 properties.outcome AS outcome,
-                coalesce(toFloat(properties.sample_rate), 1.0) AS sample_rate,
                 1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
             FROM events
             WHERE event IN ('slo_operation_started', 'slo_operation_completed')
@@ -368,7 +367,8 @@ resource "posthog_insight" "slo_success_rate" {
                 toDate(timestamp) AS event_date,
                 sumIf(weight, event = 'slo_operation_started') AS starts,
                 sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
-                max(sample_rate) AS cid_sample_rate,
+                -- One operation per cid, so all its events share a weight; max() collapses them.
+                max(weight) AS cid_weight,
                 min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
             FROM weighted_events
             GROUP BY operation, cid, event_date
@@ -391,8 +391,8 @@ resource "posthog_insight" "slo_success_rate" {
                 SELECT
                     operation,
                     toDate(min(first_start)) AS date,
-                    1.0 / max(cid_sample_rate) AS total,
-                    if(max(successes) > 0, 0.0, 1.0 / max(cid_sample_rate)) AS failures
+                    max(cid_weight) AS total,
+                    if(max(successes) > 0, 0.0, max(cid_weight)) AS failures
                 FROM per_cid_day
                 WHERE cid != ''
                 GROUP BY operation, cid
