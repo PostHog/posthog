@@ -100,6 +100,8 @@ fn lib_rules() -> &'static [LibRule] {
                     "posthog-rs" => Some(Version::new(0, 19, 0)),
                     // posthog-php ships the flip in 4.11.0 (PostHog/posthog-php#200).
                     "posthog-php" => Some(Version::new(4, 11, 0)),
+                    // posthog-go ships the flip in 1.19.0 (PostHog/posthog-go#254).
+                    "posthog-go" => Some(Version::new(1, 19, 0)),
                     _ => None,
                 },
             })
@@ -315,6 +317,35 @@ mod test {
         // Natively-canonical SDKs have no legacy order.
         assert!(legacy_wire_order(Some("posthog-node"), &canonical).is_none());
         assert!(legacy_wire_order(None, &canonical).is_none());
+    }
+
+    #[test]
+    fn go_cutoff_gates_normalization_by_version() {
+        // Below the 1.19.0 cutoff (and unparseable versions): crash-first on
+        // the wire, frames reverse, legacy snapshot returned.
+        for version in [Some("1.18.0"), Some("1.2.3"), Some("devel"), None] {
+            let mut list: ExceptionList =
+                vec![exception_with_frames("Boom", &["main", "boom"])].into();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-go"), version);
+            assert!(legacy.is_some(), "{version:?} should normalize");
+            assert_eq!(frame_names(&list[0]), vec!["boom", "main"]);
+        }
+
+        // At/above the cutoff: canonical on the wire, untouched.
+        for version in ["1.19.0", "1.19.1", "1.20.0", "2.0.0"] {
+            let mut list: ExceptionList =
+                vec![exception_with_frames("Boom", &["main", "boom"])].into();
+            let legacy = normalize_wire_order(&mut list, Some("posthog-go"), Some(version));
+            assert!(legacy.is_none(), "{version} should pass through");
+            assert_eq!(frame_names(&list[0]), vec!["main", "boom"]);
+        }
+
+        // Legacy hashing still reconstructs pre-flip order post-cutoff.
+        let canonical: ExceptionList =
+            vec![exception_with_frames("Boom", &["main", "boom"])].into();
+        let legacy = legacy_wire_order(Some("posthog-go"), &canonical)
+            .expect("reconstruction must ignore the cutoff");
+        assert_eq!(frame_names(&legacy[0]), vec!["boom", "main"]);
     }
 
     #[test]
