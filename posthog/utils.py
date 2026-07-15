@@ -660,6 +660,16 @@ def _build_template_context(
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
 
+    if "extra_persisted_feature_flags" in context:
+        posthog_app_context["persisted_feature_flags"] = list(
+            dict.fromkeys(
+                [
+                    *(posthog_app_context.get("persisted_feature_flags") or []),
+                    *context.pop("extra_persisted_feature_flags"),
+                ]
+            )
+        )
+
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)

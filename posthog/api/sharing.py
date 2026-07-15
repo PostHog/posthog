@@ -13,6 +13,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -259,6 +260,26 @@ def get_global_themes():
     global_themes = DataColorTheme.objects.filter(Q(team_id=None))
     themes = DataColorThemeSerializer(global_themes, many=True).data
     return themes
+
+
+# Rendering-only flags evaluated for the resource creator, so exported and shared charts
+# render with the same styling the creator sees in-app (the anonymous exporter page has
+# no user to evaluate flags for otherwise).
+CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh"]
+
+
+def chart_rendering_flags_for_resource(resource: Model | None) -> list[str]:
+    created_by = getattr(resource, "created_by", None)
+    if created_by is None:
+        return []
+    enabled = []
+    for key in CHART_RENDERING_FEATURE_FLAGS:
+        try:
+            if posthoganalytics.feature_enabled(key, created_by.distinct_id, send_feature_flag_events=False):
+                enabled.append(key)
+        except Exception:
+            continue
+    return enabled
 
 
 def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
@@ -1409,6 +1430,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "asset_description": asset_description,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
+            "extra_persisted_feature_flags": chart_rendering_flags_for_resource(resource),
         }
 
         return render_template(
