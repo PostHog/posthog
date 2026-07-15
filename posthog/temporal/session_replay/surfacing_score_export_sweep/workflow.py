@@ -12,6 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     EXPORT_PARTITION_ACTIVITY_TIMEOUT,
     EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
+    EXPORT_PARTITION_MAX_ATTEMPTS,
     LIST_PARTITIONS_ACTIVITY_TIMEOUT,
     MAX_CONCURRENT_EXPORT_PARTITIONS,
     WORKFLOW_NAME,
@@ -56,6 +57,7 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
             return ExportScoresSweepResult()
 
         # Activity dispatch is recorded in Temporal history, so gate this change for deterministic replay.
+        # The schedule timeout covers the retry budget for every bounded wave.
         concurrency = len(plan.partitions)
         if workflow.patched(_PATCH_BOUNDED_PARTITION_FANOUT):
             concurrency = min(MAX_CONCURRENT_EXPORT_PARTITIONS, concurrency)
@@ -79,7 +81,7 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
             start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
             heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS,
                 non_retryable_error_types=[
                     "PseudonymKeyNotConfiguredError",
                     "PseudonymKeyFingerprintMismatchError",
