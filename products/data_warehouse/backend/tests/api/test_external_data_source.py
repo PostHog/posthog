@@ -10796,6 +10796,61 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_with_stored_credential_targets_only_requested_schemas_and_consumes_it(
+        self, mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        # The stored secret was merged in server-side and used for validation.
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+        # Unlike setup, create honors the caller's schemas: only the requested table syncs.
+        should_sync = {s.name: s.should_sync for s in ExternalDataSchema.objects.filter(source_id=source.pk)}
+        assert should_sync.get(STRIPE_CUSTOMER_RESOURCE_NAME) is True
+        assert should_sync.get(STRIPE_SUBSCRIPTION_RESOURCE_NAME) in (False, None)
+        # Stored credentials are single-use — consumed on successful create.
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_create_with_stored_credential_failure_keeps_it(self, _mock_validate):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):
     def _store(self, source_type: str = "Stripe", payload: dict | None = None):
