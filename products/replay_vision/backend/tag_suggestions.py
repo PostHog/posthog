@@ -186,9 +186,10 @@ def _build_user_content(
     return "\n".join(lines)
 
 
-_SYSTEM_PROMPT = """You help a PostHog user build the tag vocabulary for a session-replay classifier. The \
-classifier watches one session recording and assigns it tags from a fixed vocabulary, along the single \
-dimension described by the user's goal.
+_SYSTEM_PROMPT = """
+You help a PostHog user build the tag vocabulary for a session-replay classifier. The classifier
+watches one session recording and assigns it tags from a fixed vocabulary, along the single dimension
+described by the user's goal.
 
 Suggest a focused set of tags to ADD to their vocabulary, grounded ONLY in the evidence provided. Each tag must be:
 - a distinct category along the dimension the goal describes (not overlapping the other tags or the current vocabulary)
