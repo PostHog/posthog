@@ -7519,6 +7519,10 @@ async function handleFetch(
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
+    // `"<METHOD> <pathname>"` — attached to any ApiError we throw so captured exceptions can be
+    // fingerprinted by endpoint (query strings excluded to keep the value stable).
+    const endpoint = `${method} ${new URL(url, location.origin).pathname}`
+
     let response
     let error
     try {
@@ -7533,7 +7537,7 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
-        throw new ApiError(error as any, response?.status)
+        throw new ApiError(error as any, response?.status, undefined, undefined, endpoint)
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
@@ -7572,15 +7576,15 @@ async function handleFetch(
 
         if (response.status >= 400 && data) {
             if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
+                throw new ApiError(data.error, response.status, response.headers, data, endpoint)
             }
 
             if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
+                throw new ApiError(data.detail, response.status, response.headers, data, endpoint)
             }
 
             if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
+                throw new ApiError(data.message, response.status, response.headers, data, endpoint)
             }
         }
 
@@ -7588,7 +7592,8 @@ async function handleFetch(
             `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
             response.status,
             response.headers,
-            data
+            data,
+            endpoint
         )
     }
 
