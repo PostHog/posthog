@@ -415,7 +415,7 @@ def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
         Evaluation,
     )
 
-    return Evaluation.objects.only("target").get(id=evaluation_id, team_id=team_id).target
+    return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
 
 
 @temporalio.activity.defn

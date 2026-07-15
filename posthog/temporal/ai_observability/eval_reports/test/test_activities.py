@@ -12,6 +12,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _count_eval_results_for_report,
     _fetch_count_triggered_eval_report_candidate_ids,
     _find_nth_eval_timestamp,
+    _load_evaluation_target,
     _period_for_scheduled_report,
     run_eval_report_agent_activity,
     store_report_run_activity,
@@ -21,6 +22,26 @@ from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAg
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+
+
+class TestEvaluationTargetLoading(BaseTest):
+    def test_loads_target_without_deferred_model_fields(self) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Trace evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test prompt"},
+            output_type="boolean",
+            output_config={},
+            target="trace",
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        target = _load_evaluation_target(self.team.id, str(evaluation.id))
+
+        self.assertEqual(target, "trace")
 
 
 @pytest.mark.parametrize(
