@@ -72,6 +72,9 @@ class TestBuildCaptureKwargs:
             ("missing_distinct_id", {"token": "t", "properties": {"p": 1}}),
             ("empty_properties", {"token": "t", "distinct_id": "a", "properties": {}}),
             ("non_dict_properties", {"token": "t", "distinct_id": "a", "properties": "nope"}),
+            ("nan_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("nan")}}),
+            ("inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("inf")}}),
+            ("nested_inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": {"q": float("-inf")}}}),
         ]
     )
     def test_rejects_unusable_messages(self, _name, payload):

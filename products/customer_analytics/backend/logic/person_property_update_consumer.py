@@ -95,6 +95,13 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         raise InvalidPersonPropertyMessage("message missing token or distinct_id")
     if not isinstance(properties, dict) or not properties:
         raise InvalidPersonPropertyMessage("message has no properties to set")
+    # Non-finite floats (NaN/Infinity) survive json.loads but serialize to non-compliant JSON that
+    # the capture transport rejects as an unaccounted (non-terminal) failure, which would otherwise
+    # retry forever and wedge the partition. They can never succeed, so treat them as poison -> DLQ.
+    try:
+        json.dumps(properties, allow_nan=False)
+    except ValueError as exc:
+        raise InvalidPersonPropertyMessage("message has non-finite property values") from exc
     return {
         "token": token,
         "event_name": "$set",
