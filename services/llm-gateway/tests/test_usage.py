@@ -424,6 +424,26 @@ class TestUsageEndpoint:
         assert data["is_rate_limited"] is True
         assert resolver_mock.call_args.args[0] == "ai_credits"
 
+    @pytest.mark.parametrize("billing_active", [True, False])
+    def test_code_usage_subscribed_reflects_billing_bit(
+        self, authenticated_usage_client: TestClient, billing_active: bool
+    ) -> None:
+        """Clients pick billing copy and hide the free-tier meter off this
+        field, so it must carry the same bit enforcement reads."""
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_resource_status = AsyncMock(
+            return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=billing_active)
+        )
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        assert response.json()["code_usage_subscribed"] is billing_active
+
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         app.state.plan_resolver.invalidate = AsyncMock()
