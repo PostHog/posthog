@@ -110,7 +110,7 @@ export interface DateFilter {
 // default to the last 30 days.
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-30d', dateTo: null }
 
-interface QueryDateRange {
+export interface QueryDateRange {
     date_from: string
     date_to: string
 }
