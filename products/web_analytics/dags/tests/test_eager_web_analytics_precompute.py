@@ -22,6 +22,7 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
+    EagerWarmConfig,
     _resolve_eager_audience,
     _warm_baseline_for_team,
     warm_eager_baseline_op,
@@ -187,6 +188,40 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         # Both noise teams are treated as never-warmed (front); the genuinely warm team is last.
         assert seen[-1] == genuine.pk
         assert set(seen[:2]) == {noise_window.pk, noise_status.pk}
+
+    @parameterized.expand(
+        [
+            # skip_fresh_hours=24: the freshly-warmed team is dropped from the walk;
+            # the stale and never-warmed teams are still processed (never-warmed must
+            # survive the filter — it has no last_computed entry).
+            ("skip_enabled", 24, {"never", "stale"}, 1),
+            # None (hourly-job default): every team is processed, nothing skipped.
+            ("skip_disabled", None, {"never", "stale", "fresh"}, 0),
+        ]
+    )
+    @patch(f"{_EAGER_MODULE}.WARM_TEAM_CONCURRENCY", 1)
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_skip_fresh_hours_drops_only_freshly_warmed_teams(
+        self, _name, skip_fresh_hours, expected_processed, expected_skipped, get_runner, _tag, _is_cloud
+    ):
+        never, stale, fresh = self._enroll_teams(count=3)
+        labels = {never.pk: "never", stale.pk: "stale", fresh.pk: "fresh"}
+        now = timezone.now()
+        _make_preagg_job(fresh, computed_at=now - timedelta(hours=1))
+        _make_preagg_job(stale, computed_at=now - timedelta(days=2))
+        get_runner.return_value = Mock(
+            run=Mock(return_value=Mock(preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE))
+        )
+
+        with _eager_audience([never.pk, stale.pk, fresh.pk]):
+            result = warm_eager_baseline_op(
+                dagster.build_op_context(), EagerWarmConfig(skip_fresh_hours=skip_fresh_hours)
+            )
+
+        processed = {labels[(call.kwargs.get("team") or call.args[1]).pk] for call in get_runner.call_args_list}
+        assert processed == expected_processed
+        assert result["skipped"] == expected_skipped
 
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")

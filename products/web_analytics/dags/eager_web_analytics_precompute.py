@@ -443,6 +443,14 @@ class EagerWarmConfig(dagster.Config):
     # None = use WARM_TEAM_CONCURRENCY (resolved at run time, so tests patching the
     # constant still control the pool).
     team_concurrency: int | None = pydantic.Field(default=None, ge=1, le=25)
+    # Skip teams whose latest READY job in the baseline window is fresher than this
+    # many hours, instead of merely sorting them last. Without it, a fleet-scale run
+    # spends hours re-verifying the tile matrix of thousands of already-warm teams
+    # before reaching the never-warmed tail — in the worst case never getting there
+    # within max_runtime. Teams with no precompute jobs at all are never skipped.
+    # None = process every eligible team (the hourly job's behavior — its static
+    # audience is small and should always be topped up).
+    skip_fresh_hours: int | None = pydantic.Field(default=None, ge=1, le=168)
 
 
 @dagster.op
@@ -549,6 +557,25 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
             .values_list("team_id", "last")
         )
         never_computed = datetime.min.replace(tzinfo=UTC)
+
+        if config.skip_fresh_hours is not None:
+            # Teams with no READY jobs in the window have no `last_computed` entry
+            # and are therefore never skipped — they're the audience this exists for.
+            fresh_cutoff = datetime.now(UTC) - timedelta(hours=config.skip_fresh_hours)
+            fresh_ids = {t.pk for t in eligible if (last_computed.get(t.pk) or never_computed) >= fresh_cutoff}
+            if fresh_ids:
+                eligible = [t for t in eligible if t.pk not in fresh_ids]
+                skipped += len(fresh_ids)
+                context.log.info(
+                    f"eager_baseline_warming_skipped_fresh count={len(fresh_ids)} "
+                    f"skip_fresh_hours={config.skip_fresh_hours} remaining={len(eligible)}"
+                )
+                logger.info(
+                    "eager_baseline_warming_skipped_fresh",
+                    count=len(fresh_ids),
+                    skip_fresh_hours=config.skip_fresh_hours,
+                    remaining=len(eligible),
+                )
         # Two tiers: statically enrolled teams first (stalest first within the tier),
         # then the ramp audience. A large `active_teams_pct` audience is mostly
         # never-warmed, and a flat staleness sort would push the always-enrolled teams
@@ -687,7 +714,13 @@ def _fail_on_concurrent_run(context: dagster.OpExecutionContext) -> None:
         "relaunching skips them and continues the tail. Safe to run alongside the hourly "
         "schedule — the pending-job unique index dedupes concurrent window builds."
     ),
-    config={"ops": {"warm_eager_baseline_op": {"config": {"active_teams_pct": 100, "active_lookback_hours": 168}}}},
+    config={
+        "ops": {
+            "warm_eager_baseline_op": {
+                "config": {"active_teams_pct": 100, "active_lookback_hours": 168, "skip_fresh_hours": 24}
+            }
+        }
+    },
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/max_runtime": str(24 * 60 * 60),
