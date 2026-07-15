@@ -37,6 +37,8 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
+// Signals (deprecation aliases for the signals-scout-* → scout-* rename)
+import { SIGNALS_SCOUT_DEPRECATED_ALIASES } from './signals/deprecatedAliases'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 // Misc
@@ -112,6 +114,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-blast-radius': workflowsBlastRadius,
     'workflows-run-batch': workflowsRunBatch,
     'workflows-schedule-create': workflowsScheduleCreate,
+
+    // Signals — deprecated signals-scout-* aliases forwarding to the renamed scout-* tools.
+    ...SIGNALS_SCOUT_DEPRECATED_ALIASES,
 
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
