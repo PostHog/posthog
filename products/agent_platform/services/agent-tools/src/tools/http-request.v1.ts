@@ -217,6 +217,9 @@ async function readCappedBody(
 
 export const httpRequestV1 = defineNativeTool({
     id: '@posthog/http-request',
+    // Proxy-bound (smokescreen blocks internal SSRF) and author-opt-in — gating
+    // every outbound call would make integration automation unusable, so allow.
+    approval: 'allow',
     description: [
         'Make an arbitrary HTTP request (GET/POST/PUT/PATCH/DELETE) against a URL.',
         'Use this for any service where the platform does not ship a typed tool —',

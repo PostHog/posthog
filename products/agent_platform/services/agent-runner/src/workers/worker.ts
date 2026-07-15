@@ -499,11 +499,15 @@ export class Worker {
                               log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                           })
                         : undefined
-                // Bind the connection resolver to this session's team.
+                // Scope connection resolution to this session's team AND the spec
+                // author (`created_by_id`): a connection resolves only if the
+                // installation belongs to the spec's author, so no authoring path can
+                // make the runner hand out a credential the author doesn't own. This is
+                // the IDOR boundary; a null author fails closed.
                 const mcpConnections = this.deps.mcpConnections
                     ? {
                           resolve: (connectionId: string) =>
-                              this.deps.mcpConnections!.resolve(connectionId, session.team_id),
+                              this.deps.mcpConnections!.resolve(connectionId, session.team_id, rev.created_by_id),
                       }
                     : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
