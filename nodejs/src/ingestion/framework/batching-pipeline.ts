@@ -39,7 +39,9 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
  * What an afterBatch pipeline produces. The out element/context types default to the in types, so a
  * passthrough step (one that returns its input untouched) satisfies the contract with no explicit
  * transformer. When they differ, afterBatch retypes the elements — e.g. trimming each result to a
- * lightweight shape. The runtime downstream only reads `elements`, so carrying `batchId` is harmless.
+ * lightweight shape — but must not change the element count (count changes throw); non-OK results
+ * flow through as results, not by removal. The runtime downstream only reads `elements`, so carrying
+ * `batchId` is harmless.
  */
 export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
     elements: BatchPipelineResultWithContext<TOutput, COutput, R>
@@ -99,8 +101,9 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  *   fed — count changes throw) and side effects. Elements are tagged with
  *   messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
- *   afterBatch with the batchContext and ordered results, then returns a
- *   BatchResult with concatenated side effects.
+ *   afterBatch with the batchContext and ordered results (which may retype the
+ *   elements but, like beforeBatch, must not change their count — count changes
+ *   throw), then returns a BatchResult with concatenated side effects.
  *
  * Ordering guarantees:
  * - Messages within a completed batch are returned in their original feed() order
@@ -341,6 +344,16 @@ export class BatchingPipeline<
 
                     if (!isOkResult(afterResult.result)) {
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)
+                    }
+
+                    // afterBatch may retype elements but must not change the element count: every fed
+                    // message must surface exactly once downstream (non-OK results flow through as
+                    // results, not by removal). Mirrors the beforeBatch count-mismatch throw.
+                    const afterElements = afterResult.result.value.elements
+                    if (afterElements.length !== orderedResults.length) {
+                        throw new Error(
+                            `batching_pipeline afterBatch changed element count (${orderedResults.length} -> ${afterElements.length}) for batch ${batchId}`
+                        )
                     }
 
                     const afterSideEffects = afterResult.context.sideEffects
