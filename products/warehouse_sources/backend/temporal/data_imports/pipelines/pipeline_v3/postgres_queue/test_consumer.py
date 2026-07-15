@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -1702,7 +1702,7 @@ class TestRunsNearingRetentionProbe:
             job_id="job-1",
             team_id=1,
             schema_id="schema-1",
-            oldest_created_at=datetime.now(UTC) - timedelta(days=6),
+            oldest_created_at=datetime(2026, 7, 1, tzinfo=UTC),
             non_terminal_batches=2,
         )
 

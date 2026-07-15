@@ -324,7 +324,7 @@ class _FakePgConn:
                 raise self.probe_raises
             cursor.fetchall.return_value = [(d,) for d in self.non_terminal_dates]
         elif "pg_inherits" in sql_text:
-            table = params[0] if params else None
+            table = str(params[0]) if params else ""
             cursor.fetchall.return_value = [(name,) for name in self.partitions_by_table.get(table, [])]
         elif sql_text.startswith("DROP TABLE"):
             self.dropped.append(sql_text)
