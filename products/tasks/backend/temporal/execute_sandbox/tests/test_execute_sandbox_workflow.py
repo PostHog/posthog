@@ -27,6 +27,7 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_rep
     GetSandboxForRepositoryOutput,
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import STEER_DECLINED_OUTCOME
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.credential_refresh import CredentialRefreshExitReason
 
@@ -817,16 +818,22 @@ class TestHandleFollowupInFlightTracking:
         assert "ack-fail" not in workflow._in_flight_followup_ack_ids
         assert "ack-fail" in workflow._acked_ids
 
-    async def test_steer_dispatches_while_followup_turn_is_active(self, monkeypatch, silent_workflow_logger):
+    async def test_declined_steer_requeues_as_a_steerable_normal_followup(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
-        release_followup = asyncio.Event()
+        release_initial = asyncio.Event()
+        release_fallback = asyncio.Event()
         deliveries: list[tuple[str | None, bool]] = []
 
         async def fake_send_followup(*, message, artifact_ids, steer=False):
             deliveries.append((message, steer))
-            if not steer:
-                await release_followup.wait()
+            if message == "keep working":
+                await release_initial.wait()
+            elif message == "use green instead" and steer:
+                return STEER_DECLINED_OUTCOME
+            elif message == "use green instead":
+                await release_fallback.wait()
+            return None
 
         monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
         monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
@@ -839,7 +846,22 @@ class TestHandleFollowupInFlightTracking:
         assert await workflow._dispatch_next_followup() is True
 
         assert deliveries == [("keep working", False), ("use green instead", True)]
-        release_followup.set()
+        release_initial.set()
+        await asyncio.sleep(0)
+        assert await workflow._dispatch_next_followup() is True
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.send_steer_message("ack-steer-2", "use blue instead")
+        assert await workflow._dispatch_next_followup() is True
+        assert deliveries == [
+            ("keep working", False),
+            ("use green instead", True),
+            ("use green instead", False),
+            ("use blue instead", True),
+        ]
+
+        release_fallback.set()
         await workflow._finish_active_followup()
 
     async def test_parent_attached_replay_only_re_acks(self, silent_workflow_logger):

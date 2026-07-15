@@ -66,6 +66,7 @@ from .activities.relay_sandbox_events import (
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
+    STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -345,11 +346,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
-        await self._send_followup_to_sandbox(
+        outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
             steer=followup.steer,
         )
+        if followup.steer and outcome == STEER_DECLINED_OUTCOME:
+            self._pending_followups.insert(
+                0,
+                PendingFollowup(
+                    message=followup.message,
+                    artifact_ids=followup.artifact_ids,
+                ),
+            )
 
     async def _finish_active_followup(self) -> None:
         if self._active_followup_task is None:
@@ -1812,7 +1821,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _send_followup_to_sandbox(
         self, message: str | None, artifact_ids: list[str], *, steer: bool = False
-    ) -> None:
+    ) -> str | None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
             extra={
@@ -1822,7 +1831,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
         try:
-            await workflow.execute_activity(
+            return await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
                     run_id=self.context.run_id,
@@ -1861,3 +1870,4 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._completion_error_type = "followup_delivery_failed"
             self._task_completed = True
+        return None

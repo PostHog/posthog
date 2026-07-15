@@ -479,7 +479,7 @@ def signal_task_followup_message(
 
     async def signal() -> None:
         signal_name = "send_followup_message"
-        if steer:
+        if steer and settings.TASKS_NATIVE_STEERING_SIGNALS_ENABLED:
             try:
                 protocol_version = await handle.query(
                     STEERING_PROTOCOL_QUERY,

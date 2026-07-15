@@ -9,6 +9,7 @@ from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
+    STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
@@ -508,6 +509,21 @@ class TestSendFollowupTurnTimeout:
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_declined_steer_returns_for_normal_requeue_without_markers(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=True,
+            status_code=200,
+            data={"result": {"steered": False, "stopReason": STEER_DECLINED_OUTCOME}},
+        )
+
+        outcome = send_followup_to_sandbox(
+            SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1", steer=True)
+        )
+
+        assert outcome == STEER_DECLINED_OUTCOME
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 

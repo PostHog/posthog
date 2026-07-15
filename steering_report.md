@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes cover bounded Temporal capability discovery, multi-generation resume hydration, and idempotent agent delivery during teardown.
+The latest fixes add a receiver-first Temporal rollout gate, strict adapter-level steer decline handling, safe Temporal requeueing, stale Codex turn rejection handling, incomplete-hydration cursor normalization, and overlapping resume-window deduplication.
 
 ## What the feature does
 
@@ -36,10 +36,11 @@ Explicit steer attempts made after the active turn has ended return a declined s
 The agent server treats adapter-level steering as an accept-or-decline operation:
 
 - An accepted steer joins the active turn.
-- A declined steer waits for the owned turn to become idle and then uses the normal follow-up path.
+- A declined steer returns immediately without starting another turn inside the steering request.
+- Temporal requeues the declined message at the front of the normal follow-up queue and delivers it after the active turn boundary.
 - A real transport failure is propagated to the normal retry and failure machinery.
 
-This prevents a healthy cloud run from receiving a terminal error because its active turn ended between the server check and the adapter call.
+This prevents a healthy cloud run from receiving a terminal error because its active turn ended between the server check and the adapter call. It also keeps the Temporal loop free to deliver later steers while the requeued normal follow-up is active.
 
 ### Steer intent does not survive sandbox replacement
 
@@ -66,7 +67,7 @@ Resume hydration:
 
 New senders use the versioned `send_steer_message` signal while preserving the positional arity of legacy follow-up signals.
 
-Workflow handlers accept the versioned signal and legacy histories. Capability discovery chooses the new signal only for receivers that advertise protocol version 1.
+Workflow handlers accept the versioned signal and legacy histories. Production senders remain on the legacy signal until the receiver-first rollout gate is explicitly enabled after every task worker has the new handlers. Capability discovery is used only after that deployment barrier has been crossed.
 
 ## First follow-up blocker fixes
 
@@ -74,7 +75,7 @@ Workflow handlers accept the versioned signal and legacy histories. Capability d
 
 `ProcessTaskWorkflow`, `TaskManagementWorkflow`, and `ExecuteSandboxWorkflow` expose a read-only steering protocol query.
 
-Unsupported workflows and failed capability queries receive the durable legacy `send_followup_message` signal. Task management records the child workflow's protocol version and preserves historical signal choices during replay.
+Unsupported workflows and failed capability queries receive the durable legacy `send_followup_message` signal. Task management records the child workflow's protocol version and preserves historical signal choices during replay. The query is a per-workflow negotiation mechanism, not the rolling-deployment barrier.
 
 ### Concurrent retries share the original message outcome
 
@@ -118,19 +119,76 @@ A message ID becomes committed immediately after a steer is accepted or a normal
 
 The regression clears the active session after the adapter accepts the prompt, then verifies the original request succeeds and a retry returns `duplicate_delivery` without invoking the adapter again.
 
+## Latest blocker fixes
+
+### Temporal signaling uses a receiver-first rollout
+
+A capability query and the following signal can be handled by different worker versions, so the query alone cannot make an unsupported signal safe during a rolling deployment.
+
+`TASKS_NATIVE_STEERING_SIGNALS_ENABLED` now provides the deployment barrier:
+
+- Production defaults it to disabled, so senders keep using the durable legacy signal.
+- The new workflow receivers are deployed first while the flag remains disabled.
+- The flag is enabled only after every worker polling the task queue has the new signal handlers.
+- Child workflow startup skips capability probing while the flag is disabled and remains successful if capability discovery later times out.
+
+The rollout sequence is documented in `products/tasks/docs/CLOUD_COMMANDS.md` and covered in the external sender and child startup tests.
+
+### Incomplete hydration preserves the count domain
+
+When resumed hydration cannot produce a complete result, buffered updates are still chain-global. The renderer now initializes the release offset from `resumeFromEntryCount` instead of zero before it flushes those updates.
+
+The regression uses a non-zero inherited count and verifies the buffered live event is appended rather than normalized away.
+
+### Stale Codex turn IDs decline instead of failing the run
+
+The app-server client now preserves JSON-RPC error codes. The Codex adapter recognizes the two stale-turn `-32600` responses from `turn/steer` and returns `steer: false` for an explicit steer.
+
+Only those known boundary responses are converted to a decline. Network failures and unrelated app-server errors still propagate through normal retry and failure handling.
+
+### Declined steering is requeued outside the request
+
+An explicit agent-server steer is now a strict try-steer operation. It either joins the active turn or returns `steer_declined` immediately; it never waits for the owned turn and starts a normal prompt inline.
+
+Both `ProcessTaskWorkflow` and `ExecuteSandboxWorkflow` consume that outcome, clear steer intent, and put the message at the front of the normal queue. This lets the Temporal loop deliver later steers concurrently while the fallback normal turn is running.
+
+### Overlapping resume windows are deduplicated
+
+Resume hydration now finds the maximum suffix/prefix overlap between ancestor history and the current endpoint response. This handles backend history windows that overlap without beginning at the root, avoiding duplicate transcript entries beyond the backend's bounded resume-chain window.
+
 ## Automated validation
 
 Latest validation:
 
-- Backend Temporal and client suite: 184 passed.
-- PostHog Code agent package: 77 files and 1,268 tests passed.
-- PostHog Code session service UI suite: 140 passed.
+- Backend focused Temporal, activity, and client suite: 150 passed.
+- PostHog Code agent adapter/server focused suite: 203 passed.
+- PostHog Code app-server client regression suite: 8 passed.
+- PostHog Code session service UI suite: 141 passed.
 - Shared, agent, core, and UI TypeScript package typechecks passed.
-- Ruff, Python compilation, and targeted Biome checks passed.
+- OpenAPI generation, Ruff, Python compilation, targeted Biome, and diff checks passed.
 
-Earlier validation across the branch also covered OpenAPI generation, full package tests, workspace typechecks, and diff checks.
+Earlier validation across the branch also covered the full 1,268-test agent package and broader workspace checks.
 
 ## Live cloud-run verification
+
+### Latest Codex boundary, resume, and cold-reload run
+
+- Task: `6f9dbb39-0c28-4dd0-9660-60534eeb705e`
+- Initial run: `144fd125-df4c-40e2-bf29-371c1dceadab`
+- Resumed run: `6cb2dc17-5e44-4ce7-b77d-e77232325e60`
+
+Verified with the local Electron app, backend, Temporal worker, Modal sandbox, and LLM gateway:
+
+- The baseline Codex turn returned `BASEJUL15` with one prompt and one response.
+- A normal fallback follow-up started a 40-second terminal command at 12:42:55 UTC.
+- While that follow-up was active, Temporal received `send_steer_message` at 12:43:06 UTC and logged `send_followup_steered`.
+- The accepted steer appeared inside the same active turn and returned `STEER2JUL15`; the original fallback response was superseded, and the run had no terminal error.
+- Completing the initial workflow and sending another message created a distinct resumed run linked through `state.resume_from_run_id`.
+- The resumed run returned `RESUMEJUL15` and rendered exactly one restored-sandbox boundary.
+- After a cold renderer reload, the baseline, fallback, accepted steer, restored boundary, resume prompt, and resume response were all present with no pending prompt or error state.
+- A new post-reload follow-up returned `POSTRELOADJUL15`, proving that live events append after hydration without a cursor gap or transcript replacement.
+
+The first cold sandbox boot exposed a local backend web-process stall while generated assets were reloading. Restarting only the backend web process restored both the local endpoint and tunnel; Temporal, the sandbox, and the run remained intact. The validation above was completed after recovery.
 
 ### A→B→C resume-of-a-resume regression
 
@@ -167,6 +225,7 @@ Live runs also verified:
 
 The merge-blocking findings are addressed. The remaining recommendations are separate follow-ups:
 
+- Re-probe a child workflow after a transient two-second capability timeout instead of retaining safe queue-only behavior for that sandbox lifetime.
 - Reduce redundant full-chain reads and use stable entry identifiers for cheaper deduplication.
 - Reconcile rapid optimistic steer messages using stable client message IDs.
 - Restore failed cloud steers to the queue with an actionable error state.

@@ -80,6 +80,13 @@ TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
 
+# Roll out native steering signals in two stages. New workflow receivers ship
+# first while production senders stay on the legacy signal. Enable this only
+# after every worker that can poll TASKS_TASK_QUEUE has the new handlers.
+TASKS_NATIVE_STEERING_SIGNALS_ENABLED: bool = get_from_env(
+    "TASKS_NATIVE_STEERING_SIGNALS_ENABLED", DEBUG, type_cast=str_to_bool
+)
+
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 

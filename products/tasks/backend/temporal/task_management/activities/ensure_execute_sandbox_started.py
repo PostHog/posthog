@@ -60,6 +60,8 @@ async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput
             # restart. Recovery from those failures lives at the orchestrator
             # level via the ACK-retry / re-bootstrap path.
         )
+        if not settings.TASKS_NATIVE_STEERING_SIGNALS_ENABLED:
+            return 0
         try:
             protocol_version = await handle.query(
                 STEERING_PROTOCOL_QUERY,

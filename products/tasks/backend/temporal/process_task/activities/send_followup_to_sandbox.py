@@ -46,6 +46,7 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 # Application failures that write an error sentinel raise non-retryable.
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+STEER_DECLINED_OUTCOME = "steer_declined"
 
 
 @dataclass
@@ -62,7 +63,7 @@ class SendFollowupToSandboxInput:
 
 @activity.defn
 @close_db_connections
-def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
+def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 
     Called by the workflow when it receives a send_followup_message signal from the
@@ -87,7 +88,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
     heartbeat_thread.start()
     try:
-        _deliver_followup(input)
+        return _deliver_followup(input)
     finally:
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=2)
@@ -114,7 +115,14 @@ def _is_steered(result_data: dict[str, Any] | None) -> bool:
     return isinstance(result, dict) and result.get("steered") is True
 
 
-def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
+def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("steered") is False
+
+
+def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=input.run_id)
     except TaskRun.DoesNotExist:
@@ -177,6 +185,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         if _is_steered(result.data):
             logger.info("send_followup_steered", run_id=input.run_id)
             return
+        if input.steer and _is_steer_declined(result.data):
+            logger.info("send_followup_steer_declined", run_id=input.run_id)
+            return STEER_DECLINED_OUTCOME
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:

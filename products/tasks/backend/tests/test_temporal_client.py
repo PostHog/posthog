@@ -28,14 +28,19 @@ from products.tasks.backend.temporal.constants import (
 class TestSignalTaskFollowupMessage(SimpleTestCase):
     @parameterized.expand(
         [
-            (False, None, "send_followup_message"),
-            (True, 1, SEND_STEER_SIGNAL),
-            (True, RuntimeError("query not registered"), "send_followup_message"),
-            (True, TimeoutError("query timed out"), "send_followup_message"),
+            (False, True, None, "send_followup_message"),
+            (True, False, 1, "send_followup_message"),
+            (True, True, 1, SEND_STEER_SIGNAL),
+            (True, True, RuntimeError("query not registered"), "send_followup_message"),
+            (True, True, TimeoutError("query timed out"), "send_followup_message"),
         ]
     )
     def test_capability_gates_versioned_signal_without_changing_legacy_argument_count(
-        self, steer: bool, query_result: int | Exception | None, expected_signal: str
+        self,
+        steer: bool,
+        signals_enabled: bool,
+        query_result: int | Exception | None,
+        expected_signal: str,
     ) -> None:
         handle = Mock()
         handle.signal = AsyncMock()
@@ -47,11 +52,14 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
         client = Mock()
         client.get_workflow_handle.return_value = handle
 
-        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+        with (
+            self.settings(TASKS_NATIVE_STEERING_SIGNALS_ENABLED=signals_enabled),
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+        ):
             signal_task_followup_message("workflow-id", "hello", ["artifact-1"], steer=steer)
 
         handle.signal.assert_awaited_once_with(expected_signal, args=["hello", ["artifact-1"]])
-        if steer:
+        if steer and signals_enabled:
             handle.query.assert_awaited_once_with(
                 STEERING_PROTOCOL_QUERY,
                 rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,

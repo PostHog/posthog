@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from temporalio.common import WorkflowIDReusePolicy
 
@@ -43,9 +44,12 @@ class TestEnsureExecuteSandboxStarted:
             bootstrap_ack_id="ack-bootstrap",
         )
 
-        with patch(
-            "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
-            AsyncMock(return_value=client),
+        with (
+            override_settings(TASKS_NATIVE_STEERING_SIGNALS_ENABLED=True),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
         ):
             protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
 
@@ -81,9 +85,12 @@ class TestEnsureExecuteSandboxStarted:
             bootstrap_ack_id="ack-bootstrap",
         )
 
-        with patch(
-            "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
-            AsyncMock(return_value=client),
+        with (
+            override_settings(TASKS_NATIVE_STEERING_SIGNALS_ENABLED=True),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
         ):
             protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
 
@@ -92,3 +99,25 @@ class TestEnsureExecuteSandboxStarted:
             STEERING_PROTOCOL_QUERY,
             rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
         )
+
+    async def test_receiver_first_rollout_skips_capability_query(self, activity_environment):
+        client = AsyncMock()
+        handle = AsyncMock()
+        client.start_workflow.return_value = handle
+        input_data = EnsureExecuteSandboxStartedInput(
+            workflow_id="sandbox-wf-id",
+            workflow_input=ExecuteSandboxInput(run_id="run-1", parent_workflow_id="parent-wf-id"),
+            bootstrap_ack_id="ack-bootstrap",
+        )
+
+        with (
+            override_settings(TASKS_NATIVE_STEERING_SIGNALS_ENABLED=False),
+            patch(
+                "products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started.async_connect",
+                AsyncMock(return_value=client),
+            ),
+        ):
+            protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
+
+        assert protocol_version == 0
+        handle.query.assert_not_awaited()

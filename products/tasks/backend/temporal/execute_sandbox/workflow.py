@@ -83,6 +83,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
 )
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
+    STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -803,11 +804,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 return
 
             try:
-                await self._send_followup_to_sandbox(
+                outcome = await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
                     steer=followup.steer,
                 )
+                if followup.steer and outcome == STEER_DECLINED_OUTCOME:
+                    self._pending_followups.insert(
+                        0,
+                        PendingFollowup(
+                            message=followup.message,
+                            artifact_ids=followup.artifact_ids,
+                            ack_id=followup.ack_id,
+                            source=followup.source,
+                        ),
+                    )
+                    return
                 self._enqueue_ack(signal_name=signal_name, ack_id=followup.ack_id)
             except Exception as e:
                 # Mirror process_task: a failed follow-up dispatch is terminal.
@@ -1289,14 +1301,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
     async def _send_followup_to_sandbox(
         self, message: str | None, artifact_ids: list[str], *, steer: bool = False
-    ) -> None:
+    ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
             run_id=self.context.run_id,
             message_length=len(message or ""),
             artifact_count=len(artifact_ids),
         )
-        await workflow.execute_activity(
+        return await workflow.execute_activity(
             send_followup_to_sandbox,
             SendFollowupToSandboxInput(
                 run_id=self.context.run_id,
