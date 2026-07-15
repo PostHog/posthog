@@ -7,15 +7,22 @@ import structlog
 from celery import shared_task
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping import with_team_scope
+from posthog.models.integration import GitHubIntegration
+from posthog.models.scoping import team_scope, with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalReportRefund
+from products.signals.backend.models import SignalReportRefund, SignalRepositoryAreaActivity
+from products.signals.backend.report_generation.repo_activity import (
+    ACTIVITY_KEEP_WARM_WINDOW,
+    refresh_area_activity_row,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -217,3 +224,80 @@ def sync_pending_signals_refund_credits() -> None:
         sync_signals_refund_credit.delay(str(refund_id))
     if pending_ids:
         logger.info("signals refund credit sweeper re-enqueued pending refunds", count=len(pending_ids))
+
+
+# Cached area-activity rows nobody has read for this long are deleted by the weekly refresh
+# instead of being kept warm — the next report touching the area recreates them on demand.
+_ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_repository_activity",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_repository_activity() -> None:
+    """Weekly (Monday) warm-up of the repository area-activity cache.
+
+    Re-fetches recent-contributor maps for every (team, repository, area) row that reviewer
+    resolution has read within the keep-warm window, so report generation reads a warm cache
+    instead of blocking on GitHub. Rows idle past ``_ACTIVITY_ROW_MAX_IDLE`` are dropped.
+
+    Best-effort per row; a rate limit or exhausted egress budget skips the rest of that
+    (team, repository) group — the rows stay stale and lazily refresh on next use.
+    """
+    now = timezone.now()
+    SignalRepositoryAreaActivity.objects.unscoped().filter(
+        last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
+    ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+
+    rows = list(
+        SignalRepositoryAreaActivity.objects.unscoped()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+        .filter(last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW)
+        .order_by("team_id", "repository", "area")
+    )
+
+    refreshed = 0
+    skipped_repos: set[tuple[int, str]] = set()
+    github_by_repo: dict[tuple[int, str], GitHubIntegration | None] = {}
+    for row in rows:
+        key = (row.team_id, row.repository)
+        if key in skipped_repos:
+            continue
+        if key not in github_by_repo:
+            try:
+                github = GitHubIntegration.first_for_team_repository(
+                    row.team_id, row.repository, source="signals_activity_refresh"
+                )
+                if github is not None:
+                    # Background warm-up is the definition of sheddable — let the egress
+                    # limiter drop these calls first when the installation budget runs hot.
+                    github.priority = Priority.BATCH
+                github_by_repo[key] = github
+            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+                github_by_repo[key] = None
+        github = github_by_repo[key]
+        if github is None:
+            skipped_repos.add(key)
+            continue
+        try:
+            with team_scope(row.team_id):
+                refresh_area_activity_row(row, github)
+            refreshed += 1
+        except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+            logger.info(
+                "signals activity refresh rate limited, skipping repository",
+                team_id=row.team_id,
+                repository=row.repository,
+            )
+            skipped_repos.add(key)
+        except Exception as exc:
+            capture_exception(exc, {"team_id": row.team_id, "repository": row.repository, "area": row.area})
+
+    logger.info(
+        "signals repository activity refresh finished",
+        total_rows=len(rows),
+        refreshed=refreshed,
+        skipped_repositories=len(skipped_repos),
+    )

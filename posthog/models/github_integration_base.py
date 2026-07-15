@@ -53,6 +53,18 @@ class GitHubCommitAuthor:
     login: str
     name: str | None
     commit_url: str
+    # Paths changed by the commit (GitHub caps the listing at 300 files; enough for
+    # area attribution, not a faithful diff).
+    file_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GitHubRecentCommit:
+    sha: str
+    login: str
+    name: str | None
+    committed_at: str  # ISO 8601, from the git author date
+    html_url: str
 
 
 class GitHubIntegrationError(Exception):
@@ -611,7 +623,84 @@ class GitHubIntegrationBase:
         git_author = data.get("commit", {}).get("author", {})
         name = git_author.get("name") or author.get("login")
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
-        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
+        files = data.get("files")
+        file_paths = (
+            tuple(f["filename"] for f in files if isinstance(f, dict) and isinstance(f.get("filename"), str))
+            if isinstance(files, list)
+            else ()
+        )
+        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url, file_paths=file_paths)
+
+    def list_recent_commits(
+        self,
+        repository: str,
+        *,
+        path: str | None = None,
+        since: datetime | None = None,
+        per_page: int = 100,
+        max_pages: int = 1,
+    ) -> list[GitHubRecentCommit]:
+        """List recent commits on the default branch, optionally scoped to a path prefix.
+
+        Commits without a resolvable GitHub account (unmapped author emails) are skipped —
+        callers use this for reviewer routing, where only addressable logins are useful.
+        Best-effort on pagination: a failing later page returns what was fetched so far.
+        Rate limits raise ``GitHubRateLimitError`` (from ``api_request``) so callers can defer.
+        """
+        params: dict[str, str | int] = {"per_page": max(1, min(100, per_page))}
+        if path:
+            params["path"] = path
+        if since is not None:
+            params["since"] = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        commits: list[GitHubRecentCommit] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self.api_request(
+                "GET",
+                f"/repos/{repository}/commits",
+                endpoint="/repos/{owner}/{repo}/commits",
+                params={**params, "page": page},
+            )
+            if response.status_code != 200:
+                logger.info(
+                    "GitHub API non-200 for commit listing",
+                    status_code=response.status_code,
+                    repository=repository,
+                    path=path,
+                )
+                break
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to parse commit listing JSON", repository=repository, exc_info=True
+                )
+                break
+            if not isinstance(body, list):
+                break
+            for entry in body:
+                if not isinstance(entry, dict):
+                    continue
+                author = entry.get("author")
+                sha = entry.get("sha")
+                if not isinstance(author, dict) or not author.get("login") or not isinstance(sha, str):
+                    continue
+                git_author = (entry.get("commit") or {}).get("author") or {}
+                committed_at = git_author.get("date")
+                if not isinstance(committed_at, str):
+                    continue
+                commits.append(
+                    GitHubRecentCommit(
+                        sha=sha,
+                        login=author["login"],
+                        name=git_author.get("name") or author["login"],
+                        committed_at=committed_at,
+                        html_url=entry.get("html_url") or f"https://github.com/{repository}/commit/{sha}",
+                    )
+                )
+            if len(body) < params["per_page"]:  # short page — nothing further
+                break
+        return commits
 
     @staticmethod
     def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:

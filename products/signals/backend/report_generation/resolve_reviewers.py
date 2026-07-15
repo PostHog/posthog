@@ -6,11 +6,13 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Concat, Lower
+from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
@@ -22,6 +24,12 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.contracts import RelevantCommit
+from products.signals.backend.report_generation.repo_activity import (
+    ACTIVITY_WINDOW_DAYS,
+    ContributorActivity,
+    areas_for_paths,
+    get_area_activity,
+)
 
 from ..models import SignalReportArtefact
 
@@ -29,6 +37,21 @@ logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
+
+# Recency shaping for blame-derived candidates, based on their latest commit in the
+# report's areas: fully recent keeps the whole blame weight, then the multiplier decays
+# linearly down to the floor at the edge of the activity window. A blame author with no
+# recent activity in the relevant areas at all drops to the stale floor — the exact case
+# this exists for: someone who once wrote the code but moved on months ago should not
+# collect every assign.
+RECENCY_FULL_WEIGHT_DAYS = 30
+RECENCY_DECAY_FLOOR = 0.3
+STALE_BLAME_MULTIPLIER = 0.15
+# Contributors who are active in the report's areas but authored none of the blame commits
+# enter as fallback candidates. Their score is capped at this fraction of the strongest
+# blame weight, so they only outrank blame authors when every blame author is stale.
+ACTIVITY_ONLY_SCORE_CAP = 0.25
+ACTIVITY_BONUS_SATURATION_COMMITS = 10
 GitHubLoginFieldLookup = Literal[
     "extra_data__login",
     "config__github_user__login",
@@ -115,10 +138,21 @@ def resolve_suggested_reviewers(
     repository: str,
     commit_hashes_with_reasons: dict[str, str],
 ) -> list[_ResolvedReviewer]:
-    """Resolve commit hashes to up to 3 reviewers with their relevant commits.
+    """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
 
-    Commits earlier in the dict are weighted more heavily (they come from
-    higher-priority findings and more critical code paths).
+    Two candidate sources, blended:
+
+    - **Blame**: authors of the findings' relevant commits, weighted by finding position
+      (earlier commits come from higher-priority findings). Historically the only source —
+      which routed reports to people who hadn't touched the area in months.
+    - **Recent area activity**: who actually committed to the touched areas within the
+      activity window (cached in ``SignalRepositoryAreaActivity``, kept warm weekly).
+      Blame weights are recency-shaped (a stale author keeps only a fraction), and active
+      area contributors enter as capped fallback candidates so a report never lands solely
+      on someone long gone from the area.
+
+    When no activity data is available (no areas derivable, cold cache and GitHub
+    unavailable), scoring degrades to the original blame-only behavior.
     """
     if not commit_hashes_with_reasons or not repository:
         return []
@@ -171,16 +205,144 @@ def resolve_suggested_reviewers(
             if login not in login_names:
                 login_names[login] = author_info.name
 
-    # Return top reviewers by weighted score
-    return [
-        _ResolvedReviewer(
-            login=login,
-            name=login_names.get(login),
-            commits=login_commits.get(login, []),
-            weight=weight,
+    # Who is recently active in the areas the finding commits touched?
+    touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
+    activity_by_login = _relevant_area_activity(github, team_id, repository, touched_paths)
+
+    scores = _score_candidates(login_weights, activity_by_login)
+
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:MAX_SUGGESTED_REVIEWERS]
+    reviewers: list[_ResolvedReviewer] = []
+    for login, score in ranked:
+        commits = list(login_commits.get(login, []))
+        if not commits:
+            # Activity-only candidate: surface their latest commit in the area as the evidence.
+            activity = activity_by_login[login]
+            commits = [
+                RelevantCommit(
+                    sha=activity.last_commit_sha,
+                    url=activity.last_commit_url,
+                    reason=(
+                        f"Recently active in `{activity.area or 'the repository root'}` "
+                        f"({activity.commit_count} commit(s) in the last {ACTIVITY_WINDOW_DAYS} days)."
+                    ),
+                )
+            ]
+        name = login_names.get(login)
+        if name is None and login in activity_by_login:
+            name = activity_by_login[login].name
+        reviewers.append(_ResolvedReviewer(login=login, name=name, commits=commits, weight=score))
+    return reviewers
+
+
+@dataclass(frozen=True)
+class _AreaContributor:
+    """A login's activity aggregated across the report's relevant areas."""
+
+    name: str | None
+    commit_count: int
+    days_since_last_commit: float
+    last_commit_sha: str
+    last_commit_url: str
+    area: str  # the area with their highest commit count, for evidence wording
+
+
+def _relevant_area_activity(
+    github: GitHubIntegration,
+    team_id: int,
+    repository: str,
+    touched_paths: list[str],
+) -> dict[str, _AreaContributor]:
+    """Aggregate cached area activity across the areas the finding commits touched.
+
+    Returns an empty dict when nothing is known — either no paths were derivable or no
+    area has activity data yet — which callers must treat as "no signal", not "nobody
+    is active".
+    """
+    areas = areas_for_paths(touched_paths)
+    if not areas:
+        return {}
+    try:
+        activity_by_area = get_area_activity(github, team_id, repository, areas)
+    except GitHubRateLimitError:
+        logger.info("GitHub rate limited fetching area activity for %s", repository)
+        return {}
+
+    now = timezone.now()
+    merged: dict[str, _AreaContributor] = {}
+    for area, contributors in activity_by_area.items():
+        for contributor in contributors:
+            existing = merged.get(contributor.login)
+            merged[contributor.login] = _merge_contributor(existing, contributor, area, now)
+    return merged
+
+
+def _merge_contributor(
+    existing: _AreaContributor | None,
+    incoming: ContributorActivity,
+    area: str,
+    now: datetime,
+) -> _AreaContributor:
+    days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
+    if existing is None:
+        return _AreaContributor(
+            name=incoming.name,
+            commit_count=incoming.commit_count,
+            days_since_last_commit=days_since,
+            last_commit_sha=incoming.last_commit_sha,
+            last_commit_url=incoming.last_commit_url,
+            area=area,
         )
-        for login, weight in login_weights.most_common(MAX_SUGGESTED_REVIEWERS)
-    ]
+    freshest = min(existing.days_since_last_commit, days_since)
+    keep_incoming_evidence = incoming.commit_count > existing.commit_count
+    return _AreaContributor(
+        name=existing.name or incoming.name,
+        commit_count=existing.commit_count + incoming.commit_count,
+        days_since_last_commit=freshest,
+        last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
+        last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
+        area=area if keep_incoming_evidence else existing.area,
+    )
+
+
+def _recency_multiplier(days_since_last_commit: float | None) -> float:
+    """How much of a blame weight survives, given the author's latest area commit."""
+    if days_since_last_commit is None:
+        return STALE_BLAME_MULTIPLIER
+    if days_since_last_commit <= RECENCY_FULL_WEIGHT_DAYS:
+        return 1.0
+    if days_since_last_commit >= ACTIVITY_WINDOW_DAYS:
+        return STALE_BLAME_MULTIPLIER
+    # Linear decay from 1.0 at the full-weight edge to the floor at the window edge.
+    span = ACTIVITY_WINDOW_DAYS - RECENCY_FULL_WEIGHT_DAYS
+    progress = (days_since_last_commit - RECENCY_FULL_WEIGHT_DAYS) / span
+    return 1.0 - progress * (1.0 - RECENCY_DECAY_FLOOR)
+
+
+def _score_candidates(
+    login_weights: Counter[str],
+    activity_by_login: dict[str, _AreaContributor],
+) -> dict[str, float]:
+    """Blend blame weights with area recency; add capped activity-only fallbacks.
+
+    With no activity data at all, blame weights pass through unchanged (legacy behavior).
+    """
+    if not activity_by_login:
+        return {login: float(weight) for login, weight in login_weights.items()}
+
+    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
+    scores: dict[str, float] = {}
+    for login, weight in login_weights.items():
+        activity = activity_by_login.get(login)
+        multiplier = _recency_multiplier(activity.days_since_last_commit if activity else None)
+        scores[login] = float(weight) * multiplier
+
+    for login, activity in activity_by_login.items():
+        if login in scores:
+            continue
+        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS)
+        scores[login] = ACTIVITY_ONLY_SCORE_CAP * max_blame_weight * (saturation / ACTIVITY_BONUS_SATURATION_COMMITS)
+    return scores
 
 
 @dataclass
@@ -190,7 +352,7 @@ class _ResolvedReviewer:
     login: str
     name: str | None
     commits: list[RelevantCommit]
-    weight: int
+    weight: float
 
 
 def get_org_member_github_login_to_user_map(team_id: int) -> dict[str, User] | None:
