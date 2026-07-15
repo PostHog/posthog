@@ -26,6 +26,7 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSlackConnectorsListParams,
     AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
@@ -54,16 +55,19 @@ import type {
     AgentRevisionSlackManifestResponseApi,
     AgentRevisionSystemPromptResponseApi,
     AgentRevisionValidateResponseApi,
+    AgentSlackConnectorApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
     AgentUsersListApi,
     CloneFromRequestApi,
+    CreateAgentSlackConnectorRequestApi,
     DecideApprovalRequestApi,
     DryRunToolRequestApi,
     ImportBundleRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
+    PaginatedAgentSlackConnectorListApi,
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
@@ -1484,6 +1488,91 @@ export const agentApplicationsRevisionsNewDraftCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(newDraftRevisionRequestApi),
     })
+}
+
+export const getAgentApplicationsSlackConnectorsListUrl = (
+    projectId: string,
+    applicationId: string,
+    params?: AgentApplicationsSlackConnectorsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/slack_connectors/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/slack_connectors/`
+}
+
+/**
+ * Registers the durable Slack connector that the PostHog Slack app provisions.
+ */
+export const agentApplicationsSlackConnectorsList = async (
+    projectId: string,
+    applicationId: string,
+    params?: AgentApplicationsSlackConnectorsListParams,
+    options?: RequestInit
+): Promise<PaginatedAgentSlackConnectorListApi> => {
+    return apiMutator<PaginatedAgentSlackConnectorListApi>(
+        getAgentApplicationsSlackConnectorsListUrl(projectId, applicationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsSlackConnectorsCreateUrl = (projectId: string, applicationId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/slack_connectors/`
+}
+
+/**
+ * Registers the durable Slack connector that the PostHog Slack app provisions.
+ */
+export const agentApplicationsSlackConnectorsCreate = async (
+    projectId: string,
+    applicationId: string,
+    createAgentSlackConnectorRequestApi: CreateAgentSlackConnectorRequestApi,
+    options?: RequestInit
+): Promise<AgentSlackConnectorApi> => {
+    return apiMutator<AgentSlackConnectorApi>(getAgentApplicationsSlackConnectorsCreateUrl(projectId, applicationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createAgentSlackConnectorRequestApi),
+    })
+}
+
+export const getAgentApplicationsSlackConnectorsRetrieveUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/slack_connectors/${id}/`
+}
+
+/**
+ * Registers the durable Slack connector that the PostHog Slack app provisions.
+ */
+export const agentApplicationsSlackConnectorsRetrieve = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentSlackConnectorApi> => {
+    return apiMutator<AgentSlackConnectorApi>(
+        getAgentApplicationsSlackConnectorsRetrieveUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAgentApplicationsRetrieveUrl = (projectId: string, id: string) => {

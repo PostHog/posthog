@@ -624,6 +624,15 @@ tools:
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
             via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-slack-connectors-create:
+        operation: agent_applications_slack_connectors_create
+        enabled: false
+    agent-applications-slack-connectors-list:
+        operation: agent_applications_slack_connectors_list
+        enabled: false
+    agent-applications-slack-connectors-retrieve:
+        operation: agent_applications_slack_connectors_retrieve
+        enabled: false
     agent-applications-spec-schema:
         operation: agent_applications_spec_schema
         enabled: true

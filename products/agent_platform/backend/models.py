@@ -19,6 +19,8 @@ were dropped pending a rethink — see the commented-out routes in `routes.py`.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q, Value
@@ -33,6 +35,16 @@ REVISION_STATE_CHOICES = [
     ("ready", "ready"),
     ("live", "live"),
     ("archived", "archived"),
+]
+
+SLACK_CONNECTOR_STATUS_CHOICES = [
+    ("pending", "pending"),
+    ("provisioning", "provisioning"),
+    ("install_pending", "install_pending"),
+    ("active", "active"),
+    ("reinstall_required", "reinstall_required"),
+    ("revoked", "revoked"),
+    ("error", "error"),
 ]
 
 # Mirrors the JSONB default the node session writer relies on.
@@ -159,6 +171,55 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.application_id}@{str(self.id)[:8]} ({self.state})"
+
+
+class AgentSlackConnector(ProductTeamModel, UUIDModel):
+    """Durable Slack identity and installation state for one agent application."""
+
+    application = models.ForeignKey(
+        AgentApplication,
+        on_delete=models.CASCADE,
+        related_name="slack_connectors",
+    )
+    slack_workspace_id = models.TextField()
+    public_routing_id = models.UUIDField(default=uuid4, unique=True, editable=False)
+    slack_app_id = models.TextField(null=True, blank=True)
+    bot_user_id = models.TextField(null=True, blank=True)
+    status = models.CharField(
+        max_length=32,
+        choices=SLACK_CONNECTOR_STATUS_CHOICES,
+        default="pending",
+        db_default="pending",
+    )
+    installed_scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
+    desired_scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
+    encrypted_credentials: EncryptedTextField = EncryptedTextField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="", db_default="")
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    installed_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
+    updated_at = models.DateTimeField(auto_now=True, db_default=Now())
+
+    class Meta:
+        db_table = "agent_slack_connector"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["application", "slack_workspace_id"],
+                name="agent_slack_connector_app_workspace_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["slack_app_id"],
+                condition=Q(slack_app_id__isnull=False),
+                name="agent_slack_connector_app_id_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "status"], name="asc_team_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.application_id}:{self.slack_workspace_id}"
 
 
 # ─── Runtime ──────────────────────────────────────────────────────────

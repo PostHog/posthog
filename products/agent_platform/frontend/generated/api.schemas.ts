@@ -578,6 +578,96 @@ export interface NewDraftRevisionRequestApi {
 }
 
 /**
+ * * `pending` - pending
+ * * `provisioning` - provisioning
+ * * `install_pending` - install_pending
+ * * `active` - active
+ * * `reinstall_required` - reinstall_required
+ * * `revoked` - revoked
+ * * `error` - error
+ */
+export type AgentSlackConnectorStatusEnumApi =
+    (typeof AgentSlackConnectorStatusEnumApi)[keyof typeof AgentSlackConnectorStatusEnumApi]
+
+export const AgentSlackConnectorStatusEnumApi = {
+    Pending: 'pending',
+    Provisioning: 'provisioning',
+    InstallPending: 'install_pending',
+    Active: 'active',
+    ReinstallRequired: 'reinstall_required',
+    Revoked: 'revoked',
+    Error: 'error',
+} as const
+
+export interface AgentSlackConnectorApi {
+    /** Stable PostHog identifier for this connector. */
+    readonly id: string
+    /** Agent application that owns the dedicated Slack app. */
+    readonly application: string
+    /** Slack workspace where the agent app is installed. */
+    readonly slack_workspace_id: string
+    /** Opaque routing identifier used by stable connector-level Slack webhook URLs. */
+    readonly public_routing_id: string
+    /**
+     * Slack app ID after provisioning, or null while pending.
+     * @nullable
+     */
+    readonly slack_app_id: string | null
+    /**
+     * Slack bot user ID after installation, or null while pending.
+     * @nullable
+     */
+    readonly bot_user_id: string | null
+    /** Current provisioning and installation state of the Slack connector.
+     *
+     * * `pending` - pending
+     * * `provisioning` - provisioning
+     * * `install_pending` - install_pending
+     * * `active` - active
+     * * `reinstall_required` - reinstall_required
+     * * `revoked` - revoked
+     * * `error` - error */
+    readonly status: AgentSlackConnectorStatusEnumApi
+    /** OAuth scopes granted by the current Slack installation. */
+    readonly installed_scopes: readonly string[]
+    /** OAuth scopes required by the agent's desired Slack manifest. */
+    readonly desired_scopes: readonly string[]
+    /** Latest provisioning or installation error, empty when healthy. */
+    readonly last_error: string
+    /**
+     * When Slack installation completed, or null while uninstalled.
+     * @nullable
+     */
+    readonly installed_at: string | null
+    /**
+     * When Slack access was revoked, or null while connected.
+     * @nullable
+     */
+    readonly revoked_at: string | null
+    /** When the connector record was created. */
+    readonly created_at: string
+    /** When the connector record was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedAgentSlackConnectorListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AgentSlackConnectorApi[]
+}
+
+export interface CreateAgentSlackConnectorRequestApi {
+    /**
+     * Slack workspace ID that the dedicated agent app will be installed into, for example `T01234567`.
+     * @maxLength 32
+     */
+    slack_workspace_id: string
+}
+
+/**
  * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
  * @nullable
  */
@@ -1231,6 +1321,17 @@ export type AgentMemoryReadTableParams = {
 }
 
 export type AgentApplicationsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AgentApplicationsSlackConnectorsListParams = {
     /**
      * Number of results to return per page.
      */

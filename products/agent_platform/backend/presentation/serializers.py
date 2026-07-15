@@ -22,7 +22,7 @@ from rest_framework import serializers
 
 from posthog.models import User
 
-from ..models import REVISION_STATE_CHOICES, AgentApplication, AgentRevision
+from ..models import REVISION_STATE_CHOICES, AgentApplication, AgentRevision, AgentSlackConnector
 
 # Opaque random slug: leading letter (DNS-label-safe) + lowercase alphanumerics.
 # No dashes, so it can't be misread as the `<slug>-<revHex>` revision form, and
@@ -215,6 +215,54 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
         except IntegrityError as e:
             raise serializers.ValidationError({"slug": "An agent with this slug already exists."}) from e
+
+
+class CreateAgentSlackConnectorRequestSerializer(serializers.Serializer):
+    slack_workspace_id = serializers.CharField(
+        max_length=32,
+        trim_whitespace=True,
+        help_text="Slack workspace ID that the dedicated agent app will be installed into, for example `T01234567`.",
+    )
+
+
+class AgentSlackConnectorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentSlackConnector
+        fields = [
+            "id",
+            "application",
+            "slack_workspace_id",
+            "public_routing_id",
+            "slack_app_id",
+            "bot_user_id",
+            "status",
+            "installed_scopes",
+            "desired_scopes",
+            "last_error",
+            "installed_at",
+            "revoked_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Stable PostHog identifier for this connector."},
+            "application": {"help_text": "Agent application that owns the dedicated Slack app."},
+            "slack_workspace_id": {"help_text": "Slack workspace where the agent app is installed."},
+            "public_routing_id": {
+                "help_text": "Opaque routing identifier used by stable connector-level Slack webhook URLs."
+            },
+            "slack_app_id": {"help_text": "Slack app ID after provisioning, or null while pending."},
+            "bot_user_id": {"help_text": "Slack bot user ID after installation, or null while pending."},
+            "status": {"help_text": "Current provisioning and installation state of the Slack connector."},
+            "installed_scopes": {"help_text": "OAuth scopes granted by the current Slack installation."},
+            "desired_scopes": {"help_text": "OAuth scopes required by the agent's desired Slack manifest."},
+            "last_error": {"help_text": "Latest provisioning or installation error, empty when healthy."},
+            "installed_at": {"help_text": "When Slack installation completed, or null while uninstalled."},
+            "revoked_at": {"help_text": "When Slack access was revoked, or null while connected."},
+            "created_at": {"help_text": "When the connector record was created."},
+            "updated_at": {"help_text": "When the connector record was last updated."},
+        }
 
 
 def agent_ingress_route_url(slug: str, path: str) -> str | None:
