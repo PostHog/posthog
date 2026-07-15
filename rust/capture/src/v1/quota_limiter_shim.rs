@@ -423,14 +423,12 @@ mod tests {
     async fn grace_period_counts_only_events_that_remain_ingestable() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
-        let limiter = build_limiter_with_grace(
-            "tok",
-            false,
-            true,
-            &[QuotaResource::Exceptions],
-        )
-        .await;
-        let mut events = vec![make_event("$pageview", None), make_event("$exception", None)];
+        let limiter =
+            build_limiter_with_grace("tok", false, true, &[QuotaResource::Exceptions]).await;
+        let mut events = vec![
+            make_event("$pageview", None),
+            make_event("$exception", None),
+        ];
 
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
@@ -440,29 +438,29 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(ok_event_names(&events), vec!["$pageview"]);
-        let grace_period_count = snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .find_map(|(key, _, _, value)| {
-                if key.key().name()
-                    != CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL
-                {
-                    return None;
-                }
-                let resource = key
-                    .key()
-                    .labels()
-                    .find(|label| label.key() == "resource")
-                    .map(|label| label.value());
-                if resource != Some("events") {
-                    return None;
-                }
-                match value {
-                    DebugValue::Counter(count) => Some(count),
-                    _ => None,
-                }
-            });
+        let grace_period_count =
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find_map(|(key, _, _, value)| {
+                    if key.key().name() != CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL
+                    {
+                        return None;
+                    }
+                    let resource = key
+                        .key()
+                        .labels()
+                        .find(|label| label.key() == "resource")
+                        .map(|label| label.value());
+                    if resource != Some("events") {
+                        return None;
+                    }
+                    match value {
+                        DebugValue::Counter(count) => Some(count),
+                        _ => None,
+                    }
+                });
         assert_eq!(grace_period_count, Some(1));
     }
 
