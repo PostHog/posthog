@@ -158,9 +158,10 @@ function MetaSourceStack({
         return null
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
-    // and link the name straight to the scout's detail page.
+    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
+    // sources, so key off whether any source is a scout rather than just the primary.
     const scoutName = scoutDisplayName(scoutSkillName)
-    const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
+    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
