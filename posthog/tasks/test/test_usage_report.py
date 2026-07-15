@@ -1302,8 +1302,7 @@ class TestHeatmapUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroy
         sync_execute(
             "INSERT INTO sharded_heatmaps "
             "(session_id, team_id, distinct_id, timestamp, x, y, scale_factor, "
-            "viewport_width, viewport_height, pointer_target_fixed, current_url, type) VALUES "
-            + rows
+            "viewport_width, viewport_height, pointer_target_fixed, current_url, type) VALUES " + rows
         )
 
     def test_heatmap_events_counted_per_team_within_period(self) -> None:
