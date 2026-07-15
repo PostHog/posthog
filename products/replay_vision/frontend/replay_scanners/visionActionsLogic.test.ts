@@ -104,6 +104,7 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            alert_direction: 'above',
             alert_window_days: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
@@ -135,6 +136,7 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            alert_direction: 'above',
             alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
@@ -161,6 +163,7 @@ describe('visionActionsLogic', () => {
             alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_threshold: 1,
+            alert_direction: 'below',
             alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
@@ -169,6 +172,7 @@ describe('visionActionsLogic', () => {
             frequency: 'on_breach',
             metric: 'count',
             threshold: 1,
+            direction: 'below',
             window_days: 1,
         })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
