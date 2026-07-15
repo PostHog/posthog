@@ -23,7 +23,13 @@ export function parseTicketTargetArea(content: string): SupportTicketTargetArea 
         const line = rawLine.replace(/\*/g, '').trim()
         const match = line.match(/^topic:\s*(.+)$/i)
         if (match) {
-            const area = match[1].trim().toLowerCase()
+            // Keys are single whitespace-free tokens, so take the first token and strip trailing
+            // punctuation — the model sometimes appends a period or parenthetical
+            const area = match[1]
+                .trim()
+                .split(/\s+/)[0]
+                .replace(/[.,;:!?)\]]+$/, '')
+                .toLowerCase()
             if (TARGET_AREA_OPTIONS.some((option) => option.value === area)) {
                 return area as SupportTicketTargetArea
             }
