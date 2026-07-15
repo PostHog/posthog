@@ -7787,13 +7787,25 @@ snapshots:
     scenes-other-welcome-dialog--default--light:
         hash: v1.k794b7964.94d0889537f8a4a1345a155d78629fa3e090e1e8830323a77f37557c249ff45d.kPlrU8LIQApctwOYT1bNNhPfH3iynBBs41dZv4PqyzI
     scenes-other-welcome-dialog--empty-organization--dark:
-        hash: v1.k794b7964.6bdfd4a2f62c400ee4e1f0cd409cd023795d3f5d1d718f4e16fe9aa6c553ec37.2r3aWkkRHlnER2Dmk-IZb5e6dxVpepgRQvsE04P3wdU
+        hash: v1.k794b7964.9951b983bc53fd0147615d6216e76c8971dafa5fe5f5dcf2f89b076f21d05ac4.xD0q1sDMZaYraoKBg4mlmlnUldBZlVO1PNUkqLXfBuY
     scenes-other-welcome-dialog--empty-organization--light:
-        hash: v1.k794b7964.f78fc4d3e20a89fb63b048b560b09e63aa9b27f98832955fc459b1412dedc7d3.VzMxN3CHqytX43UQGDz6YDbJjAAdbv347XZQylfVroI
+        hash: v1.k794b7964.eb441c3b4223d47e62b1ad8f39138d27b4621e5c059ed4b8bcd90dee3fc7ee8d.CuE1WUVJAOt82qzcXB6UwIyUCLHw5Gu_NYnTrmgYlFk
     scenes-other-welcome-dialog--no-inviter--dark:
         hash: v1.k794b7964.7b34aac52fe0499a37f5971ccf76a25e12cde19e7c3e6f2f779802111fb99cd7.pF2gizxUDboEBZD4sG2K5U7GkIqm-yX_Ch6gtey_Mng
     scenes-other-welcome-dialog--no-inviter--light:
         hash: v1.k794b7964.f766cbd27b7bc11b50ce42602ca2fcab11fa005e795aad0d66e6f67e627570d2.M3CFGWAqq3ebMX5h9Rlb9cCCOBUfhrdc86fQexL6-MA
+    scenes-other-welcome-dialog--provisioned--dark:
+        hash: v1.k794b7964.ca1f1c0c19f2b721c8a57b8ab8527214aa231c3557caedcf392b4f7f531a267b.fd-faV75IyRDiQaarDTPWOAU3fiQYfGTgwg-1kAqZ88
+    scenes-other-welcome-dialog--provisioned--light:
+        hash: v1.k794b7964.4241f0cd5107adba6f5385cad103712e340ab458747b0936107c9a85e0c9f423.L5KqvkCuIdvMTJ4AknHk45IwOt-XgmGYjBmeDA_Bkuc
+    scenes-other-welcome-flagshipproductscard--default--dark:
+        hash: v1.k794b7964.d3a26ab7dedc62599bcc213bc25209189a39ec87e2472821d79dec3d5062d38d.DJtX4EJhBeB0ZjyBmXhQK3F1oZ1BK1Nm7TU4bH0RXnE
+    scenes-other-welcome-flagshipproductscard--default--light:
+        hash: v1.k794b7964.358a8cb872b3bc97b9f8844bb29bf00638879dc17dd20d5e93479d59b4064d36.YYXK42rCO__vp0IfRMrfGQyICVpArFGBiHNY7Ka1JNY
+    scenes-other-welcome-installprogresscard--default--dark:
+        hash: v1.k794b7964.b321aa0af8cd6635d3746c0f22e768f1ef0ed4a56210e219babebd1c38896890.2f7pqD-CII2Cb_5O9oo_SAA4A-hzd2n42nThxggLws8
+    scenes-other-welcome-installprogresscard--default--light:
+        hash: v1.k794b7964.18bf702600c4ca6149a0b4b3e9481b2b1f8d55b54165c4a5768bcf3c7b989db2.xPgy_DM70OW8Q1dMWhXPeOYMPVHC5YuNKwdvBjFEcYQ
     scenes-session-recordings-networkview--default--dark:
         hash: v1.k794b7964.e03dd8a06b90190b999e4dc6e568b018b13e36c6e0b690d14a8e692e6c153ea8.TnB0l_7lTb-n7V9wf8FQPRBP-IL-l7JZJcNPgG8uBvk
     scenes-session-recordings-networkview--default--light:
