@@ -24,7 +24,6 @@ import { Workflow } from './Workflow'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -78,17 +77,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            // Runtime view backed by hog_invocation_results. Batch-triggered workflows keep the
-            // batch-run + schedule view; everything else gets the shared invocations table.
+            // Runtime view backed by hog_invocation_results, matching the hog function scene.
             // Keeps the 'logs' key so existing deep links and batchWorkflowJobsLogic still resolve.
             label: 'Invocations',
             key: 'logs',
-            content:
-                originalWorkflow.trigger?.type === 'batch' ? (
-                    <WorkflowLogs id={workflowSceneProps.id!} />
-                ) : (
-                    <WorkflowInvocations id={workflowSceneProps.id!} />
-                ),
+            content: <WorkflowInvocations id={workflowSceneProps.id!} />,
         },
         {
             label: 'Metrics',
