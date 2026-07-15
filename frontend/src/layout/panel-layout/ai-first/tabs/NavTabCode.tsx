@@ -14,12 +14,9 @@ import {
     IconPause,
     IconPlug,
     IconPlusSmall,
-    IconSearch,
     IconXCircle,
 } from '@posthog/icons'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -103,15 +100,16 @@ function CodeNavRow({
 }
 
 export function NavTabCode(): JSX.Element {
-    const { tasks, tasksLoading } = useValues(tasksLogic)
+    const { tasks, tasksLoading, taskListParams } = useValues(tasksLogic)
     const { loadTasks } = useActions(tasksLogic)
-    const { toggleCommand } = useActions(commandLogic)
     const { location } = useValues(router)
     // Demo-only: mimics PostHog Code's channels/contexts feature toggle
     const [contextsEnabled, setContextsEnabled] = useState(false)
 
     useEffect(() => {
-        loadTasks({})
+        // Same filtered params the tasks scene uses (own tasks by default) — an unfiltered
+        // load also returns internal scout runs whose titles are raw prompts
+        loadTasks(taskListParams)
         // oxlint-disable-next-line exhaustive-deps
     }, [])
 
@@ -140,12 +138,6 @@ export function NavTabCode(): JSX.Element {
                     />
                 </div>
                 <CodeNavRow icon={<IconHome />} label="Home" active={isCodeSection()} onClick={goTo(urls.code())} />
-                <CodeNavRow
-                    icon={<IconSearch />}
-                    label="Search"
-                    onClick={() => toggleCommand()}
-                    endContent={<KeyboardShortcut command k />}
-                />
                 <CodeNavRow
                     icon={<IconLetter />}
                     label="Inbox"

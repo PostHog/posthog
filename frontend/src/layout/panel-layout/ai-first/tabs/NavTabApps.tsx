@@ -18,7 +18,7 @@ import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/Br
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
-import { appsItemName, navAppsTabLogic } from './navAppsTabLogic'
+import { AppsItemGroup, appsItemName, navAppsTabLogic } from './navAppsTabLogic'
 import { AddToStarredDropdownAction } from './NavTabBrowse'
 
 /**
@@ -110,7 +110,7 @@ function AppsSection({
 }
 
 export function NavTabApps(): JSX.Element {
-    const { search, filteredAppsItems, filteredDataItems, starredItems } = useValues(navAppsTabLogic)
+    const { search, groupedItems, starredItems } = useValues(navAppsTabLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { deleteShortcut } = useActions(projectTreeDataLogic)
     const { location } = useValues(router)
@@ -163,9 +163,10 @@ export function NavTabApps(): JSX.Element {
                     </>
                 )}
 
-                <AppsSection label="Apps" items={filteredAppsItems} currentPath={currentPath} />
-                <AppsSection label="Data" items={filteredDataItems} currentPath={currentPath} />
-                {filteredAppsItems.length === 0 && filteredDataItems.length === 0 && starredItems.length === 0 && (
+                {groupedItems.map((group: AppsItemGroup) => (
+                    <AppsSection key={group.label} label={group.label} items={group.items} currentPath={currentPath} />
+                ))}
+                {groupedItems.length === 0 && starredItems.length === 0 && (
                     <span className="text-xs text-tertiary px-2 py-1">No results</span>
                 )}
             </ScrollableShadows>

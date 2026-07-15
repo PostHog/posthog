@@ -297,7 +297,10 @@ export function Nav(): JSX.Element {
                         isLayoutNavCollapsed,
                         isMobileLayout,
                     }),
-                    isLayoutNavCollapsed && 'gap-px'
+                    isLayoutNavCollapsed && 'gap-px',
+                    // Desktop app: product icons in the sidepanel keep their brand colors (the web
+                    // app's flyout panels opt in per-panel via PanelLayoutPanel instead)
+                    isDesktopApp() && 'group/colorful-product-icons colorful-product-icons-true'
                 )}
                 ref={containerRef}
             >
