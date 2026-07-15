@@ -8,7 +8,7 @@ paths:
 starts, or timers) breaks in-flight executions with "Non Deterministic Error"** — on deploy every
 running execution replays its recorded history against the new code, and any new unconditional
 command at a point an execution already passed fails the replay. Activity implementations and
-activity *input* dataclasses are safe to edit; workflow command sequences are not.
+activity _input_ dataclasses are safe to edit; workflow command sequences are not.
 
 When adding a new activity or child-workflow start to an existing workflow, gate it one of two ways:
 
