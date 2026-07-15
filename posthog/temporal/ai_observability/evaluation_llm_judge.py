@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
@@ -29,7 +29,12 @@ from posthog.temporal.ai_observability.metrics import (
 from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
+from products.ai_observability.backend.llm import (
+    DEFAULT_MODEL_BY_PROVIDER,
+    Client,
+    CompletionRequest,
+    CompletionResponse,
+)
 from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -55,6 +60,13 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+# A malformed judge response (a null verdict when applicable, or truncated JSON) is almost
+# always a one-off bad generation rather than a permanent failure, so resample the judge a
+# few times before giving up. Without this a single stochastic miss silently skips the eval
+# and floods error tracking. Kept in-activity (rather than via Temporal retries) so a genuinely
+# unparseable case is captured once, not once per Temporal attempt.
+MAX_JUDGE_PARSE_ATTEMPTS = 3
 
 
 class BooleanEvalResult(BaseModel):
@@ -104,7 +116,11 @@ Note: If the criteria above instructs you to return "N/A", "not applicable", or 
 Return:
 - applicable: true if the criteria applies to this input/output, false if it doesn't apply
 - verdict: true if it passes, false if it fails, or null if not applicable
-- reasoning: a brief explanation (1 sentence)""",
+- reasoning: a brief explanation (1 sentence)
+
+Consistency rules (both are required):
+- When applicable is true, verdict MUST be true or false — never null. If you set applicable to true you have to commit to a verdict.
+- When applicable is false, verdict MUST be null.""",
         )
     return OutputTypeConfig(
         response_format=BooleanEvalResult,
@@ -272,6 +288,52 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     )
 
 
+def _parse_retry_reminder(allows_na: bool) -> str:
+    """Corrective instruction appended on retry after a structured-output parse failure."""
+    reminder = (
+        "Your previous response could not be parsed. Respond with ONLY valid JSON matching the "
+        "required schema exactly, with no extra text before or after it."
+    )
+    if allows_na:
+        reminder += (
+            " When applicable is true, verdict must be true or false and never null; "
+            "when applicable is false, verdict must be null."
+        )
+    return reminder
+
+
+def _complete_judge_with_parse_retries(
+    client: Client, request: CompletionRequest, *, allows_na: bool
+) -> CompletionResponse:
+    """Run the judge completion, resampling on structured-output parse failures.
+
+    Only `StructuredOutputParseError` is retried here; every other provider error propagates
+    to the caller's handlers unchanged. On each retry a corrective reminder is appended to the
+    system prompt to nudge the model back onto the schema. Raises the last parse error if all
+    attempts fail.
+    """
+    reminder = _parse_retry_reminder(allows_na)
+    last_error: StructuredOutputParseError | None = None
+    for attempt in range(MAX_JUDGE_PARSE_ATTEMPTS):
+        attempt_request = request
+        if attempt > 0:
+            reinforced_system = f"{request.system}\n\n{reminder}" if request.system else reminder
+            attempt_request = replace(request, system=reinforced_system)
+        try:
+            return client.complete(attempt_request)
+        except StructuredOutputParseError as e:
+            last_error = e
+            logger.warning(
+                "LLM judge returned unparseable structured output",
+                provider=request.provider,
+                model=request.model,
+                attempt=attempt + 1,
+                max_attempts=MAX_JUDGE_PARSE_ATTEMPTS,
+            )
+    assert last_error is not None  # loop runs at least once, so this is set on every failure path
+    raise last_error
+
+
 def call_llm_judge(
     *,
     evaluation: dict[str, Any],
@@ -312,16 +374,15 @@ def call_llm_judge(
         capture_analytics=False,
     )
 
+    request = CompletionRequest(
+        model=model,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        provider=provider,
+        response_format=response_format,
+    )
     try:
-        response = client.complete(
-            CompletionRequest(
-                model=model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                provider=provider,
-                response_format=response_format,
-            )
-        )
+        response = _complete_judge_with_parse_retries(client, request, allows_na=allows_na)
     except AuthenticationError:
         if is_byok:
             increment_user_errors("auth_error", provider=provider)
