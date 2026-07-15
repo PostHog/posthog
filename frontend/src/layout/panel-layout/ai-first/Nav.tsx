@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconPlusSmall, IconTerminal } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconFolderOpen, IconPlusSmall, IconTerminal } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -40,7 +40,9 @@ import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
+import { NavTabApps } from './tabs/NavTabApps'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
+import { NavTabFiles } from './tabs/NavTabFiles'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 const NavTabCode = lazyWithRetry(() => import('./tabs/NavTabCode').then((m) => ({ default: m.NavTabCode })))
 
@@ -101,10 +103,16 @@ export function PanelIndicatorIcon(): JSX.Element | null {
     )
 }
 
-const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
+const WEB_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Browse', icon: <IconApps /> },
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
-    // The Code tab (PostHog Code demo) only ships in the desktop app
+]
+
+// The desktop app (products/desktop) restructures the sidepanel into Apps / Files / Chat / Code
+const DESKTOP_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
+    { id: 'apps', label: 'Apps', icon: <IconApps /> },
+    { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
+    { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
     { id: 'code', label: 'Code', icon: <IconTerminal /> },
 ]
 
@@ -161,8 +169,11 @@ export function Nav(): JSX.Element {
     // reserves room for the traffic lights (and doubles as the window drag region)
     const trafficLightsSpace = isDesktopAppMac()
 
-    // The Code tab (PostHog Code demo) only ships in the desktop app
-    const visibleTabs = TAB_CONFIG.filter((tab) => tab.id !== 'code' || isDesktopApp())
+    const visibleTabs = isDesktopApp() ? DESKTOP_TAB_CONFIG : WEB_TAB_CONFIG
+    // Persisted tab values from the other platform's tab set fall back to the first tab
+    const activeTab = visibleTabs.some((tab) => tab.id === navExperimentActiveTab)
+        ? navExperimentActiveTab
+        : visibleTabs[0].id
 
     useShortcut({
         name: 'ToggleLeftNav',
@@ -322,7 +333,7 @@ export function Nav(): JSX.Element {
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
-                    value={isLayoutNavCollapsed && navExperimentActiveTab !== 'home' ? 'home' : navExperimentActiveTab}
+                    value={isLayoutNavCollapsed && activeTab !== 'home' ? 'home' : activeTab}
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
@@ -345,24 +356,31 @@ export function Nav(): JSX.Element {
                                             {...props}
                                             className={cn(
                                                 'group data-[composite-item-active]:bg-surface-tertiary justify-center',
-                                                visibleTabs.length > 2 ? 'w-1/3' : 'w-1/2'
+                                                visibleTabs.length === 4
+                                                    ? 'w-1/4'
+                                                    : visibleTabs.length === 3
+                                                      ? 'w-1/3'
+                                                      : 'w-1/2'
                                             )}
                                             data-attr={`nav-tab-${tab.id}`}
                                         >
-                                            <span
-                                                className={cn(
-                                                    'flex size-4',
-                                                    navExperimentActiveTab === tab.id
-                                                        ? 'text-primary'
-                                                        : 'text-secondary group-hover:text-primary'
-                                                )}
-                                            >
-                                                {tab.icon}
-                                            </span>
+                                            {/* With four tabs (desktop) the labels alone fill the strip */}
+                                            {visibleTabs.length < 4 && (
+                                                <span
+                                                    className={cn(
+                                                        'flex size-4',
+                                                        activeTab === tab.id
+                                                            ? 'text-primary'
+                                                            : 'text-secondary group-hover:text-primary'
+                                                    )}
+                                                >
+                                                    {tab.icon}
+                                                </span>
+                                            )}
                                             <span
                                                 className={cn(
                                                     'text-xs',
-                                                    navExperimentActiveTab === tab.id
+                                                    activeTab === tab.id
                                                         ? 'text-primary'
                                                         : 'text-secondary group-hover:text-primary'
                                                 )}
@@ -389,6 +407,26 @@ export function Nav(): JSX.Element {
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
+                        {isDesktopApp() && (
+                            <Tabs.Panel
+                                value="apps"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
+                                <NavTabApps />
+                            </Tabs.Panel>
+                        )}
+                        {isDesktopApp() && visitedNavTabs.includes('files') && (
+                            <Tabs.Panel
+                                value="files"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
+                                <NavTabFiles />
+                            </Tabs.Panel>
+                        )}
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across
                             tab switches. Users who never open chat never pay for its chunk. */}

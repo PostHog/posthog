@@ -71,7 +71,7 @@ const panelTriggerItems: {
     },
 ]
 
-function getItemName(item: FileSystemEntry): string {
+export function getItemName(item: FileSystemEntry): string {
     const pathSplit = splitPath(item.path)
     const lastPart = pathSplit.pop()
     return unescapePath(lastPart ?? item.path)
@@ -106,7 +106,7 @@ function formatRelativeDate(dateStr: string | null | undefined): string {
     return `${diffMonths}mo`
 }
 
-function useStarredState(item: FileSystemEntry): {
+export function useStarredState(item: FileSystemEntry): {
     isAlreadyStarred: boolean
     addShortcutItem: (item: FileSystemEntry) => void
 } {
@@ -116,7 +116,7 @@ function useStarredState(item: FileSystemEntry): {
     return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
 }
 
-function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
+export function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
     const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
 
     if (isAlreadyStarred) {
