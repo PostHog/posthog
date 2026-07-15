@@ -243,6 +243,24 @@ class TestResponsesModeModels:
             assert "gpt-5.3-codex" in model_ids
 
 
+def _wire_authenticated_user(mock_db_pool, distinct_id: str):
+    from unittest.mock import AsyncMock
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(
+        return_value={
+            "id": "key_id",
+            "user_id": 1,
+            "scopes": ["llm_gateway:read"],
+            "current_team_id": 1,
+            "distinct_id": distinct_id,
+            "is_staff": False,
+        }
+    )
+    mock_db_pool.acquire = AsyncMock(return_value=conn)
+    mock_db_pool.release = AsyncMock()
+
+
 class TestFreeTierModelListing:
     @pytest.fixture(autouse=True)
     def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
@@ -253,39 +271,62 @@ class TestFreeTierModelListing:
         yield
         get_settings.cache_clear()
 
-    def test_anonymous_caller_falls_closed_to_free_tier(self, client: TestClient):
-        # No token (or an unresolvable one) filters instead of erroring - the
-        # listing must agree with what enforcement would serve an unbilled org.
+    def test_anonymous_caller_gets_full_list(self, client: TestClient):
+        # Shipped desktop builds fetch the listing with no credentials, so an
+        # anonymous caller must get the full catalog - filtering it would
+        # collapse every picker (billed orgs included) to the free list the
+        # moment the gate flips. Enforcement, which requires auth, is the gate.
         response = client.get("/posthog_code/v1/models")
         assert response.status_code == 200
         ids = {m["id"] for m in response.json()["data"]}
-        assert "claude-opus-4-5" not in ids
-        assert all(i.startswith("@cf/zai-org/glm") for i in ids)
+        assert "claude-opus-4-5" in ids
+
+    def test_unbilled_org_gets_exactly_the_free_tier_models(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        _wire_authenticated_user(mock_db_pool, "unbilled-user")
+
+        with TestClient(app) as c:
+            c.app.state.quota_resolver.get_resource_status = AsyncMock(
+                return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=False)
+            )
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_unbilled_org_models"})
+
+        assert response.status_code == 200
+        ids = {m["id"] for m in response.json()["data"]}
+        # Exact, not subset: the default free model must survive both the
+        # product allowlist and the listing filter, or free-tier callers are
+        # left with an empty picker and no usable model.
+        assert ids == {"@cf/zai-org/glm-5.2"}
 
     def test_billed_org_sees_full_list(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
-        conn = AsyncMock()
-        conn.fetchrow = AsyncMock(
-            return_value={
-                "id": "key_id",
-                "user_id": 1,
-                "scopes": ["llm_gateway:read"],
-                "current_team_id": 1,
-                "distinct_id": "billed-user",
-                "is_staff": False,
-            }
-        )
-        mock_db_pool.acquire = AsyncMock(return_value=conn)
-        mock_db_pool.release = AsyncMock()
+        _wire_authenticated_user(mock_db_pool, "billed-user")
 
         with TestClient(app) as c:
             c.app.state.quota_resolver.get_resource_status = AsyncMock(
                 return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)
             )
             response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_billed_org_models"})
+
+        assert response.status_code == 200
+        ids = {m["id"] for m in response.json()["data"]}
+        assert "claude-opus-4-5" in ids
+
+    def test_auth_resolution_failure_serves_full_list(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        # A transient auth outage must not downgrade a possibly-billed caller's
+        # picker to the free list; enforcement still gates actual usage.
+        mock_db_pool.acquire = AsyncMock(side_effect=RuntimeError("db down"))
+
+        with TestClient(app) as c:
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_auth_outage_models"})
 
         assert response.status_code == 200
         ids = {m["id"] for m in response.json()["data"]}

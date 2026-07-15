@@ -72,17 +72,31 @@ def _build_response(product: str) -> ModelsResponse:
     return ModelsResponse(data=model_objects, models=model_objects)
 
 
-async def _caller_bypasses_free_tier(request: Request) -> bool:
+async def _caller_confirmed_free_tier(request: Request) -> bool:
+    """Whether the caller is positively identified as free-tier (authenticated,
+    non-staff, org not billed for Code usage).
+
+    The listing is advisory — enforcement happens per-request, with auth — and
+    shipped desktop builds fetch it with no credentials. Anonymous callers and
+    resolution failures therefore get the FULL list: filtering them would
+    collapse the model picker to the free list for every caller the moment the
+    gate flips, silently downgrading billed orgs' sessions (clients fall back to
+    their default model when the configured one disappears from the listing).
+    A free-tier caller who sees premium ids just gets the enforcement 403 with
+    the upgrade message when they try one.
+    """
     try:
         user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
         if user is None:
             return False
         if is_usage_unlimited(user):
-            return True
-        if user.team_id is None:
             return False
+        if user.team_id is None:
+            # No team to bill against: enforcement's quota bit reads unbilled
+            # for this caller too, so the filtered list matches what it serves.
+            return True
         quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
-        return quota_status.code_usage_billing_active
+        return not quota_status.code_usage_billing_active
     except Exception:
         logger.warning("models_free_tier_resolution_failed", exc_info=True)
         return False
@@ -100,7 +114,7 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
 
     if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
         return response
-    if await _caller_bypasses_free_tier(request):
+    if not await _caller_confirmed_free_tier(request):
         return response
 
     free_ids = set(filter_to_free_tier_models([m.id for m in response.data]))

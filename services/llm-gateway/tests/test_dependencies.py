@@ -9,6 +9,7 @@ from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_throttles,
+    get_model_from_request,
     get_provider_from_request,
     resolve_plan_and_quota,
 )
@@ -39,6 +40,29 @@ def _make_request(
 
     request.body = fake_body
     return request
+
+
+_TRANSCRIPTION_MULTIPART_BODY = (
+    b'--boundary\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-4o-transcribe\r\n--boundary--\r\n'
+)
+
+
+def _make_form_request(body: bytes, content_type: str, path: str) -> Request:
+    # A real Request (not a mock): these tests must exercise starlette's actual
+    # form parsing, which is what the JSON-only extraction used to miss.
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "query_string": b"",
+        "headers": [(b"content-type", content_type.encode())],
+        "app": MagicMock(),
+    }
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(scope, receive)
 
 
 def _make_user(auth_method: str = "personal_api_key", user_id: int = 1) -> AuthenticatedUser:
@@ -244,7 +268,78 @@ class TestResolvePlanAndQuota:
         assert quota_status.limited is False
 
 
+class TestGetModelFromRequest:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "body,content_type",
+        [
+            (_TRANSCRIPTION_MULTIPART_BODY, "multipart/form-data; boundary=boundary"),
+            (b"model=gpt-4o-transcribe&language=en", "application/x-www-form-urlencoded"),
+        ],
+    )
+    async def test_reads_model_from_form_bodies(self, body: bytes, content_type: str) -> None:
+        # The transcription routes take `model` as a form field; a JSON-only
+        # read would run every model check with model=None while the handler
+        # sends the caller-chosen form value upstream.
+        request = _make_form_request(body, content_type, "/posthog_code/v1/audio/transcriptions")
+        assert await get_model_from_request(request) == "gpt-4o-transcribe"
+
+    @pytest.mark.asyncio
+    async def test_form_parse_leaves_the_upload_readable_for_the_endpoint(self) -> None:
+        # The dependency parses the form before FastAPI binds the endpoint's
+        # Form()/File() params from the same request. If that parse consumed the
+        # stream without caching, or left the upload's cursor at the end, every
+        # legitimate transcription request would fail or send empty audio.
+        body = (
+            b"--boundary\r\n"
+            b'Content-Disposition: form-data; name="model"\r\n\r\ngpt-4o-transcribe\r\n'
+            b"--boundary\r\n"
+            b'Content-Disposition: form-data; name="file"; filename="a.mp3"\r\n'
+            b"Content-Type: audio/mpeg\r\n\r\naudio-bytes\r\n"
+            b"--boundary--\r\n"
+        )
+        request = _make_form_request(
+            body, "multipart/form-data; boundary=boundary", "/posthog_code/v1/audio/transcriptions"
+        )
+
+        assert await get_model_from_request(request) == "gpt-4o-transcribe"
+
+        form = await request.form()
+        upload = form["file"]
+        assert not isinstance(upload, str)
+        assert await upload.read() == b"audio-bytes"
+
+
 class TestFreeTierModelGateWiring:
+    @pytest.mark.asyncio
+    async def test_multipart_transcription_model_is_gated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The bypass this pins: an unbilled code caller posting multipart to the
+        # transcription route used to reach litellm with a premium model because
+        # the gate only saw JSON bodies.
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            request = _make_form_request(
+                _TRANSCRIPTION_MULTIPART_BODY,
+                "multipart/form-data; boundary=boundary",
+                "/posthog_code/v1/audio/transcriptions",
+            )
+            user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+            runner = MagicMock()
+            runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+            with patch("llm_gateway.dependencies.ensure_costs_fresh"):
+                with pytest.raises(HTTPException) as exc_info:
+                    await enforce_throttles(request=request, user=user, runner=runner)
+
+            assert exc_info.value.status_code == 403
+            assert "gpt-4o-transcribe" in exc_info.value.detail
+        finally:
+            get_settings.cache_clear()
+
     @pytest.mark.asyncio
     async def test_gated_model_is_rejected_on_the_enforcement_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The gate decision lives in products.config; this pins that
