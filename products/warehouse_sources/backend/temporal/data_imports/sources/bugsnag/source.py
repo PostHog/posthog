@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BUGSNAG
@@ -52,7 +54,6 @@ class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
 You can generate a personal auth token in the **My Account** section of your [BugSnag account settings](https://app.bugsnag.com/settings/my-account/). The token inherits your account's access, so it can read every organization and project you can see.""",
             iconPath="/static/services/bugsnag.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bugsnag",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

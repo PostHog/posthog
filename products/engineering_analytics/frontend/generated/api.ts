@@ -12,9 +12,11 @@ import type {
     BranchPRMatchApi,
     CICardSummaryApi,
     CIFailureLogsApi,
+    CurrentBranchHealthApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsCurrentBranchHealthParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
@@ -144,6 +146,39 @@ export const engineeringAnalyticsCiFailureLogs = async (
     options?: RequestInit
 ): Promise<CIFailureLogsApi> => {
     return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCurrentBranchHealthUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsCurrentBranchHealthParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/current_branch_health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/current_branch_health/`
+}
+
+/**
+ * Current default-branch CI verdict over the fixed last-24-hours window. Counts every workflow whose latest completed run failed or timed out; failing workflow names are a bounded preview. The default branch is detected from the same window, independently of analytics date filters.
+ */
+export const engineeringAnalyticsCurrentBranchHealth = async (
+    projectId: string,
+    params?: EngineeringAnalyticsCurrentBranchHealthParams,
+    options?: RequestInit
+): Promise<CurrentBranchHealthApi> => {
+    return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -449,7 +484,7 @@ export const getEngineeringAnalyticsRepoOverviewUrl = (
 }
 
 /**
- * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series. Cost figures are null until the job-level source is synced.
+ * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
  */
 export const engineeringAnalyticsRepoOverview = async (
     projectId: string,

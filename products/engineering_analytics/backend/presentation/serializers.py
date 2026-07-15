@@ -18,6 +18,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    CurrentBranchHealth,
     FlakyTestItem,
     FlakyTestList,
     GitHubSource,
@@ -844,22 +845,25 @@ class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
-        "cost_series_granularity. Empty when the job-level source isn't synced.",
+        "cost_series_granularity. Empty when the job-level source isn't synced or include_series=false.",
     )
     time_to_green_series = TimeToGreenBucketSerializer(
         many=True,
         help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
-        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null.",
+        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
+        "whole series is empty when include_series=false.",
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
         help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null.",
+        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
+        "series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
         many=True,
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
-        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null.",
+        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
+        "the whole series is empty when include_series=false.",
     )
 
     class Meta:
@@ -879,6 +883,11 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
+                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+            },
+            "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
                 "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
                 "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
@@ -919,6 +928,24 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "open_to_merge_series_granularity": {
                 "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class CurrentBranchHealthSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CurrentBranchHealth
+        extra_kwargs = {
+            "default_branch": {
+                "help_text": "Detected default branch ('master' or 'main') from runs in the same 24-hour window."
+            },
+            "settled_workflows": {"help_text": "Workflows with at least one completed run in the last 24 hours."},
+            "failing_workflows": {
+                "help_text": "Workflows whose latest completed run in the last 24 hours failed or timed out."
+            },
+            "failing_workflow_names": {
+                "help_text": "Alphabetical preview of failing workflow names, capped at 20; use failing_workflows "
+                "for the complete count."
             },
         }
 

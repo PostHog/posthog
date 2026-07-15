@@ -56,6 +56,14 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
+    { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },
+    {
+        key: 'data_catalog_approval',
+        objectName: 'Data catalog approval',
+        objectPlural: 'data catalog approvals',
+        info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
+        disabledActions: ['read'],
+    },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
@@ -317,36 +325,6 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
 ]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
-
-// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
-// These match the scopes_supported in the MCP server's OAuth protected resource metadata
-export const MCP_SERVER_OAUTH_SCOPES = [
-    'openid',
-    'profile',
-    'email',
-    'introspection',
-    'user:read',
-    'user:write',
-    'organization:read',
-    'project:read',
-    'project:write',
-    'feature_flag:read',
-    'feature_flag:write',
-    'experiment:read',
-    'experiment:write',
-    'insight:read',
-    'insight:write',
-    'dashboard:read',
-    'dashboard:write',
-    'query:read',
-    'survey:read',
-    'survey:write',
-    'event_definition:read',
-    'event_definition:write',
-    'error_tracking:read',
-    'logs:read',
-    'tracing:read',
-]
 
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {

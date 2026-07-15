@@ -456,7 +456,7 @@ function TraceSceneWrapper(): JSX.Element {
         feedbackEvents,
         metricEvents,
         eventMetadata,
-        effectiveEventId,
+        highlightedEventId,
     } = useValues(traceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -543,13 +543,13 @@ function TraceSceneWrapper(): JSX.Element {
                     </div>
                     <TraceTimeline
                         events={trace.events}
-                        selectedEventId={effectiveEventId ?? null}
+                        selectedEventId={highlightedEventId}
                         onSelectEvent={setEventId}
                     />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={effectiveEventId}
+                            eventId={highlightedEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />

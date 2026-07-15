@@ -10,6 +10,7 @@ from sqlparse import tokens as sqlparse_tokens
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
@@ -162,7 +163,8 @@ class SnowflakeAdapter:
         from products.warehouse_sources.backend.facade.source_management import SnowflakeSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-        if not source.is_direct_snowflake:
+        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+        if not (is_direct_capable(source) and source.direct_engine == self.engine):
             raise ExposedHogQLError("Invalid direct Snowflake connection.")
 
         snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
