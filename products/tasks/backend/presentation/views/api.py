@@ -33,6 +33,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 
+from products.exports.backend.facade.api import render_png_export
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -47,6 +48,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -93,6 +95,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunLivingArtifactChartRequestSerializer,
+    TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunLivingArtifactOpenResponseSerializer,
@@ -2103,6 +2107,60 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if error is not None:
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactChartRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactChartResponseSerializer,
+                description="Chart rendered and registered as a living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Render or delivery failed"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Render an insight chart and attach it as a living artifact",
+        description=(
+            "Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers "
+            "it as a slack_file living artifact in one call. Blocks until the render finishes."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_chart",
+    )
+    @action(detail=False, methods=["post"], url_path="chart", required_scopes=["task:write"])
+    def chart(self, request, *args, **kwargs):
+        task_id = self._ensure_task_accessible()
+        name = request.validated_data["name"]
+        query = request.validated_data.get("query")
+        try:
+            asset, png = render_png_export(
+                team=self.team,
+                created_by=request.user if request.user.is_authenticated else None,
+                export_context={"source": query} if query is not None else None,
+                insight_id=request.validated_data.get("insight_id"),
+            )
+        except ValueError as e:
+            return Response(TaskRunErrorResponseSerializer({"error": str(e)}).data, status=status.HTTP_400_BAD_REQUEST)
+        if png is None:
+            error = asset.exception or "Chart render failed"
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        artifact, error = tasks_facade.create_task_run_living_artifact(
+            self._run_id(),
+            task_id,
+            self.team_id,
+            artifact={
+                "name": name,
+                "artifact_type": TaskArtifactType.FILE,
+                "adapter": TaskArtifactAdapter.SLACK_FILE,
+                "content_type": "image/png",
+                "content_bytes": png,
+            },
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactChartResponseSerializer({"artifact": artifact, "export_asset_id": asset.id})
         return Response(serializer.data)
 
     @validated_request(

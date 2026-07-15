@@ -2247,6 +2247,30 @@ export interface TaskRunLivingArtifactEditRequestApi {
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
 
+/**
+ * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. Provide exactly one of query or insight_id.
+ */
+export type TaskRunLivingArtifactChartRequestApiQuery = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactChartRequestApi {
+    /**
+     * Chart title, also used as the delivered file name.
+     * @maxLength 255
+     */
+    name: string
+    /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. Provide exactly one of query or insight_id. */
+    query?: TaskRunLivingArtifactChartRequestApiQuery
+    /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+    insight_id?: number
+}
+
+export interface TaskRunLivingArtifactChartResponseApi {
+    /** The living artifact registered for delivery. */
+    artifact: TaskRunLivingArtifactResponseApi
+    /** Id of the rendered PNG export backing the chart. */
+    export_asset_id: number
+}
+
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
 
 /**
