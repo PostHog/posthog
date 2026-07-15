@@ -10,8 +10,9 @@ gateway you route every question through.
 
 ## When this applies (and when it does not)
 
-Consult the catalog **only when the user asks for a named, company-level headline number** — the
-kind of metric an organization tracks and agrees on a single definition for.
+Consult the catalog **only when the user asks for a named headline business metric** — the number
+itself, or whether an approved definition of one exists — the kind of metric an organization tracks
+and agrees on a single definition for.
 
 Everything else — ad-hoc analysis, breakdowns, drill-downs, exploratory questions, entity search —
 skips the catalog and goes straight to normal schema discovery. Do not funnel ordinary exploration
@@ -19,22 +20,26 @@ through the semantic layer.
 
 ## Check for a canonical metric before re-deriving a headline number
 
-When it does apply, look before you re-derive:
+When it does apply, look before you re-derive. Match on both `name` and `description` and include
+obvious synonyms/abbreviations, so you don't miss a differently-named metric (a metric named
+"Monthly Recurring Revenue" won't match `name ILIKE '%mrr%'`):
 
 ```sql
 SELECT name, description, status, is_drifted, definition_kind, unit, owner
 FROM system.information_schema.metrics
-WHERE name ILIKE '%mrr%'
+WHERE name ILIKE '%<term>%' OR description ILIKE '%<term>%'
 ```
 
 - Prefer a metric where `status = 'approved' AND NOT is_drifted`. Run it with the `metric-run` tool
-  rather than re-deriving. The run returns the same result as running the definition directly, plus
-  a deep link.
-- **If the query returns no rows, there is no governed definition** — derive the number yourself
+  rather than re-deriving, and cite it as the canonical definition. The run returns the same result
+  as running the definition directly, plus a deep link.
+- **If the search returns no rows, there is no governed definition** — derive the number yourself
   with normal schema discovery. An empty catalog is the normal case, not a blocker, and not a reason
   to stop or to ask the user to define a metric first.
 - **Never present a `proposed` metric as canonical**, and do not trust a metric where
   `is_drifted` is true (its definition has diverged from its source insight, or the insight is gone).
+  If the only matches are proposed or drifted, derive the number yourself — you may note the
+  unapproved definition exists, but do not treat its logic or values as authoritative.
 - A NULL `definition` means the metric is name + description only (no runnable query yet).
 - **Two definition styles.** `definition_kind` tells them apart. An executable kind (`HogQLQuery`,
   `TrendsQuery`, `FunnelsQuery`, an event node) is computed for you by `metric-run`. A
