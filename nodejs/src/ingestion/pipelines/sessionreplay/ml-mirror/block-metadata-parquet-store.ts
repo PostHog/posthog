@@ -31,9 +31,13 @@ export class BlockMetadataParquetStore {
         }
         // Sorting clusters a recording's blocks together for better compression and reads.
         rows.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
-        const body = await rowsToParquetBuffer(rows)
-        const key = this.objectKey(minEventDate(rows))
+        let body: Buffer
+        let key: string
         try {
+            // Encoding, key derivation, and upload all count as write failures: each leaves the batch to
+            // replay from Kafka, so the counter must see them, not just the S3 send.
+            body = await rowsToParquetBuffer(rows)
+            key = this.objectKey(minEventDate(rows))
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
