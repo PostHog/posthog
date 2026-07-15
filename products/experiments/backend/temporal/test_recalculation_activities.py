@@ -12,6 +12,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -23,7 +24,10 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.temporal.models import RecalculationProgressUpdate
+from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    RecalculationProgressUpdate,
+)
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -446,6 +450,38 @@ class TestCalculateActivity(BaseTest):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
             recalc.refresh_from_db()
             assert "m1" in recalc.metric_errors
+
+    def test_concurrency_limit_bounce_defers_with_retry_delay_and_no_capture(self):
+        # A query bouncing off the per-org ClickHouse limiter is backpressure, not a fault: it must re-raise
+        # as an ApplicationError carrying next_retry_delay (overriding the retry policy's 5s exponential
+        # schedule with the flat quota-wait delay), must never reach capture_exception (a saturated org would
+        # spam error tracking with expected bounces), and must persist nothing before the final attempt.
+        exp = self._experiment(flag_key="calc-quota", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = ConcurrencyLimitExceeded("org quota saturated")
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+            assert exc_info.value.type == "ConcurrencyLimitExceeded"
+            assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
+            mock_capture.assert_not_called()
+            recalc.refresh_from_db()
+            assert recalc.metric_errors == {}
+            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+
+            # Final attempt: the failure is persisted for the UI, still without exception capture.
+            with pytest.raises(ApplicationError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+            mock_capture.assert_not_called()
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_errors
+            row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+            assert row.status == ExperimentMetricResult.Status.FAILED
 
     def test_query_to_is_passed_as_as_of_to_runner(self):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
