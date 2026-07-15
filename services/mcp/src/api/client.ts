@@ -465,6 +465,7 @@ export class ApiClient {
                         body: errorText,
                         url,
                         method,
+                        code: typeof errorData?.code === 'string' ? errorData.code : undefined,
                     })
                 }
 

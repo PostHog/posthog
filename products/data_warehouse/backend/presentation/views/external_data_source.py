@@ -1471,12 +1471,13 @@ def _unresolved_secret_ref_response(payload: Any) -> Response | None:
     return Response(
         status=status.HTTP_400_BAD_REQUEST,
         data={
+            "code": "unresolved_secret_ref",
             "message": (
                 f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
                 "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
                 "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
                 "the resulting credential_id instead)."
-            )
+            ),
         },
     )
 
@@ -3075,14 +3076,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
+                    data={
+                        "code": "credential_not_found",
+                        "message": f"Stored credential '{credential_id}' not found or expired",
+                    },
                 )
             if credential.source_type != source_type:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
+                        "code": "credential_source_mismatch",
                         "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
+                        f"'{credential.source_type}', not '{source_type}'",
                     },
                 )
             # Stored credentials win over inline keys so an agent can't override what the user entered.
@@ -3114,16 +3119,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+                data={
+                    "code": "unsupported_source",
+                    "message": f"Source type '{source_type}' does not support one-shot setup.",
+                },
             )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"code": "schema_discovery_failed", "message": str(e)},
+            )
 
         if not source_schemas:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "No tables found for this source. Check the credentials and permissions."},
+                data={
+                    "code": "no_tables_found",
+                    "message": "No tables found for this source. Check the credentials and permissions.",
+                },
             )
 
         # Build the schemas array server-side so the caller never has to. We've already validated
@@ -3394,7 +3408,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return (
                 Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Invalid source config: {', '.join(errors)}"},
+                    data={"code": "invalid_config", "message": f"Invalid source config: {', '.join(errors)}"},
                 ),
                 None,
             )
@@ -3416,7 +3430,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return (
                 Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or "Invalid credentials"},
+                    data={"code": "invalid_credentials", "message": credentials_error or "Invalid credentials"},
                 ),
                 None,
             )

@@ -2,8 +2,27 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError } from '@/lib/errors'
 
 describe('ApiClient', () => {
+    it('parses the backend error `code` onto PostHogApiError so failures stay diagnosable', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ code: 'no_tables_found', message: 'No tables found for this source.' }), {
+                status: 400,
+            })
+        )
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+        const error = await client
+            .request({ method: 'POST', path: '/api/projects/2/external_data_sources/setup/' })
+            .catch((e: unknown) => e)
+
+        expect(error).toBeInstanceOf(PostHogApiError)
+        expect(error).toMatchObject({ status: 400, code: 'no_tables_found' })
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',

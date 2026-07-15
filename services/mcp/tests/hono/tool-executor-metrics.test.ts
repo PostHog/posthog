@@ -42,7 +42,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+import { PostHogApiError, PostHogRateLimitError, wrapError } from '@/lib/errors'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -191,6 +191,50 @@ describe('ToolExecutor metrics', () => {
                 $mcp_error_type: 'rate_limited',
                 $mcp_error_status: 429,
             })
+        })
+
+        it('stamps $mcp_error_code from the backend body so a coarse 4xx bucket is diagnosable', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('data-warehouse-source-setup', async () => {
+                    throw new PostHogApiError({
+                        status: 400,
+                        statusText: 'Bad Request',
+                        body: '{"code":"no_tables_found","message":"No tables found for this source."}',
+                        url: 'https://us.posthog.com/api/projects/2/external_data_sources/setup/',
+                        method: 'POST',
+                        code: 'no_tables_found',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'data-warehouse-source-setup', arguments: {} },
+                makeState([{ name: 'data-warehouse-source-setup' }])
+            )
+
+            expect(trackToolCallExtras('data-warehouse-source-setup')).toMatchObject({
+                $mcp_error_type: 'api_4xx',
+                $mcp_error_status: 400,
+                $mcp_error_code: 'no_tables_found',
+            })
+        })
+
+        it('omits $mcp_error_code when the backend body carried none', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('some-tool', async () => {
+                    throw new PostHogApiError({
+                        status: 400,
+                        statusText: 'Bad Request',
+                        body: '{"message":"bad request"}',
+                        url: 'https://us.posthog.com/api/projects/2/some_endpoint/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'some-tool', arguments: {} }, makeState([{ name: 'some-tool' }]))
+
+            expect(trackToolCallExtras('some-tool')).not.toHaveProperty('$mcp_error_code')
         })
 
         it('classifies a downstream 429 as rate_limited, keeping it out of the error rate', async () => {

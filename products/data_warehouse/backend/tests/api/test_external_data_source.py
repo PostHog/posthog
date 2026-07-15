@@ -7231,6 +7231,7 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert response.status_code == 400
         assert "secretRef" in response.json()["message"]
+        assert response.json()["code"] == "unresolved_secret_ref"
 
     @parameterized.expand(
         [
@@ -10514,6 +10515,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "does not support one-shot setup" in response.json()["message"]
+        assert response.json()["code"] == "unsupported_source"
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
@@ -10660,6 +10662,31 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Missing Stripe API key" in response.json()["message"]
+        assert response.json()["code"] == "invalid_credentials"
+        assert not ExternalDataSource.objects.exists()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+        return_value=[],
+    )
+    def test_setup_returns_no_tables_found_when_discovery_is_empty(
+        self, _mock_get_schemas, _mock_validate, _mock_person_join
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "No tables found" in response.json()["message"]
+        assert response.json()["code"] == "no_tables_found"
         assert not ExternalDataSource.objects.exists()
 
     def _store_stripe_credential(self, team=None, **kwargs) -> PendingSourceCredential:
@@ -10730,6 +10757,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found or expired" in response.json()["message"]
+        assert response.json()["code"] == "credential_not_found"
         assert not ExternalDataSource.objects.exists()
 
     def test_setup_with_other_teams_credential_returns_400(self):
@@ -10750,6 +10778,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
+        assert response.json()["code"] == "credential_source_mismatch"
 
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):

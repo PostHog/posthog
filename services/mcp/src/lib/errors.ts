@@ -142,6 +142,8 @@ export interface PostHogApiErrorOptions {
     url: string
     method: string
     message?: string
+    /** Machine-readable error code parsed from the response body (`{ "code": ... }`), when present. */
+    code?: string
 }
 
 /**
@@ -162,6 +164,7 @@ export class PostHogApiError extends Error {
     public readonly body: string
     public readonly url: string
     public readonly method: string
+    public readonly code: string | undefined
 
     constructor(options: PostHogApiErrorOptions) {
         super(options.message ?? buildDefaultApiErrorMessage(options))
@@ -171,6 +174,7 @@ export class PostHogApiError extends Error {
         this.body = options.body
         this.url = options.url
         this.method = options.method
+        this.code = options.code
     }
 }
 
