@@ -1,3 +1,12 @@
+"""Post-sync Temporal workflow that upserts staged warehouse rows onto person properties.
+
+Started fire-and-forget by ``ExternalDataJobWorkflow`` after a sync when the schema feeds at least
+one enabled person-target Customer analytics source. Runs on the VIDEO_EXPORT_TASK_QUEUE (the same
+worker the signals emission uses) so a large first sync's Kafka production never competes with the
+data-warehouse sync workers; ``start_temporal_worker`` registers it via the facade's
+``PERSON_PROPERTY_SYNC_WORKFLOWS``/``PERSON_PROPERTY_SYNC_ACTIVITIES``.
+"""
+
 import json
 from datetime import timedelta
 from typing import Any
@@ -9,8 +18,12 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from products.customer_analytics.backend.logic.person_property_sync import run_person_property_sync
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncActivityInputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync import (
+    run_person_property_sync,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -57,3 +70,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+
+PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
+PERSON_PROPERTY_SYNC_ACTIVITIES = [sync_warehouse_person_properties_activity]

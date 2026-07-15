@@ -144,10 +144,39 @@ def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bo
 
 
 @dataclasses.dataclass(frozen=True)
+class PersonPropertySyncSource:
+    """One enabled person-target source's sync config, resolved through the hook below so the
+    sync job (owned by warehouse_sources) never imports the customer_analytics config models.
+    ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column``
+    holds the person identifier and ``column_property_map`` maps warehouse column -> person
+    property name."""
+
+    source_id: str
+    definition_id: str
+    key_column: str
+    column_property_map: dict[str, str]
+
+
+PersonPropertySyncSourcesResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySyncSource]]]
+_person_property_sync_sources_resolver: Optional[PersonPropertySyncSourcesResolver] = None
+
+
+def register_person_property_sync_sources(fn: PersonPropertySyncSourcesResolver) -> None:
+    global _person_property_sync_sources_resolver
+    _person_property_sync_sources_resolver = fn
+
+
+def person_property_sync_sources_for(
+    team_id: int, schema_id: "str | uuid.UUID"
+) -> Optional[list[PersonPropertySyncSource]]:
+    if _person_property_sync_sources_resolver is None:
+        return None
+    return _person_property_sync_sources_resolver(team_id, schema_id)
+
+
+@dataclasses.dataclass(frozen=True)
 class PersonPropertySyncActivityInputs:
-    """Payload the import workflow sends to the person-property sync child workflow. Lives here so
-    the workflow can construct it without importing customer_analytics; that product imports it
-    downward (customer_analytics -> warehouse_sources), which is allowed."""
+    """Payload the import workflow sends to the person-property sync child workflow."""
 
     team_id: int
     schema_id: uuid.UUID

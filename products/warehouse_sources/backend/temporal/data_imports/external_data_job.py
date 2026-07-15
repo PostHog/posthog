@@ -568,8 +568,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Upsert warehouse columns onto person properties for any enabled person-target source.
-            # Fire-and-forget, started by registered name so warehouse_sources doesn't import
-            # customer_analytics. Gated up front (like signals) to avoid a no-op child per sync.
+            # Fire-and-forget, started by name because it runs on a different task queue (see
+            # person_property_sync_job.py). Gated up front (like signals) to avoid a no-op child per sync.
             if source_type is not None and schema_name is not None and person_property_sync_enabled:
                 await workflow.start_child_workflow(
                     "sync-warehouse-person-properties",

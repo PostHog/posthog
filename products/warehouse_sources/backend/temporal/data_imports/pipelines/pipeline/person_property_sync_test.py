@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic import person_property_sync as pps
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import PersonPropertySyncSource
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import person_property_sync as pps
 
-_MODULE = "products.customer_analytics.backend.logic.person_property_sync"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_sync"
 
 
 class TestBuildBundles:
@@ -71,13 +72,12 @@ class TestRunOrchestration:
     """Orchestration control flow with all I/O boundaries (S3, personhog, Kafka, DB) mocked."""
 
     def _source(self):
-        source = MagicMock()
-        source.id = "source-1"
-        source.definition_id = "def-1"
-        source.external_data_schema_id = "schema-1"
-        source.key_column = "distinct_id"
-        source.column_property_map = {"plan": "plan_tier"}
-        return source
+        return PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+        )
 
     @pytest.mark.asyncio
     async def test_produces_only_changed_and_existing_persons_and_advances_snapshot(self):
@@ -88,7 +88,7 @@ class TestRunOrchestration:
             {"distinct_id": "ghost", "plan": "x"},
         ]
         with (
-            patch(f"{_MODULE}._enabled_person_sources", return_value=[self._source()]),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
@@ -118,7 +118,7 @@ class TestRunOrchestration:
     @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
         with (
-            patch(f"{_MODULE}._enabled_person_sources", return_value=[]),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=None),
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock()) as read,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):

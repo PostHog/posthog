@@ -1,6 +1,6 @@
 """Upsert warehouse columns onto person properties from the rows a sync staged to S3.
 
-Runs in a post-sync Temporal activity (see temporal/person_property_sync_workflow.py). Per enabled
+Runs in a post-sync Temporal activity (see data_imports/person_property_sync_job.py). Per enabled
 person-target source for the schema it:
 
 1. reads the staged parquet (already just this run's changed rows),
@@ -12,20 +12,20 @@ person-target source for the schema it:
 6. updates the snapshot, stamps provenance on the person PropertyDefinitions, and clears the staged
    files.
 
-The pure functions (bundle building, hashing, diff) are unit-tested directly; the S3/personhog/Kafka
-helpers are the boundaries and are mocked in the orchestration test.
+The source configs (key column + column -> property map) are resolved through the
+``person_property_sync_sources_for`` hook so this module never imports the customer_analytics
+config models. The pure functions (bundle building, hashing, diff) are unit-tested directly; the
+S3/personhog/Kafka helpers are the boundaries and are mocked in the orchestration test.
 """
 
 import json
 import asyncio
 import hashlib
-import contextlib
 import dataclasses
 
 from django.apps import apps
 from django.conf import settings
 
-import s3fs
 import structlog
 import pyarrow.parquet as pq
 
@@ -35,28 +35,13 @@ from posthog.models import Team
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
-from products.customer_analytics.backend.models import CustomPropertySource, TargetType
+from products.data_warehouse.backend.facade.api import aget_s3_client
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncSource,
+    person_property_sync_sources_for,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-@contextlib.asynccontextmanager
-async def _aget_s3_client():
-    """Async s3fs client for the warehouse bucket. Inlined (not imported from the data_warehouse
-    product) to keep customer_analytics isolation clean; mirrors data_warehouse's helper."""
-    if settings.USE_LOCAL_SETUP:
-        s3 = s3fs.S3FileSystem(
-            key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-            secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            skip_instance_cache=True,
-            asynchronous=True,
-        )
-    else:
-        s3 = s3fs.S3FileSystem(asynchronous=True)
-    await s3.set_session()
-    yield s3
-
 
 EVENT_SOURCE = "customer_analytics_person_property_sync"
 
@@ -129,7 +114,7 @@ def _snapshot_path(team_id: int, schema_id: str, source_id: str) -> str:
 async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[dict]:
     prefix = _staged_prefix(team_id, schema_id, job_id)
     rows: list[dict] = []
-    async with _aget_s3_client() as s3_client:
+    async with aget_s3_client() as s3_client:
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
         except FileNotFoundError:
@@ -156,7 +141,7 @@ def _decode_parquet_rows(data: bytes) -> list[dict]:
 
 async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
     path = _snapshot_path(team_id, schema_id, source_id)
-    async with _aget_s3_client() as s3_client:
+    async with aget_s3_client() as s3_client:
         try:
             data = await s3_client._cat_file(f"s3://{path}")
         except FileNotFoundError:
@@ -172,13 +157,13 @@ async def _write_snapshot_hashes(team_id: int, schema_id: str, source_id: str, h
     table = pa.table({"distinct_id": list(hashes.keys()), "sent_hash": list(hashes.values())})
     buffer = pa.BufferOutputStream()
     pq.write_table(table, buffer, compression="zstd")
-    async with _aget_s3_client() as s3_client:
+    async with aget_s3_client() as s3_client:
         await s3_client._pipe_file(f"s3://{path}", buffer.getvalue().to_pybytes())
 
 
 async def _clear_staged(team_id: int, schema_id: str, job_id: str) -> None:
     prefix = _staged_prefix(team_id, schema_id, job_id)
-    async with _aget_s3_client() as s3_client:
+    async with aget_s3_client() as s3_client:
         try:
             await s3_client._rm(f"s3://{prefix}/", recursive=True)
         except FileNotFoundError:
@@ -213,15 +198,15 @@ def _produce_intents(team_id: int, token: str, items: list[tuple[str, dict]]) ->
 
 
 def _stamp_provenance(
-    team_id: int, project_id: int | None, source: CustomPropertySource, property_names: list[str]
+    team_id: int, schema_id: str, source: PersonPropertySyncSource, property_names: list[str]
 ) -> None:
-    # apps.get_model keeps customer_analytics from importing event_definitions (isolation). PERSON=2
+    # apps.get_model keeps warehouse_sources from importing event_definitions (isolation). PERSON=2
     # in PropertyDefinition.Type; hard-coded here to avoid the import purely for the enum.
     person_property_definition = apps.get_model("event_definitions", "PropertyDefinition")
     origin = {
         "source_id": str(source.definition_id),
-        "schema_id": str(source.external_data_schema_id),
-        "custom_property_source_id": str(source.id),
+        "schema_id": str(schema_id),
+        "custom_property_source_id": str(source.source_id),
     }
     person_property_definition.objects.filter(team_id=team_id, type=2, name__in=property_names).update(
         warehouse_origin=origin
@@ -233,7 +218,7 @@ def _stamp_provenance(
 
 async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str) -> SyncResult:
     result = SyncResult()
-    sources = await database_sync_to_async(_enabled_person_sources, thread_sensitive=False)(team_id, schema_id)
+    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
     if not sources:
         return result
 
@@ -244,7 +229,7 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
 
     for source in sources:
         bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
-        prior = await _read_snapshot_hashes(team_id, str(schema_id), str(source.id))
+        prior = await _read_snapshot_hashes(team_id, str(schema_id), str(source.source_id))
         changed, new_hashes = select_changed(bundles, prior)
         result.changed += len(changed)
         if not changed:
@@ -265,23 +250,13 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         # these rows look unchanged on the next run, so anything that must accompany a produce has to
         # happen first. Stamping is an idempotent update, safe to repeat if a retry re-produces.
         await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
-            team_id, team.project_id, source, list((source.column_property_map or {}).values())
+            team_id, str(schema_id), source, list((source.column_property_map or {}).values())
         )
 
         # Only advance the snapshot for distinct_ids we actually produced.
         sent_ids = {distinct_id for distinct_id, _ in to_send}
         merged = {**prior, **{d: h for d, h in new_hashes.items() if d in sent_ids}}
-        await _write_snapshot_hashes(team_id, str(schema_id), str(source.id), merged)
+        await _write_snapshot_hashes(team_id, str(schema_id), str(source.source_id), merged)
 
     await _clear_staged(team_id, str(schema_id), job_id)
     return result
-
-
-def _enabled_person_sources(team_id: int, schema_id: str) -> list[CustomPropertySource]:
-    return list(
-        CustomPropertySource.objects.for_team(team_id).filter(
-            external_data_schema_id=schema_id,
-            is_enabled=True,
-            definition__target_type=TargetType.PERSON.value,
-        )
-    )
