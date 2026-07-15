@@ -19,7 +19,8 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
-from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.client import _KafkaSecurityProtocol
+from posthog.kafka_client.routing import get_producer, get_profile_settings
 from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
@@ -196,8 +197,6 @@ class PersonPropertyUpdateConsumer:
         return RETRY
 
     def run(self, poll_timeout: float = 1.0) -> None:  # pragma: no cover - exercised in dogfood
-        from django.conf import settings  # noqa: PLC0415
-
         from confluent_kafka import Consumer as ConfluentConsumer  # noqa: PLC0415
 
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -206,14 +205,21 @@ class PersonPropertyUpdateConsumer:
             except ValueError:
                 pass
 
-        consumer = ConfluentConsumer(
-            {
-                "bootstrap.servers": ",".join(settings.KAFKA_HOSTS),
-                "group.id": CONSUMER_GROUP,
-                "auto.offset.reset": "earliest",
-                "enable.auto.commit": False,
-            }
-        )
+        # Resolve hosts + TLS/SASL through the router so the input topic's cluster profile (and any
+        # KAFKA_TOPIC_ROUTING_OVERRIDES) applies — never a bare plaintext KAFKA_HOSTS connection.
+        profile = get_profile_settings(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES)
+        config: dict[str, str | int | float | bool | None] = {
+            "bootstrap.servers": ",".join(profile.hosts),
+            "group.id": CONSUMER_GROUP,
+            "auto.offset.reset": "earliest",
+            "enable.auto.commit": False,
+            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+        }
+        if profile.security_protocol in (_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL):
+            config["sasl.mechanism"] = profile.sasl_mechanism
+            config["sasl.username"] = profile.sasl_user
+            config["sasl.password"] = profile.sasl_password
+        consumer = ConfluentConsumer(config)
         consumer.subscribe([KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES])
         logger.info("person_property_update.consumer_started")
         try:
