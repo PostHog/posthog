@@ -24,9 +24,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
-    const showPostHogAIButtonLabel = useFeatureFlag('DASHBOARD_POSTHOG_AI_BUTTON_LABEL', 'test', {
-        deferUntilResolved: true,
-    })
+    const showPostHogAIButtonLabel = useFeatureFlag('DASHBOARD_POSTHOG_AI_BUTTON_LABEL', 'test')
 
     if (!dashboard && !dashboardLoading) {
         return null
