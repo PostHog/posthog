@@ -15,7 +15,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, write_pr_diff
-from policy import _sanitize_untrusted, review_guidance_path
+from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
 # Traced wrapper, bound only with a PostHog key and no gateway route (gateway
@@ -193,8 +193,21 @@ def _load_review_guidance() -> str:
     Recomposed with the operational scaffold tail below into REVIEWER_SYSTEM.
     Edits to the file change the production prompt directly; the stamphog_policy
     deny routes every such edit to human review.
+
+    An optional .stamphog/steering.md is appended under a marked section so a repo can
+    extend the norms without replacing the whole guidance file. Trusted default-branch
+    content in both runtimes (the hosted server wipes the PR-head copy before injecting);
+    an absent file leaves the prompt byte-identical.
     """
-    return review_guidance_path().read_text()
+    guidance = review_guidance_path().read_text()
+    steering = steering_path()
+    if steering.is_file():
+        guidance += (
+            "\n\n# Repository-specific steering\n\n"
+            "Guidance from this repository's maintainers, supplementing the operating philosophy above.\n\n"
+            + steering.read_text()
+        )
+    return guidance
 
 
 # Operational scaffolding kept in code: tool instructions, the grep-before-flag

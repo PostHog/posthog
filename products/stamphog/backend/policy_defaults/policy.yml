@@ -1,10 +1,12 @@
 # Stamphog merge-gate policy — hosted default.
 #
-# Shipped by the stamphog server and injected into a target repo's review sandbox when that repo's
-# default branch carries no `.stamphog/policy.yml` of its own, so a repo needs zero config to be
-# reviewed. A repo's own default-branch policy always wins over this. Keep pattern scalars
-# single-quoted so regex backslashes survive YAML parsing. Thresholds match stamphog's backtested
-# defaults; patterns are generic (no repo-specific paths).
+# Shipped by the stamphog server as the base layer for every hosted review: a repo with no
+# `.stamphog/policy.yml` reviews under this file as-is (zero config), and a repo's own
+# default-branch policy.yml is a SECTION OVERLAY onto it — the repo may declare any subset of
+# top-level sections (e.g. just `size_gate`), and each present section replaces the matching
+# section here wholesale. Keep pattern scalars single-quoted so regex backslashes survive YAML
+# parsing. Thresholds match stamphog's backtested defaults; patterns are generic (no
+# repo-specific paths).
 version: 1
 deny:
     auth:

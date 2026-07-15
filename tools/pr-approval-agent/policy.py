@@ -83,6 +83,10 @@ def review_guidance_path() -> Path:
     return repo_root() / ".stamphog" / "review-guidance.md"
 
 
+def steering_path() -> Path:
+    return repo_root() / ".stamphog" / "steering.md"
+
+
 # ── Policy data structures ───────────────────────────────────────
 
 

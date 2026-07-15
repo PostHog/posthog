@@ -34,6 +34,12 @@ STAMPHOG_POLICY_ENTRYPOINT = ".stamphog/policy.yml"
 # the sandbox checkout (overwriting any PR-head copy) as the trusted policy surface.
 STAMPHOG_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_POLICY_ENTRYPOINT, STAMPHOG_REVIEW_GUIDANCE_PATH)
 
+# Optional per-repo files: fetched from the DEFAULT branch and ALWAYS wiped from the PR
+# head, but injected only when the default branch has them — there is no server-shipped
+# default (an absent steering.md just leaves the reviewer prompt unchanged).
+STAMPHOG_STEERING_PATH = ".stamphog/steering.md"
+STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
+
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)

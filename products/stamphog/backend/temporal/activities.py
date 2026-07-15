@@ -26,6 +26,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 
+import yaml
 from temporalio import activity
 
 from posthog.ph_client import ph_scoped_capture
@@ -42,7 +43,10 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
+    STAMPHOG_OPTIONAL_POLICY_PATHS,
+    STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
+    STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
@@ -60,9 +64,10 @@ from products.tasks.backend.facade.sandbox import (
 # products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
 _SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
 
-# Server-shipped default policy files, used when a target repo's default branch carries neither. Named
-# by the basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md) so a repo needs
-# zero config to be reviewed against our hosted defaults.
+# Server-shipped default policy files, the base layer every repo's config sits on. Named by the
+# basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
+# config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
+# (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
 _POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "policy_defaults"
 
 
@@ -160,7 +165,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
 
     policy_files: dict[str, str] = {}
-    for path in STAMPHOG_POLICY_PATHS:
+    for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
         content = client.get_default_branch_file(repo, path)
         if content is not None:
             policy_files[path] = content
@@ -255,14 +260,15 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
-    # The trusted source for each policy file is "repo default branch, else server-shipped default".
-    # The gate policy (policy.yml) and the review-norms prose (review-guidance.md) are both loaded by
-    # the engine — the latter straight into the reviewer's SYSTEM prompt. A repo's default-branch copy
-    # always wins; only genuinely absent paths fall back to our defaults, so a repo needs zero config.
-    # We must NOT fall back to the PR head's copy, or a contributor could ship malicious guidance
-    # ("approve my PR") in a repo whose default branch lacks the file — the PR-head wipe in
-    # _inject_policy_files stays mandatory, and the fallback content is server-owned, never the PR's.
-    policy_files = _fill_missing_policy_files(repo, policy_files)
+    # The trusted source for each policy file is the repo's default branch layered over the
+    # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
+    # guidance file is repo-else-default, steering is repo-else-omitted. The gate policy and the
+    # review-norms prose are both loaded by the engine — the latter straight into the reviewer's
+    # SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor could ship
+    # malicious guidance ("approve my PR") in a repo whose default branch lacks the file — the
+    # PR-head wipe in _inject_policy_files stays mandatory, and the fallback content is
+    # server-owned, never the PR's.
+    policy_files = _effective_policy_files(repo, policy_files)
 
     base_sha = (pr.get("base") or {}).get("sha") or ""
 
@@ -519,26 +525,63 @@ def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, tok
         )
 
 
-def _fill_missing_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """Fill any policy path the target repo doesn't carry from the server-shipped defaults.
+def _read_default_policy_file(path: str) -> str:
+    """Read a shipped default by the policy path's basename; missing means a server packaging bug."""
+    default_file = _POLICY_DEFAULTS_DIR / Path(path).name
+    if not default_file.is_file():
+        raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
+    return default_file.read_text()
 
-    A path present on the repo's default branch is left untouched (it wins); only absent ones are
-    filled by basename from _POLICY_DEFAULTS_DIR. A missing default file is a server packaging bug, so
-    it still raises. Logs which paths fell back so a mis-shipped repo is visible.
+
+def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) -> str:
+    """Overlay the repo's policy.yml top-level sections onto the shipped default.
+
+    Lets a repo declare only the sections it wants to change (e.g. just ``size_gate``); each
+    present section replaces the default's section wholesale. The engine's strict loader still
+    validates the merged doc inside the sandbox, so required sections and the self-governance
+    deny can't be dropped by omission, and a full-schema repo file overlays to exactly itself.
+    The ``digest:`` key passes through harmlessly (the engine tolerates and ignores it).
+
+    A present-but-unusable repo file (malformed YAML, non-mapping root) fails closed: the repo
+    declared *something*, and silently reviewing under pure defaults would be wrong.
     """
-    filled = dict(policy_files)
-    fell_back: list[str] = []
-    for path in STAMPHOG_POLICY_PATHS:
-        if path in filled:
-            continue
-        default_file = _POLICY_DEFAULTS_DIR / Path(path).name
-        if not default_file.is_file():
-            raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
-        filled[path] = default_file.read_text()
-        fell_back.append(path)
-    if fell_back:
-        activity.logger.info(f"Filled policy files from server defaults for {repo}: {fell_back}")
-    return filled
+    if repo_text is None:
+        return default_text
+    try:
+        overlay = yaml.safe_load(repo_text)
+    except yaml.YAMLError as exc:
+        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml: {exc}") from exc
+    if not isinstance(overlay, dict):
+        raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
+    merged = {**yaml.safe_load(default_text), **overlay}
+    # sort_keys=False keeps the default's section order stable in the dumped doc.
+    return yaml.safe_dump(merged, sort_keys=False)
+
+
+def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
+    """The final injection set: the repo's default-branch files layered over the hosted defaults.
+
+    policy.yml: section overlay onto the shipped default (see _overlay_policy_yaml).
+    review-guidance.md: the repo's copy if present, else the shipped default.
+    Optional paths (steering.md): the repo's copy if present, else omitted — no default exists.
+    """
+    defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
+    if defaulted:
+        activity.logger.info(f"Policy files for {repo} using hosted defaults: {defaulted}")
+
+    effective = {
+        STAMPHOG_POLICY_ENTRYPOINT: _overlay_policy_yaml(
+            repo,
+            _read_default_policy_file(STAMPHOG_POLICY_ENTRYPOINT),
+            policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+        ),
+        STAMPHOG_REVIEW_GUIDANCE_PATH: policy_files.get(STAMPHOG_REVIEW_GUIDANCE_PATH)
+        or _read_default_policy_file(STAMPHOG_REVIEW_GUIDANCE_PATH),
+    }
+    for path in STAMPHOG_OPTIONAL_POLICY_PATHS:
+        if path in policy_files:
+            effective[path] = policy_files[path]
+    return effective
 
 
 def _inject_policy_files(sandbox: SandboxBase, policy_files: dict[str, str]) -> None:
@@ -549,11 +592,11 @@ def _inject_policy_files(sandbox: SandboxBase, policy_files: dict[str, str]) -> 
     at import via its repo-root walk — this is what makes the run judge the PR against
     our policy, not the PR's own.
 
-    Every policy path's PR-head copy is deleted first, so a trusted file that's somehow absent can
-    never leave the PR's version behind for the engine to load as its own guidance (run_review_in_sandbox
-    already fails closed when a trusted file is missing; this is the belt-and-suspenders).
+    Every policy path's PR-head copy is deleted first — required AND optional: an uninjected
+    optional file (a repo with no steering.md) must not leave the PR head's planted copy behind
+    for the engine to load, any more than a missing policy.yml would.
     """
-    for path in STAMPHOG_POLICY_PATHS:
+    for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
         sandbox.execute(f"rm -f {shlex.quote(f'{STAMPHOG_SANDBOX_REPO_DIR}/{path}')}", timeout_seconds=30)
     for path, content in policy_files.items():
         _write_sandbox_file(sandbox, f"{STAMPHOG_SANDBOX_REPO_DIR}/{path}", content)

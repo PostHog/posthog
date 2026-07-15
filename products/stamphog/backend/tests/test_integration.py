@@ -175,6 +175,25 @@ def test_missing_policy_files_fall_back_to_server_defaults(team, stamphog_chain:
         injected[f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/review-guidance.md"]
         == (POLICY_DEFAULTS_DIR / "review-guidance.md").read_text()
     )
+    # No default steering exists, so nothing must be injected at that path either.
+    assert f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/steering.md" not in injected
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_default_branch_steering_is_injected_into_sandbox(team, stamphog_chain: StamphogChain) -> None:
+    # A repo declaring .stamphog/steering.md on its default branch must see it injected into the
+    # checkout so the engine appends it to the reviewer guidance.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.policy_files[".stamphog/steering.md"] = "Prefer squash merges.\n"
+    author, head_sha = "devex-dev", "sha505a"
+    recorder.register_pr(REPO, 101, _pr_object(101, author, head_sha), _pr_files())
+
+    status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
+    assert status == 202
+
+    injected = {path: payload.decode() for path, payload in stamphog_chain.sandbox_writes}
+    assert injected[f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/steering.md"] == "Prefer squash merges.\n"
 
 
 @pytest.mark.parametrize(
