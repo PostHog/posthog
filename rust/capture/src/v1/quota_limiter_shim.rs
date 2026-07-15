@@ -121,6 +121,7 @@ pub async fn apply_quota_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::num::NonZeroU32;
     use std::sync::Arc;
     use std::time::Duration;
@@ -129,6 +130,7 @@ mod tests {
     use common_continuous_profiling::ContinuousProfilingConfig;
     use common_redis::MockRedisClient;
     use limiters::redis::{QUOTA_LIMITER_CACHE_KEY, QUOTA_LIMITING_SUSPENDED_CACHE_KEY};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use serde_json::value::RawValue;
     use tracing::Level;
     use uuid::Uuid;
@@ -427,6 +429,29 @@ mod tests {
         matches[0]
     }
 
+    fn grace_period_counts(snapshotter: &Snapshotter) -> HashMap<String, u64> {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+                    return None;
+                }
+                let resource = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "resource")?
+                    .value()
+                    .to_string();
+                match value {
+                    DebugValue::Counter(count) => Some((resource, count)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
     // -----------------------------------------------------------------------
     // No limits
     // -----------------------------------------------------------------------
@@ -449,8 +474,6 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn grace_period_counts_only_admitted_events() {
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
         let limiter =
             build_limiter_with_grace("tok", false, true, &[], &[QuotaResource::Exceptions]).await;
         let mut events = vec![
@@ -466,36 +489,11 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(ok_event_names(&events), vec!["$pageview"]);
-        let grace_period_count =
-            snapshotter
-                .snapshot()
-                .into_vec()
-                .into_iter()
-                .find_map(|(key, _, _, value)| {
-                    if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL
-                    {
-                        return None;
-                    }
-                    let resource = key
-                        .key()
-                        .labels()
-                        .find(|label| label.key() == "resource")
-                        .map(|label| label.value());
-                    if resource != Some("events") {
-                        return None;
-                    }
-                    match value {
-                        DebugValue::Counter(count) => Some(count),
-                        _ => None,
-                    }
-                });
-        assert_eq!(grace_period_count, Some(1));
+        assert_eq!(grace_period_counts(&snapshotter).get("events"), Some(&1));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn scoped_grace_period_takes_precedence_over_global_grace_period() {
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
         let limiter =
             build_limiter_with_grace("tok", false, true, &[QuotaResource::Exceptions], &[]).await;
         let mut events = vec![
@@ -510,26 +508,7 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
 
         assert!(result.is_ok());
-        let counts: std::collections::HashMap<String, u64> = snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .filter_map(|(key, _, _, value)| {
-                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
-                    return None;
-                }
-                let resource = key
-                    .key()
-                    .labels()
-                    .find(|label| label.key() == "resource")?
-                    .value()
-                    .to_string();
-                match value {
-                    DebugValue::Counter(count) => Some((resource, count)),
-                    _ => None,
-                }
-            })
-            .collect();
+        let counts = grace_period_counts(&snapshotter);
         assert_eq!(counts.get("events"), Some(&1));
         assert_eq!(counts.get("exceptions"), Some(&1));
         assert_eq!(counts.values().sum::<u64>(), 2);
@@ -537,8 +516,6 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn gateway_verified_events_only_count_toward_global_grace_period() {
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
         let limiter =
             build_limiter_with_grace("tok", false, true, &[QuotaResource::LLMEvents], &[]).await;
         let mut events = vec![
@@ -553,26 +530,7 @@ mod tests {
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
 
         assert!(result.is_ok());
-        let counts: std::collections::HashMap<String, u64> = snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .filter_map(|(key, _, _, value)| {
-                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
-                    return None;
-                }
-                let resource = key
-                    .key()
-                    .labels()
-                    .find(|label| label.key() == "resource")?
-                    .value()
-                    .to_string();
-                match value {
-                    DebugValue::Counter(count) => Some((resource, count)),
-                    _ => None,
-                }
-            })
-            .collect();
+        let counts = grace_period_counts(&snapshotter);
         assert_eq!(counts.get("events"), Some(&1));
         assert_eq!(counts.get("llm_events"), Some(&1));
         assert_eq!(counts.values().sum::<u64>(), 2);
