@@ -9,7 +9,6 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
-from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
     evaluate_alert,
@@ -27,6 +26,8 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+
+from products.alerts.backend.slo import build_alert_check_slo
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -66,17 +67,12 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     distinct_id=alert.distinct_id,
                     calculation_interval=alert.calculation_interval,
                     insight_id=alert.insight_id,
-                    slo=SloConfig(
-                        operation=SloOperation.ALERT_CHECK,
-                        area=SloArea.ANALYTIC_PLATFORM,
+                    slo=build_alert_check_slo(
                         team_id=alert.team_id,
-                        resource_id=alert.alert_id,
+                        alert_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        start_properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
-                        completion_properties={
+                        alert_type="insight",
+                        properties={
                             "calculation_interval": alert.calculation_interval,
                             "insight_id": alert.insight_id,
                         },
