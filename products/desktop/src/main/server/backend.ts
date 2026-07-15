@@ -37,6 +37,8 @@ export interface LocalBackendOptions {
     getAuth: () => UpstreamAuth | null
     /** Called when the renderer navigates to /logout */
     onSignOutRequested: () => void
+    /** Called when the upstream rejects the stored credentials (e.g. a revoked API key) */
+    onAuthRejected?: () => void
     /** Extra headers to send upstream, e.g. a desktop User-Agent */
     upstreamHeaders?: Record<string, string>
 }
@@ -234,6 +236,12 @@ async function proxyRequest(
             detail: 'PostHog Cloud is unreachable. Check your internet connection.',
         })
         return
+    }
+
+    // A rejected @me means the stored key is no longer valid (revoked or expired);
+    // let the host drop back to the sign-in shell instead of a dead SPA login form
+    if (pathname === '/api/users/@me/' && upstream.status === 401) {
+        options.onAuthRejected?.()
     }
 
     const responseHeaders: Record<string, string> = {}

@@ -58,6 +58,10 @@ async function main(): Promise<void> {
                     state.signOut()
                     showShell()
                 },
+                onAuthRejected: () => {
+                    state.signOut()
+                    showShell()
+                },
                 upstreamHeaders: { 'user-agent': `PostHog-Desktop/${app.getVersion()}` },
             },
             store.get('port')

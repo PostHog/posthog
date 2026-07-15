@@ -24,6 +24,7 @@ describe('local backend', () => {
     let backend: LocalBackend
     let auth: UpstreamAuth | null
     let signOutRequests: number
+    let authRejections: number
 
     before(async () => {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'posthog-desktop-test-'))
@@ -52,8 +53,9 @@ describe('local backend', () => {
                     headers: req.headers,
                     body: Buffer.concat(chunks).toString(),
                 })
-                res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'session=abc' })
-                res.end(JSON.stringify({ ok: true, path: req.url }))
+                const status = Number(req.headers['x-test-response-status']) || 200
+                res.writeHead(status, { 'content-type': 'application/json', 'set-cookie': 'session=abc' })
+                res.end(JSON.stringify({ ok: status === 200, path: req.url }))
             })
         })
         upstreamOrigin = await new Promise<string>((resolve) => {
@@ -65,6 +67,7 @@ describe('local backend', () => {
 
         auth = { apiHost: upstreamOrigin, accessToken: 'phx_test_key' }
         signOutRequests = 0
+        authRejections = 0
         backend = await startLocalBackend(
             {
                 distDir,
@@ -72,6 +75,9 @@ describe('local backend', () => {
                 getAuth: () => auth,
                 onSignOutRequested: () => {
                     signOutRequests += 1
+                },
+                onAuthRejected: () => {
+                    authRejections += 1
                 },
                 upstreamHeaders: { 'user-agent': 'PostHog-Desktop/test' },
             },
@@ -161,6 +167,20 @@ describe('local backend', () => {
 
         const uncached = await fetch(`${backend.origin}/api/projects/1/`)
         assert.equal(uncached.status, 503)
+    })
+
+    test('reports rejected credentials only when the upstream 401s the identity check', async () => {
+        const rejected = await fetch(`${backend.origin}/api/users/@me/`, {
+            headers: { 'x-test-response-status': '401' },
+        })
+        assert.equal(rejected.status, 401)
+        assert.equal(authRejections, 1)
+
+        const otherPath = await fetch(`${backend.origin}/api/projects/1/`, {
+            headers: { 'x-test-response-status': '401' },
+        })
+        assert.equal(otherPath.status, 401)
+        assert.equal(authRejections, 1)
     })
 
     test('/logout notifies the host and never reaches the upstream', async () => {
