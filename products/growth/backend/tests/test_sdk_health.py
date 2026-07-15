@@ -346,6 +346,7 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert report.health == "success"
         assert report.needs_updating_count == 0
         assert report.team_sdk_count == 1
+        assert report.sdks[0].migration_required is False
 
     def test_warning_when_one_of_many_outdated(self):
         # 1 of 3 outdated — below half, so warning not danger
@@ -413,6 +414,7 @@ class TestComputeSdkHealth(SimpleTestCase):
         sdk = report.sdks[0]
         assert sdk.lib == "posthog-java"
         assert sdk.latest_version == "1.2.0"
+        assert sdk.migration_required is True
         assert sdk.reason == LEGACY_JAVA_MIGRATION_REASON
         assert sdk.banners == []
         release = sdk.releases[0]

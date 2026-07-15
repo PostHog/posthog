@@ -97,8 +97,9 @@ class OutdatedTrafficAlertSerializer(serializers.Serializer):
 
 
 class SdkAssessmentSerializer(serializers.Serializer):
-    lib = serializers.CharField(
-        help_text="SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'."
+    lib = serializers.ChoiceField(
+        choices=SDK_TYPES,
+        help_text="SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.",
     )
     readable_name = serializers.CharField(
         help_text="Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS')."
@@ -107,6 +108,9 @@ class SdkAssessmentSerializer(serializers.Serializer):
     needs_updating = serializers.BooleanField(help_text="True if this SDK needs attention (is_outdated OR is_old).")
     is_outdated = serializers.BooleanField(help_text="True if the primary in-use version is flagged as outdated.")
     is_old = serializers.BooleanField(help_text="True if the primary in-use version is flagged as old by age alone.")
+    migration_required = serializers.BooleanField(
+        help_text="True when this SDK must be replaced by a supported successor rather than upgraded in place."
+    )
     severity = serializers.ChoiceField(
         choices=["none", "warning", "danger"],
         help_text="UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.",
@@ -154,7 +158,7 @@ class SdkHealthReportSerializer(serializers.Serializer):
 # --- ViewSet (MCP-accessible, project-scoped) ------------------------------
 
 
-@extend_schema(tags=["sdk_health"])
+@extend_schema(tags=["sdk_health"], extensions={"x-product": "growth"})
 class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Project-scoped SDK Health report for MCP and agent consumption."""
 

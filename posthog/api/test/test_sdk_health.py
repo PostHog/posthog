@@ -124,6 +124,7 @@ class TestSdkHealthViewSet(APIBaseTest):
         assert sdk["lib"] == "posthog-java"
         assert sdk["readable_name"] == "Java (legacy)"
         assert sdk["latest_version"] == "1.2.0"
+        assert sdk["migration_required"] is True
         assert sdk["releases"][0]["version"] == "Not reported"
         assert "com.posthog.java:posthog" in sdk["reason"]
         assert "com.posthog:posthog-server" in sdk["reason"]

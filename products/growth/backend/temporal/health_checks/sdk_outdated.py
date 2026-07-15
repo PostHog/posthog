@@ -20,7 +20,6 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 from products.growth.backend.constants import (
-    LEGACY_JAVA_SDK,
     SDK_TYPES,
     TEAM_SDK_CACHE_EXPIRY,
     SdkVersionEntry,
@@ -263,7 +262,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
             "migration_source": "com.posthog.java:posthog",
             "migration_target": "com.posthog:posthog-server",
         }
-        if assessment.lib == LEGACY_JAVA_SDK
+        if assessment.migration_required
         else {}
     )
     return HealthCheckResult(

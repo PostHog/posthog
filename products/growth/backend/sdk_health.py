@@ -167,6 +167,7 @@ class SdkAssessment:
     needs_updating: bool
     is_outdated: bool
     is_old: bool
+    migration_required: bool
     severity: Severity
     reason: str
     banners: list[str] = field(default_factory=list)
@@ -699,6 +700,7 @@ def _assess_legacy_java_sdk(
         needs_updating=True,
         is_outdated=True,
         is_old=False,
+        migration_required=True,
         severity="warning",
         reason=LEGACY_JAVA_MIGRATION_REASON,
         banners=[],
@@ -763,6 +765,7 @@ def assess_sdk(
         needs_updating=needs_updating,
         is_outdated=is_outdated,
         is_old=is_old,
+        migration_required=False,
         severity=severity,
         reason=reason,
         banners=banners,
