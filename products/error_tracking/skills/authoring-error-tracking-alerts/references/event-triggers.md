@@ -68,12 +68,14 @@ a typical production project; tighter thresholds make this much noisier.
 detector either over-fires or under-fires.
 
 **Useful event properties for templating** — spiking events carry a smaller surface than `_created`:
-no `status`, no `fingerprint`, no `exception_timestamp`, and no exception properties (so no per-issue
-property scoping). Available:
+no `status` and no exception properties (so no per-issue property scoping). Available:
 
 - `event.properties.name` — issue title.
 - `event.properties.description` — truncated body / message.
 - `event.distinct_id` — the issue id.
+- `event.properties.fingerprint` — a fingerprint of the spiking issue, for the merge-stable deep link.
+  Only present on newer events; guard with `empty()` and fall back to the issue-id link.
+- `event.properties.exception_timestamp` — the spike detection time; present whenever `fingerprint` is.
 - `event.properties.current_bucket_value` — exception count in the current detection window (typically
   5 minutes).
 - `event.properties.computed_baseline` — the historical baseline the current value is being compared
@@ -99,5 +101,10 @@ useful for "manage this alert" links inside the message body.
 
 The link goes through the fingerprint redirect page, which resolves the fingerprint to whatever issue it currently belongs to — so links keep working after issues are merged.
 `utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`).
-For `_spiking` links, use `{project.url}/error_tracking/{event.distinct_id}?utm_...` instead — spiking events do not carry the `fingerprint` and `exception_timestamp` properties.
+For `_spiking` links, guard for missing properties — only spiking events produced by newer cymbal versions carry `fingerprint` and `exception_timestamp`, so wrap the URL in a conditional that falls back to the issue-id link:
+
+```text
+{empty(event.properties.fingerprint) ? concat(project.url, '/error_tracking/', event.distinct_id, '?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack') : concat(project.url, '/error_tracking/fingerprint/', encodeURLComponent(event.properties.fingerprint), '?timestamp=', event.properties.exception_timestamp, '&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack')}
+```
+
 The `utm_*` tags let the team measure how often issues get clicked from alerts later via product analytics on `$pageview`.

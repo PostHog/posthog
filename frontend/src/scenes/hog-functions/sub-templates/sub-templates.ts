@@ -17,6 +17,13 @@ import {
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
+// Spiking events only carry a fingerprint once cymbal attaches one (and it can miss it in rare
+// fallback paths), so the link degrades to the issue-id URL when the property is absent.
+export const errorTrackingSpikingIssueLinkHogTemplate = (medium: string): string => {
+    const utm = `utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+    return `{empty(event.properties.fingerprint) ? concat(project.url, '/error_tracking/', event.distinct_id, '?${utm}') : concat(project.url, '/error_tracking/fingerprint/', encodeURLComponent(event.properties.fingerprint), '?timestamp=', event.properties.exception_timestamp, '&${utm}')}`
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -815,7 +822,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
-[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)`,
+[View issue](${errorTrackingSpikingIssueLinkHogTemplate('discord')})`,
                 },
             },
         },
@@ -826,7 +833,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is spiking',
             inputs: {
                 text: {
-                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))",
+                    value: `**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog](${errorTrackingSpikingIssueLinkHogTemplate('microsoft_teams')}))`,
                 },
             },
         },
@@ -862,7 +869,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
+                                    url: errorTrackingSpikingIssueLinkHogTemplate('slack'),
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
