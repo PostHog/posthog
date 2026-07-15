@@ -20,6 +20,8 @@ describe('groupConversations', () => {
     it('skips null entries instead of throwing', () => {
         const groups = groupConversations([conversation, null as unknown as Conversation])
 
-        expect(groups).toEqual([{ value: 'Today', items: [conversation] }])
+        // Assert survival of the non-null entry, not the bucket label — the label is incidental
+        // to the regression and depends on the wall clock.
+        expect(groups.flatMap((group) => group.items)).toEqual([conversation])
     })
 })
