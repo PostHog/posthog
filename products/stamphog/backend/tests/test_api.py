@@ -7,8 +7,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 
+from products.stamphog.backend.facade.enums import ReviewRunStatus
 from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
@@ -102,6 +105,30 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         repos = [row["repository"] for row in response.json()["results"]]
         assert repos == ["PostHog/posthog"]
 
+    def test_child_scoped_api_key_cannot_reach_parent_rows(self) -> None:
+        # stamphog rows canonicalize to the parent team, so a request through the child environment
+        # reads the PARENT's data. A token scoped only to the child passes the default scope check
+        # (URL team == child) but must not reach the parent's rows through it.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="8"
+        )
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["stamphog:read"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{env.id}/stamphog/repo_configs/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
     def test_cannot_retrieve_other_teams_config(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         theirs = StamphogRepoConfig.objects.unscoped().create(
@@ -122,15 +149,24 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_delete_soft_disables_as_tombstone(self) -> None:
         # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
         # push to a previously approved PR could no longer resolve the config or dismiss the stale
-        # approval — deleting a repo must not launder a standing approval.
+        # approval — deleting a repo must not launder a standing approval. In-flight runs are
+        # superseded too: their workflows never re-check enabled and could still post an approval.
         mine = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
+        )
+        pull_request = PullRequest.objects.unscoped().create(
+            team_id=self.team.id, repo_config=mine, pr_number=9, author_login="dev"
+        )
+        in_flight = ReviewRun.objects.unscoped().create(
+            team_id=self.team.id, pull_request=pull_request, head_sha="sha-live", status=ReviewRunStatus.REVIEWING
         )
         response = self.client.delete(f"{self.url}{mine.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         mine.refresh_from_db()
+        in_flight.refresh_from_db()
         assert mine.enabled is False
         assert mine.digest_enabled is False
+        assert in_flight.status == ReviewRunStatus.SUPERSEDED
 
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):

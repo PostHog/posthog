@@ -29,7 +29,10 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.scoping.manager import resolve_effective_team_id
+
+from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewRunStatus
 
 from ..logic.github_client import (
     StamphogGitHubError,
@@ -104,6 +107,17 @@ class StamphogCanonicalTeamAccessPermission(BasePermission):
         # default membership gate already authorized the right team.
         if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
             return True
+        # A team-scoped token must cover the CANONICAL team too: the default scope check accepted the
+        # URL (child) team, but the rows read and written belong to the parent — a PAK/OAuth token
+        # scoped only to the child must not reach them through the child's URL.
+        authenticator = request.successful_authenticator
+        scoped_teams = None
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scoped_teams = authenticator.access_token.scoped_teams
+        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scoped_teams = authenticator.personal_api_key.scoped_teams
+        if scoped_teams and team.parent_team_id not in scoped_teams:
+            return False
         # Same helper the default gate uses (effective_membership_level), just re-pointed at the parent.
         # It already accounts for a private parent team, so None means genuinely no access -> 403.
         level = view.user_permissions.team(team.parent_team).effective_membership_level
@@ -198,6 +212,26 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         instance.enabled = False
         instance.digest_enabled = False
         instance.save(update_fields=["enabled", "digest_enabled", "updated_at"])
+        self._supersede_active_runs(instance)
+
+    def perform_update(self, serializer: BaseSerializer[StamphogRepoConfig]) -> None:
+        was_enabled = serializer.instance is not None and serializer.instance.enabled
+        serializer.save()
+        if was_enabled and serializer.instance is not None and not serializer.instance.enabled:
+            self._supersede_active_runs(serializer.instance)
+
+    def _supersede_active_runs(self, instance: StamphogRepoConfig) -> None:
+        # Disabling (or tombstone-deleting) a repo must also stop reviews already in flight: their
+        # workflows never re-check enabled, so a queued/reviewing run could still post an approval
+        # after an admin removed stamphog from the repo. Every workflow step bails on SUPERSEDED.
+        superseded = (
+            ReviewRun.objects.for_team(self.canonical_team_id)
+            .filter(pull_request__repo_config=instance)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, updated_at=timezone.now())
+        )
+        if superseded:
+            logger.info("stamphog_repo_disable_superseded_runs", repository=instance.repository, superseded=superseded)
 
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
     @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["stamphog:read"])

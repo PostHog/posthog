@@ -16,6 +16,8 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from celery import shared_task
 
+from posthog.egress.github.transport import GitHubRateLimitError
+
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
@@ -370,8 +372,11 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         logger.warning("stamphog_merged_pr_missing_head_sha", repo=repo, pr_number=pr_number)
         approved = False
     else:
+        # Writer pin: an auto-merge fires this webhook the instant GitHub records the approval, so
+        # the APPROVED run post_verdict just committed may not have replicated to the reader yet.
         approved = (
             ReviewRun.objects.for_team(team_id)
+            .using(router.db_for_write(ReviewRun))
             .filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED, head_sha=pr_head_sha)
             .exists()
         )
@@ -604,16 +609,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         # keeps satisfying required reviews over the newly pushed commits. Retry (don't drop) on
         # failure so a transient blip can't leave the stale approval live.
         if action in _HEAD_CHANGING_ACTIONS:
-            skip_repo_config = _resolve_repo_config(installation_id, repo)
-            # No .enabled filter: a disabled repo's standing approval must not survive a push either.
-            if skip_repo_config is not None:
-                try:
+            # Retry (don't drop) the whole lookup+retraction: the webhook is ACKed, so a transient
+            # DB error on either step would otherwise silently skip the dismissal.
+            try:
+                skip_repo_config = _resolve_repo_config(installation_id, repo)
+                # No .enabled filter: a disabled repo's standing approval must not survive a push either.
+                if skip_repo_config is not None:
                     _retract_stale_approvals_on_skip(skip_repo_config, pr, _UNTRUSTED_SKIP_DISMISS_MESSAGE)
-                except Exception as e:
-                    logger.exception(
-                        "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
-                    )
-                    raise cast(Any, process_pull_request_event).retry(exc=e)
+            except Exception as e:
+                logger.exception(
+                    "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
+                )
+                raise cast(Any, process_pull_request_event).retry(exc=e)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
@@ -668,6 +675,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # legitimate reviews to the same blip.
     try:
         author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+    except GitHubRateLimitError as e:
+        # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
+        # window and burns the attempt budget without ever succeeding.
+        logger.warning("stamphog_pr_event_author_permission_rate_limited", delivery_id=delivery_id)
+        raise cast(Any, process_pull_request_event).retry(exc=e, countdown=max(e.retry_after or 0, 60))
     except Exception as e:
         logger.exception("stamphog_pr_event_author_permission_failed", delivery_id=delivery_id, error=str(e))
         raise cast(Any, process_pull_request_event).retry(exc=e)
