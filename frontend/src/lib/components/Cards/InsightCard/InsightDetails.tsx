@@ -103,7 +103,7 @@ type OverrideSource = 'dashboard' | 'tile'
 // A tile override replaces the dashboard override wholesale (matches backend `apply_dashboard_filters`) —
 // never both at once.
 function getEffectiveFilterOverride(
-    filtersOverride: DashboardFilter | undefined,
+    filtersOverride: DashboardFilter | null | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): { override: DashboardFilter | TileFilters; source: OverrideSource } | null {
     if (tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0) {
@@ -126,47 +126,48 @@ function OverrideNote({ source, children }: { source: OverrideSource; children: 
     )
 }
 
-// The override round-trips through the backend into the merged query and picks up normalized fields
-// the raw override lacks, so a deep-equal fails — compare on the fields that actually identify a filter.
-function isSamePropertyFilter(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
-    const operatorOf = (f: AnyPropertyFilter): string | undefined => ('operator' in f ? f.operator : undefined)
+// Serialization round-trips normalize/add fields, so compare property filters on their identifying
+// parts rather than deep equality.
+function propertyFilterSignature(filter: AnyPropertyFilter | undefined): string {
+    return JSON.stringify([
+        filter?.type ?? 'event',
+        filter?.key ?? null,
+        (filter as { operator?: string } | undefined)?.operator ?? 'exact',
+        filter?.value ?? null,
+    ])
+}
+
+function propertyListsMatch(a: unknown[], b: AnyPropertyFilter[]): boolean {
     return (
-        (a.type ?? 'event') === (b.type ?? 'event') &&
-        a.key === b.key &&
-        (operatorOf(a) ?? 'exact') === (operatorOf(b) ?? 'exact') &&
-        JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null)
+        a.length === b.length &&
+        a.every((f, i) => propertyFilterSignature(f as AnyPropertyFilter) === propertyFilterSignature(b[i]))
     )
 }
 
-function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
-    return a.length === b.length && a.every((f, i) => isSamePropertyFilter(f, b[i]))
-}
-
-// Matches the shape `convertPropertiesToPropertyGroup` accepts: a group, a flat list, or nothing.
-type PropertiesInput = PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
-
-// The query returned for a dashboard tile already has the override's properties ANDed in (as the
-// trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
+// The query returned for a dashboard tile already has the override's properties ANDed in
+// (as the trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
 function splitOutOverrideProperties(
-    properties: PropertiesInput,
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null,
     overrideProperties: AnyPropertyFilter[]
-): { base: PropertiesInput; overrideFound: boolean } {
-    if (!properties || overrideProperties.length === 0) {
+): { base: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null; overrideFound: boolean } {
+    if (!properties) {
         return { base: properties, overrideFound: false }
     }
-    // Flat list: the backend concatenated the override onto the end.
     if (Array.isArray(properties)) {
         const tailStart = properties.length - overrideProperties.length
-        if (tailStart >= 0 && samePropertyFilters(properties.slice(tailStart), overrideProperties)) {
+        if (tailStart >= 0 && propertyListsMatch(properties.slice(tailStart), overrideProperties)) {
             return { base: properties.slice(0, tailStart), overrideFound: true }
         }
         return { base: properties, overrideFound: false }
     }
-    // Group: the backend AND-wrapped the insight's group with the override as the final subgroup.
-    const subgroups = properties.values ?? []
-    const last = subgroups[subgroups.length - 1]
-    if (last && samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)) {
-        return { base: { ...properties, values: subgroups.slice(0, -1) }, overrideFound: true }
+    const values = properties.values ?? []
+    const last = values[values.length - 1]
+    if (last && 'values' in last && Array.isArray(last.values) && propertyListsMatch(last.values, overrideProperties)) {
+        const remaining = values.slice(0, -1)
+        return {
+            base: remaining.length === 1 ? (remaining[0] as PropertyGroupFilter) : { ...properties, values: remaining },
+            overrideFound: true,
+        }
     }
     return { base: properties, overrideFound: false }
 }
@@ -442,19 +443,22 @@ export function PropertiesSummary({
     properties,
     override,
 }: {
-    properties: PropertiesInput
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
     override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
 }): JSX.Element {
-    const { base, overrideFound } = splitOutOverrideProperties(properties, override?.properties ?? [])
+    const hasOverride = !!override && override.properties.length > 0
+    const { base, overrideFound } = hasOverride
+        ? splitOutOverrideProperties(properties, override!.properties)
+        : { base: properties, overrideFound: false }
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
-            {/* overrideFound means we removed the override from the list above, so show it once here. */}
-            {override && overrideFound && (
+            {/* Guards against showing the override twice when the split above fails to match. */}
+            {hasOverride && overrideFound && (
                 <>
-                    <OverrideNote source={override.source}>filters added on top:</OverrideNote>
+                    <OverrideNote source={override!.source}>filters added on top:</OverrideNote>
                     <CompactUniversalFiltersDisplay
-                        groupFilter={convertPropertiesToPropertyGroup(override.properties)}
+                        groupFilter={convertPropertiesToPropertyGroup(override!.properties)}
                     />
                 </>
             )}
@@ -600,7 +604,7 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
-    filtersOverride?: DashboardFilter
+    filtersOverride?: DashboardFilter | null
     tileFiltersOverride?: TileFilters | null
     hasDataWarehouseSeries?: boolean
 }
