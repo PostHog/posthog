@@ -856,6 +856,17 @@ class TestPersonalSpendEUProxy(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         post.assert_not_called()
 
+    def test_over_cap_bucket_window_rejected_without_upstream_call(self) -> None:
+        # The window cap must be enforced EU-side before the cache lookup, not
+        # delegated to the US receiver.
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                response = self._get(
+                    {"product": "posthog_code", "date_from": "-30d", "bucket_minutes": "60"}, user=self.user
+                )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        post.assert_not_called()
+
     def test_relays_upstream_success_and_signs_asserted_email(self) -> None:
         upstream_payload = {"summary": {"scoped_cost_usd": 1.25}}
         with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):

@@ -123,6 +123,40 @@ def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datet
     return from_dt, to_dt
 
 
+def _resolve_and_validate_window(
+    date_from: str, date_to: str | None, bucket_minutes: int | None
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Resolve the window and enforce the bucket cap on the resolved bounds. Shared by
+    the US compute path and the EU proxy, which must run this before its cache lookup:
+    with relative dates the same raw cache key can be cached while the resolved window
+    is under the cap and resolve over it moments later."""
+    from_dt, to_dt = _resolve_window(date_from, date_to)
+    if bucket_minutes is not None:
+        bucket_seconds = bucket_minutes * 60
+        # Count the bucket starts the window can actually produce rows for (unaligned
+        # edges add partial buckets), so `by_bucket` never exceeds MAX_TIME_BUCKETS rows.
+        from_bucket = int(from_dt.timestamp() // bucket_seconds)
+        to_ts = to_dt.timestamp()
+        last_bucket = int(to_ts // bucket_seconds)
+        if to_ts % bucket_seconds == 0:
+            # `date_to` is exclusive (`timestamp < date_to`), so an end aligned exactly
+            # on a bucket boundary can never produce a row in its own bucket.
+            last_bucket -= 1
+        n_buckets = last_bucket - from_bucket + 1
+        if n_buckets > MAX_TIME_BUCKETS:
+            max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
+            raise exceptions.ValidationError(
+                {
+                    "bucket_minutes": (
+                        f"A window this large would span more than {MAX_TIME_BUCKETS} buckets at "
+                        f"{bucket_minutes}-minute resolution; narrow the window to under {max_hours} hours, "
+                        "or pick a larger bucket size."
+                    )
+                }
+            )
+    return from_dt, to_dt
+
+
 class _SpendQueryParamsSerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
@@ -819,30 +853,7 @@ def _compute_spend_analysis(
 ) -> dict[str, Any]:
     """Cached, email-scoped spend analysis shared by the US viewset and the
     cross-region receiver. Expects already-validated params."""
-    from_dt, to_dt = _resolve_window(date_from, date_to)
-    if bucket_minutes is not None:
-        bucket_seconds = bucket_minutes * 60
-        # Count the bucket starts the window can actually produce rows for (unaligned
-        # edges add partial buckets), so `by_bucket` never exceeds MAX_TIME_BUCKETS rows.
-        from_bucket = int(from_dt.timestamp() // bucket_seconds)
-        to_ts = to_dt.timestamp()
-        last_bucket = int(to_ts // bucket_seconds)
-        if to_ts % bucket_seconds == 0:
-            # `date_to` is exclusive (`timestamp < date_to`), so an end aligned exactly
-            # on a bucket boundary can never produce a row in its own bucket.
-            last_bucket -= 1
-        n_buckets = last_bucket - from_bucket + 1
-        if n_buckets > MAX_TIME_BUCKETS:
-            max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
-            raise exceptions.ValidationError(
-                {
-                    "bucket_minutes": (
-                        f"A window this large would span more than {MAX_TIME_BUCKETS} buckets at "
-                        f"{bucket_minutes}-minute resolution; narrow the window to under {max_hours} hours, "
-                        "or pick a larger bucket size."
-                    )
-                }
-            )
+    from_dt, to_dt = _resolve_and_validate_window(date_from, date_to, bucket_minutes)
 
     cache_key = _cache_key(email, date_from, date_to, product, limit, bucket_minutes)
 
@@ -1112,10 +1123,14 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
 
         email = self._require_email(request)
 
-        # Validate in-region so bad requests 400 without paying for the hop.
+        # Validate in-region so bad requests 400 without paying for the hop. The window
+        # check must precede the cache lookup: the cache is keyed on the raw date
+        # strings, so a relative window cached while under the bucket cap could
+        # otherwise keep serving after it resolves over the cap.
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         data = params.validated_data
+        _resolve_and_validate_window(data["date_from"], data["date_to"], data.get("bucket_minutes"))
 
         # Same cache as the US compute path, so repeat loads skip the cross-region hop.
         cache_key = _cache_key(
