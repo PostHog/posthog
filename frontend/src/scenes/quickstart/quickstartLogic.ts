@@ -5,13 +5,16 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { availableOnboardingProducts, toSentenceCase } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import type { OnboardingProduct, TeamPublicType, TeamType } from '~/types'
+import type { CyclotronJobFiltersType, OnboardingProduct, TeamPublicType, TeamType } from '~/types'
+
+import { ERROR_TRACKING_SUB_TEMPLATE_IDS } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/alertWizardConfig'
 
 import { PublicationFeedKey, QuickstartPublication, fetchPublicationsPage } from './publications'
 import type { quickstartLogicType } from './quickstartLogicType'
@@ -70,6 +73,9 @@ export interface QuickstartResources {
     sourcesCount: number | null
     workflowsCount: number | null
     eventTriggeredWorkflows: number | null
+    symbolSetsCount: number | null
+    errorAlertsCount: number | null
+    ticketsCount: number | null
 }
 
 const EMPTY_RESOURCES: QuickstartResources = {
@@ -78,7 +84,16 @@ const EMPTY_RESOURCES: QuickstartResources = {
     sourcesCount: null,
     workflowsCount: null,
     eventTriggeredWorkflows: null,
+    symbolSetsCount: null,
+    errorAlertsCount: null,
+    ticketsCount: null,
 }
+
+// The same hog function filters the error tracking alerting scene lists: an alert exists
+// when a destination matches one of the product's alert sub-templates
+const ERROR_TRACKING_ALERT_FILTERS = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+    (filters): filters is CyclotronJobFiltersType => !!filters
+)
 
 export interface QuickstartActivationData {
     signals: QuickstartToolSignals | null
@@ -340,6 +355,16 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 label: 'Capture exceptions from a server SDK too',
                 achieved: ({ signals }) => signals.serverExceptions > 0,
             },
+            {
+                key: 'source_maps',
+                label: 'Upload source maps for readable stack traces',
+                achieved: ({ resources }) => (resources.symbolSetsCount ?? 0) > 0,
+            },
+            {
+                key: 'alert',
+                label: 'Set up an alert for new exceptions',
+                achieved: ({ resources }) => (resources.errorAlertsCount ?? 0) > 0,
+            },
             productionTraffic,
         ],
         stat: ({ signals }) => ({ value: signals.exceptions, label: 'exceptions · 30d' }),
@@ -511,7 +536,7 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
     },
     [ProductKey.CONVERSATIONS]: {
         bestFor: 'customer support',
-        // Admin-gated team field: members see setup guidance instead of a dead button
+        // Admin-gated team field: the enable listener explains the permission on a 403
         optInPayload: { conversations_enabled: true },
         enabled: (team) => !!team.conversations_enabled,
         activation: [
@@ -520,8 +545,14 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 label: 'Turn on Support',
                 achieved: ({ team }) => !!team.conversations_enabled,
             },
+            {
+                key: 'first_ticket',
+                label: 'Connect a channel and receive your first ticket',
+                achieved: ({ resources }) => (resources.ticketsCount ?? 0) > 0,
+            },
         ],
         quality: [],
+        stat: ({ resources }) => ({ value: resources.ticketsCount ?? 0, label: 'tickets' }),
     },
 }
 
@@ -671,14 +702,29 @@ export const quickstartLogic = kea<quickstartLogicType>([
                             FROM raw_session_replay_events
                             WHERE min_first_timestamp >= now() - INTERVAL 30 DAY`
 
-                        const [signalsResult, replayResult, hasLogsResult, sourcesResult, flowsResult] =
-                            await Promise.allSettled([
-                                api.queryHogQL(signalsQuery, queryTags),
-                                api.queryHogQL(replayQuery, queryTags),
-                                api.logs.hasLogs(),
-                                api.externalDataSources.list(),
-                                api.hogFlows.getHogFlows(),
-                            ])
+                        const [
+                            signalsResult,
+                            replayResult,
+                            hasLogsResult,
+                            sourcesResult,
+                            flowsResult,
+                            symbolSetsResult,
+                            alertsResult,
+                            ticketsResult,
+                        ] = await Promise.allSettled([
+                            api.queryHogQL(signalsQuery, queryTags),
+                            api.queryHogQL(replayQuery, queryTags),
+                            api.logs.hasLogs(),
+                            api.externalDataSources.list(),
+                            api.hogFlows.getHogFlows(),
+                            api.errorTracking.symbolSets.list({ offset: 0, limit: 1 }),
+                            api.hogFunctions.list({
+                                types: ['destination'],
+                                filter_groups: ERROR_TRACKING_ALERT_FILTERS,
+                                limit: 1,
+                            }),
+                            api.conversationsTickets.list({ limit: 1 }),
+                        ])
 
                         let signals: QuickstartToolSignals | null = null
                         if (signalsResult.status === 'fulfilled') {
@@ -722,6 +768,18 @@ export const quickstartLogic = kea<quickstartLogicType>([
                             eventTriggeredWorkflows: activeWorkflows
                                 ? activeWorkflows.filter((flow) => flow.trigger?.type === 'event').length
                                 : null,
+                            symbolSetsCount:
+                                symbolSetsResult.status === 'fulfilled'
+                                    ? (symbolSetsResult.value.count ?? symbolSetsResult.value.results?.length ?? 0)
+                                    : null,
+                            errorAlertsCount:
+                                alertsResult.status === 'fulfilled'
+                                    ? (alertsResult.value.count ?? alertsResult.value.results?.length ?? 0)
+                                    : null,
+                            ticketsCount:
+                                ticketsResult.status === 'fulfilled'
+                                    ? (ticketsResult.value.count ?? ticketsResult.value.results?.length ?? 0)
+                                    : null,
                         }
 
                         const data: QuickstartActivationData = { signals, resources }
@@ -814,9 +872,15 @@ export const quickstartLogic = kea<quickstartLogicType>([
             }
             try {
                 await teamLogic.asyncActions.updateCurrentTeam(definition.optInPayload)
-            } catch {
-                // The opt-in didn't apply, so don't record an enable that never happened
-                lemonToast.error("Couldn't enable it. Please try again.")
+            } catch (error) {
+                // The opt-in didn't apply, so don't record an enable that never happened.
+                // Some team fields (e.g. conversations_enabled) are admin-only.
+                const status = (error as { status?: number } | null)?.status
+                lemonToast.error(
+                    status === 403
+                        ? 'Only project admins can turn this on. Ask an admin to enable it.'
+                        : "Couldn't enable it. Please try again."
+                )
                 return
             } finally {
                 actions.productEnableFinished(productKey)

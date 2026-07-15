@@ -72,6 +72,9 @@ const meta: Meta = {
                 '/api/environments/:team_id/hog_flows/': {
                     results: [{ id: '1', status: 'active', trigger: { type: 'event' } }],
                 },
+                '/api/environments/:team_id/error_tracking/symbol_sets/': { count: 1, results: [] },
+                '/api/environments/:team_id/hog_functions/': { count: 0, results: [] },
+                '/api/projects/:team_id/conversations/tickets/': { count: 12, results: [] },
                 'https://posthog.com/rss.xml': () =>
                     new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
             },
