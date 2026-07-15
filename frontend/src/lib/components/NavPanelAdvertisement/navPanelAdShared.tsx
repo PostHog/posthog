@@ -97,6 +97,42 @@ function GeometricPattern(): JSX.Element {
     )
 }
 
+/**
+ * Presentational product "hog + text" hero: a Hoggie illustration over the product's brand-tinted
+ * geometric background, with a title and blurb below. Shared by the nav advertisement card and the
+ * welcome dialog's flagship-products showcase so both read as one visual. ``topRight`` is an optional
+ * slot for an overlay control (e.g. a dismiss button); the welcome showcase leaves it empty.
+ */
+export function ProductHogHero({
+    hero,
+    title,
+    text,
+    topRight,
+}: {
+    hero: ProductPushDisplay
+    title: string
+    text: string
+    topRight?: JSX.Element
+}): JSX.Element {
+    return (
+        <>
+            <div
+                className="relative flex h-24 items-center justify-center"
+                style={{ backgroundColor: hero.accentColor }}
+            >
+                <GeometricPattern />
+                <hero.Hoggie className="relative h-20 w-auto" aria-hidden="true" />
+                <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-surface-primary" />
+                {topRight ? <div className="absolute top-1 right-1">{topRight}</div> : null}
+            </div>
+            <div className="flex flex-col gap-1 px-2 pt-0.5 pb-2">
+                <strong className="text-sm leading-tight">{title}</strong>
+                <p className="mb-0 text-secondary">{text}</p>
+            </div>
+        </>
+    )
+}
+
 export function AdvertisementCard({
     emoji,
     emojiLabel,
@@ -136,21 +172,7 @@ export function AdvertisementCard({
     return (
         <div className="overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
             {hero ? (
-                <>
-                    <div
-                        className="relative flex h-24 items-center justify-center"
-                        style={{ backgroundColor: hero.accentColor }}
-                    >
-                        <GeometricPattern />
-                        <hero.Hoggie className="relative h-20 w-auto" aria-hidden="true" />
-                        <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-surface-primary" />
-                        <div className="absolute top-1 right-1">{dismissButton}</div>
-                    </div>
-                    <div className="flex flex-col gap-1 px-2 pt-0.5 pb-2">
-                        <strong className="text-sm leading-tight">{title}</strong>
-                        <p className="mb-0 text-secondary">{text}</p>
-                    </div>
-                </>
+                <ProductHogHero hero={hero} title={title} text={text} topRight={dismissButton} />
             ) : (
                 <div className="flex flex-col gap-1 px-2 py-1.5">
                     <div className="flex items-start justify-between gap-2">
