@@ -2,17 +2,28 @@ import time
 import asyncio
 import threading
 import contextvars
+from pathlib import Path
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pyarrow as pa
+import deltalake
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import (
     PipelineNonDLT,
+    _evolve_schema_or_widen,
     async_iterate,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
+)
 
 _probe: contextvars.ContextVar[str | None] = contextvars.ContextVar("probe", default=None)
 
@@ -131,3 +142,58 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
         await pipeline.run()
 
     pipeline._logger.aexception.assert_awaited_once_with("Failed to clean up delta table helper")
+
+
+def _wedged_local_helper(tmp_path: Path) -> tuple[str, DeltaTableHelper]:
+    """A DeltaTableHelper over a local table whose price column is locked to int64."""
+    delta_path = str(tmp_path / "table")
+    deltalake.write_deltalake(
+        delta_path, pa.table({"id": pa.array([1, 2], type=pa.int64()), "price": pa.array([0, 10], type=pa.int64())})
+    )
+    logger = MagicMock(adebug=AsyncMock(), ainfo=AsyncMock(), awarning=AsyncMock())
+    helper = DeltaTableHelper(resource_name="events", job=MagicMock(), logger=logger)
+    patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value=delta_path)).start()
+    patch.object(helper, "_get_credentials", new=MagicMock(return_value={})).start()
+    helper.get_delta_table.cache_clear()
+    return delta_path, helper
+
+
+def _webhook_resource(*, webhook_only: bool) -> SourceResponse:
+    return SourceResponse(name="events", items=lambda: [], primary_keys=["id"], webhook_only=webhook_only)
+
+
+@pytest.mark.asyncio
+async def test_evolve_schema_or_widen_unwedges_webhook_only_table(tmp_path: Path):
+    # The production incident: a webhook-only table locked to int64 can't take the
+    # "reset and fully re-sync" advice (handle_reset_or_full_refresh no-ops the reset
+    # for it), so the type conflict must be resolved by widening the table in place.
+    _, helper = _wedged_local_helper(tmp_path)
+    delta_table = await helper.get_delta_table()
+    incoming = pa.table({"id": pa.array([3], type=pa.int64()), "price": pa.array([19.99], type=pa.float64())})
+
+    evolved = await _evolve_schema_or_widen(incoming, delta_table, _webhook_resource(webhook_only=True), helper)
+
+    assert evolved.schema.field("price").type == pa.float64()
+    assert evolved.column("price").to_pylist() == [19.99]
+    refreshed = await helper.get_delta_table()
+    assert refreshed is not None
+    stored = refreshed.to_pyarrow_table()
+    assert stored.schema.field("price").type == pa.float64()
+    by_id = dict(zip(stored.column("id").to_pylist(), stored.column("price").to_pylist()))
+    assert by_id == {1: 0.0, 2: 10.0}
+
+
+@pytest.mark.asyncio
+async def test_evolve_schema_or_widen_still_raises_for_poll_sources(tmp_path: Path):
+    # Poll-based sources keep the fail-fast behavior: reset and re-sync genuinely works
+    # for them, and a surprise full-table rewrite mid-sync is not acceptable there.
+    delta_path, helper = _wedged_local_helper(tmp_path)
+    delta_table = await helper.get_delta_table()
+    incoming = pa.table({"id": pa.array([3], type=pa.int64()), "price": pa.array([19.99], type=pa.float64())})
+
+    with pytest.raises(SchemaColumnTypeChangedException):
+        await _evolve_schema_or_widen(incoming, delta_table, _webhook_resource(webhook_only=False), helper)
+
+    untouched = deltalake.DeltaTable(delta_path)
+    assert untouched.version() == 0
+    assert untouched.to_pyarrow_table().schema.field("price").type == pa.int64()

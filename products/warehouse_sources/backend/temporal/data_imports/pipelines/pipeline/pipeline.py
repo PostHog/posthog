@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
@@ -89,6 +90,33 @@ T = TypeVar("T")
 # (e.g. Stripe API pagination) can't starve the default executor which is
 # shared by logging, DB operations, and S3 writes.
 _SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
+
+
+async def _evolve_schema_or_widen(
+    pa_table: pa.Table,
+    delta_table: deltalake.DeltaTable | None,
+    resource: SourceResponse,
+    delta_table_helper: DeltaTableHelper,
+) -> pa.Table:
+    """Evolve the incoming batch toward the stored Delta schema, widening the table when it can't.
+
+    A stored-type conflict normally surfaces `SchemaColumnTypeChangedException`, whose remedy is
+    a reset and full re-sync. For webhook-only resources that remedy is a dead end:
+    `handle_reset_or_full_refresh` deliberately no-ops the reset for them (webhook rows cannot be
+    re-pulled from any API), so the table would wedge forever on the first conflicting value —
+    e.g. an `events` table whose price column was created int64 from whole-valued deliveries,
+    then receives 19.99. Widening the stored column in place is the only escape, so it happens
+    here, transparently, and the batch is evolved against the widened schema.
+    """
+    try:
+        return evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+    except SchemaColumnTypeChangedException:
+        if delta_table is None or not resource.webhook_only:
+            raise
+        widened_table = await delta_table_helper.widen_stored_column_types(pa_table.schema)
+        if widened_table is None:
+            raise
+        return evolve_pyarrow_schema(pa_table, widened_table.schema())
 
 
 async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
@@ -394,7 +422,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = await _evolve_schema_or_widen(pa_table, delta_table, self._resource, self._delta_table_helper)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"

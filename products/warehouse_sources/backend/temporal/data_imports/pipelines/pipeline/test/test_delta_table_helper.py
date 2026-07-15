@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _first_per_pk_table,
     _realign_decimal_buffers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
+    evolve_pyarrow_schema,
+)
 
 
 def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
@@ -901,6 +904,88 @@ class TestRunMaintenance:
 
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+def _create_int_price_table(path: str, *, partitioned: bool = False, prices: list[int | None] | None = None) -> None:
+    """Seed a Delta table whose price column got locked to int64 by whole-valued first
+    deliveries — the wedge `widen_stored_column_types` exists to escape."""
+    prices = prices if prices is not None else [0, 10, None]
+    fields = [pa.field("id", pa.int64()), pa.field("price", pa.int64())]
+    data: dict[str, Any] = {
+        "id": pa.array(range(1, len(prices) + 1), type=pa.int64()),
+        "price": pa.array(prices, type=pa.int64()),
+    }
+    if partitioned:
+        fields.append(pa.field(PARTITION_KEY, pa.string()))
+        data[PARTITION_KEY] = pa.array(["p0"] * len(prices))
+    deltalake.write_deltalake(
+        path, pa.table(data, schema=pa.schema(fields)), partition_by=PARTITION_KEY if partitioned else None
+    )
+
+
+def _fractional_price_batch(*, partitioned: bool = False) -> pa.Table:
+    data: dict[str, Any] = {"id": pa.array([4], type=pa.int64()), "price": pa.array([19.99], type=pa.float64())}
+    if partitioned:
+        data[PARTITION_KEY] = pa.array(["p0"])
+    return pa.table(data)
+
+
+class TestWidenStoredColumnTypes:
+    @pytest.mark.parametrize("partitioned", [False, True], ids=["flat", "partitioned"])
+    @pytest.mark.asyncio
+    async def test_widens_int_column_to_double_preserving_rows_and_partitioning(
+        self, partitioned: bool, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        _create_int_price_table(delta_path, partitioned=partitioned)
+        helper = _make_local_helper(delta_path)
+        incoming = _fractional_price_batch(partitioned=partitioned)
+
+        # Baseline: the incoming batch genuinely conflicts with the stored schema.
+        with pytest.raises(SchemaColumnTypeChangedException):
+            evolve_pyarrow_schema(incoming, deltalake.DeltaTable(delta_path).schema())
+
+        result = await helper.widen_stored_column_types(incoming.schema)
+
+        assert result is not None
+        final = result.to_pyarrow_table()
+        assert final.schema.field("price").type == pa.float64()
+        by_id = dict(zip(final.column("id").to_pylist(), final.column("price").to_pylist()))
+        assert by_id == {1: 0.0, 2: 10.0, 3: None}
+        expected_partition_columns = [PARTITION_KEY] if partitioned else []
+        assert result.metadata().partition_columns == expected_partition_columns
+
+        # The wedge is gone: the conflicting batch now evolves cleanly against the new schema.
+        evolved = evolve_pyarrow_schema(incoming, result.schema())
+        assert evolved.column("price").to_pylist() == [19.99]
+
+    @pytest.mark.parametrize(
+        "stored_prices, incoming_price_type",
+        [
+            # int64 beyond 2**53 loses precision as a double: the round-trip check must abort.
+            ([2**53 + 1], pa.float64()),
+            # Incoming type matches the stored type: nothing to widen.
+            ([1, 2], pa.int64()),
+        ],
+        ids=["unsafe_beyond_double_precision", "nothing_widenable"],
+    )
+    @pytest.mark.asyncio
+    async def test_returns_none_and_leaves_table_untouched(
+        self, stored_prices: list[int], incoming_price_type: pa.DataType, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        _create_int_price_table(delta_path, prices=cast(list[Any], stored_prices))
+        helper = _make_local_helper(delta_path)
+        incoming_schema = pa.schema([pa.field("id", pa.int64()), pa.field("price", incoming_price_type)])
+
+        result = await helper.widen_stored_column_types(incoming_schema)
+
+        assert result is None
+        untouched = deltalake.DeltaTable(delta_path)
+        assert untouched.version() == 0
+        final = untouched.to_pyarrow_table()
+        assert final.schema.field("price").type == pa.int64()
+        assert sorted(final.column("price").to_pylist()) == sorted(stored_prices)
 
 
 class TestIsTableCorrupted:
