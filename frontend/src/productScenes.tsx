@@ -129,6 +129,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
+    WebAnalyticsPrecomputeDebug: () => import('../../products/web_analytics/frontend/PrecomputeDebugScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
