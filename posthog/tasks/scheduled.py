@@ -91,7 +91,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_dogfood_flags_task,
 )
-from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task, logs_clickhouse_lag_metrics_task
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import sync_pending_signals_refund_credits
 from products.streamlit_apps.backend.facade.api import (
@@ -617,6 +617,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="8", minute="15"),
         logs_alert_events_cleanup_task.s(),
         name="clean up old logs alert events",
+    )
+
+    # Self-gated: a no-op unless OTEL_METRICS_EXPORT_URL/TOKEN are configured.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(),  # every minute
+        logs_clickhouse_lag_metrics_task.s(),
+        name="export logs pipeline clickhouse lag metrics",
     )
 
     if settings.EE_AVAILABLE:
