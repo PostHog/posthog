@@ -431,6 +431,22 @@ class TestRevenueCatWebhookTableTransformer:
         assert rows[0]["price"] == 0.0
         assert rows[1]["price"] is None
 
+    def test_all_null_double_fields_are_still_typed_as_float(self):
+        # A first batch where a double field is null on every row (e.g. TRANSFER events)
+        # would otherwise infer a `null` column, which the delta write path stores as
+        # string — silently stringifying every later price instead of erroring.
+        table = table_from_py_list(
+            [
+                {"api_version": "1.0", "event": {"id": "evt-1", "type": "TRANSFER", "price": None}},
+                {"api_version": "1.0", "event": {"id": "evt-2", "type": "TRANSFER", "price": None}},
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+
+        assert result.schema.field("price").type == pa.float64()
+        assert result.column("price").to_pylist() == [None, None]
+
     def test_skips_created_at_derivation_when_event_timestamp_ms_missing(self):
         # Older RevenueCat events or test deliveries may omit the timestamp
         # entirely. Don't synthesize a fake `created_at` value — the partition
