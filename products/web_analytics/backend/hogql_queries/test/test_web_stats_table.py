@@ -12,7 +12,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -83,15 +82,6 @@ class FloatAwareTestCase(unittest.TestCase):
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
     QUERY_TIMESTAMP = "2025-01-29"
-
-    def setUp(self):
-        super().setUp()
-        patcher = patch(
-            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
-            return_value=False,
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
         per_path_durations: defaultdict[Any, list] = defaultdict(list)
