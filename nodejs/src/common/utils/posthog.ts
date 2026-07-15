@@ -111,15 +111,19 @@ type Primitive = number | string | boolean | bigint | symbol | null | undefined
 interface ExceptionHint {
     tags: Record<string, Primitive>
     extra: Record<string, any>
+    // Overrides error tracking's automatic grouping. Set this when the automatic fingerprint
+    // would collapse unrelated exceptions into one issue (e.g. captures that share a synthetic
+    // stack trace). Error tracking honours it as a manual fingerprint.
+    fingerprint: string
 }
 
 export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
     if (posthog) {
-        let additionalProperties = {}
+        const additionalProperties: Record<string, any> = {}
         if (hint) {
-            additionalProperties = {
-                ...(hint.tags || {}),
-                ...(hint.extra || {}),
+            Object.assign(additionalProperties, hint.tags || {}, hint.extra || {})
+            if (hint.fingerprint) {
+                additionalProperties['$exception_fingerprint'] = hint.fingerprint
             }
         }
 

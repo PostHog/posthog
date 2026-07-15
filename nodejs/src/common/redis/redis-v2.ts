@@ -1,6 +1,8 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
+import { Counter } from 'prom-client'
 
+import { defaultConfig } from '~/common/config/config'
 import { RedisPoolConfig, createRedisFromConfig } from '~/common/utils/db/redis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
@@ -9,6 +11,12 @@ import { captureException } from '~/common/utils/posthog'
 import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'
+
+const redisCallTimeoutCounter = new Counter({
+    name: 'redis_v2_call_timeout_total',
+    help: 'Number of Redis calls whose timeout guard fired before the call completed',
+    labelNames: ['name'],
+})
 
 type WithCheckRateLimit<TV2, TV3, TGuarded> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
@@ -40,6 +48,10 @@ export type RedisOptions = {
     name: string
     timeout?: number
     failOpen?: boolean
+    // Routine slow-path calls (health-check pings, background publishers) can opt out of the
+    // error-tracking capture when their guard fires — they still log and increment a metric.
+    // Defaults to true to preserve existing behaviour.
+    captureTimeout?: boolean
 }
 
 export type RedisV2 = {
@@ -48,6 +60,14 @@ export type RedisV2 = {
         options: RedisOptions,
         callback: (pipeline: RedisClientPipeline) => void
     ) => Promise<Array<[Error | null, any]> | null>
+}
+
+const formatTimeout = (timeoutMs: number): string => {
+    if (timeoutMs < 1000) {
+        return `${timeoutMs}ms`
+    }
+    const seconds = timeoutMs / 1000
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} seconds`
 }
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
@@ -74,10 +94,13 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
     )
 
     const useClient: RedisV2['useClient'] = async (options, callback) => {
+        const timeoutMs = options.timeout ?? defaultConfig.TASK_TIMEOUT * 1000
         const timeout = timeoutGuard(
-            `Redis call ${options.name} delayed. Waiting over 30 seconds.`,
+            `Redis call ${options.name} delayed. Waited over ${formatTimeout(timeoutMs)}.`,
             undefined,
-            options.timeout
+            timeoutMs,
+            options.captureTimeout ?? true,
+            () => redisCallTimeoutCounter.labels({ name: options.name }).inc()
         )
         const client = await pool.acquire()
 
