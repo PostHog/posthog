@@ -48552,6 +48552,7 @@
         },
         "UserProductListReason": {
             "enum": [
+                "default",
                 "onboarding",
                 "product_intent",
                 "used_by_colleagues",

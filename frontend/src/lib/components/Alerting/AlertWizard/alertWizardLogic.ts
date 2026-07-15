@@ -137,7 +137,7 @@ function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations:
 export const alertWizardLogic = kea<alertWizardLogicType>([
     props({} as AlertWizardLogicProps),
     key((p) => p.logicKey),
-    path((key) => ['scenes', 'hog-functions', 'AlertWizard', 'alertWizardLogic', key]),
+    path((key) => ['lib', 'components', 'Alerting', 'AlertWizard', 'alertWizardLogic', key]),
 
     actions({
         setAlertCreationView: (view: AlertCreationView) => ({ view }),
