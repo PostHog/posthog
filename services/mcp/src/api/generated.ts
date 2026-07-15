@@ -13983,6 +13983,17 @@ export namespace Schemas {
       Analytical: 'analytical',
     } as const;
 
+    export interface CohortConditionTypeFlags {
+      /** The filters include a person property or person_metadata condition. */
+      person_properties: boolean;
+      /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+      behavioral: boolean;
+      /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+      lifecycle: boolean;
+      /** The filters include a nested reference to another cohort. */
+      cohorts: boolean;
+    }
+
     export interface Cohort {
       readonly id: number;
       /**
@@ -14022,6 +14033,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type: CohortConditionTypeFlags | null;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -33753,6 +33766,7 @@ export namespace Schemas {
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
      * * `unknown` - unknown
+     * * `sync_paused` - sync_paused
      */
     export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
 
@@ -33765,6 +33779,7 @@ export namespace Schemas {
       UpToDate: 'up_to_date',
       NeedsAttention: 'needs_attention',
       Unknown: 'unknown',
+      SyncPaused: 'sync_paused',
     } as const;
 
     export interface ManagedWarehouseDatasetStatus {
@@ -33781,7 +33796,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the current readiness state. */
       detail: string;
@@ -33819,7 +33835,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of this source's readiness state. */
       detail: string;
@@ -33848,7 +33865,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
       detail: string;
@@ -33865,7 +33883,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       overall_readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Events backfill readiness. */
       events: ManagedWarehouseDatasetStatus;
@@ -33896,7 +33915,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
@@ -41142,6 +41162,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type?: CohortConditionTypeFlags | null;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
@@ -52489,13 +52511,15 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
       limited: QuotaLimitsResponseLimited;
+      /** Whether the team's organization pays for PostHog Code usage: billing grants the `posthog_code_usage` product feature only on the Code usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Code behavior on this; an org unknown to billing reads as not paying. */
+      code_usage_billing_active: boolean;
     }
 
     export interface RawUnmatchedSample {
