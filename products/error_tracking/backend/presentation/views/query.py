@@ -5,9 +5,12 @@ from typing import Literal, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
+
+from posthog.hogql.errors import ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -182,9 +185,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     tags={"productKey": "error_tracking"},
                 )
                 with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-                    event_data = (
-                        EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
-                    )
+                    try:
+                        event_data = (
+                            EventsQueryRunner(team=self.team, query=context_event_query, user=request.user)
+                            .calculate()
+                            .model_dump(mode="json")
+                        )
+                    except ResolutionError as error:
+                        raise ValidationError(str(error)) from error
                 if event_data.get("error"):
                     logger.warning(
                         "error_tracking_issue_context_query_failed",
@@ -256,7 +264,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             tags={"productKey": "error_tracking"},
         )
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+            try:
+                data = (
+                    EventsQueryRunner(team=self.team, query=query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+            except ResolutionError as error:
+                raise ValidationError(str(error)) from error
         raw_columns = data.get("columns")
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
         raw_results_value = data.get("results")

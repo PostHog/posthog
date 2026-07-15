@@ -11,7 +11,11 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
     build_fingerprint_event_where,
     build_issue_filters,
@@ -553,6 +557,33 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
+
+    def test_issue_events_honors_user_property_access(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="$referrer",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        self.create_issue()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "include": ["navigation"]},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "Access to property '$referrer' is restricted" in str(response.json())
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
