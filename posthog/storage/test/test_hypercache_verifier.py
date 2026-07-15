@@ -8,15 +8,19 @@ Tests cover:
 - Error handling and edge cases
 """
 
+from functools import partial
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.db.models import QuerySet
 from django.test import TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import (
     MAX_FIXED_TEAM_IDS_TO_LOG,
     VerificationResult,
@@ -881,19 +885,29 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.skipped_for_grace_period == 0
 
 
+def _make_verifier_config(teams_queryset: QuerySet[Team], refresh_only_fields: list[str] | None = None) -> MagicMock:
+    """Mock config with real-config defaults: bare MagicMock attributes are truthy where
+    HyperCacheManagementConfig defaults to None, and narrow_team_queryset must run for
+    real so the verifier gets an actual queryset back."""
+    config = MagicMock()
+    config.refresh_only_fields = refresh_only_fields
+    config.should_skip_write = None
+    config.get_team_ids_to_skip_fix_fn = None
+    config.get_teams_queryset.return_value = teams_queryset
+    config.narrow_team_queryset.side_effect = partial(HyperCacheManagementConfig.narrow_team_queryset, config)
+    config.hypercache.batch_load_fn = None
+    config.hypercache.batch_get_from_cache.return_value = {}
+    config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+    return config
+
+
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixAllTeams(BaseTest):
     """Test verify_and_fix_all_teams function."""
 
     def test_processes_all_teams_in_chunks(self):
         """Test that all teams are processed in chunks."""
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.should_skip_write = None  # default: no write guard
-        mock_config.get_teams_queryset.return_value = Team.objects.all()
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+        mock_config = _make_verifier_config(Team.objects.all())
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "match", "issue": None}
@@ -910,17 +924,10 @@ class TestVerifyAndFixAllTeams(BaseTest):
         assert result.total >= 1
 
     def test_narrows_selected_columns_to_refresh_fields(self):
-        """The verification SELECT is narrowed via .only() when the config sets
-        refresh_only_fields, so a Team column the read replica hasn't migrated yet
-        can't turn the whole sweep into an UndefinedColumn error. Guards against
-        reverting to a `SELECT *` that fetches every column."""
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = ["id", "project_id", "organization_id"]
-        mock_config.should_skip_write = None
-        mock_config.get_teams_queryset.return_value = Team.objects.all()
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+        """refresh_only_fields narrows the batch SELECT so a replica-lag UndefinedColumn can't abort a sweep."""
+        mock_config = _make_verifier_config(
+            Team.objects.all(), refresh_only_fields=["id", "project_id", "organization_id"]
+        )
 
         seen_teams: list[Team] = []
 
@@ -945,14 +952,8 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
     def test_returns_aggregated_results(self):
         """Test that results are aggregated across all chunks."""
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.should_skip_write = None  # default: no write guard
-        mock_config.get_teams_queryset.return_value = Team.objects.all()
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config = _make_verifier_config(Team.objects.all())
         mock_config.update_fn.return_value = True
-        mock_config.get_team_ids_to_skip_fix_fn = None
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
@@ -972,13 +973,8 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_fixed_batches_under_progress_interval_emit_batch_fix_logs(self):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[self.team.id, team2.id])
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config = _make_verifier_config(Team.objects.filter(id__in=[self.team.id, team2.id]))
         mock_config.update_fn.return_value = True
-        mock_config.get_team_ids_to_skip_fix_fn = None
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
@@ -1015,13 +1011,8 @@ class TestVerifyAndFixAllTeams(BaseTest):
             Team.objects.create(organization=self.organization, name="Team 3"),
         ]
 
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[team.id for team in teams])
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config = _make_verifier_config(Team.objects.filter(id__in=[team.id for team in teams]))
         mock_config.update_fn.return_value = True
-        mock_config.get_team_ids_to_skip_fix_fn = None
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
@@ -1050,13 +1041,8 @@ class TestVerifyAndFixAllTeams(BaseTest):
     def test_periodic_progress_log_reports_aggregate_fix_and_failure_counts(self):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[self.team.id, team2.id])
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config = _make_verifier_config(Team.objects.filter(id__in=[self.team.id, team2.id]))
         mock_config.update_fn.side_effect = [True, False]
-        mock_config.get_team_ids_to_skip_fix_fn = None
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
@@ -1099,13 +1085,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
         """Only teams returned by get_teams_queryset() are verified."""
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.should_skip_write = None  # default: no write guard
-        mock_config.get_teams_queryset.return_value = Team.objects.filter(id=team2.id)
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+        mock_config = _make_verifier_config(Team.objects.filter(id=team2.id))
 
         verified_team_ids: list[int] = []
 
@@ -1127,12 +1107,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
 
     def test_empty_queryset_processes_zero_teams(self):
         """When get_teams_queryset() returns empty queryset, no teams are verified."""
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.should_skip_write = None  # default: no write guard
-        mock_config.get_teams_queryset.return_value = Team.objects.none()
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config = _make_verifier_config(Team.objects.none())
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             raise AssertionError("Should never be called")
@@ -1149,13 +1124,7 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
 
     def test_iterates_all_teams_when_queryset_fn_is_none(self):
         """When get_teams_queryset() has no scoping function, all teams are verified."""
-        mock_config = MagicMock()
-        mock_config.refresh_only_fields = None  # real configs default to None; MagicMock would be truthy
-        mock_config.should_skip_write = None  # default: no write guard
-        mock_config.get_teams_queryset.return_value = Team.objects.all()
-        mock_config.hypercache.batch_load_fn = None
-        mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
+        mock_config = _make_verifier_config(Team.objects.all())
 
         def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "match", "issue": None}
