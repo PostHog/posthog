@@ -1,7 +1,5 @@
 version: 1
 owners: []
 rules:
-    - match: '/proxy.py'
-      owners: [team-ai-gateway]
-    - match: '/test/test_proxy.py'
+    - match: ['/proxy.py', '/test/test_proxy.py']
       owners: [team-ai-gateway]

@@ -5,13 +5,9 @@ rules:
       owners: [team-ai-observability]
     - match: '/alerts/'
       owners: [team-analytics-platform]
-    - match: '/calculate_cohort.py'
+    - match: ['/calculate_cohort.py', '/early_access_feature.py']
       owners: [team-feature-flags]
-    - match: '/early_access_feature.py'
-      owners: [team-feature-flags]
-    - match: '/email.py'
-      owners: [team-platform-features]
-    - match: '/email_utils.py'
+    - match: ['/email.py', '/email_utils.py']
       owners: [team-platform-features]
     - match: '/split_person.py'
       owners: [team-ingestion]
@@ -21,15 +17,14 @@ rules:
       owners: [team-billing]
     - match: '/test/test_ai_observability_usage_report.py'
       owners: [team-ai-observability]
-    - match: '/test/test_stop_surveys_reached_target.py'
-      owners: [team-surveys]
-    - match: '/test/test_update_survey_adaptive_sampling.py'
-      owners: [team-surveys]
-    - match: '/test/test_update_survey_iteration.py'
-      owners: [team-surveys]
-    - match: '/update_survey_adaptive_sampling.py'
-      owners: [team-surveys]
-    - match: '/update_survey_iteration.py'
+    - match:
+          [
+              '/test/test_stop_surveys_reached_target.py',
+              '/test/test_update_survey_adaptive_sampling.py',
+              '/test/test_update_survey_iteration.py',
+              '/update_survey_adaptive_sampling.py',
+              '/update_survey_iteration.py',
+          ]
       owners: [team-surveys]
     - match: '/usage_report.py'
       owners: [team-billing]

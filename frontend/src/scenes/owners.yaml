@@ -13,11 +13,7 @@ rules:
       owners: [team-analytics-platform]
     - match: '/annotations/'
       owners: [team-product-analytics]
-    - match: '/approvals/'
-      owners: [team-platform-features]
-    - match: '/audit-logs/'
-      owners: [team-platform-features]
-    - match: '/authentication/'
+    - match: ['/approvals/', '/audit-logs/', '/authentication/']
       owners: [team-platform-features]
     - match: '/billing/'
       owners: [team-billing]
@@ -43,9 +39,7 @@ rules:
       owners: [team-analytics-platform]
     - match: '/feature-flags/'
       owners: [team-feature-flags]
-    - match: '/funnels/'
-      owners: [team-product-analytics]
-    - match: '/groups/'
+    - match: ['/funnels/', '/groups/']
       owners: [team-product-analytics]
     - match: '/health-alerts/'
       owners: [team-analytics-platform]
@@ -71,9 +65,7 @@ rules:
       owners: [team-data-modeling]
     - match: '/notebooks/'
       owners: [team-data-tools]
-    - match: '/oauth/'
-      owners: [team-growth]
-    - match: '/onboarding/'
+    - match: ['/oauth/', '/onboarding/']
       owners: [team-growth]
     - match: '/onboarding/legacy/sdks/ai-observability/'
       owners: [team-ai-observability]
@@ -81,41 +73,25 @@ rules:
       owners: [team-surveys]
     - match: '/organization/'
       owners: [team-growth]
-    - match: '/paths-v2/'
+    - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
       owners: [team-product-analytics]
-    - match: '/paths/'
-      owners: [team-product-analytics]
-    - match: '/persons-management/'
-      owners: [team-product-analytics]
-    - match: '/persons/'
-      owners: [team-product-analytics]
-    - match: '/project-homepage/'
-      owners: [team-growth]
-    - match: '/project/'
+    - match: ['/project-homepage/', '/project/']
       owners: [team-growth]
     - match: '/resource-transfer/'
       owners: [team-platform-features]
-    - match: '/retention/'
-      owners: [team-product-analytics]
-    - match: '/saved-insights/'
+    - match: ['/retention/', '/saved-insights/']
       owners: [team-product-analytics]
     - match: '/session-recordings/'
       owners: [team-replay]
     - match: '/sessions/'
       owners: [team-analytics-platform]
-    - match: '/settings/'
-      owners: [team-growth]
-    - match: '/startups/'
+    - match: ['/settings/', '/startups/']
       owners: [team-growth]
     - match: '/surveys/'
       owners: [team-surveys]
-    - match: '/themes/'
-      owners: [team-product-analytics]
-    - match: '/trends/'
+    - match: ['/themes/', '/trends/']
       owners: [team-product-analytics]
     - match: '/web-analytics/'
       owners: [team-web-analytics]
-    - match: '/welcome/'
-      owners: [team-growth]
-    - match: '/wizard/'
+    - match: ['/welcome/', '/wizard/']
       owners: [team-growth]

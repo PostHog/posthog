@@ -3,25 +3,19 @@ owners: []
 rules:
     - match: Dockerfile.llm-analytics
       owners: [team-ai-observability]
-    - match: Dockerfile
-      owners: [team-devex]
-    - match: 'docker-compose*.yml'
-      owners: [team-devex]
-    - match: '.prettierrc'
-      owners: [team-devex]
-    - match: '.test_quarantine.json'
-      owners: [team-devex]
-    - match: hogli.yaml
-      owners: [team-devex]
-    - match: tach.toml
-      owners: [team-devex]
-    - match: CLAUDE.md
-      owners: [team-devex]
-    - match: AGENTS.md
-      owners: [team-devex]
-    - match: 'bin/'
-      owners: [team-devex]
-    - match: greptile.json
+    - match:
+          [
+              Dockerfile,
+              'docker-compose*.yml',
+              '.prettierrc',
+              '.test_quarantine.json',
+              hogli.yaml,
+              tach.toml,
+              CLAUDE.md,
+              AGENTS.md,
+              bin/,
+              greptile.json,
+          ]
       owners: [team-devex]
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: [team-analytics-platform]
@@ -51,15 +45,8 @@ rules:
       owners: [team-feature-flags]
     - match: '/services/llm-gateway/'
       owners: [team-ai-gateway]
-    - match: '/tools/hogli-commands/'
-      owners: [team-devex]
-    - match: '/tools/hogli/'
-      owners: [team-devex]
-    - match: '/tools/owners/'
-      owners: [team-devex]
-    - match: '/tools/phrocs/'
-      owners: [team-devex]
-    - match: '/tools/pr-approval-agent/'
+    - match:
+          ['/tools/hogli-commands/', '/tools/hogli/', '/tools/owners/', '/tools/phrocs/', '/tools/pr-approval-agent/']
       owners: [team-devex]
     - match: '/tools/query-performance-ai/'
       owners: [team-analytics-platform]
