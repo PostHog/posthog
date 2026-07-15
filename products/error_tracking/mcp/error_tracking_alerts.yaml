@@ -129,10 +129,9 @@ tools:
             `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`,
             `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and
             `event.properties.computed_baseline`, plus `event.properties.fingerprint` and
-            `event.properties.exception_timestamp` on newer events (guard with `empty()`) — no status or
-            exception properties. Project context is
-            available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own
-            metadata as `{source.url}` and `{source.name}`.
+            `event.properties.exception_timestamp` on newer events (guard with `empty()`) — no status or exception
+            properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`),
+            `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.
         exclude_params:
             - _create_in_folder
             - batch_export_id
