@@ -17,6 +17,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionCycleError,
     ResolutionDepthExceededError,
     ResolutionTimeoutError,
+    UnknownParentError,
     bounded_resolver_factory_for_view,
     get_parents_from_model_query,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "ResolutionCycleError",
     "ResolutionDepthExceededError",
     "ResolutionTimeoutError",
+    "UnknownParentError",
     "bounded_resolver_factory_for_view",
     "get_parents_from_model_query",
 ]

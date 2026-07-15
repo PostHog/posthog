@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
@@ -21,7 +22,7 @@ from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -46,7 +47,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath, UnknownParentError
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
@@ -75,6 +76,12 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# The best-effort data-modeling DAG / model-path sync raises these when a saved query references a
+# table or view it can't resolve — a warehouse table that was deleted, renamed by a source/schema
+# change, or typo'd. That's a user-caused, expected condition: the saved-query save still succeeds,
+# so we log it as a warning rather than reporting it to error tracking as an unexpected failure.
+EXPECTED_DAG_SYNC_ERRORS = (UnknownParentError, QueryError, ObjectDoesNotExist)
 
 # A DataWarehouseSavedQuery's activity log also records materialization syncs and status
 # transitions (activity="sync_triggered", status changes) that advance the log without the query
@@ -464,6 +471,12 @@ class DataWarehouseSavedQuerySerializer(
                 self._write_view_description(view, description)
             try:
                 view.setup_model_paths()
+            except EXPECTED_DAG_SYNC_ERRORS as e:
+                logger.warning(
+                    "Skipping model path creation for view %s: query references an unresolvable table or view (%s)",
+                    view.name,
+                    e,
+                )
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
                 # Later, after bugs and errors have been ironed out, we may tie these two
@@ -509,6 +522,12 @@ class DataWarehouseSavedQuerySerializer(
                 except DAG.DoesNotExist:
                     raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
             sync_saved_query_to_dag(view, dag=dag_obj)
+        except EXPECTED_DAG_SYNC_ERRORS as e:
+            logger.warning(
+                "Skipping DAG sync for saved query %s: query references an unresolvable table or view (%s)",
+                view.name,
+                e,
+            )
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
@@ -606,6 +625,12 @@ class DataWarehouseSavedQuerySerializer(
 
             try:
                 view.setup_model_paths()
+            except EXPECTED_DAG_SYNC_ERRORS as e:
+                logger.warning(
+                    "Skipping model path update for view %s: query references an unresolvable table or view (%s)",
+                    view.name,
+                    e,
+                )
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
@@ -674,6 +699,12 @@ class DataWarehouseSavedQuerySerializer(
                 if dag_id:
                     dag_obj = DAG.objects.filter(id=dag_id, team_id=view.team_id).first()
                 sync_saved_query_to_dag(view, dag=dag_obj)
+            except EXPECTED_DAG_SYNC_ERRORS as e:
+                logger.warning(
+                    "Skipping DAG sync for saved query %s: query references an unresolvable table or view (%s)",
+                    view.name,
+                    e,
+                )
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
