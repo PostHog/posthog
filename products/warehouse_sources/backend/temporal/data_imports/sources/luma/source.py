@@ -64,7 +64,6 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

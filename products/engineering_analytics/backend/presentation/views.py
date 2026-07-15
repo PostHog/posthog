@@ -12,9 +12,11 @@ contract. These same endpoints back both the MCP tools and the UI:
 - ``quarantine`` — the repo's checked-in flaky-test quarantine file.
 """
 
+from datetime import datetime
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -32,6 +34,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.presentation.serializers import (
+    BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
     CurrentBranchHealthSerializer,
@@ -139,6 +142,17 @@ def _optional_int_param(request: Request, name: str) -> int | None:
         raise ValueError(f"{name} must be an integer") from None
 
 
+def _optional_datetime_param(request: Request, name: str) -> datetime | None:
+    """Optional ISO8601 datetime query param; None when absent/blank, ValueError when present but unparseable."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return serializers.DateTimeField().to_internal_value(raw)
+    except serializers.ValidationError:
+        raise ValueError(f"{name} must be an ISO8601 datetime") from None
+
+
 def _bool_param(request: Request, name: str, *, default: bool) -> bool:
     """Optional boolean query param; the default when absent/blank, ValueError when present but not true/false."""
     raw = request.query_params.get(name)
@@ -166,6 +180,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pull_requests",
         "workflow_health",
         "pr_lifecycle",
+        "resolve_branch",
         "quarantine",
         "pr_runs",
         "ci_failure_logs",
@@ -359,6 +374,64 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(PRLifecycleSerializer(instance=result).data)
 
     @extend_schema(
+        operation_id="engineering_analytics_resolve_branch",
+        parameters=[
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most "
+                "recently updated.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional 'owner/name' repository to narrow matching to a single repo.",
+            ),
+            OpenApiParameter(
+                name="timestamp",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been "
+                "reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the "
+                "result matches the PR that was active when the trace was captured. A preference only, not a filter; "
+                "omit to rank purely by open state then recency.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: BranchPRMatchSerializer(many=True),
+            400: OpenApiResponse(description="Branch missing/empty, or invalid repo/timestamp/source_id."),
+        },
+        description=(
+            "Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another "
+            "product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, "
+            "open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR "
+            "that was active at that moment when a branch name has been reused across PRs. `branch` is required. "
+            "Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain "
+            "chip)."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def resolve_branch(self, request: Request, **kwargs) -> Response:
+        try:
+            matches = api.resolve_branch(
+                team=self.team,
+                branch=request.query_params.get("branch") or None,
+                repo=request.query_params.get("repo") or None,
+                timestamp=_optional_datetime_param(request, "timestamp"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Provide a branch")
+        return Response(BranchPRMatchSerializer(instance=matches, many=True).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_pr_runs",
         parameters=[
             OpenApiParameter(
@@ -482,7 +555,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. "
             "Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux "
             "jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level "
-            "source isn't synced yet."
+            "source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR "
+            "by git branch, or null when no `$ai_generation` event matched."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

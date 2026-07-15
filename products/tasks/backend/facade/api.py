@@ -882,6 +882,20 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def set_task_run_created_at_for_seeding(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, created_at: datetime
+) -> None:
+    """Backdate a run's ``created_at`` — DEBUG-only escape hatch for dev seeding.
+
+    Signals' billing/refund seeding needs runs whose billable moment falls on an earlier UTC
+    day; ``created_at`` is deliberately not writable through the PATCH surface, so the hatch
+    lives here rather than callers reaching into the ORM.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("set_task_run_created_at_for_seeding is DEBUG-only")
+    TaskRun.objects.filter(pk=run_id, task_id=task_id, team_id=team_id).update(created_at=created_at)
+
+
 def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
@@ -3249,9 +3263,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
+def _list_tasks_queryset(
+    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:

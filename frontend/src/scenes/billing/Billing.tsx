@@ -267,7 +267,7 @@ export function Billing(): JSX.Element {
                                     <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
                                     <div>
                                         <h3 className="font-bold mb-0">Code</h3>
-                                        <div>Seat-based billing for PostHog Code.</div>
+                                        <div>Manage existing PostHog Code seats.</div>
                                     </div>
                                 </div>
                                 <LemonButton

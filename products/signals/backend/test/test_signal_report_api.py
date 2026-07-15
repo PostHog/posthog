@@ -22,8 +22,8 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
-from products.signals.backend.temporal.signal_queries import ReportSignalMeta
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -987,12 +987,59 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = {r["id"] for r in response.json()["results"]}
         assert str(suppressed.id) in ids
 
+    def test_list_include_all_statuses_returns_suppressed_but_never_deleted(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        deleted = self._create_report(status=SignalReport.Status.DELETED)
+
+        response = self.client.get(self._list_url(include_all_statuses="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {r["id"]: r["status"] for r in response.json()["results"]}
+        assert rows[str(ready.id)] == SignalReport.Status.READY
+        assert rows[str(suppressed.id)] == SignalReport.Status.SUPPRESSED
+        assert str(deleted.id) not in rows
+
+    def test_list_include_all_statuses_false_keeps_default_exclusions(self):
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(include_all_statuses="false"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(suppressed.id) not in {r["id"] for r in response.json()["results"]}
+
+    def test_list_include_all_statuses_invalid_value_returns_400(self):
+        response = self.client.get(self._list_url(include_all_statuses="maybe"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_explicit_status_filter_overrides_include_all_statuses(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="ready", include_all_statuses="true"))
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(ready.id) in ids
+        assert str(suppressed.id) not in ids
+
     def test_reingest_suppressed_report_returns_404(self):
         # reingest is a mutating-by-ID action, so a suppressed report stays unreachable
         # and 404s before any workflow is started (mirrors the delete contract).
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
 
         response = self.client.post(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_include_all_statuses_is_ignored_on_by_id_actions(self):
+        # The flag is list-only: it must not widen reachability for mutating-by-ID actions.
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/?include_all_statuses=true"
+        )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 

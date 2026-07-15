@@ -154,6 +154,79 @@ export interface ManagedWarehouseDatasetStatusApi {
     last_updated_at: string | null
 }
 
+export interface ManagedWarehouseSourceSummaryApi {
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Rolled-up warehouse readiness state across this source's schemas.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of this source's readiness state. */
+    detail: string
+    /** Number of this source's schemas visible to the warehouse. */
+    total_schemas: number
+    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
+    backfilled_schemas: number
+    /**
+     * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+     * @nullable
+     */
+    pending_batches: number | null
+    /**
+     * Most recent upstream source import completion across this source's schemas.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourcesStatusApi {
+    /** Rolled-up readiness state for imported sources.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of imported source readiness. */
+    detail: string
+    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    sources: ManagedWarehouseSourceSummaryApi[]
+}
+
+export interface ManagedWarehouseDataStatusResponseApi {
+    /** Highest-priority readiness state across all warehouse datasets.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `catching_up` - catching_up
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `unknown` - unknown */
+    overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Events backfill readiness. */
+    events: ManagedWarehouseDatasetStatusApi
+    /** Persons backfill readiness. */
+    persons: ManagedWarehouseDatasetStatusApi
+    /** Imported source table readiness. */
+    sources: ManagedWarehouseSourcesStatusApi
+    /** When this status snapshot was generated. */
+    generated_at: string
+}
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -177,6 +250,8 @@ export interface ManagedWarehouseSourceTableStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
+    /** Whether the one-time historical copy into the warehouse has completed for this table. */
+    backfilled: boolean
     /** Backfill chunks already copied into the warehouse. */
     completed_chunks: number
     /**
@@ -206,42 +281,9 @@ export interface ManagedWarehouseSourceTableStatusApi {
     last_synced_at: string | null
 }
 
-export interface ManagedWarehouseSourcesStatusApi {
-    /** Rolled-up readiness state for imported source tables.
-     *
-     * * `not_configured` - not_configured
-     * * `waiting` - waiting
-     * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
-     * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
-    readiness_state: ManagedWarehouseReadinessStateEnumApi
-    /** Human-readable explanation of imported source readiness. */
-    detail: string
-    /** Per-table source backfill and live import application statuses. */
-    tables: ManagedWarehouseSourceTableStatusApi[]
-}
-
-export interface ManagedWarehouseDataStatusResponseApi {
-    /** Highest-priority readiness state across all warehouse datasets.
-     *
-     * * `not_configured` - not_configured
-     * * `waiting` - waiting
-     * * `backfilling` - backfilling
-     * * `catching_up` - catching_up
-     * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `unknown` - unknown */
-    overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
-    /** Events backfill readiness. */
-    events: ManagedWarehouseDatasetStatusApi
-    /** Persons backfill readiness. */
-    persons: ManagedWarehouseDatasetStatusApi
-    /** Imported source table readiness. */
-    sources: ManagedWarehouseSourcesStatusApi
-    /** When this status snapshot was generated. */
-    generated_at: string
+export interface ManagedWarehouseSourceSchemasResponseApi {
+    /** Per-schema backfill and live import application status for the requested source. */
+    schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
 export interface ProvisionWarehouseRequestApi {
@@ -2904,6 +2946,13 @@ export type DataWarehouseCheckDatabaseNameRetrieveParams = {
      * @minLength 1
      */
     name: string
+}
+
+export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string
 }
 
 export type FixHogqlListParams = {

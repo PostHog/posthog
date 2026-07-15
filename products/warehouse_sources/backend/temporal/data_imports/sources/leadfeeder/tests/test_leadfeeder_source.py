@@ -28,8 +28,6 @@ class TestLeadfeederSource:
         assert config.name.value == "Leadfeeder"
         assert config.label == "Leadfeeder"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept unreleased until the alpha has been exercised end to end against the live API.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/leadfeeder"
         assert [f.name for f in config.fields] == ["api_token", "start_date"]
 

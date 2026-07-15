@@ -76,7 +76,6 @@ You can generate an API key from your workspace API settings in [Coassemble](htt
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
