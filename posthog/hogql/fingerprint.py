@@ -1,13 +1,6 @@
-"""Structural fingerprint for HogQL queries.
-
-Two queries share a fingerprint when they do the same work with different
-values: literals (including the length of literal lists), alias and CTE
-names, formatting, single-source table-alias qualification, bracket vs dot
-property access, count(*) vs count(), and positional GROUP BY / ORDER BY
-references are canonicalized away, while tables, columns, functions,
-operators, and which join source a column comes from are kept. Tagged into query_log
-so query patterns can be grouped for performance triage regardless of how
-each caller happened to write the SQL.
+"""Structural fingerprint for HogQL queries: spelling differences (literals,
+alias names, formatting, qualification) are canonicalized away and the result
+hashed, so query_log rows can be grouped into patterns for performance triage.
 """
 
 import hashlib
@@ -26,16 +19,14 @@ class _Canonicalizer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=True, clear_locations=True)
         self._from_scopes: list[tuple[dict[str, str], int]] = []
-        # Grows for the whole visit and is never popped: CTEs parse onto the
-        # first UNION branch but are referenced from later branches too.
+        # Never popped: CTEs parse onto the first UNION branch but are referenced from later ones.
         self._cte_renames: dict[str, str] = {}
 
     def visit_constant(self, node: ast.Constant):
         return ast.Constant(value="?")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        # An unsubstituted {template} does the same work as the values it gets;
-        # it also cannot be printed by to_hogql, so it must not survive here.
+        # A {template} stands for a value, and to_hogql cannot print it unresolved.
         return ast.Constant(value="?")
 
     def visit_alias(self, node: ast.Alias):
@@ -43,9 +34,7 @@ class _Canonicalizer(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         cloned = super().visit_call(node)
-        # The parser preserves spelling, so COUNT() and count() hash apart.
-        # Lowercase only when the lowered name still resolves; case-sensitive
-        # functions like toIntervalDay must keep their exact spelling to print.
+        # Lowercase only when the lowered name resolves: toIntervalDay must keep its spelling to print.
         lowered = cloned.name.lower()
         if lowered != cloned.name and (
             find_hogql_function(lowered) or find_hogql_aggregation(lowered) or find_hogql_posthog_function(lowered)
@@ -85,12 +74,9 @@ class _Canonicalizer(CloningVisitor):
 
     def visit_field(self, node: ast.Field):
         chain = list(node.chain)
-        # A qualifier naming the only FROM source adds nothing: `e.event` and
-        # `events.event` mean `event`. With multiple sources the qualifier says
-        # which source a column comes from, so it is renamed positionally
-        # instead of stripped (a.id = b.id must not merge with a.id = a.id).
-        # Lazy-join hops like `person.properties` are untouched because
-        # `person` is not in FROM.
+        # Qualifiers are stripped with one source, renamed positionally with several
+        # (a.id = b.id must not merge with a.id = a.id). Lazy-join hops like
+        # `person.properties` are untouched because `person` is not in FROM.
         if len(chain) > 1 and self._from_scopes and str(chain[0]) in self._from_scopes[-1][0]:
             renames, source_count = self._from_scopes[-1]
             if source_count == 1:
@@ -102,8 +88,7 @@ class _Canonicalizer(CloningVisitor):
         return ast.Field(chain=chain)
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        # `properties['foo']` means `properties.foo`; fold it into the chain
-        # before constant collapse so the property name keeps its identity.
+        # Fold properties['foo'] into the chain before constant collapse erases the name.
         cloned = super().visit_array_access(node)
         if (
             not node.nullish
@@ -122,16 +107,12 @@ class _Canonicalizer(CloningVisitor):
 
 
 def _collapse_constant_collection(cloned: ast.Tuple | ast.Array) -> ast.Expr:
-    # IN ('a', 'b') and IN ('a', 'b', 'c') are the same pattern; collapse any
-    # all-literal collection to one placeholder so list length does not split it.
     if cloned.exprs and all(isinstance(expr, ast.Constant) for expr in cloned.exprs):
         return ast.Constant(value="?")
     return cloned
 
 
 def _collect_from_scope(node: ast.SelectQuery) -> tuple[dict[str, str], int]:
-    # Maps every name a FROM/JOIN source answers to (alias and table name)
-    # to a positional identity, in join order.
     renames: dict[str, str] = {}
     source_count = 0
     join = node.select_from
@@ -147,9 +128,8 @@ def _collect_from_scope(node: ast.SelectQuery) -> tuple[dict[str, str], int]:
 
 
 def _resolve_positional_refs(node: ast.SelectQuery) -> ast.SelectQuery:
-    # GROUP BY 1 / ORDER BY 2 and references to select aliases (ORDER BY cnt)
-    # all mean a select column; resolve them before constants collapse to `?`
-    # and aliases are dropped, so every spelling converges with the named form.
+    # GROUP BY 1 / ORDER BY cnt must resolve to the select expression before
+    # constants collapse and aliases are dropped.
     aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
 
     def resolve(expr: ast.Expr) -> ast.Expr:
