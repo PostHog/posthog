@@ -1003,13 +1003,16 @@ class InformationSchemaDataTypesTable(LazyTable):
 class InformationSchemaMetricsTable(LazyTable):
     description: str = (
         "Catalog of the project's governed business metrics (the semantic layer); one row per metric. "
-        "Before deriving a revenue/activation/etc number yourself, look here for a metric: prefer one "
-        "where status='approved' AND NOT is_drifted, then run it via POST data_catalog/metrics/{name}/run. "
-        "Filter by name (equality or IN)."
+        "Consult only when the user asks for a named headline business number (MRR, activation, etc.) — "
+        "look for a metric where status='approved' AND NOT is_drifted and run it with the metric-run tool "
+        "instead of re-deriving. Usually empty; an empty result just means no governed definition, so derive "
+        "the number normally. Filter by name (equality or IN)."
     )
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
-        "name": _string_field("name", description="Identifier-safe run handle: POST data_catalog/metrics/{name}/run."),
+        "name": _string_field(
+            "name", description="Identifier-safe handle passed to the metric-run tool to run this metric."
+        ),
         "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
         "description": _string_field("description", description="What the metric means and how to interpret it."),
         "unit": _string_field("unit", nullable=True, description="Unit of the result, e.g. usd, percent, cents."),
