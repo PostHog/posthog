@@ -388,36 +388,44 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         return
 
     action = payload.get("action", "")
-    if "repositories_added" in payload or "repositories_removed" in payload:
-        added = payload.get("repositories_added") or []
-        if added:
-            if len(team_ids) == 1:
-                _add_installation_repos(team_ids[0], installation_id, added)
-            else:
-                # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
-                logger.info(
-                    "stamphog_installation_repo_add_ambiguous",
-                    installation_id=installation_id,
-                    team_count=len(team_ids),
+    # Retry on failure like the review path: the webhook is already ACKed, so a transient product-DB
+    # blip during the config mutations must not permanently drop the lifecycle event (a repo added on
+    # GitHub would then never appear in the toggle list until a manual re-sync). Mark the delivery
+    # processed only after the mutations succeed, so a retried delivery still does its work.
+    try:
+        if "repositories_added" in payload or "repositories_removed" in payload:
+            added = payload.get("repositories_added") or []
+            if added:
+                if len(team_ids) == 1:
+                    _add_installation_repos(team_ids[0], installation_id, added)
+                else:
+                    # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
+                    logger.info(
+                        "stamphog_installation_repo_add_ambiguous",
+                        installation_id=installation_id,
+                        team_count=len(team_ids),
+                    )
+            removed = payload.get("repositories_removed") or []
+            for team_id in team_ids:
+                _disable_installation_repos(team_id, installation_id, removed)
+        elif action == "deleted":
+            for team_id in team_ids:
+                disabled = (
+                    StamphogRepoConfig.objects.for_team(team_id)
+                    .filter(provider="github", installation_id=installation_id)
+                    .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
                 )
-        removed = payload.get("repositories_removed") or []
-        for team_id in team_ids:
-            _disable_installation_repos(team_id, installation_id, removed)
-    elif action == "deleted":
-        for team_id in team_ids:
-            disabled = (
-                StamphogRepoConfig.objects.for_team(team_id)
-                .filter(provider="github", installation_id=installation_id)
-                .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-            )
-            logger.info(
-                "stamphog_installation_uninstalled",
-                installation_id=installation_id,
-                team_id=team_id,
-                disabled=disabled,
-            )
-    else:
-        logger.info("stamphog_installation_event_ignored", action=action)
+                logger.info(
+                    "stamphog_installation_uninstalled",
+                    installation_id=installation_id,
+                    team_id=team_id,
+                    disabled=disabled,
+                )
+        else:
+            logger.info("stamphog_installation_event_ignored", action=action)
+    except Exception as e:
+        logger.exception("stamphog_installation_event_failed", delivery_id=delivery_id, error=str(e))
+        raise cast(Any, process_installation_event).retry(exc=e)
 
     if delivery_id:
         _mark_pr_event_processed(delivery_id)

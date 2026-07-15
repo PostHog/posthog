@@ -10,7 +10,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -167,6 +167,16 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=self.team_id,
             )
             raise PermissionDenied("This installation link was started for a different project.")
+        # The token also binds the callback to the member who started the flow. Without this, one
+        # project member could hand another the callback and complete an install under the second
+        # member's session (both pass the team check). Same 403 path as the team mismatch.
+        if state_payload.get("user_id") != request.user.pk:
+            logger.warning(
+                "stamphog sync_installation: state user mismatch",
+                installation_id=installation_id,
+                team_id=self.team_id,
+            )
+            raise PermissionDenied("This installation link was started by a different user.")
 
         # Fail closed: no proven ownership, no binding. A missing OAuth token (bad/expired code or unset
         # Stamphog OAuth creds) is a 400; a valid user who simply can't reach the installation is a 403.
@@ -205,11 +215,15 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         synced: list[StamphogRepoConfig] = []
         skipped: list[str] = []
+        # Bind the per-row savepoint to the model's routed DB (stamphog_db_writer when the product DB is
+        # configured, else default) — a bare atomic() opens on the default connection, so the get_or_create
+        # would run outside any transaction on the product DB.
+        write_db = router.db_for_write(StamphogRepoConfig)
         for full_name in repositories:
             # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
             # batch (and the outer autocommit context) intact.
             try:
-                with transaction.atomic():
+                with transaction.atomic(using=write_db):
                     config, _ = StamphogRepoConfig.objects.for_team(self.team_id).get_or_create(
                         provider="github",
                         installation_id=installation_id,

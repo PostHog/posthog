@@ -1,0 +1,54 @@
+"""Tests for the offline review entrypoint's context handling."""
+
+import sys
+
+from unittest.mock import MagicMock
+
+# review_local pulls in review_pr, whose reviewer.py imports claude_agent_sdk (installed by
+# `uv run`, not the test venv). Stub it before importing.
+sys.modules.setdefault("claude_agent_sdk", MagicMock())
+sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
+
+import review_local  # noqa: E402
+from review_pr import Pipeline  # noqa: E402
+
+
+def _review(login: str, state: str, head_sha: str) -> dict:
+    return {
+        "user": {"login": login, "type": "User"},
+        "author_association": "MEMBER",
+        "state": state,
+        "commit_id": head_sha,
+        "submitted_at": "2026-07-15T00:00:00Z",
+    }
+
+
+def test_commented_reviews_are_dropped_offline(monkeypatch) -> None:
+    # The hosted context has no inline review threads, so a bare COMMENTED review at head carries no
+    # readable feedback. If it reached PRData, _summarize_assurance would surface its author as a
+    # current-head reviewer — reading as independent assurance for feedback nobody can see. It must be
+    # filtered; APPROVED and CHANGES_REQUESTED (which the prerequisite gate needs) must survive.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    head_sha = "abc123"
+    context = {
+        "repo": "PostHog/posthog",
+        "head_sha": head_sha,
+        "base_sha": "def456",
+        "pr": {"number": 1, "title": "t", "state": "OPEN", "user": {"login": "author", "type": "User"}},
+        "reviews": [
+            _review("carol", "COMMENTED", head_sha),
+            _review("dave", "APPROVED", head_sha),
+            _review("erin", "CHANGES_REQUESTED", head_sha),
+        ],
+    }
+
+    pr = review_local._build_pr_data(context)
+
+    assert {r["state"] for r in pr.reviews} == {"APPROVED", "CHANGES_REQUESTED"}
+    assert "carol" not in {r["user"] for r in pr.reviews}
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = pr
+    assurance = pipeline._summarize_assurance()
+    assert assurance["head_commented_users"] == []
+    assert assurance["head_approvals"] == ["dave"]

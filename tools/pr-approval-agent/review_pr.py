@@ -2,10 +2,10 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk",
-#     "anthropic",
-#     "posthoganalytics",
-#     "pyyaml",
+#     "claude-agent-sdk==0.2.113",
+#     "anthropic==0.80.0",
+#     "posthoganalytics==7.20.4",
+#     "pyyaml==6.0.3",
 # ]
 # ///
 # ruff: noqa: T201

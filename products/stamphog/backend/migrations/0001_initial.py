@@ -51,6 +51,7 @@ class Migration(migrations.Migration):
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
+                "default_manager_name": "all_teams",
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team_id", "audience_key"),
@@ -141,6 +142,7 @@ class Migration(migrations.Migration):
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
+                "default_manager_name": "all_teams",
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team_id", "repository"),
@@ -203,6 +205,9 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={
+                "default_manager_name": "all_teams",
+            },
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),
             ],

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.core import signing
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
@@ -277,14 +278,20 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
 
+    @parameterized.expand(["team", "user"])
     @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token")
-    def test_state_for_another_team_is_rejected(self, mock_exchange, mock_list) -> None:
-        # CSRF guard: the callback binds an installation to the team named in the signed state, not the
-        # team whose session posts it. A state minted for another team must be refused before any OAuth
-        # exchange, so an attacker can't replay their own installation into a victim's project.
-        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
-        foreign_state = _install_state(other_team.id, self.user.id)
+    def test_state_for_another_team_or_user_is_rejected(self, mismatch, mock_exchange, mock_list) -> None:
+        # CSRF guard: the callback binds an installation to the team AND the member named in the signed
+        # state, not whoever's session posts it. A state minted for another team lets an attacker replay
+        # their own installation into a victim's project; a state minted for another member lets one
+        # project member complete another member's install under the second member's session. Both must
+        # be refused before any OAuth exchange.
+        if mismatch == "team":
+            other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+            foreign_state = _install_state(other_team.id, self.user.id)
+        else:
+            foreign_state = _install_state(self.team.id, self.user.pk + 1)
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": foreign_state}, format="json"
         )

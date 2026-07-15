@@ -45,7 +45,11 @@ class StamphogRepoConfig(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    # Inherit the base Meta so default_manager_name="all_teams" survives. A fresh `class Meta`
+    # would drop it (Django doesn't merge parent Meta into a child's own), and correctness would
+    # then rest on Django's MRO fallback — which only holds while this model declares no local
+    # manager. Making it explicit keeps the fail-closed contract from silently regressing.
+    class Meta(ProductTeamModel.Meta):
         constraints = [
             models.UniqueConstraint(fields=["team_id", "repository"], name="unique_stamphog_repo_per_team"),
             # Cross-team: one (provider, installation, repository) triple belongs to a single team. The
@@ -102,7 +106,8 @@ class PullRequest(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    # Inherit the base Meta so default_manager_name="all_teams" survives (see StamphogRepoConfig.Meta).
+    class Meta(ProductTeamModel.Meta):
         constraints = [
             models.UniqueConstraint(
                 fields=["team_id", "repo_config", "pr_number"], name="unique_stamphog_pull_request"
@@ -190,7 +195,8 @@ class DigestChannel(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    # Inherit the base Meta so default_manager_name="all_teams" survives (see StamphogRepoConfig.Meta).
+    class Meta(ProductTeamModel.Meta):
         constraints = [
             models.UniqueConstraint(
                 fields=["team_id", "audience_key"], name="unique_stamphog_digest_audience_per_team"

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import router, transaction
 from django.utils import timezone
 
 import structlog
@@ -54,7 +54,12 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     # the unlinked rows, the run is created, and the PRs are linked to it — all committed before
     # the Slack post. A second worker then blocks on the lock, re-reads, finds nothing unlinked,
     # and returns without posting. of=("self",) keeps the lock off the joined repo_config rows.
-    with transaction.atomic():
+    #
+    # Bind every atomic block below to the model's routed DB (stamphog_db_writer when the product DB is
+    # configured, else default) — a bare atomic() opens on the default connection, so the
+    # select_for_update lock and writes would run outside any transaction on the product DB.
+    write_db = router.db_for_write(PullRequest)
+    with transaction.atomic(using=write_db):
         prs = list(
             PullRequest.objects.for_team(team_id)
             .filter(audience_key=channel.audience_key, digest_run__isnull=True)
@@ -81,7 +86,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         # query filters digest_run__isnull=True, so leaving them linked to a FAILED run would hide
         # them forever. Unlinking keeps "Slack failure -> PRs stay retryable" intact.
         logger.exception("stamphog_digest_post_failed", digest_channel_id=digest_channel_id, error=str(e))
-        with transaction.atomic():
+        with transaction.atomic(using=write_db):
             DigestRun.objects.for_team(team_id).filter(id=run.id).update(
                 status=DigestRunStatus.FAILED, summary=summary.to_dict(), error=str(e)
             )
@@ -94,7 +99,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     DigestRun.objects.for_team(team_id).filter(id=run.id).update(slack_message_ts=message_ts or "posted")
 
     now = timezone.now()
-    with transaction.atomic():
+    with transaction.atomic(using=write_db):
         DigestRun.objects.for_team(team_id).filter(id=run.id).update(
             status=DigestRunStatus.COMPLETED,
             pr_count=len(prs),
@@ -132,9 +137,12 @@ def _reclaim_stale_pending_runs() -> None:
     """
     cutoff = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES)
     stale = DigestRun.objects.unscoped().filter(status=DigestRunStatus.PENDING, created_at__lt=cutoff)
+    # Bind the per-run atomic block to the model's routed DB (see send_digest_for_channel) so the
+    # reclaim writes commit on the product DB rather than the default connection.
+    write_db = router.db_for_write(DigestRun)
     reclaimed = finalized = 0
     for run_id, team_id, slack_ts in stale.values_list("id", "team_id", "slack_message_ts").iterator():
-        with transaction.atomic():
+        with transaction.atomic(using=write_db):
             if slack_ts:
                 # It already posted to Slack (the COMPLETED write just never landed). Finalize the run and
                 # KEEP its PRs linked, so the next digest doesn't re-send PRs Slack already received.

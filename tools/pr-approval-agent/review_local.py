@@ -2,10 +2,10 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk",
-#     "anthropic",
-#     "posthoganalytics",
-#     "pyyaml",
+#     "claude-agent-sdk==0.2.113",
+#     "anthropic==0.80.0",
+#     "posthoganalytics==7.20.4",
+#     "pyyaml==6.0.3",
 # ]
 # ///
 # ruff: noqa: T201
@@ -126,6 +126,14 @@ def _build_pr_data(context: dict) -> PRData:
     if not files:
         files = [_convert_api_file(f) for f in context.get("files") or []]
 
+    # Drop COMMENTED reviews from the offline reviews. The hosted context carries no inline
+    # review-thread comments (review_comments=[]), so a COMMENTED review here is a bare state with no
+    # readable feedback — yet _summarize_assurance would surface its author as a current-head reviewer
+    # ("head_commented"), which reads as independent assurance. Unseen feedback must reduce to "no
+    # assurance," never a positive vouch, so a COMMENTED review that can't be evaluated is filtered out.
+    # APPROVED and CHANGES_REQUESTED still flow through — the prerequisite gate depends on them.
+    reviews = [r for r in (context.get("reviews") or []) if r.get("state") != "COMMENTED"]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -138,7 +146,7 @@ def _build_pr_data(context: dict) -> PRData:
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
-        reviews=_normalize_reviews_for_prompt(context.get("reviews") or [], head_sha),
+        reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=[],
         check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
