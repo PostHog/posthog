@@ -514,6 +514,24 @@ def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
     assert "products/foo/backend/owners.yaml" not in plan.deletions
 
 
+def test_fmt_frozen_file_blocks_carry_up(tmp_path: Path) -> None:
+    # d's glob file is frozen; d/sub's boundary must not be carried above d, or
+    # the untouched nearer file would shadow the ancestor rule and the proof
+    # would fail — this layout used to crash build() with a proof AssertionError.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: []\n",
+            "d/owners.yaml": "version: 1\nowners: [team-d]\nrules:\n  - match: '*.py'\n    owners: [team-d]\n",
+            "d/sub/owners.yaml": "version: 1\nowners: [team-s]\n",
+            "d/sub/f.py": "x",
+            "d/g.py": "x",
+            "r1.py": "x",
+        },
+    )
+    assert "d/sub/owners.yaml" not in plan.deletions
+
+
 def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
     # Relocation only preserves match+owners, so a rule carrying status/inherit
     # must pin its file exactly like a glob does — otherwise folding this child

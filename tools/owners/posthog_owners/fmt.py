@@ -173,7 +173,11 @@ class CanonicalPlacer:
         for child in node.children.values():
             self._label_tree(child, by_dir)
 
-        if node.pinned:
+        # A frozen dir labels itself from its own file too: its direct files are
+        # glob-served and excluded from voting, so deriving the label from children
+        # would float a bogus dir-statement above the frozen file, where the
+        # nearer file shadows it and the proof fails.
+        if node.pinned or node.frozen:
             node.label = node.pinned_label
             return
 
@@ -207,9 +211,11 @@ class CanonicalPlacer:
 
     # --- classification: pinned carriers vs frozen glob files ------------
 
-    def _classify(self, entries: list[ParsedOwnershipFile]) -> tuple[dict[str, OwnerSet], set[str], set[str]]:
-        """Classify the parsed ownership files. Returns (pinned_carriers, frozen_dirs,
-        alias_dirs).
+    def _classify(
+        self, entries: list[ParsedOwnershipFile]
+    ) -> tuple[dict[str, OwnerSet], dict[str, OwnerSet], set[str]]:
+        """Classify the parsed ownership files. Returns (pinned_carriers, frozen_dirs
+        mapped to their file's own top-level owner set, alias_dirs).
 
         Pinned carriers (``product.yaml`` with owners, or a non-simple owners.yaml
         with status/inherit) absorb statements for free. Frozen dirs host a
@@ -218,7 +224,7 @@ class CanonicalPlacer:
         physically cannot hold rules (only its ``owners:`` list is read), so
         placements must land elsewhere."""
         pinned: dict[str, OwnerSet] = {}
-        frozen: set[str] = set()
+        frozen: dict[str, OwnerSet] = {}
         alias: set[str] = set()
         for entry in entries:
             parsed = entry.parsed
@@ -230,13 +236,13 @@ class CanonicalPlacer:
             if parsed is None:
                 continue
             if any(match_is_glob(r.match) for r in parsed.rules):
-                frozen.add(entry.rel_dir)
+                frozen[entry.rel_dir] = _resolution_owner_set(parsed.owners, parsed.owners is None)
             elif not _is_simple_file(parsed):
                 pinned[entry.rel_dir] = _resolution_owner_set(parsed.owners, parsed.owners is None)
         return pinned, frozen, alias
 
     def _apply_classification(
-        self, node_index: dict[str, _Node], pinned: dict[str, OwnerSet], frozen: set[str], alias: set[str]
+        self, node_index: dict[str, _Node], pinned: dict[str, OwnerSet], frozen: dict[str, OwnerSet], alias: set[str]
     ) -> None:
         for d, owners in pinned.items():
             node = node_index.get(d)
@@ -244,10 +250,11 @@ class CanonicalPlacer:
                 node.pinned = True
                 node.pinned_label = owners
                 node.alias = d in alias
-        for d in frozen:
+        for d, owners in frozen.items():
             node = node_index.get(d)
             if node is not None:
                 node.frozen = True
+                node.pinned_label = owners
 
     # --- facility-location DP -------------------------------------------
 
@@ -270,18 +277,19 @@ class CanonicalPlacer:
             """Min cost to serve node's subtree given the nearest open facility sits
             ``d`` levels above node (``d`` unused when node opens), plus whether the
             node opens its own facility. A ``d`` of ``_BLOCKED`` or more means no
-            usable ancestor exists (an alias manifest shadows everything above by
-            nearest-file-wins), which prices carry-up out so the subtree opens its
-            own facility."""
+            usable ancestor exists (an alias manifest or frozen glob file shadows
+            everything above by nearest-file-wins), which prices carry-up out so
+            the subtree opens its own facility."""
             key = (node.path, d)
             if key in memo:
                 return memo[key]
             n_here = sum(1 for s in node.statements if not self._served_by_pin(node, s))
 
             forced_open = (node.pinned and not node.alias) or node.path == ""
-            # Statements below an alias can never live above it: the manifest's own
-            # owners would shadow any ancestor rule under nearest-file-wins.
-            child_d = _BLOCKED if node.alias else d + 1
+            # Statements below an alias or a frozen file can never live above it:
+            # the nearer file's own fields (or its untouchable globs) would shadow
+            # any ancestor rule under nearest-file-wins.
+            child_d = _BLOCKED if node.alias or node.frozen else d + 1
             # Option A: do not open here; carry own statements up ``d`` levels.
             carry_up = GAMMA * d * n_here + sum(cost(c, child_d)[0] for c in node.children.values())
             if (node.frozen or node.alias) and not forced_open:
@@ -305,7 +313,7 @@ class CanonicalPlacer:
                 for c in node.children.values():
                     reconstruct(c, 1, node.path)
             else:
-                child_d = _BLOCKED if node.alias else d + 1
+                child_d = _BLOCKED if node.alias or node.frozen else d + 1
                 for s in movable:
                     placements.append(_Placement(statement=s, carrier_dir=nearest_open, distance=d))
                 for c in node.children.values():
@@ -319,7 +327,7 @@ class CanonicalPlacer:
     def _served_by_pin(self, node: _Node, s: _Statement) -> bool:
         """A dir-context statement whose owners already match the pinned carrier at
         that very directory needs no rule — the manifest/non-simple file provides it."""
-        return s.is_dir and node.pinned and node.pinned_label == s.owners
+        return s.is_dir and (node.pinned or node.frozen) and node.pinned_label == s.owners
 
     def _enforce_capacity(self, root: _Node, placements: list[_Placement], open_dirs: set[str]) -> None:
         """If a carrier exceeds MAX_RULES, open the child prefix with the most overflow
@@ -373,7 +381,7 @@ class CanonicalPlacer:
         entries = self.resolver.parsed_ownership_files()  # the single parse pass
         pinned, frozen, alias = self._classify(entries)
         # One definition of "a carrier file already exists here": the _classify one.
-        pinned_dirs = set(pinned) | frozen
+        pinned_dirs = set(pinned) | set(frozen)
 
         tracked = self.resolver.tracked_files()
         code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in (OWNERS_FILENAME, PRODUCT_FILENAME)]
