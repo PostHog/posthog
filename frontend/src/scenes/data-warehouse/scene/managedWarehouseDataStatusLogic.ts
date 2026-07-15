@@ -13,7 +13,7 @@ import type { managedWarehouseDataStatusLogicType } from './managedWarehouseData
 
 const ACTIVE_REFRESH_INTERVAL_MS = 15_000
 const STABLE_REFRESH_INTERVAL_MS = 60_000
-const ACTIVE_STATES: ManagedWarehouseReadinessStateEnumApi[] = ['waiting', 'backfilling', 'catching_up']
+const ACTIVE_STATES: ManagedWarehouseReadinessStateEnumApi[] = ['waiting', 'backfilling']
 
 export const managedWarehouseDataStatusLogic = kea<managedWarehouseDataStatusLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'managedWarehouseDataStatusLogic']),
