@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
@@ -126,6 +127,13 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
     InsightSerializer,
@@ -177,6 +185,9 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
+
+# One subscribe-nudge notification per (user, dashboard) within this window.
+SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
@@ -2041,6 +2052,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
+    created = serializers.BooleanField(
+        help_text="Whether a nudge notification was created. False when one was already sent recently "
+        "for this user and dashboard, or when in-app notifications are unavailable."
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -3250,6 +3268,46 @@ class DashboardsViewSet(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
                 status=status.HTTP_201_CREATED,
             )
+
+    @extend_schema(
+        request=None,
+        responses={
+            201: DashboardSubscribeNudgeResponseSerializer,
+            200: DashboardSubscribeNudgeResponseSerializer,
+        },
+        description="Send the requesting user an in-app notification suggesting they subscribe to this "
+        "dashboard. Deduplicated server-side: at most one notification per user and dashboard within the "
+        "dedupe window, so repeat calls return 200 with created=false.",
+    )
+    @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["dashboard:read"])
+    def subscribe_nudge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        user = cast(User, request.user)
+
+        dedupe_key = f"dashboard_subscribe_nudge:{user.pk}:{dashboard.pk}"
+        if not cache.add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        event = create_notification(
+            NotificationData(
+                team_id=self.team_id,
+                notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+                priority=Priority.NORMAL,
+                title=f"You keep coming back to {dashboard.name or 'this dashboard'}",
+                body="Get it delivered to your inbox every Monday instead of checking back.",
+                target_type=TargetType.USER,
+                target_id=str(user.pk),
+                resource_type="dashboard",
+                resource_id=str(dashboard.pk),
+                source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
+            )
+        )
+        if event is None:
+            # Notifications disabled or no recipients resolved — report honestly so the caller
+            # doesn't treat this as a delivered nudge.
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        return Response({"created": True}, status=status.HTTP_201_CREATED)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

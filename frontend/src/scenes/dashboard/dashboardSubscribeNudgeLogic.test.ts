@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -42,6 +43,10 @@ jest.mock('products/subscriptions/frontend/generated/api', () => ({
     subscriptionsList: jest.fn(),
 }))
 
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { info: jest.fn(), error: jest.fn(), success: jest.fn() },
+}))
+
 const mockSubscriptionsList = subscriptionsList as jest.Mock
 
 const DASHBOARD_ID = 1
@@ -72,6 +77,8 @@ describe('dashboardSubscribeNudgeLogic', () => {
     let logic: ReturnType<typeof dashboardSubscribeNudgeLogic.build>
     let now: number
     let dateSpy: jest.SpyInstance
+    let nudgePostCount: number
+    let nudgePostResponse: [number, Record<string, unknown>]
 
     /** Records views spaced beyond the dedupe window, so each counts as a distinct visit. */
     function recordViews(count: number, dashboardId: number = DASHBOARD_ID): void {
@@ -85,8 +92,19 @@ describe('dashboardSubscribeNudgeLogic', () => {
         window.localStorage.clear()
         mockSubscriptionsList.mockReset()
         mockSubscriptionsList.mockResolvedValue({ count: 0, results: [] })
+        ;(lemonToast.info as jest.Mock).mockClear()
+        nudgePostCount = 0
+        nudgePostResponse = [201, { created: true }]
         now = START_TIME
         dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+        useMocks({
+            post: {
+                '/api/projects/:team_id/dashboards/:dashboard_id/subscribe_nudge/': () => {
+                    nudgePostCount += 1
+                    return nudgePostResponse
+                },
+            },
+        })
         initKeaTests()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(USER_WITH_SUBSCRIPTIONS_FEATURE)
@@ -145,23 +163,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(Object.keys(dashboardViewLogLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
     })
 
-    it('drops out of candidacy once dismissed and reports the dismissal', async () => {
-        recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
-        expect(logic.values.isCandidate).toBe(true)
-
-        await expectLogic(logic, () => {
-            logic.actions.dismiss()
-        }).toFinishAllListeners()
-
-        expect(logic.values.isCandidate).toBe(false)
-        expect(capturesOf('dashboard subscribe nudge dismissed')).toEqual([
-            [
-                'dashboard subscribe nudge dismissed',
-                { dashboard_id: DASHBOARD_ID, view_count_7d: DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD },
-            ],
-        ])
-    })
-
     it('is not a candidate and fetches nothing when the org lacks the subscriptions feature', async () => {
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER) // no available features
 
@@ -172,9 +173,10 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(logic.values.isCandidate).toBe(false)
         expect(logic.values.showNudge).toBe(false)
         expect(mockSubscriptionsList).not.toHaveBeenCalled()
+        expect(nudgePostCount).toBe(0)
     })
 
-    describe('feature flag exposure gating', () => {
+    describe('feature flag exposure gating and notification delivery', () => {
         beforeEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
         })
@@ -188,7 +190,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(logic.values.flagVariant).toBeUndefined()
         })
 
-        it('suppresses the dashboard permanently when it already has a subscription, without reading the flag', async () => {
+        it('suppresses the dashboard permanently when it already has a subscription, without reading the flag or notifying', async () => {
             mockSubscriptionsList.mockResolvedValue({ count: 1, results: [{ id: 7 }] })
 
             await expectLogic(logic, () => {
@@ -199,6 +201,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(logic.values.isCandidate).toBe(false)
             expect(logic.values.flagVariant).toBeUndefined()
             expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
+            expect(nudgePostCount).toBe(0)
 
             // Further views on a suppressed dashboard never re-trigger the check.
             await expectLogic(logic, () => {
@@ -207,60 +210,72 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
         })
 
-        it('reads the flag and shows the banner once eligible, reporting a single shown event', async () => {
+        it('requests the notification once when eligible, reporting shown and toasting on creation', async () => {
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()
 
-            expect(logic.values.isEligible).toBe(true)
-            expect(logic.values.flagVariant).toBe('test')
-            expect(logic.values.showNudge).toBe(true)
-            expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
-
-            // A further view neither refetches nor re-reports the shown event.
-            await expectLogic(logic, () => {
-                recordViews(1)
-            }).toFinishAllListeners()
-
-            expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
+            // After a successful delivery the notified marker deliberately ends candidacy,
+            // so the observable outcomes are the POST, the marker, the event, and the toast.
+            expect(nudgePostCount).toBe(1)
+            expect(logic.values.isNotified).toBe(true)
             expect(capturesOf('dashboard subscribe nudge shown')).toEqual([
                 [
                     'dashboard subscribe nudge shown',
                     { dashboard_id: DASHBOARD_ID, view_count_7d: DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD },
                 ],
             ])
+            expect(lemonToast.info).toHaveBeenCalledTimes(1)
+
+            // A further view neither refetches, re-posts, nor re-reports.
+            await expectLogic(logic, () => {
+                recordViews(1)
+            }).toFinishAllListeners()
+            expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
+            expect(nudgePostCount).toBe(1)
+            expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(1)
         })
 
-        it('re-checks when the subscriptions modal closes and hides the banner if a subscription was created', async () => {
+        it('routes the toast action to the prefilled new-subscription form', async () => {
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()
-            expect(logic.values.showNudge).toBe(true)
 
-            // The user opens the modal, creates a subscription, then closes it.
-            logic.actions.setSubscriptionMode(true, 'new')
-            mockSubscriptionsList.mockResolvedValue({ count: 1, results: [{ id: 7 }] })
-            await expectLogic(logic, () => {
-                logic.actions.setSubscriptionMode(false, undefined)
-            }).toFinishAllListeners()
+            const [message, options] = (lemonToast.info as jest.Mock).mock.calls[0]
+            expect(message).toBe('Get Test dashboard delivered to your inbox every Monday.')
 
-            expect(logic.values.hasExistingSubscription).toBe(true)
-            expect(logic.values.isSuppressed).toBe(true)
-            expect(logic.values.showNudge).toBe(false)
+            options.button.action()
+            expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))
+            expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'toast' })
         })
 
-        it('does not re-fetch on a plain navigation-driven modal-close dispatch', async () => {
+        it('marks notified without shown or toast when the server dedupe-skips', async () => {
+            nudgePostResponse = [200, { created: false }]
+
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()
-            expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
 
-            // Every /dashboard/:id navigation dispatches setSubscriptionMode(false) without the
-            // modal ever having been open — that must not re-trigger the check.
+            expect(nudgePostCount).toBe(1)
+            expect(logic.values.isNotified).toBe(true)
+            expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(0)
+            expect(lemonToast.info).not.toHaveBeenCalled()
+        })
+
+        it('reports the notify failure and does not mark notified when the delivery request errors', async () => {
+            silenceKeaLoadersErrors()
+            nudgePostResponse = [500, {}]
+
             await expectLogic(logic, () => {
-                logic.actions.setSubscriptionMode(false, undefined)
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()
-            expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
+            resumeKeaLoadersErrors()
+
+            expect(logic.values.isNotified).toBe(false)
+            expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(0)
+            const failures = capturesOf('dashboard subscribe nudge check failed')
+            expect(failures).toHaveLength(1)
+            expect(failures[0][1]).toMatchObject({ dashboard_id: DASHBOARD_ID, step: 'notify' })
         })
 
         it('reports the check failure and stays hidden when the eligibility check errors', async () => {
@@ -273,32 +288,53 @@ describe('dashboardSubscribeNudgeLogic', () => {
             resumeKeaLoadersErrors()
 
             expect(logic.values.showNudge).toBe(false)
-            expect(capturesOf('dashboard subscribe nudge check failed')).toEqual([
-                [
-                    'dashboard subscribe nudge check failed',
-                    {
-                        dashboard_id: DASHBOARD_ID,
-                        error_name: 'Error',
-                        error_status: undefined,
-                        error_message: 'network down',
-                    },
-                ],
-            ])
+            expect(nudgePostCount).toBe(0)
+            const failures = capturesOf('dashboard subscribe nudge check failed')
+            expect(failures).toHaveLength(1)
+            expect(failures[0][1]).toMatchObject({
+                dashboard_id: DASHBOARD_ID,
+                step: 'check',
+                error_message: 'network down',
+            })
+        })
+
+        it('does not notify already-notified dashboards, and skips their eligibility fetch entirely', async () => {
+            dashboardViewLogLogic.actions.markDashboardNotified(DASHBOARD_ID)
+
+            await expectLogic(logic, () => {
+                recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+            }).toFinishAllListeners()
+
+            expect(logic.values.isCandidate).toBe(false)
+            expect(mockSubscriptionsList).not.toHaveBeenCalled()
+            expect(nudgePostCount).toBe(0)
         })
     })
 
-    it('captures the shown event when feature flags resolve only after the check completed', async () => {
-        // No flag variant yet: the check resolves eligible but the banner can't render.
+    it('does not notify for the control variant', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'control' })
+
         await expectLogic(logic, () => {
             recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
         }).toFinishAllListeners()
+
+        expect(logic.values.isEligible).toBe(true)
         expect(logic.values.showNudge).toBe(false)
-        expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(0)
+        expect(nudgePostCount).toBe(0)
+    })
 
-        // Flags arrive late — the banner now renders, and the impression must still be captured.
+    it('requests the notification when feature flags resolve only after the check completed', async () => {
+        // No flag variant yet: the check resolves eligible but the nudge can't fire.
+        await expectLogic(logic, () => {
+            recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
+        }).toFinishAllListeners()
+        expect(nudgePostCount).toBe(0)
+
+        // Flags arrive late — the nudge must still be delivered.
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
+        await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.showNudge).toBe(true)
+        expect(nudgePostCount).toBe(1)
         expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(1)
     })
 
@@ -327,48 +363,11 @@ describe('dashboardSubscribeNudgeLogic', () => {
 
             expect(mockSubscriptionsList).not.toHaveBeenCalled()
             expect(logic.values.hasExistingSubscription).toBe(hasSubscription)
-            expect(logic.values.showNudge).toBe(!hasSubscription)
+            expect(nudgePostCount).toBe(hasSubscription ? 0 : 1)
 
             subsLogic.unmount()
         }
     )
-
-    it('subscribeClicked sets the prefill, reports the click, and routes to the new-subscription modal', async () => {
-        recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
-
-        await expectLogic(logic, () => {
-            logic.actions.subscribeClicked()
-        }).toFinishAllListeners()
-
-        expect(logic.values.subscriptionPrefill).toEqual({
-            title: 'Test dashboard weekly digest',
-            target_value: MOCK_DEFAULT_USER.email,
-        })
-        expect(capturesOf('dashboard subscribe nudge clicked')).toEqual([
-            [
-                'dashboard subscribe nudge clicked',
-                {
-                    dashboard_id: DASHBOARD_ID,
-                    view_count_7d: DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD,
-                    prefilled: true,
-                },
-            ],
-        ])
-        expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))
-    })
-
-    it.each([
-        ['modal close', false, undefined, true],
-        ['cancel back to the subscriptions list', true, undefined, true],
-        ['staying on the new form', true, 'new' as const, false],
-    ])('prefill lifecycle on %s', (_label, enabled, id, expectCleared) => {
-        logic.actions.setSubscriptionPrefill({ title: 'Nudge title' })
-
-        logic.actions.setSubscriptionMode(enabled, id)
-
-        // A stale prefill must not leak into a later, unrelated "+ New subscription" open.
-        expect(logic.values.subscriptionPrefill).toEqual(expectCleared ? null : { title: 'Nudge title' })
-    })
 
     it('caps the suppression list at the most recent entries', () => {
         for (let i = 1; i <= MAX_SUPPRESSED_DASHBOARDS + 1; i++) {

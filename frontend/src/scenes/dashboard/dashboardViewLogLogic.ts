@@ -18,6 +18,12 @@ export function freshTimestamps(timestamps: number[], now: number): number[] {
     return timestamps.filter((timestamp) => timestamp > cutoff)
 }
 
+// Shared shape for the persisted per-dashboard marker lists: append-once, bounded to the
+// most recent entries.
+function appendCapped(state: number[], { dashboardId }: { dashboardId: number }): number[] {
+    return state.includes(dashboardId) ? state : [...state, dashboardId].slice(-MAX_SUPPRESSED_DASHBOARDS)
+}
+
 // Prunes stale timestamps across the whole map and drops dashboards left with none,
 // so the persisted entry stays bounded no matter how many dashboards were ever viewed.
 function pruneViewLog(log: DashboardViewLog, now: number): DashboardViewLog {
@@ -39,6 +45,7 @@ export const dashboardViewLogLogic = kea<dashboardViewLogLogicType>([
     actions({
         recordDashboardView: (dashboardId: number) => ({ dashboardId }),
         suppressDashboardNudge: (dashboardId: number) => ({ dashboardId }),
+        markDashboardNotified: (dashboardId: number) => ({ dashboardId }),
     }),
     reducers({
         viewLog: [
@@ -75,8 +82,16 @@ export const dashboardViewLogLogic = kea<dashboardViewLogLogicType>([
             [] as number[],
             { persist: true },
             {
-                suppressDashboardNudge: (state, { dashboardId }) =>
-                    state.includes(dashboardId) ? state : [...state, dashboardId].slice(-MAX_SUPPRESSED_DASHBOARDS),
+                suppressDashboardNudge: appendCapped,
+            },
+        ],
+        // Dashboards the nudge notification was already requested for — never request again from
+        // this browser (the server also dedupes, this just avoids pointless calls).
+        notifiedDashboardIds: [
+            [] as number[],
+            { persist: true },
+            {
+                markDashboardNotified: appendCapped,
             },
         ],
     }),

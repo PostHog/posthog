@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -11,6 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
+import { userLogic } from 'scenes/userLogic'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
@@ -127,13 +128,14 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
-    /** Field defaults applied when creating a new subscription (e.g. from the dashboard subscribe nudge). */
-    initialValues?: Partial<SubscriptionType> | null
+    /** Used to build the prefilled title when the form is opened via the subscribe-nudge notification. */
+    dashboardName?: string | null
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
+    connect(() => ({ values: [userLogic, ['user']] })),
 
     actions({
         generatePreview: true,
@@ -450,15 +452,26 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    urlToAction(({ actions, props, cache }) => ({
+    urlToAction(({ actions, props, cache, values }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
-            if (props.initialValues) {
+            // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
+            // fresh session days later — the prefill is built here from URL + context, not kea state.
+            if (searchParams.prefill === 'nudge' && props.dashboardId) {
+                const prefill: Partial<SubscriptionType> = {
+                    title: `${props.dashboardName || 'Dashboard'} weekly digest`,
+                    ...(values.user?.email ? { target_value: values.user.email } : {}),
+                }
                 // Goes through setSubscriptionValues (not the loaded baseline) so the form is marked
                 // dirty immediately — the prefilled fields are a deliberate change, not the pristine
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
-                actions.setSubscriptionValues(props.initialValues)
-                cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...props.initialValues }
+                actions.setSubscriptionValues(prefill)
+                cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
+                posthog.capture('dashboard subscribe nudge clicked', {
+                    dashboard_id: props.dashboardId,
+                    prefilled: !!values.user?.email,
+                    via: searchParams.via === 'toast' ? 'toast' : 'notification',
+                })
             }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)

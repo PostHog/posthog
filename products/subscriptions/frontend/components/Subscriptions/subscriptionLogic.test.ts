@@ -1,15 +1,21 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, SubscriptionType } from '~/types'
 
 import { subscriptionLogic } from './subscriptionLogic'
+
+jest.mock('posthog-js')
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -59,6 +65,8 @@ describe('subscriptionLogic', () => {
             },
         })
         initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         newLogic = subscriptionLogic({
             insightShortId: Insight1,
             id: 'new',
@@ -130,27 +138,35 @@ describe('subscriptionLogic', () => {
         })
     })
 
-    it('applies an initialValues prefill (e.g. from the dashboard subscribe nudge) and marks the form changed', async () => {
-        // Going through setSubscriptionValues (not the loaded baseline) is what marks the form
-        // changed — otherwise "Create subscription" stays disabled until the user edits something,
-        // defeating the point of prefilling.
+    it.each<[string, string, string]>([
+        // The notification's source_url carries via=notification; the transient toast via=toast.
+        // Absent via defaults to notification for safety.
+        ['?prefill=nudge&via=notification', 'notification', 'notification link'],
+        ['?prefill=nudge&via=toast', 'toast', 'toast button'],
+        ['?prefill=nudge', 'notification', 'legacy link without via'],
+    ])('prefills the form from %s and reports the click (via=%s, %s)', async (search, expectedVia) => {
+        // The nudge notification can be clicked days later in a fresh session, so the prefill is
+        // built from the URL param + logic context, not from any preexisting kea state.
         const prefilledLogic = subscriptionLogic({
-            insightShortId: Insight1,
+            dashboardId: 9,
+            dashboardName: 'Key metrics',
             id: 'new',
-            initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' },
         })
         prefilledLogic.mount()
 
-        router.actions.push('/insights/123/subscriptions/new')
+        router.actions.push(`/dashboard/9/subscriptions/new${search}`)
         await expectLogic(prefilledLogic).toFinishListeners()
 
         expect(prefilledLogic.values.subscription).toMatchObject({
-            title: 'Weekly digest',
-            target_value: 'ben@posthog.com',
+            title: 'Key metrics weekly digest',
+            target_value: MOCK_DEFAULT_USER.email,
             frequency: 'weekly',
             target_type: 'email',
         })
         expect(prefilledLogic.values.subscriptionChanged).toBe(true)
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'dashboard subscribe nudge clicked')
+        ).toEqual([['dashboard subscribe nudge clicked', { dashboard_id: 9, prefilled: true, via: expectedVia }]])
 
         prefilledLogic.unmount()
     })
@@ -164,13 +180,13 @@ describe('subscriptionLogic', () => {
     ])('navigating away from %s prompts=%s', async (_label, editAfterPrefill, expectPrompt) => {
         const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
         const prefilledLogic = subscriptionLogic({
-            insightShortId: Insight1,
+            dashboardId: 9,
+            dashboardName: 'Key metrics',
             id: 'new',
-            initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' },
         })
         prefilledLogic.mount()
 
-        router.actions.push('/insights/123/subscriptions/new')
+        router.actions.push('/dashboard/9/subscriptions/new?prefill=nudge')
         await expectLogic(prefilledLogic).toFinishListeners()
         if (editAfterPrefill) {
             prefilledLogic.actions.setSubscriptionValue('title', 'My own title')
@@ -185,22 +201,22 @@ describe('subscriptionLogic', () => {
         confirmSpy.mockRestore()
     })
 
-    it.each<[string, boolean, boolean]>([
+    it.each<[string, string, boolean]>([
         // The dashboard-with-tiles nudge flow: InsightSelector auto-selects right after the prefill.
         // A reset here would wipe the prefill's "changed" flag and disable Create.
-        ['a prefilled form', true, true],
+        ['a prefilled form', '?prefill=nudge', true],
         // Plain new subscription keeps existing behavior: auto-select resets to a clean form.
-        ['a plain new form', false, false],
-    ])('insight auto-select on %s leaves the form changed=%s', async (_label, prefilled, expectChanged) => {
+        ['a plain new form', '', false],
+    ])('insight auto-select on %s leaves the form changed=%s', async (_label, search, expectChanged) => {
         const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
         const testLogic = subscriptionLogic({
             dashboardId: 9,
+            dashboardName: 'Key metrics',
             id: 'new',
-            ...(prefilled ? { initialValues: { title: 'Weekly digest', target_value: 'ben@posthog.com' } } : {}),
         })
         testLogic.mount()
 
-        router.actions.push('/dashboard/9/subscriptions/new')
+        router.actions.push(`/dashboard/9/subscriptions/new${search}`)
         await expectLogic(testLogic).toFinishListeners()
 
         testLogic.actions.applyInsightSelectionDefaults([101, 102])

@@ -1,22 +1,13 @@
-import {
-    BreakPointFunction,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { BreakPointFunction, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { dashboardsSubscribeNudgeCreate } from '@posthog/products-dashboards/frontend/generated/api'
+import type { DashboardSubscribeNudgeResponseApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -24,7 +15,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardViewLogLogic, freshTimestamps } from 'scenes/dashboard/dashboardViewLogLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, DashboardPlacement, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardPlacement } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import { urlForSubscription } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -33,10 +24,6 @@ import { subscriptionsList } from 'products/subscriptions/frontend/generated/api
 import type { dashboardSubscribeNudgeLogicType } from './dashboardSubscribeNudgeLogicType'
 
 export const DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD = 3
-
-export function dashboardSubscribeNudgeDismissKey(dashboardId: number): string {
-    return `dashboard-subscribe-nudge-${dashboardId}`
-}
 
 export interface DashboardSubscribeNudgeLogicProps {
     dashboardId: number
@@ -51,27 +38,19 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             featureFlagLogic,
             ['featureFlags'],
             dashboardLogic({ id: props.dashboardId }),
-            ['dashboard', 'canEditDashboard', 'placement', 'showSubscriptions'],
+            ['dashboard', 'canEditDashboard', 'placement'],
             userLogic,
-            ['user', 'hasAvailableFeature'],
+            ['hasAvailableFeature'],
             dashboardViewLogLogic,
-            ['viewLog', 'suppressedDashboardIds'],
-            lemonBannerLogic({ dismissKey: dashboardSubscribeNudgeDismissKey(props.dashboardId) }),
-            ['isDismissed'],
+            ['viewLog', 'suppressedDashboardIds', 'notifiedDashboardIds'],
         ],
         actions: [
             dashboardLogic({ id: props.dashboardId }),
-            ['reportDashboardViewed', 'setSubscriptionMode'],
+            ['reportDashboardViewed'],
             dashboardViewLogLogic,
-            ['recordDashboardView', 'suppressDashboardNudge'],
-            lemonBannerLogic({ dismissKey: dashboardSubscribeNudgeDismissKey(props.dashboardId) }),
-            ['dismiss'],
+            ['recordDashboardView', 'suppressDashboardNudge', 'markDashboardNotified'],
         ],
     })),
-    actions({
-        subscribeClicked: true,
-        setSubscriptionPrefill: (prefill: Partial<SubscriptionType> | null) => ({ prefill }),
-    }),
     loaders(({ props }) => ({
         // Whether this dashboard already has a subscription. null = not checked yet. Fetched only for
         // candidate dashboards, so the vast majority of dashboard views trigger no request at all.
@@ -97,19 +76,19 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 },
             },
         ],
-    })),
-    reducers({
-        /** Field defaults handed to the subscription form when the nudge CTA opens it. */
-        subscriptionPrefill: [
-            null as Partial<SubscriptionType> | null,
+        // Asks the backend to deliver the in-app nudge notification. The server dedupes per
+        // (user, dashboard) and reports whether a notification was actually created.
+        nudgeNotification: [
+            null as DashboardSubscribeNudgeResponseApi | null,
             {
-                setSubscriptionPrefill: (_, { prefill }) => prefill,
-                // Cleared as soon as the route leaves the 'new' form (modal close, or cancel back to the
-                // subscriptions list) so a stale prefill can't leak into a later, unrelated "new subscription".
-                setSubscriptionMode: (state, { enabled, id }) => (enabled && id === 'new' ? state : null),
+                sendNudgeNotification: async (_?: unknown, breakpoint?: BreakPointFunction) => {
+                    const response = await dashboardsSubscribeNudgeCreate(String(getCurrentTeamId()), props.dashboardId)
+                    breakpoint?.()
+                    return response
+                },
             },
         ],
-    }),
+    })),
     selectors({
         viewCount7d: [
             (s) => [s.viewLog, (_, props) => props.dashboardId],
@@ -122,6 +101,10 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         isSuppressed: [
             (s) => [s.suppressedDashboardIds, (_, props) => props.dashboardId],
             (suppressedDashboardIds, dashboardId): boolean => suppressedDashboardIds.includes(dashboardId),
+        ],
+        isNotified: [
+            (s) => [s.notifiedDashboardIds, (_, props) => props.dashboardId],
+            (notifiedDashboardIds, dashboardId): boolean => notifiedDashboardIds.includes(dashboardId),
         ],
         // Excludes shared/public/embedded placements and paywalled orgs — the nudge only makes sense
         // where "set up a subscription" is an action the viewer can actually take.
@@ -136,9 +119,9 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         // Cheap half of eligibility: needs no API data, so the existing-subscription fetch only
         // happens for dashboards that pass this first.
         isCandidate: [
-            (s) => [s.isPastViewThreshold, s.isDismissed, s.isSuppressed, s.isDashboardEligible],
-            (isPastViewThreshold, isDismissed, isSuppressed, isDashboardEligible): boolean =>
-                isPastViewThreshold && !isDismissed && !isSuppressed && isDashboardEligible,
+            (s) => [s.isPastViewThreshold, s.isSuppressed, s.isNotified, s.isDashboardEligible],
+            (isPastViewThreshold, isSuppressed, isNotified, isDashboardEligible): boolean =>
+                isPastViewThreshold && !isSuppressed && !isNotified && isDashboardEligible,
         ],
         isEligible: [
             (s) => [s.isCandidate, s.hasExistingSubscription],
@@ -146,7 +129,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         ],
         // CRITICAL: `featureFlags[...]` is a proxy access that reports the flag's exposure event the
         // first time it's read. Only touch it once `isEligible` is true, so the experiment's exposure
-        // ($feature_flag_called) fires only for the population that could actually see the banner.
+        // ($feature_flag_called) fires only for the population that could actually receive the nudge.
         flagVariant: [
             (s) => [s.isEligible, s.featureFlags],
             (isEligible, featureFlags): string | boolean | undefined =>
@@ -154,7 +137,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         ],
         showNudge: [(s) => [s.flagVariant], (flagVariant): boolean => flagVariant === 'test'],
     }),
-    listeners(({ actions, values, props, selectors }) => ({
+    listeners(({ actions, values, props }) => ({
         reportDashboardViewed: () => {
             actions.recordDashboardView(props.dashboardId)
         },
@@ -179,53 +162,54 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             // Distinguishes a broken eligibility check from genuine ineligibility in the experiment readout.
             posthog.capture('dashboard subscribe nudge check failed', {
                 dashboard_id: props.dashboardId,
+                step: 'check',
                 error_name: errorObject?.name,
                 error_status: errorObject?.status,
                 error_message: error,
             })
         },
-        setSubscriptionMode: ({ enabled }, _breakpoint, _action, previousState) => {
-            // The subscriptions modal closed on this same mounted scene: the user may have just
-            // created a subscription via the nudge, so re-check instead of trusting the stale
-            // "no subscription" answer (which would resurface the banner). previousState tells a
-            // real modal close apart from the setSubscriptionMode(false) every /dashboard/:id
-            // navigation dispatches — only the former warrants a re-fetch.
-            const wasOpen = selectors.showSubscriptions(previousState)
-            if (!enabled && wasOpen && values.hasExistingSubscription === false) {
-                actions.loadExistingSubscription()
+        sendNudgeNotificationSuccess: ({ nudgeNotification }) => {
+            // Never request again from this browser — also on a server dedupe-skip, since the
+            // notification already exists.
+            actions.markDashboardNotified(props.dashboardId)
+            if (!nudgeNotification?.created) {
+                return
             }
-        },
-        dismiss: () => {
-            posthog.capture('dashboard subscribe nudge dismissed', {
+            posthog.capture('dashboard subscribe nudge shown', {
                 dashboard_id: props.dashboardId,
                 view_count_7d: values.viewCount7d,
             })
+            lemonToast.info(`Get ${values.dashboard?.name || 'this dashboard'} delivered to your inbox every Monday.`, {
+                toastId: `dashboard-subscribe-nudge-${props.dashboardId}`,
+                button: {
+                    label: 'Set up subscription',
+                    action: () =>
+                        router.actions.push(urlForSubscription('new', { dashboardId: props.dashboardId }), {
+                            prefill: 'nudge',
+                            via: 'toast',
+                        }),
+                    dataAttr: 'dashboard-subscribe-nudge-toast-cta',
+                },
+            })
         },
-        subscribeClicked: () => {
-            posthog.capture('dashboard subscribe nudge clicked', {
+        sendNudgeNotificationFailure: ({ error, errorObject }) => {
+            // Not marked notified: the next qualifying visit retries.
+            posthog.capture('dashboard subscribe nudge check failed', {
                 dashboard_id: props.dashboardId,
-                view_count_7d: values.viewCount7d,
-                prefilled: !!values.user?.email,
+                step: 'notify',
+                error_name: errorObject?.name,
+                error_status: errorObject?.status,
+                error_message: error,
             })
-            // Frequency (weekly), day (Monday), time (morning), and destination (email) already match
-            // the subscription form's own defaults — only the name and recipient need prefilling.
-            actions.setSubscriptionPrefill({
-                title: `${values.dashboard?.name || 'Dashboard'} weekly digest`,
-                ...(values.user?.email ? { target_value: values.user.email } : {}),
-            })
-            router.actions.push(urlForSubscription('new', { dashboardId: props.dashboardId }))
         },
     })),
-    subscriptions(({ values, props, cache }) => ({
-        // The impression is captured off the rendered state itself (not the subscription-check
-        // result), so it also fires when feature flags resolve after the check completed.
+    subscriptions(({ actions, values, cache }) => ({
+        // The nudge is requested off the fully-gated state itself (eligibility + test variant),
+        // so it also fires when feature flags resolve after the subscription check completed.
         showNudge: (showNudge: boolean) => {
-            if (showNudge && !cache.shownCaptured) {
-                cache.shownCaptured = true
-                posthog.capture('dashboard subscribe nudge shown', {
-                    dashboard_id: props.dashboardId,
-                    view_count_7d: values.viewCount7d,
-                })
+            if (showNudge && !cache.nudgeRequested && !values.nudgeNotificationLoading) {
+                cache.nudgeRequested = true
+                actions.sendNudgeNotification()
             }
         },
     })),

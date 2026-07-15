@@ -25,9 +25,15 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
-import { DashboardSubscribeNudge } from './DashboardSubscribeNudge'
+import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+// Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
+function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
+    useMountedLogic(dashboardSubscribeNudgeLogic({ dashboardId }))
+    return null
+}
 
 interface DashboardProps {
     id?: string
@@ -117,7 +123,9 @@ function DashboardScene({
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
-            {placement == DashboardPlacement.Dashboard && <DashboardSubscribeNudge />}
+            {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
+            )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 

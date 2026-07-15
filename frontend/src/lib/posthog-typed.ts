@@ -663,18 +663,15 @@ interface EventSchemas {
     'dashboard share toggled': Record<string, any>
     'dashboard subscribe nudge check failed': {
         dashboard_id?: number
+        step?: string
         error_name?: string
         error_status?: number
         error_message?: string
     }
     'dashboard subscribe nudge clicked': {
         dashboard_id?: number
-        view_count_7d?: number
         prefilled?: boolean
-    }
-    'dashboard subscribe nudge dismissed': {
-        dashboard_id?: number
-        view_count_7d?: number
+        via?: string
     }
     'dashboard subscribe nudge shown': {
         dashboard_id?: number

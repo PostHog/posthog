@@ -9,7 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
-import { DashboardType, InsightShortId, SubscriptionType } from '~/types'
+import { DashboardType, InsightShortId } from '~/types'
 
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
@@ -23,22 +23,11 @@ export interface SubscriptionsModalProps {
     inline?: boolean
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
-    /** Field defaults applied when `subscriptionId` is `'new'` (e.g. from the dashboard subscribe nudge). */
-    initialValues?: Partial<SubscriptionType> | null
     'data-attr'?: string
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const {
-        closeModal,
-        dashboard,
-        insightShortId,
-        subscriptionId,
-        initialValues,
-        isOpen,
-        inline,
-        'data-attr': dataAttr,
-    } = props
+    const { closeModal, dashboard, insightShortId, subscriptionId, isOpen, inline, 'data-attr': dataAttr } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
 
@@ -93,7 +82,6 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                     id={subscriptionId}
                     insightShortId={insightShortId}
                     dashboard={dashboard}
-                    initialValues={subscriptionId === 'new' ? initialValues : undefined}
                     onCancel={() => push(urlForSubscriptions(baseProps))}
                     onDelete={() => push(urlForSubscriptions(baseProps))}
                 />

@@ -34,7 +34,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
 import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -99,8 +99,6 @@ interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
-    /** Field defaults applied when creating a new subscription (e.g. from the dashboard subscribe nudge). */
-    initialValues?: Partial<SubscriptionType> | null
     onCancel: () => void
     onDelete: () => void
 }
@@ -335,7 +333,6 @@ function EditSubscriptionForm({
     id,
     insightShortId,
     dashboard,
-    initialValues,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
@@ -344,7 +341,7 @@ function EditSubscriptionForm({
         id,
         insightShortId,
         dashboardId,
-        initialValues,
+        dashboardName: dashboard?.name,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
