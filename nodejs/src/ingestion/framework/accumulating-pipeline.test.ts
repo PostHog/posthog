@@ -13,15 +13,18 @@ import { PipelineResultType, dlq, drop, isOkResult, ok } from './results'
 type RecordIn = { id: number }
 // The cycle context carries its own accumulator array, like SessionBatchRecorder.
 type Batch = { records: number[] }
+// The cycle state counts every drained result, like session replay's per-partition offsets.
+type State = { count: number }
 
-// Flush pipeline: receives the cycle flush input (one element) and emits the cycle context's
-// accumulated records.
+// Flush pipeline: receives the cycle flush input (one element), captures it for assertions, and
+// emits the cycle context's accumulated records.
 class RecordsFlushPipeline
-    implements ChunkPipeline<CycleFlushInput<RecordIn, Batch>, number[], Record<string, never>, Record<string, never>>
+    implements ChunkPipeline<CycleFlushInput<State, Batch>, number[], Record<string, never>, Record<string, never>>
 {
-    private buffer: OkResultWithContext<CycleFlushInput<RecordIn, Batch>, Record<string, never>>[] = []
+    public lastFlushInput: CycleFlushInput<State, Batch> | null = null
+    private buffer: OkResultWithContext<CycleFlushInput<State, Batch>, Record<string, never>>[] = []
 
-    feed(elements: OkResultWithContext<CycleFlushInput<RecordIn, Batch>, Record<string, never>>[]): void {
+    feed(elements: OkResultWithContext<CycleFlushInput<State, Batch>, Record<string, never>>[]): void {
         this.buffer.push(...elements)
     }
 
@@ -32,16 +35,19 @@ class RecordsFlushPipeline
         const out = this.buffer
         this.buffer = []
         return Promise.resolve(
-            out.map((element) => ({
-                result: ok(element.result.value.cycleContext.records),
-                context: element.context,
-            }))
+            out.map((element) => {
+                this.lastFlushInput = element.result.value
+                return {
+                    result: ok(element.result.value.cycleContext.records),
+                    context: element.context,
+                }
+            })
         )
     }
 }
 
 // Concatenates the records emitted by RecordsFlushPipeline out of a flushed result.
-function flushedRecords(result: AccumulatingResult<RecordIn, number[], Record<string, never>> | null): number[] {
+function flushedRecords(result: AccumulatingResult<number[], Record<string, never>> | null): number[] {
     if (!result || !result.flushed) {
         return []
     }
@@ -54,9 +60,10 @@ function feedBatch(ids: number[]): OkResultWithContext<RecordIn, Record<string, 
 
 // Folds each fed element's id into the accumulator carried on its (tagged) value, then re-emits the
 // element — a plain chunk pipeline, like the session-replay record pipeline folding into the
-// recorder. Negative ids come out as drop results (they still accumulate — the flush must see every
-// message's row). `sideEffectPerDrain`, when set, is attached to the first emitted element's context
-// per drain, so tests can assert the accumulating pipeline lifts element side effects into the turn.
+// recorder. Negative ids come out as drop results (the reducer must still see them — bookkeeping
+// like offset tracking covers dropped messages too). `sideEffectPerDrain`, when set, is attached to
+// the first emitted element's context per drain, so tests can assert the accumulating pipeline
+// lifts element side effects into the turn.
 class FoldingRecordPipeline
     implements ChunkPipeline<RecordIn & Batch, RecordIn, Record<string, never>, Record<string, never>>
 {
@@ -96,6 +103,8 @@ class FoldingRecordPipeline
 
 describe('AccumulatingPipeline', () => {
     let beforeCycle: jest.Mock
+    let flushPipeline: RecordsFlushPipeline
+    let reducedTypes: PipelineResultType[]
 
     function createPipeline(options: {
         flushAt: number
@@ -115,6 +124,8 @@ describe('AccumulatingPipeline', () => {
             BeforeCycleOutput<Batch>,
             Record<string, never>
         >
+        flushPipeline = new RecordsFlushPipeline()
+        reducedTypes = []
 
         return new AccumulatingPipeline<
             RecordIn,
@@ -122,14 +133,20 @@ describe('AccumulatingPipeline', () => {
             Record<string, never>,
             Record<string, never>,
             Batch,
+            State,
             number[],
             Record<string, never>
         >({
             beforeCycle: beforePipeline,
             pipeline: new FoldingRecordPipeline(options.recordSideEffect),
+            initialState: () => ({ count: 0 }),
+            reduce: (state, element) => {
+                reducedTypes.push(element.result.type)
+                return { count: state.count + 1 }
+            },
             shouldFlush: (cycleContext) => cycleContext.records.length >= options.flushAt,
             maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
-            flushPipeline: new RecordsFlushPipeline(),
+            flushPipeline,
         })
     }
 
@@ -145,7 +162,7 @@ describe('AccumulatingPipeline', () => {
         await pipeline.feed(feedBatch([3]))
         await drainNext(pipeline)
 
-        expect(recorded).toEqual({ flushed: false, elements: expect.any(Array), sideEffects: [] })
+        expect(recorded).toEqual({ flushed: false, sideEffects: [] })
         // record drained, accumulator under threshold → next() finds nothing to flush
         expect(await drainNext(pipeline)).toBeNull()
         // beforeCycle ran exactly once (no flush → no re-mint)
@@ -186,21 +203,31 @@ describe('AccumulatingPipeline', () => {
         expect(beforeCycle).not.toHaveBeenCalled()
     })
 
-    // Every drained result accumulates as a bare result — non-OK included, since downstream
-    // bookkeeping (e.g. the offsets a flush commits) must cover dropped messages too.
-    it('accumulates non-OK results alongside OK ones, as bare results', async () => {
+    // The reducer is the per-message bookkeeping point: it must see every drained result exactly
+    // once — non-OK included, since e.g. the offsets a flush commits must cover dropped messages —
+    // and the reduced state must reach the flush.
+    it('reduces every drained result into the cycle state, non-OK included, and hands it to the flush', async () => {
         const pipeline = createPipeline({ flushAt: 100 })
 
         await pipeline.feed(feedBatch([1, -2, 3]))
-        const recorded = await drainNext(pipeline)
+        await drainNext(pipeline)
 
-        const elements = recorded && !recorded.flushed ? recorded.elements : []
-        expect(elements.map((r) => r.type)).toEqual([
-            PipelineResultType.OK,
-            PipelineResultType.DROP,
-            PipelineResultType.OK,
-        ])
-        expect(elements.map((r) => (isOkResult(r) ? r.value.id : null))).toEqual([1, null, 3])
+        expect(reducedTypes).toEqual([PipelineResultType.OK, PipelineResultType.DROP, PipelineResultType.OK])
+
+        await pipeline.flush()
+        expect(flushPipeline.lastFlushInput?.state).toEqual({ count: 3 })
+    })
+
+    it('re-mints the cycle state after a flush', async () => {
+        const pipeline = createPipeline({ flushAt: 100 })
+
+        await pipeline.feed(feedBatch([1, 2]))
+        await pipeline.flush()
+        expect(flushPipeline.lastFlushInput?.state).toEqual({ count: 2 })
+
+        await pipeline.feed(feedBatch([3]))
+        await pipeline.flush()
+        expect(flushPipeline.lastFlushInput?.state).toEqual({ count: 1 })
     })
 
     it('surfaces the record elements side effects on a record turn', async () => {
@@ -214,8 +241,8 @@ describe('AccumulatingPipeline', () => {
         expect(recorded?.sideEffects).toHaveLength(1)
     })
 
-    // Contexts (and the side effects on them) are dropped at drain time — the flush must not
-    // re-surface a produce that already surfaced on its record turn.
+    // Elements are let go at drain time — the flush must not re-surface a side effect that already
+    // surfaced on its record turn.
     it('lifts element side effects once — the flush turn does not re-surface them', async () => {
         const recordSideEffect = jest.fn().mockResolvedValue(undefined)
         const pipeline = createPipeline({ flushAt: 100, recordSideEffect })
@@ -346,11 +373,14 @@ describe('AccumulatingPipeline', () => {
             Record<string, never>,
             Record<string, never>,
             Batch,
+            State,
             number[],
             Record<string, never>
         >({
             beforeCycle: beforePipeline,
             pipeline: new FoldingRecordPipeline(),
+            initialState: () => ({ count: 0 }),
+            reduce: (state) => ({ count: state.count + 1 }),
             shouldFlush: () => false,
             maxCycleAgeMs: 60_000,
             flushPipeline: new RecordsFlushPipeline(),
@@ -395,11 +425,14 @@ describe('AccumulatingPipeline', () => {
             Record<string, never>,
             Record<string, never>,
             Batch,
+            State,
             number[],
             Record<string, never>
         >({
             beforeCycle: beforePipeline,
             pipeline: new FoldingRecordPipeline(),
+            initialState: () => ({ count: 0 }),
+            reduce: (state) => ({ count: state.count + 1 }),
             shouldFlush: () => false,
             maxCycleAgeMs: 60_000,
             flushPipeline: new RecordsFlushPipeline(),

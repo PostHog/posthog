@@ -23,8 +23,14 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { ReplayRecordRow } from './pipeline-types'
-import { SessionReplayInnerPipelineConfig, createSessionReplayInnerPipeline } from './session-replay-pipeline'
+import { ReplayCycleState } from './pipeline-types'
+import {
+    SessionReplayInnerPipelineConfig,
+    SessionReplayPipelineOutput,
+    createSessionReplayInnerPipeline,
+    initialReplayCycleState,
+    reduceReplayCycleState,
+} from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -83,6 +89,7 @@ describe('session-replay-pipeline', () => {
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let cycleState: ReplayCycleState
     let promiseScheduler: PromiseScheduler
     let topHog: MockTopHogRegistry
     let outputs: jest.Mocked<
@@ -191,13 +198,13 @@ describe('session-replay-pipeline', () => {
         })
     }
 
-    // Feeds messages through the inner pipeline with the batch recorder tagged on each element (as
-    // the accumulating pipeline does), drains it, and returns every message's row — the pipeline
-    // emits one row per fed message, whether it recorded or not.
-    async function runPipelineAllRows(
+    // Feeds messages through the inner pipeline with the batch recorder tagged on each element,
+    // drains it, and folds every drained result through the replay reducer — exactly what the
+    // accumulating pipeline does. Returns the OK outputs; the reduced state lands in `cycleState`.
+    async function runPipeline(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
         messages: Message[]
-    ): Promise<ReplayRecordRow[]> {
+    ): Promise<SessionReplayPipelineOutput[]> {
         // The accumulating pipeline skips empty feeds; mirror that.
         if (messages.length > 0) {
             pipeline.feed(
@@ -206,25 +213,18 @@ describe('session-replay-pipeline', () => {
                 )
             )
         }
-        const rows: ReplayRecordRow[] = []
+        const recorded: SessionReplayPipelineOutput[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
             for (const element of batch) {
+                cycleState = reduceReplayCycleState(cycleState, element)
                 if (isOkResult(element.result)) {
-                    rows.push(element.result.value)
+                    recorded.push(element.result.value)
                 }
             }
             batch = await pipeline.next()
         }
-        return rows
-    }
-
-    // Like runPipelineAllRows, but keeps only the recorded messages' rows — what most tests assert on.
-    async function runPipeline(
-        pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
-        messages: Message[]
-    ): Promise<ReplayRecordRow[]> {
-        return (await runPipelineAllRows(pipeline, messages)).filter((row) => row.recorded)
+        return recorded
     }
 
     // The session ids recorded into the batch, in call order — the observable effect of a message
@@ -250,6 +250,7 @@ describe('session-replay-pipeline', () => {
         } as unknown as TeamService
 
         mockBatchRecorder = createMockBatchRecorder()
+        cycleState = initialReplayCycleState()
         topHog = createMockTopHog()
 
         promiseScheduler = new PromiseScheduler()
@@ -349,8 +350,7 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(2)
             expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
-            // the output is the lightweight per-message row (in feed order), not the parsed message
-            expect(result[0]).toEqual({ partition: 0, offset: 1, recorded: true })
+            expect(result[0].parsedMessage.session_id).toBe('session-1')
         })
 
         it('filters out dropped messages from restrictions', async () => {
@@ -708,11 +708,12 @@ describe('session-replay-pipeline', () => {
             expect(mockBatch.record).toHaveBeenCalledTimes(3)
         })
 
-        it('emits a row carrying the source offset for every fed message, dropped ones included', async () => {
-            // Drop offset 2 at restrictions; offsets 1 and 3 record.
+        it('reduces every fed message offset into the cycle state, dropped ones included', async () => {
+            // Drop offset 3 — the highest — at restrictions; offsets 1 and 2 record. Only if dropped
+            // messages count does the state reach 3.
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
-                    if (input.message.offset === 2) {
+                    if (input.message.offset === 3) {
                         return Promise.resolve(drop('blocked'))
                     }
                     return Promise.resolve(ok(input))
@@ -726,16 +727,11 @@ describe('session-replay-pipeline', () => {
                 createMessage(0, 3, 'session-3'),
             ]
 
-            const rows = await runPipelineAllRows(pipeline, messages)
+            const result = await runPipeline(pipeline, messages)
 
-            // Every fed message surfaces as a row with its offset — the flush's commit step derives
-            // the offsets to commit from these, so the dropped one must advance too. Rows drain in
-            // completion order, not feed order.
-            expect(rows.sort((a, b) => a.offset - b.offset)).toEqual([
-                { partition: 0, offset: 1, recorded: true },
-                { partition: 0, offset: 2, recorded: false },
-                { partition: 0, offset: 3, recorded: true },
-            ])
+            expect(result).toHaveLength(2)
+            // The flush's commit step reads the state, so the dropped message's offset advances too.
+            expect(cycleState.offsets).toEqual(new Map([[0, 3]]))
         })
 
         it('does not record dropped messages to session batch', async () => {

@@ -296,7 +296,7 @@ export class SessionRecordingIngester {
     }
 
     /** Schedules a turn's surfaced side effects and awaits all in-flight produces. */
-    private async settleSideEffects(result: AccumulatingResult<unknown, unknown, unknown, string>): Promise<void> {
+    private async settleSideEffects(result: AccumulatingResult<unknown, unknown, string>): Promise<void> {
         for (const sideEffect of result.sideEffects) {
             void this.promiseScheduler.schedule(sideEffect)
         }

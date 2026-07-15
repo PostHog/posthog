@@ -9,14 +9,12 @@ export interface MessageContext {
 }
 
 /**
- * What the record pipeline emits per message, and what accumulates for the flush: the source
- * partition and offset — present for every message (recorded, dropped, or DLQ'd), so the flush's
- * commit advances past dropped messages too — plus whether the message was recorded.
+ * The cycle state the accumulating pipeline reduces every drained result into: the highest offset
+ * seen per partition. Every message counts — recorded, dropped, or DLQ'd — so the flush's commit
+ * advances past dropped messages too.
  */
-export interface ReplayRecordRow {
-    partition: number
-    offset: number
-    recorded: boolean
+export interface ReplayCycleState {
+    offsets: Map<number, number>
 }
 
 /**

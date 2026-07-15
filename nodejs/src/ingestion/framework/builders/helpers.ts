@@ -4,6 +4,7 @@ import {
     BeforeCycleOutput,
     CycleContext,
     CycleFlushInput,
+    CycleReducer,
 } from '~/ingestion/framework/accumulating-pipeline'
 import {
     AfterBatchInput,
@@ -89,10 +90,11 @@ export function newBatchingPipeline<
  */
 export function newAccumulatingPipeline<
     TRecordIn extends object, // element fed in per message (cycle context is added internally)
-    TRecordOut, // element out of the per-message pipeline; accumulates as a bare result
+    TRecordOut, // element out of the per-message pipeline; reduced into the cycle state
     CRecordIn, // per-message pipeline context in
-    CRecordOut, // per-message pipeline context out (dropped when results accumulate)
+    CRecordOut, // per-message pipeline context out (readable in the reducer, then let go)
     CCycle, // cycle context minted per cycle, tagged on every element and the flush unit
+    TState, // cycle state the reducer folds every drained result into
     TFlushOut, // element out of the flush pipeline
     CFlushOut = Record<string, never>, // flush-pipeline context out
     R extends string = never, // redirect output names this pipeline can emit
@@ -103,34 +105,49 @@ export function newAccumulatingPipeline<
     ) => PipelineBuilder<BeforeCycleInput, BeforeCycleOutput<CCycle>, Record<string, never>>
     /** Pre-built record pipeline (a plain chunk pipeline) that folds each message into the current cycle context */
     pipeline: ChunkPipeline<TRecordIn & CCycle & CycleContext, TRecordOut, CRecordIn, CRecordOut, R>
+    /** Mints the cycle state the reducer folds into — runs whenever a fresh cycle context is minted */
+    initialState: () => TState
+    /** Folds every drained record result into the cycle state — see {@link CycleReducer} */
+    reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
     /**
      * Builds the flush pipeline run on the size or age trigger. It receives one
-     * {@link CycleFlushInput}: the cycle context plus every accumulated record result in drain
-     * order.
+     * {@link CycleFlushInput}: the cycle context plus the reduced cycle state.
      */
     flush: (
         builder: ChunkPipelineBuilder<
-            CycleFlushInput<TRecordOut, CCycle, R>,
-            CycleFlushInput<TRecordOut, CCycle, R>,
+            CycleFlushInput<TState, CCycle>,
+            CycleFlushInput<TState, CCycle>,
             Record<string, never>
         >
-    ) => ChunkPipelineBuilder<CycleFlushInput<TRecordOut, CCycle, R>, TFlushOut, Record<string, never>, CFlushOut, R>
+    ) => ChunkPipelineBuilder<CycleFlushInput<TState, CCycle>, TFlushOut, Record<string, never>, CFlushOut, R>
     /** Size predicate: returns true when the current cycle should flush */
     shouldFlush: (cycleContext: CCycle & CycleContext) => boolean
     /** Maximum age of a cycle in milliseconds before the timer flushes it */
     maxCycleAgeMs: number
-}): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CCycle, TFlushOut, CFlushOut, R> {
+}): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CCycle, TState, TFlushOut, CFlushOut, R> {
     const beforeCycle = config.beforeCycle(new StartPipelineBuilder<BeforeCycleInput, Record<string, never>>()).build()
     const flushPipeline = config
         .flush(
             new ChunkPipelineBuilder(
-                new BufferingChunkPipeline<CycleFlushInput<TRecordOut, CCycle, R>, Record<string, never>>()
+                new BufferingChunkPipeline<CycleFlushInput<TState, CCycle>, Record<string, never>>()
             )
         )
         .build()
-    return new AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CCycle, TFlushOut, CFlushOut, R>({
+    return new AccumulatingPipeline<
+        TRecordIn,
+        TRecordOut,
+        CRecordIn,
+        CRecordOut,
+        CCycle,
+        TState,
+        TFlushOut,
+        CFlushOut,
+        R
+    >({
         beforeCycle,
         pipeline: config.pipeline,
+        initialState: config.initialState,
+        reduce: config.reduce,
         shouldFlush: config.shouldFlush,
         maxCycleAgeMs: config.maxCycleAgeMs,
         flushPipeline,

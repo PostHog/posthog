@@ -2,9 +2,9 @@ import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
-import { Pipeline } from './pipeline.interface'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
-import { PipelineResult, isOkResult } from './results'
+import { isOkResult } from './results'
 
 /** Context carried by every accumulation cycle's cycle context. */
 export interface CycleContext {
@@ -22,15 +22,27 @@ export interface BeforeCycleOutput<CCycle> {
 }
 
 /**
- * Discriminated result of next(). The consumer reads `flushed` to decide what to do: a
- * `flushed: false` turn carries the record results, a `flushed: true` turn carries the flush
- * results. Both variants carry the side effects surfaced this turn so the caller can make them
- * durable.
+ * Folds one drained record result into the cycle's state. Runs on every result — OK and non-OK
+ * alike, with the element's context still attached — exactly once, so this is where per-message
+ * bookkeeping lives: session replay folds each message's partition and offset into the state (drops
+ * and DLQs too, so the flush's commit advances past them). Extract what the flush needs into the
+ * state and let the element go — nothing is retained after the reduce, so the cycle never pins
+ * per-message payloads.
  */
-export type AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R extends string = never> =
+export type CycleReducer<TState, TRecordOut, CRecordOut, R extends string = never> = (
+    state: TState,
+    element: PipelineResultWithContext<TRecordOut, CRecordOut, R>
+) => TState
+
+/**
+ * Discriminated result of next(). The consumer reads `flushed` to decide what to do: a
+ * `flushed: false` turn means record work happened (its results were reduced into the cycle
+ * state), a `flushed: true` turn carries the flush results. Both variants carry the side effects
+ * surfaced this turn so the caller can make them durable.
+ */
+export type AccumulatingResult<TFlushOut, CFlushOut, R extends string = never> =
     | {
           flushed: false
-          elements: PipelineResult<TRecordOut, R>[]
           sideEffects: Promise<unknown>[]
       }
     | {
@@ -40,22 +52,19 @@ export type AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R extends strin
       }
 
 /**
- * The single element handed to the flush pipeline on a flush: the cycle context (the accumulator)
- * plus every record result accumulated since the last flush, in drain order. Flush steps can both
- * drain the accumulator (via `cycleContext`) and read per-record data (via `elements` — e.g. to
- * commit the Kafka offsets the cycle covers). The elements are bare results — contexts were
- * dropped at drain time — and the record pipeline's tail shapes their values, so the buffer holds
- * lightweight rows instead of pinning raw payloads.
+ * The single element handed to the flush pipeline on a flush: the cycle context (the accumulator
+ * the record steps folded into) plus the cycle state (what the reducer folded out of every drained
+ * result — e.g. the offsets to commit).
  */
-export interface CycleFlushInput<TRecordOut, CCycle, R extends string = never> {
-    elements: PipelineResult<TRecordOut, R>[]
+export interface CycleFlushInput<TState, CCycle> {
+    state: TState
     cycleContext: CCycle & CycleContext
 }
 
 /**
- * Constructor config, ordered by when each part runs in a cycle: beforeCycle mints the accumulator,
- * pipeline folds events (and trims what accumulates), shouldFlush/maxCycleAgeMs decide when to
- * flush, then flushPipeline persists the cycle.
+ * Constructor config, ordered by when each part runs in a cycle: beforeCycle mints the accumulator
+ * and initialState the cycle state, pipeline folds events, reduce folds every drained result into
+ * the state, shouldFlush/maxCycleAgeMs decide when to flush, then flushPipeline persists the cycle.
  */
 export interface AccumulatingPipelineConfig<
     TRecordIn extends object,
@@ -63,6 +72,7 @@ export interface AccumulatingPipelineConfig<
     CRecordIn,
     CRecordOut,
     CCycle,
+    TState,
     TFlushOut,
     CFlushOut,
     R extends string = never,
@@ -72,21 +82,23 @@ export interface AccumulatingPipelineConfig<
     /**
      * Per-message pipeline that folds records into the current cycle's accumulator — a plain chunk
      * pipeline of steps. The cycle boundary lives entirely in this class; the pipeline knows
-     * nothing about cycles or flushes. Every drained result accumulates for the flush as a bare
-     * result (contexts are dropped at drain time), so the pipeline's tail should mapElements each
-     * result — OK and non-OK alike — to the lightweight row the flush reads.
+     * nothing about cycles or flushes.
      */
     pipeline: ChunkPipeline<TRecordIn & CCycle & CycleContext, TRecordOut, CRecordIn, CRecordOut, R>
+    /** Mints the cycle state the reducer folds into — runs whenever a fresh cycle context is minted. */
+    initialState: () => TState
+    /** Folds every drained record result into the cycle state — see {@link CycleReducer}. */
+    reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
     /** Size trigger: flush when this returns true for the current accumulator. */
     shouldFlush: (cycleContext: CCycle & CycleContext) => boolean
     /** Age trigger interval. The timer only marks a flush due; the flush executes inside next(). */
     maxCycleAgeMs: number
     /**
      * Flush pipeline that persists the cycle on a flush. It receives a single
-     * {@link CycleFlushInput} — the cycle context plus every accumulated record result — and fans
-     * out over sub-units (e.g. per session) internally if it needs to.
+     * {@link CycleFlushInput} — the cycle context plus the reduced cycle state — and fans out over
+     * sub-units (e.g. per session) internally if it needs to.
      */
-    flushPipeline: ChunkPipeline<CycleFlushInput<TRecordOut, CCycle, R>, TFlushOut, Record<string, never>, CFlushOut, R>
+    flushPipeline: ChunkPipeline<CycleFlushInput<TState, CCycle>, TFlushOut, Record<string, never>, CFlushOut, R>
 }
 
 /**
@@ -95,11 +107,12 @@ export interface AccumulatingPipelineConfig<
  *
  * Unlike BatchingPipeline — where each feed() is one batch — the accumulation cycle spans many
  * feed() calls and is closed by `shouldFlush` (size) plus an age timer. `beforeCycle` mints a
- * fresh accumulator after every flush (and before the first feed). The record pipeline is a plain
- * chunk pipeline; as its results drain, this class surfaces any side effects still on the element
- * contexts (so they surface exactly once, on the turn that produced them) and accumulates every
- * result for the flush. The pipeline itself never commits offsets and never schedules side
- * effects — flush steps and the caller own both.
+ * fresh accumulator after every flush (and before the first feed), together with a fresh cycle
+ * state. The record pipeline is a plain chunk pipeline; as its results drain, this class surfaces
+ * any side effects still on the element contexts (so they surface exactly once, on the turn that
+ * produced them) and folds every result into the cycle state via `reduce` — then lets the element
+ * go, so nothing accumulates beyond the state and the accumulator. The pipeline itself never
+ * commits offsets and never schedules side effects — flush steps and the caller own both.
  *
  * A sibling of BatchingPipeline, deliberately not a reuse of BufferingChunkPipeline (that one is a
  * passthrough re-emit buffer used by filterMap); the defining difference from both is the cycle
@@ -124,11 +137,13 @@ export class AccumulatingPipeline<
     CRecordIn,
     CRecordOut,
     CCycle,
+    TState,
     TFlushOut,
     CFlushOut,
     R extends string = never,
 > {
     private currentCycleContext: (CCycle & CycleContext) | null = null
+    private currentState: TState | null = null
     private nextCycleId = 0
     private flushDue = false
     private timer?: ReturnType<typeof setInterval>
@@ -148,8 +163,10 @@ export class AccumulatingPipeline<
 
     private readonly beforePipeline: Pipeline<BeforeCycleInput, BeforeCycleOutput<CCycle>, Record<string, never>>
     private readonly pipeline: ChunkPipeline<TRecordIn & CCycle & CycleContext, TRecordOut, CRecordIn, CRecordOut, R>
+    private readonly initialState: () => TState
+    private readonly reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
     private readonly flushPipeline: ChunkPipeline<
-        CycleFlushInput<TRecordOut, CCycle, R>,
+        CycleFlushInput<TState, CCycle>,
         TFlushOut,
         Record<string, never>,
         CFlushOut,
@@ -158,11 +175,6 @@ export class AccumulatingPipeline<
     private readonly shouldFlush: (cycleContext: CCycle & CycleContext) => boolean
     private readonly maxCycleAgeMs: number
 
-    // Record results accumulated (in drain order) since the last flush, handed to the flush
-    // pipeline as CycleFlushInput.elements. The record pipeline's tail has already trimmed these
-    // to whatever the flush needs, so this holds lightweight rows, not the full fed payloads.
-    private flushBuffer: PipelineResult<TRecordOut, R>[] = []
-
     constructor(
         config: AccumulatingPipelineConfig<
             TRecordIn,
@@ -170,6 +182,7 @@ export class AccumulatingPipeline<
             CRecordIn,
             CRecordOut,
             CCycle,
+            TState,
             TFlushOut,
             CFlushOut,
             R
@@ -177,6 +190,8 @@ export class AccumulatingPipeline<
     ) {
         this.beforePipeline = config.beforeCycle
         this.pipeline = config.pipeline
+        this.initialState = config.initialState
+        this.reduce = config.reduce
         this.flushPipeline = config.flushPipeline
         this.shouldFlush = config.shouldFlush
         this.maxCycleAgeMs = config.maxCycleAgeMs
@@ -192,7 +207,7 @@ export class AccumulatingPipeline<
      * partial cycle is not lost on shutdown. Callers must drain next() to null first so the
      * record buffer is empty and folded into the accumulator.
      */
-    public stop(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
+    public stop(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
         if (this.timer) {
             clearInterval(this.timer)
             this.timer = undefined
@@ -200,11 +215,10 @@ export class AccumulatingPipeline<
         return this.pumpLimit(() => this.drainAndFlush())
     }
 
-    private async drainAndFlush(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
-        // Drain any buffered record work into the accumulator FIRST so a revoke/stop flush covers
-        // it too — the flush then persists and commits everything drained so far.
-        const { elements: recorded, sideEffects } = await this.drainRecord()
-        this.flushBuffer.push(...recorded)
+    private async drainAndFlush(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
+        // Drain any buffered record work into the accumulator and state FIRST, so a revoke/stop
+        // flush covers everything drained so far.
+        const { sideEffects } = await this.drainRecord()
         const flushed = await this.flushNow()
         if (flushed === null) {
             return null
@@ -233,7 +247,7 @@ export class AccumulatingPipeline<
         })
     }
 
-    public next(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
+    public next(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
         return this.pumpLimit(() => this.pump())
     }
 
@@ -242,7 +256,7 @@ export class AccumulatingPipeline<
      * The age timer keeps running. Used on Kafka partition revocation — rather than reaching into the
      * live cycle to discard the revoked partition, we process what we have and flush it.
      */
-    public flush(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
+    public flush(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
         return this.pumpLimit(() => this.drainAndFlush())
     }
 
@@ -255,13 +269,11 @@ export class AccumulatingPipeline<
         this.signal.reset()
     }
 
-    private async pump(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
-        // Drain the record (main) pipeline first and accumulate its results — already trimmed and
-        // in drain order — into the flush buffer, keeping the surfaced side effects.
-        const { elements: recorded, sideEffects } = await this.drainRecord()
-        this.flushBuffer.push(...recorded)
-        if (recorded.length > 0 || sideEffects.length > 0) {
-            return { flushed: false, elements: recorded, sideEffects }
+    private async pump(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
+        // Drain the record (main) pipeline first, folding its results into the cycle state.
+        const { drained, sideEffects } = await this.drainRecord()
+        if (drained > 0 || sideEffects.length > 0) {
+            return { flushed: false, sideEffects }
         }
 
         // Main pipeline empty → flush on size or age.
@@ -274,29 +286,32 @@ export class AccumulatingPipeline<
     }
 
     /**
-     * Drains the record pipeline to null. Any side effects still on an element's context are
-     * lifted into the turn's side-effect list and cleared from the element — they surface exactly
-     * once, on the turn that produced them, and never again at flush time.
+     * Drains the record pipeline to null, handling each drained element exactly once: any side
+     * effects still on its context are lifted into the turn (the caller makes them durable), and
+     * the element is folded into the cycle state via `reduce` — then let go, so nothing beyond the
+     * state is retained.
      */
-    private async drainRecord(): Promise<{
-        elements: PipelineResult<TRecordOut, R>[]
-        sideEffects: Promise<unknown>[]
-    }> {
-        const drained: ChunkPipelineResultWithContext<TRecordOut, CRecordOut, R> = []
+    private async drainRecord(): Promise<{ drained: number; sideEffects: Promise<unknown>[] }> {
+        let drained = 0
+        const sideEffects: Promise<unknown>[] = []
         let result = await this.pipeline.next()
         while (result !== null) {
-            drained.push(...result)
+            if (result.length > 0) {
+                // Elements only exist once a cycle context was minted for their feed.
+                let state = this.currentState ?? this.initialState()
+                for (const element of result) {
+                    sideEffects.push(...element.context.sideEffects)
+                    state = this.reduce(state, element)
+                }
+                this.currentState = state
+                drained += result.length
+            }
             result = await this.pipeline.next()
         }
-        if (drained.length === 0) {
-            return { elements: [], sideEffects: [] }
-        }
-
-        const sideEffects = drained.flatMap((element) => element.context.sideEffects)
-        return { elements: drained.map((element) => element.result), sideEffects }
+        return { drained, sideEffects }
     }
 
-    private async flushNow(): Promise<AccumulatingResult<TRecordOut, TFlushOut, CFlushOut, R> | null> {
+    private async flushNow(): Promise<AccumulatingResult<TFlushOut, CFlushOut, R> | null> {
         this.flushDue = false
         this.rearmTimer()
 
@@ -304,10 +319,10 @@ export class AccumulatingPipeline<
             return null
         }
 
-        // Hand the flush pipeline one element: the cycle context plus the accumulated record results
-        // in drain order. Reset the buffer and re-mint the cycle context for the next cycle.
-        const flushInput: CycleFlushInput<TRecordOut, CCycle, R> = {
-            elements: this.flushBuffer,
+        // Hand the flush pipeline one element: the cycle context plus the reduced cycle state.
+        // Re-mint both for the next cycle.
+        const flushInput: CycleFlushInput<TState, CCycle> = {
+            state: this.currentState ?? this.initialState(),
             cycleContext: this.currentCycleContext,
         }
         this.flushPipeline.feed([createOkContext(flushInput, {})])
@@ -315,14 +330,15 @@ export class AccumulatingPipeline<
         // Aggregate any side effects the flush steps left on their results, so the caller can make
         // a flush-step produce durable.
         const sideEffects = elements.flatMap((element) => element.context.sideEffects)
-        this.flushBuffer = []
         this.currentCycleContext = await this.runBeforeCycle()
+        this.currentState = this.initialState()
         return { flushed: true, elements, sideEffects }
     }
 
     private async ensureCycleContext(): Promise<CCycle & CycleContext> {
         if (this.currentCycleContext === null) {
             this.currentCycleContext = await this.runBeforeCycle()
+            this.currentState = this.initialState()
         }
         return this.currentCycleContext
     }

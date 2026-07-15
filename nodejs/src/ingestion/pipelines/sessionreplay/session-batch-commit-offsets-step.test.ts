@@ -1,43 +1,42 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
+import { isOkResult } from '~/ingestion/framework/results'
 
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { ReplayRecordRow } from './pipeline-types'
 import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 
 describe('createCommitOffsetsStep', () => {
     let committed: TopicPartitionOffset[][]
-    let offsetManager: KafkaOffsetManager
     let promiseScheduler: PromiseScheduler
 
-    const row = (partition: number, offset: number, recorded = true) => ({
-        type: PipelineResultType.OK as const,
-        value: { partition, offset, recorded } satisfies ReplayRecordRow,
-        sideEffects: [],
-        warnings: [],
-    })
-
-    beforeEach(() => {
-        committed = []
-        offsetManager = new KafkaOffsetManager((offsets) => {
+    function createOffsetManager(onCommit?: () => void): KafkaOffsetManager {
+        return new KafkaOffsetManager((offsets) => {
+            onCommit?.()
             committed.push(offsets)
             return Promise.resolve()
         }, 'test-topic')
+    }
+
+    beforeEach(() => {
+        committed = []
         promiseScheduler = new PromiseScheduler()
     })
 
-    it('commits the highest offset per partition from the accumulated rows, dropped ones included', async () => {
-        const step = createCommitOffsetsStep(offsetManager, promiseScheduler)
+    it('commits the next offset per partition from the reduced cycle state', async () => {
+        const step = createCommitOffsetsStep(createOffsetManager(), promiseScheduler)
 
         const input = {
-            elements: [row(0, 1), row(0, 2, false), row(1, 10), row(0, 3, false), row(1, 9)],
+            state: {
+                offsets: new Map([
+                    [0, 3],
+                    [1, 10],
+                ]),
+            },
         }
         const result = await step(input)
 
         expect(isOkResult(result) ? result.value : null).toBe(input)
-        // The dropped rows at offsets 2-3 advance partition 0 past the last recorded offset.
         expect(committed).toEqual([
             [
                 { topic: 'test-topic', partition: 0, offset: 4 },
@@ -58,15 +57,11 @@ describe('createCommitOffsetsStep', () => {
             })
         )
         const step = createCommitOffsetsStep(
-            new KafkaOffsetManager((offsets) => {
-                order.push('committed')
-                committed.push(offsets)
-                return Promise.resolve()
-            }, 'test-topic'),
+            createOffsetManager(() => order.push('committed')),
             promiseScheduler
         )
 
-        const stepPromise = step({ elements: [row(0, 1)] })
+        const stepPromise = step({ state: { offsets: new Map([[0, 1]]) } })
         // The step is parked on the scheduler until the produce settles.
         await new Promise((resolve) => setImmediate(resolve))
         expect(order).toEqual([])
@@ -77,9 +72,9 @@ describe('createCommitOffsetsStep', () => {
     })
 
     it('commits nothing for an empty cycle', async () => {
-        const step = createCommitOffsetsStep(offsetManager, promiseScheduler)
+        const step = createCommitOffsetsStep(createOffsetManager(), promiseScheduler)
 
-        await step({ elements: [] })
+        await step({ state: { offsets: new Map() } })
 
         expect(committed).toEqual([])
     })
