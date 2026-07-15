@@ -218,6 +218,7 @@ the row lists both.
 | height                    | HTTP                        | requests                                                        | ✅                          |
 | helicone                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton                | HTTP                        | requests                                                        | ✅                          |
+| heroku                    | HTTP                        | requests                                                        | ✅                          |
 | hetzner                   | HTTP                        | requests                                                        | ✅                          |
 | hibob                     | HTTP                        | requests                                                        | ✅                          |
 | humanitix                 | HTTP                        | requests                                                        | ✅                          |
@@ -667,7 +668,6 @@ doesn't conflict with concurrent PRs.
 - harvey
 - heap
 - helpscout
-- heroku
 - hetzner
 - hex
 - heygen

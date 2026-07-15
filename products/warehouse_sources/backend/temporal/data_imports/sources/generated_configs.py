@@ -1909,7 +1909,7 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HerokuSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
