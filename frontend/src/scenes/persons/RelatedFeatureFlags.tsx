@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType } from '~/types'
@@ -148,18 +149,6 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
 
     return (
         <>
-            {loadError && !isLoading && (
-                <LemonBanner
-                    type="error"
-                    className="mb-4"
-                    action={{
-                        children: 'Try again',
-                        onClick: () => loadRelatedFeatureFlags(),
-                    }}
-                >
-                    Failed to load this person's feature flags. The evaluation service may be temporarily unavailable.
-                </LemonBanner>
-            )}
             <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
@@ -247,7 +236,15 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 loading={isLoading}
                 dataSource={filteredMappedFlags}
                 pagination={pagination}
-                emptyState={loadError && !isLoading ? 'Could not load feature flags for this person.' : undefined}
+                emptyState={
+                    loadError && !isLoading ? (
+                        <InsightErrorState
+                            title="Failed to load this person's feature flags"
+                            excludeDetail
+                            onRetry={() => loadRelatedFeatureFlags()}
+                        />
+                    ) : undefined
+                }
             />
         </>
     )
