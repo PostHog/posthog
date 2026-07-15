@@ -182,6 +182,7 @@ the row lists both.
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -572,6 +573,7 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
