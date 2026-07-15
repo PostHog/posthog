@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -242,6 +243,97 @@ describe('subscriptionLogic', () => {
 
         testLogic.unmount()
         confirmSpy.mockRestore()
+    })
+
+    it.each<[string, boolean, boolean, boolean]>([
+        // The upsell mirrors the server-side create validation: consent + quota headroom required.
+        ['consent accepted and quota ok', true, false, true],
+        ['org AI consent missing', false, false, false],
+        ['summary quota at limit', true, true, false],
+    ])(
+        'nudge prefill with %s defaults summary_enabled=%s without arming the discard prompt',
+        async (_label, consentAccepted, atLimit, expectEnabled) => {
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            // Settle the initial org load first, so the case's consent value can't be overwritten.
+            await expectLogic(organizationLogic).toFinishAllListeners()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: consentAccepted,
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team/subscriptions/summary_quota': {
+                        active_count: 0,
+                        limit: 5,
+                        at_limit: atLimit,
+                    },
+                },
+            })
+            const prefilledLogic = subscriptionLogic({
+                dashboardId: 9,
+                dashboardName: 'Key metrics',
+                id: 'new',
+            })
+            prefilledLogic.mount()
+
+            router.actions.push('/dashboard/9/subscriptions/new?prefill=nudge')
+            // The quota answer arrives after the prefill applied — the default is deferred to it.
+            await expectLogic(prefilledLogic).toFinishAllListeners()
+
+            expect(!!prefilledLogic.values.subscription.summary_enabled).toBe(expectEnabled)
+
+            // Untouched form: the deferred default is folded into the prefill baseline, so
+            // navigating away never prompts to discard.
+            router.actions.push('/insights/123')
+            expect(confirmSpy).not.toHaveBeenCalled()
+
+            prefilledLogic.unmount()
+            confirmSpy.mockRestore()
+        }
+    )
+
+    it('respects a manual summary toggle-off after the default applied, and the edited form prompts on leave', async () => {
+        const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        await expectLogic(organizationLogic).toFinishAllListeners()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: true,
+        })
+        const prefilledLogic = subscriptionLogic({
+            dashboardId: 9,
+            dashboardName: 'Key metrics',
+            id: 'new',
+        })
+        prefilledLogic.mount()
+
+        router.actions.push('/dashboard/9/subscriptions/new?prefill=nudge')
+        await expectLogic(prefilledLogic).toFinishAllListeners()
+        expect(prefilledLogic.values.subscription.summary_enabled).toBe(true)
+
+        // The user turns it back off; a later quota reload must not re-apply the default.
+        prefilledLogic.actions.setSubscriptionValue('summary_enabled', false)
+        await expectLogic(prefilledLogic, () => {
+            prefilledLogic.actions.loadSummaryQuotaSuccess({ active_count: 0, limit: 5, at_limit: false })
+        }).toFinishListeners()
+        expect(prefilledLogic.values.subscription.summary_enabled).toBe(false)
+
+        // The form now genuinely differs from the prefill baseline — leaving prompts.
+        router.actions.push('/insights/123')
+        expect(confirmSpy).toHaveBeenCalledTimes(1)
+
+        prefilledLogic.unmount()
+        confirmSpy.mockRestore()
+    })
+
+    it('leaves summary_enabled off for a plain non-nudge new subscription', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        await expectLogic(newLogic, () => {
+            newLogic.actions.loadSummaryQuotaSuccess({ active_count: 0, limit: 5, at_limit: false })
+        }).toFinishListeners()
+
+        expect(newLogic.values.subscription.summary_enabled).toBe(false)
     })
 
     it('still prompts when leaving a genuinely edited non-prefilled form', async () => {

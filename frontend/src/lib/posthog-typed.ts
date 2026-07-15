@@ -3552,7 +3552,14 @@ interface EventSchemas {
     'subscribed during onboarding': Record<string, any>
     subscribe_to_product_updates: Record<string, any>
     'subscription cancelled': Record<string, any>
-    'subscription created': Record<string, any>
+    'subscription created': {
+        resource_type?: string
+        dashboard_id?: number
+        insight_short_id?: string
+        subscription_id?: number
+        target_type?: string
+        ai_summary_prefilled?: boolean
+    }
     subscription_intent: Record<string, any>
     'subscription updated': Record<string, any>
     'Substack subscribe error': Record<string, any>

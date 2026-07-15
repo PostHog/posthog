@@ -11,6 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
@@ -135,7 +136,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
-    connect(() => ({ values: [userLogic, ['user']] })),
+    connect(() => ({ values: [userLogic, ['user'], organizationLogic, ['currentOrganization']] })),
 
     actions({
         generatePreview: true,
@@ -211,7 +212,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, cache }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: (subscription) => ({
@@ -261,6 +262,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         insight_short_id: props.insightShortId,
                         subscription_id: updatedSub.id,
                         target_type: updatedSub.target_type,
+                        // True when the nudge flow's deferred AI-summary default was applied to this form.
+                        ai_summary_prefilled: !!cache.aiSummaryDefaultApplied,
                     })
                 }
 
@@ -296,6 +299,26 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
             // unsaved-changes warning; merge the IDs into the subscription to preserve them.
             actions.resetSubscription({ ...values.subscription, dashboard_export_insights: selectedIds })
+        },
+        loadSummaryQuotaSuccess: ({ summaryQuota }) => {
+            // Nudge upsell, deferred until the quota answer exists: default the AI summary on for a
+            // nudge-prefilled create. Never for a non-consented org (the server rejects the create
+            // and the consent popover must not appear uninvited) and never at the quota limit —
+            // both gates mirror the server-side create validation. Applied at most once, so a
+            // user toggling it back off is respected on later quota reloads.
+            if (
+                props.id !== 'new' ||
+                !cache.prefillBaseline ||
+                cache.aiSummaryDefaultApplied ||
+                summaryQuota?.at_limit ||
+                !values.currentOrganization?.is_ai_data_processing_approved ||
+                values.subscription?.summary_enabled
+            ) {
+                return
+            }
+            cache.aiSummaryDefaultApplied = true
+            actions.setSubscriptionValue('summary_enabled', true)
+            cache.prefillBaseline = { ...cache.prefillBaseline, summary_enabled: true }
         },
         selectAiExamplePrompt: ({ prompt, label, window }) => {
             posthog.capture('subscription_ai_example_prompt_selected', { label })
