@@ -50,6 +50,13 @@ class TestPrintString(BaseTest):
             escape_hogql_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
             "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`",
         )
+        # Reserved ClickHouse keywords must be quoted (case-insensitively); common columns that merely
+        # collide with interval/keyword words must not be, or generated SQL churns for no reason.
+        self.assertEqual(escape_hogql_identifier("rollup"), "`rollup`")
+        self.assertEqual(escape_hogql_identifier("ROLLUP"), "`ROLLUP`")
+        self.assertEqual(escape_hogql_identifier("cube"), "`cube`")
+        self.assertEqual(escape_hogql_identifier("timestamp"), "timestamp")
+        self.assertEqual(escape_hogql_identifier("day"), "day")
 
     def test_sanitize_clickhouse_identifier(self):
         self.assertEqual(escape_clickhouse_identifier("a"), "a")
@@ -68,6 +75,13 @@ class TestPrintString(BaseTest):
             escape_clickhouse_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
             "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`",
         )
+        # Reserved ClickHouse keywords must be quoted (case-insensitively); common columns that merely
+        # collide with interval/keyword words must not be, or generated SQL churns for no reason.
+        self.assertEqual(escape_clickhouse_identifier("rollup"), "`rollup`")
+        self.assertEqual(escape_clickhouse_identifier("ROLLUP"), "`ROLLUP`")
+        self.assertEqual(escape_clickhouse_identifier("cube"), "`cube`")
+        self.assertEqual(escape_clickhouse_identifier("timestamp"), "timestamp")
+        self.assertEqual(escape_clickhouse_identifier("day"), "day")
 
     @parameterized.expand(
         [
