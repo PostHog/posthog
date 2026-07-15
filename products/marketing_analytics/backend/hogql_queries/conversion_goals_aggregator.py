@@ -10,7 +10,7 @@ from posthog.settings import TEST
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.factory import MarketingSourceFactory
-from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 # Cap on parallel per-goal ensure_precomputed workers.
@@ -35,6 +35,11 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
+        # The touchpoints precompute is config-agnostic: every goal drives the exact same
+        # ensure_precomputed for the same window. Share one handle so it is materialized once for the
+        # whole read instead of once per goal.
+        touchpoints = SharedTouchpointsPrecompute(self.processors[0].team, self.config)
+
         # Step 1: Generate individual conversion goal queries, parallelised across goals
         # so ensure_precomputed's PG+Redis+ClickHouse round-trips collapse to max(overhead).
         def _build_base_query(processor: ConversionGoalProcessor) -> ast.SelectQuery:
@@ -49,6 +54,7 @@ class ConversionGoalsAggregator:
                 additional_conditions,
                 date_from=date_range.date_from(),
                 date_to=date_range.date_to(),
+                touchpoints=touchpoints,
             )
 
         # Skip the pool in TEST: Django's per-thread DB connections don't see

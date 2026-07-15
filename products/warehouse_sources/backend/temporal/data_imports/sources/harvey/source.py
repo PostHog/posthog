@@ -90,7 +90,6 @@ Each token carries a per-endpoint permissions list — grant access for the endp
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

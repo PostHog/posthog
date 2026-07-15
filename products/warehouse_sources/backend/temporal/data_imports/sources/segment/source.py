@@ -53,7 +53,6 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Segment",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Twilio Segment workspace-scoped Public API token to pull your Segment workspace configuration into the PostHog Data warehouse.
 
 Create a **Public API token** in your Segment workspace under **Settings → Access Management → Tokens**, and pick the region your workspace lives in.

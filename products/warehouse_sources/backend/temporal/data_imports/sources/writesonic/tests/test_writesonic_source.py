@@ -36,7 +36,6 @@ class TestWritesonicSource:
         assert config.name.value == "Writesonic"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/writesonic.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/writesonic"
 

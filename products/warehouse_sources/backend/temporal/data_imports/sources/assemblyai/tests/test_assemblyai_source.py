@@ -42,7 +42,6 @@ class TestAssemblyAISource:
         assert config.label == "AssemblyAI"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/assemblyai.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/assemblyai"
 
