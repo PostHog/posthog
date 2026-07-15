@@ -85,7 +85,6 @@ For self-hosted Formbricks, set your instance URL (for example `https://formbric
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
