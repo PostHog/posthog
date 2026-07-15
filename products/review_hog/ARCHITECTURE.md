@@ -2682,8 +2682,9 @@ apply = the **PR author**, from `pr_metadata.author` (`tools/github_meta.py:244`
 `User.get_github_login()` precedence UserIntegration-github → UserSocialAuth-github → team-integration login,
 `posthog/models/user.py:438`; already used in prod). **CORRECTION to earlier docs: this reverse-lookup DOES exist**
 (a prior research pass wrongly said it didn't). When the author does **not** map to a PostHog org user, the **label
-trigger** falls back to the **default run user** (`identity.resolve_default_run_user_id` — the same identity the
-sandboxes run as) — someone explicitly asked for the review, so a borrowed user's perspectives beat no review. The
+trigger** falls back to the **run user** (`inputs.user_id`, threaded into the resolve activity as `default_user_id`
+— the same identity the sandboxes execute under, so acting and sandbox identity can never drift) — someone
+explicitly asked for the review, so a borrowed user's perspectives beat no review. The
 `review_labeled_prs` opt-out stays **author-only**: a fallback-resolved acting user never imports their personal
 switch into someone else's PR (forced True in the resolve snapshot). Inbox/manual/branch triggers keep the
 no-fallback contract → unmapped author = **no review**. Gate **after fetch, before the perspective fan-out**.

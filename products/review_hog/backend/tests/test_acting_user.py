@@ -57,26 +57,32 @@ class TestResolveActingUser(BaseTest):
         assert result.review_inbox_prs is True
         assert result.urgency_threshold == "must_fix"
 
-    def test_label_trigger_falls_back_to_the_default_user(self) -> None:
-        # Unmapped author on a labeled PR → the default user the sandboxes run as (oldest active
-        # org member here, absent a GitHub integration row).
-        result = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL)
+    def test_label_trigger_falls_back_to_the_run_user(self) -> None:
+        # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
+        # through as default_user_id so acting and sandbox identity can never drift.
+        result = _resolve_acting_user(
+            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+        )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
 
     def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
-        result = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_MANUAL)
+        result = _resolve_acting_user(
+            self.team.id, "ghost", None, trigger_source=TRIGGER_MANUAL, default_user_id=self.user.id
+        )
         assert result.acting_user_id is None
 
     def test_labeled_opt_out_protects_authors_but_never_travels_with_a_borrowed_user(self) -> None:
-        # self.user is both the mapped author (octocat) and the default fallback (oldest org member).
+        # self.user is both the mapped author (octocat) and the run-user fallback.
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, review_labeled_prs=False
         )
         # Acting as the author: their own opt-out applies and the workflow will skip.
         as_author = _resolve_acting_user(self.team.id, "octocat", None, trigger_source=TRIGGER_LABEL)
         assert (as_author.resolved_from, as_author.review_labeled_prs) == ("author", False)
-        # Acting as the borrowed default on someone else's PR: the same row must NOT kill the review.
-        as_default = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL)
+        # Acting as the borrowed run user on someone else's PR: the same row must NOT kill the review.
+        as_default = _resolve_acting_user(
+            self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL, default_user_id=self.user.id
+        )
         assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
         assert as_default.review_labeled_prs is True
 

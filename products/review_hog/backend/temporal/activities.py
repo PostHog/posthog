@@ -27,7 +27,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.identity import resolve_default_run_user_id
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -200,9 +199,11 @@ class ResolveActingUserInput:
     # When set, the resolved acting user is stamped onto this report (powers "your recent reviews").
     # Defaulted so payloads serialized before the field existed still deserialize.
     report_id: str | None = None
-    # Which trigger runs: the label trigger falls back to the default user on an unmapped author.
-    # Defaulted for old in-flight payloads.
+    # Which trigger runs: the label trigger falls back to `default_user_id` on an unmapped author —
+    # the run user the trigger already resolved (`inputs.user_id`), so the acting identity can never
+    # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
     trigger_source: str = TRIGGER_MANUAL
+    default_user_id: int | None = None
 
 
 @dataclass
@@ -579,16 +580,17 @@ def _resolve_acting_user(
     override_user_id: int | None,
     report_id: str | None = None,
     trigger_source: str = TRIGGER_MANUAL,
+    default_user_id: int | None = None,
 ) -> ResolveActingUserResult:
     acting_user_id: int | None
     if override_user_id is not None:
         acting_user_id, resolved_from = override_user_id, "override"
     else:
         acting_user_id, resolved_from = _login_to_user_id(team_id, author_login), "author"
-        # Label-trigger fallback — someone explicitly asked for this review, so borrow the default
-        # user the sandboxes run as. Other triggers keep the author-only contract and skip.
+        # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
+        # the trigger already resolved. Other triggers keep the author-only contract and skip.
         if acting_user_id is None and trigger_source == TRIGGER_LABEL:
-            acting_user_id, resolved_from = resolve_default_run_user_id(team_id), "default"
+            acting_user_id, resolved_from = default_user_id, "default"
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
     if resolved_from == "default":
@@ -626,6 +628,7 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
         input.override_user_id,
         input.report_id,
         input.trigger_source,
+        input.default_user_id,
     )
 
 
