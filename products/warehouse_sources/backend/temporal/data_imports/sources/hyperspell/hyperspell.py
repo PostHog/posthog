@@ -59,11 +59,14 @@ def _get_headers(api_key: str, user_id: Optional[str]) -> dict[str, str]:
 def _get_session(api_key: str, user_id: Optional[str]) -> requests.Session:
     # One session per sync so keep-alive is preserved across pages and retries. `redact_values`
     # masks the key from request telemetry/log samples, and `allow_redirects=False` keeps a
-    # credentialed request pinned to the validated Hyperspell host.
+    # credentialed request pinned to the validated Hyperspell host. `capture=False` keeps the
+    # arbitrary user-authored memory documents and query logs out of HTTP sample storage, since
+    # the name-based scrubbers can't recognise that free-form content.
     return make_tracked_session(
         headers=_get_headers(api_key, user_id),
         redact_values=(api_key,),
         allow_redirects=False,
+        capture=False,
     )
 
 
