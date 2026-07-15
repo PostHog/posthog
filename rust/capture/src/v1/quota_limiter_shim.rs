@@ -92,16 +92,27 @@ pub async fn apply_quota_limits(
         return Err(Error::BillingLimitExceeded);
     }
 
+    let mut global_only_event_count = 0;
     let admitted_event_infos: Vec<EventInfo> = events
         .iter()
         .filter(|event| event.result == EventResult::Ok)
-        .map(|event| EventInfo {
-            name: event.event_name(),
-            has_product_tour_id: event.has_property("product_tour_id"),
+        .filter_map(|event| {
+            if event.is_gateway_verified {
+                global_only_event_count += 1;
+                None
+            } else {
+                Some(EventInfo {
+                    name: event.event_name(),
+                    has_product_tour_id: event.has_property("product_tour_id"),
+                })
+            }
         })
         .collect();
     limiter
         .report_grace_period_admission_for_event_infos(token, &admitted_event_infos)
+        .await;
+    limiter
+        .report_global_grace_period_admission(token, global_only_event_count)
         .await;
 
     Ok(())
@@ -534,6 +545,55 @@ mod tests {
             .collect();
         assert_eq!(counts.get("events"), Some(&1));
         assert_eq!(counts.get("exceptions"), Some(&1));
+        assert_eq!(counts.values().sum::<u64>(), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn gateway_verified_events_only_count_toward_global_grace_period() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let limiter = build_limiter_with_grace(
+            "tok",
+            false,
+            true,
+            &[QuotaResource::LLMEvents],
+            &[],
+        )
+        .await;
+        let mut events = vec![
+            make_verified_event("$ai_generation"),
+            make_event("$ai_generation", None),
+        ];
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+
+        assert!(result.is_ok());
+        let counts: std::collections::HashMap<String, u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+                    return None;
+                }
+                let resource = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "resource")?
+                    .value()
+                    .to_string();
+                match value {
+                    DebugValue::Counter(count) => Some((resource, count)),
+                    _ => None,
+                }
+            })
+            .collect();
+        assert_eq!(counts.get("events"), Some(&1));
+        assert_eq!(counts.get("llm_events"), Some(&1));
         assert_eq!(counts.values().sum::<u64>(), 2);
     }
 

@@ -259,8 +259,7 @@ impl CaptureQuotaLimiter {
             .iter()
             .map(|event| EventInfo {
                 name: event.event_name(),
-                has_product_tour_id: event.has_property("$product_tour_id")
-                    || event.has_property("product_tour_id"),
+                has_product_tour_id: event.has_property("$product_tour_id"),
             })
             .collect();
         self.report_grace_period_admission_for_event_infos(token, &event_infos)
