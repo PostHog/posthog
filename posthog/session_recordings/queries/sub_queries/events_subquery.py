@@ -19,6 +19,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
@@ -621,13 +622,23 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     @property
     def action_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
-        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.actions or []]
+        # entries in `actions` are actions by definition, so default the type when it's missing
+        # rather than letting Entity.__init__ raise a ValueError on a malformed query
+        return [
+            legacy_entity_to_node(Entity({"type": TREND_FILTER_TYPE_ACTIONS, **e}), True, MathAvailability.Unavailable)
+            for e in self._query.actions or []
+        ]
 
     @property
     def event_entities(self):
         # TODO what do we send to the API instead to avoid needing to do this
         # TODO is this overkill since it feels like we only need a few things off the entity
-        return [legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable) for e in self._query.events or []]
+        # entries in `events` are events by definition, so default the type when it's missing
+        # rather than letting Entity.__init__ raise a ValueError on a malformed query
+        return [
+            legacy_entity_to_node(Entity({"type": TREND_FILTER_TYPE_EVENTS, **e}), True, MathAvailability.Unavailable)
+            for e in self._query.events or []
+        ]
 
     @property
     def entities(self):
