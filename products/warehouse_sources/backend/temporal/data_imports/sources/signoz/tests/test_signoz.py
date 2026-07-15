@@ -139,6 +139,33 @@ class TestExtractConfigItems:
         response = {"status": "success", "data": [{"id": "d1"}]}
         assert _extract_config_items(response, SIGNOZ_ENDPOINTS["dashboards"]) == [{"id": "d1"}]
 
+    def test_notification_channels_allowlist_strips_credential_data(self) -> None:
+        # The `data` field carries receiver secrets (Slack webhook URLs, PagerDuty keys); the
+        # allowlist must drop it (and anything else off-list) before it reaches the warehouse.
+        response = {
+            "status": "success",
+            "data": [
+                {
+                    "id": "c1",
+                    "name": "oncall",
+                    "type": "slack",
+                    "data": {"url": "https://hooks.slack.com/services/SECRET"},
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-02T00:00:00Z",
+                    "internal_field": "drop me",
+                }
+            ],
+        }
+        assert _extract_config_items(response, SIGNOZ_ENDPOINTS["notification_channels"]) == [
+            {
+                "id": "c1",
+                "name": "oncall",
+                "type": "slack",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-02T00:00:00Z",
+            }
+        ]
+
     @pytest.mark.parametrize(
         "response",
         [{}, {"data": None}, {"data": {"rules": "nope"}}, None],
@@ -177,6 +204,20 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
+    def test_probe_disables_sample_capture(self, mock_session: mock.MagicMock) -> None:
+        # The probe response can echo the token, which the name-based scrubber can't strip, so
+        # the session must be created with capture=False to keep it out of HTTP sample capture.
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.is_redirect = False
+        response.is_permanent_redirect = False
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("example.signoz.io", "key")
+
+        assert mock_session.call_args.kwargs["capture"] is False
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
     def test_redirect_is_rejected(self, mock_session: mock.MagicMock) -> None:
@@ -316,6 +357,44 @@ class TestGetRows:
         assert saved == []
         assert requests_made[0]["url"] == "https://example.signoz.io/api/v1/rules"
         assert requests_made[0]["body"] is None
+
+    def test_notification_channels_endpoint_drops_credential_data(self) -> None:
+        # End-to-end guard on the sync path: the receiver `data` payload never reaches the
+        # yielded rows, so imported channel secrets can't land in the warehouse table.
+        responses = [
+            {
+                "status": "success",
+                "data": [{"id": "c1", "name": "oncall", "type": "slack", "data": {"url": "https://secret"}}],
+            }
+        ]
+        batches, _saved, _requests = self._run("notification_channels", responses)
+
+        assert batches == [[{"id": "c1", "name": "oncall", "type": "slack"}]]
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz.make_tracked_session")
+    def test_sync_session_disables_sample_capture(self, mock_session: mock.MagicMock) -> None:
+        # Imported telemetry/config can carry secrets the name-based scrubber can't strip, so
+        # the sync session must be created with capture=False.
+        resp = mock.MagicMock()
+        resp.status_code = 200
+        resp.ok = True
+        resp.is_redirect = False
+        resp.is_permanent_redirect = False
+        resp.json.return_value = _page([])
+        mock_session.return_value.post.return_value = resp
+
+        list(
+            sgz.get_rows(
+                host="example.signoz.io",
+                api_key="key",
+                endpoint="logs",
+                team_id=1,
+                logger=mock.MagicMock(),
+                resumable_source_manager=mock.MagicMock(can_resume=lambda: False),
+            )
+        )
+
+        assert mock_session.call_args.kwargs["capture"] is False
 
     def test_short_page_terminates_without_saving_state(self) -> None:
         responses = [_page([_log_row("2026-01-01T00:00:00Z", "1")])]

@@ -122,8 +122,9 @@ def validate_credentials(
     url = f"https://{normalized}/api/v1/rules"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
-        # defeating the host check above (SSRF).
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        # defeating the host check above (SSRF). capture=False keeps the probe out of HTTP
+        # sample capture — the response can echo tokens the name-based scrubber can't catch.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
         )
     except requests.exceptions.RequestException as e:
@@ -211,7 +212,13 @@ def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> l
         node = node.get(key) if isinstance(node, dict) else None
     if not isinstance(node, list):
         return []
-    return [item for item in node if isinstance(item, dict)]
+    items = [item for item in node if isinstance(item, dict)]
+    if config.allowed_fields is not None:
+        # Strict allowlist — drop everything else so credential-bearing fields never leak
+        # into the warehouse table (see SigNozEndpointConfig.allowed_fields).
+        allowed = set(config.allowed_fields)
+        items = [{k: v for k, v in item.items() if k in allowed} for item in items]
+    return items
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:
@@ -264,8 +271,10 @@ def get_rows(
 
     base = _base_url(host)
     # One tracked session reused across pages and retries; the API key is redacted from
-    # logged URLs and captured samples.
-    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
+    # logged URLs. capture=False excludes responses from HTTP sample capture: imported log
+    # bodies, dashboard/notification config, etc. can carry secrets the name-based scrubber
+    # can't reliably strip, so they must never reach the shared sample bucket.
+    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,), capture=False)
 
     @retry(
         retry=retry_if_exception_type((SigNozRetryableError, requests.ReadTimeout, requests.ConnectionError)),

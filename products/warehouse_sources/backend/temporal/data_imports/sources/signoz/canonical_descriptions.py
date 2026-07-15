@@ -71,13 +71,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "notification_channels": {
-        "description": "Notification channels alerts can be routed to (Slack, PagerDuty, webhook, etc.).",
+        # The receiver config `data` field is intentionally not imported: it holds secrets
+        # (Slack webhook URLs, PagerDuty keys) that must not land in a warehouse table.
+        "description": "Notification channels alerts can be routed to (Slack, PagerDuty, webhook, etc.). The receiver configuration payload is omitted because it contains credentials.",
         "docs_url": "https://signoz.io/docs/userguide/alerts-management/",
         "columns": {
             "id": "Unique identifier of the notification channel.",
             "name": "Name of the notification channel.",
             "type": "Channel type (e.g. slack, pagerduty, webhook, email).",
-            "data": "Channel configuration payload.",
             "createdAt": "Time the channel was created.",
             "updatedAt": "Time the channel was last updated.",
         },

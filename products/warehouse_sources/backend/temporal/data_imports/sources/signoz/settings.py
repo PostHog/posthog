@@ -29,6 +29,10 @@ class SigNozEndpointConfig:
     # Key path from the response's `data` payload to the list of records. Empty means
     # `data` itself is the list.
     data_keys: tuple[str, ...] = ()
+    # When set, config records are projected down to exactly these fields before they are
+    # yielded — a strict allowlist that keeps credential-bearing fields (e.g. a notification
+    # channel's receiver config) out of the warehouse. None means keep every field.
+    allowed_fields: Optional[tuple[str, ...]] = None
     primary_keys: tuple[str, ...] = ("id",)
     # Stable, immutable datetime field used for partitioning (never an updated-at field).
     partition_key: Optional[str] = None
@@ -96,6 +100,10 @@ SIGNOZ_ENDPOINTS: dict[str, SigNozEndpointConfig] = {
         name="notification_channels",
         kind="config",
         path="/api/v1/channels",
+        # The `data` field holds each channel's Alertmanager receiver config — Slack webhook
+        # URLs, PagerDuty keys, and similar secrets. Allowlist the safe metadata so those
+        # credentials are never persisted to a warehouse table other project members can read.
+        allowed_fields=("id", "name", "type", "createdAt", "updatedAt"),
         primary_keys=("id",),
         partition_key="createdAt",
     ),
