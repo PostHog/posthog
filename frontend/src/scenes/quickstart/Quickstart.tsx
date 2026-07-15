@@ -6,9 +6,11 @@ import { useEffect, useRef } from 'react'
 import {
     IconApps,
     IconArrowLeft,
+    IconArrowRight,
     IconBook,
     IconBuilding,
     IconCheckCircle,
+    IconChevronDown,
     IconFolder,
     IconGear,
     IconGraduationCap,
@@ -31,6 +33,7 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -383,33 +386,54 @@ function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.
     )
 }
 
-function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; productKey: ProductKey }): JSX.Element {
+/** The card's telemetry panel: headline stat, journey progress, and the next step, one shape for every tool */
+function ToolStatusPanel({
+    status,
+    productKey,
+}: {
+    status: QuickstartToolStatus
+    productKey: ProductKey
+}): JSX.Element {
     return (
-        <LemonDropdown
-            overlay={<JourneyOverlay journey={status.journey} />}
-            placement="bottom-start"
-            closeOnClickInside={false}
-            onVisibilityChange={(visible) => visible && captureQuickstartAction('view_tool_journey', productKey)}
-        >
-            <button
-                type="button"
-                className="flex items-center gap-2 w-fit p-0 border-0 bg-transparent cursor-pointer"
-                aria-label="Show the full setup journey"
-                data-attr={`quickstart-journey-${productKey}`}
-            >
-                <span className="flex items-center gap-1">
-                    {status.journey.map((step) => (
-                        <span
-                            key={step.key}
-                            className={`h-1 w-4 rounded-full ${step.achieved ? 'bg-success' : 'bg-fill-tertiary'}`}
-                        />
-                    ))}
-                </span>
-                <span className="text-xs text-tertiary">
-                    {status.stepsAchieved}/{status.stepsTotal} steps
-                </span>
-            </button>
-        </LemonDropdown>
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+            <div className="flex items-center justify-between gap-2 min-h-6">
+                {status.stat ? (
+                    <div className="text-sm font-semibold min-w-0 truncate">
+                        {humanFriendlyLargeNumber(status.stat.value)}{' '}
+                        <span className="font-normal text-secondary">{status.stat.label}</span>
+                    </div>
+                ) : (
+                    <span />
+                )}
+                <LemonDropdown
+                    overlay={<JourneyOverlay journey={status.journey} />}
+                    placement="bottom-end"
+                    closeOnClickInside={false}
+                    onVisibilityChange={(visible) =>
+                        visible && captureQuickstartAction('view_tool_journey', productKey)
+                    }
+                >
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        sideIcon={<IconChevronDown />}
+                        data-attr={`quickstart-journey-${productKey}`}
+                    >
+                        {status.stepsAchieved}/{status.stepsTotal} steps
+                    </LemonButton>
+                </LemonDropdown>
+            </div>
+            <LemonProgress
+                percent={(status.stepsAchieved / Math.max(status.stepsTotal, 1)) * 100}
+                strokeColor="var(--success)"
+            />
+            {status.nextStep && (
+                <div className="flex items-start gap-1 text-xs font-medium text-accent">
+                    <IconArrowRight className="mt-0.5 shrink-0" />
+                    <span>{status.nextStep}</span>
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -470,15 +494,7 @@ export function ProductCard({ product }: { product: QuickstartProduct }): JSX.El
                 <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
             </div>
             <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
-            <div className="flex flex-col gap-1">
-                {status.stat && (
-                    <div className="text-sm font-medium">
-                        {humanFriendlyLargeNumber(status.stat.value)} {status.stat.label}
-                    </div>
-                )}
-                <JourneyMeter status={status} productKey={product.key} />
-                {status.nextStep && <p className="text-xs text-tertiary mb-0">Next: {status.nextStep}</p>}
-            </div>
+            <ToolStatusPanel status={status} productKey={product.key} />
             <div className="flex items-center gap-2 mt-1">
                 {status.level === 'live' ? (
                     <>
