@@ -69,7 +69,9 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         fan_out="organization",
         path_template="/organization/{organization_id}/invoices",
         data_key="invoices",
-        primary_keys=["invoice_number"],
+        # `invoice_number` is only unique within an organization, so the injected
+        # `organization_id` keeps the row unique table-wide.
+        primary_keys=["organization_id", "invoice_number"],
         partition_key="create_time",
     ),
     "organization_users": AivenEndpointConfig(
@@ -99,7 +101,8 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         data_key="lines",
         # Invoice lines carry no server-assigned id. This composite is best-effort unique and the
         # table is full-refresh (replace), so a collision cannot accumulate duplicates across syncs.
-        primary_keys=["invoice_number", "service_id", "line_type", "begin_time", "end_time"],
+        # `organization_id` scopes the key so identical invoice numbers across organizations don't collide.
+        primary_keys=["organization_id", "invoice_number", "service_id", "line_type", "begin_time", "end_time"],
         partition_key="begin_time",
     ),
     # Global Aiven cloud/region catalogue. Not account-specific, so off by default.

@@ -29,6 +29,12 @@ def _get_headers(api_token: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_token: str) -> requests.Session:
+    # Redact the token everywhere it could surface: the `aivenv1 <token>` scheme is
+    # non-standard, so the tracked transport's name-based scrubbers can't recognise it.
+    return make_tracked_session(redact_values=(api_token,))
+
+
 @retry(
     retry=retry_if_exception_type((AivenRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
@@ -46,7 +52,9 @@ def _fetch(
         raise AivenRetryableError(f"Aiven API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Aiven API error: status={response.status_code}, body={response.text}, url={url}")
+        # Never log the raw body: these are authenticated third-party responses whose error
+        # payloads can echo tenant metadata or request details into centralized logs.
+        logger.error(f"Aiven API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -127,14 +135,14 @@ def get_rows(
     config = AIVEN_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session for the whole run so fan-out requests reuse pooled connections.
-    session = make_tracked_session()
+    session = _make_session(api_token)
     yield from _iter_rows(config, headers, logger, session)
 
 
 def validate_credentials(api_token: str) -> bool:
     """Confirm the token is valid. ``/me`` reflects the token itself and needs no resource scope."""
     try:
-        response = make_tracked_session().get(
+        response = _make_session(api_token).get(
             f"{AIVEN_BASE_URL}/me",
             headers=_get_headers(api_token),
             timeout=10,

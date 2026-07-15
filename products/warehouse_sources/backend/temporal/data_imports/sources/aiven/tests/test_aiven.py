@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -29,7 +29,10 @@ def _response(status_code: int, body: dict[str, Any] | None = None) -> MagicMock
 
     def _raise() -> None:
         if not resp.ok:
-            raise requests.HTTPError(f"{status_code} Client Error: for url: https://api.aiven.io/v1/x")
+            raise requests.HTTPError(
+                f"{status_code} Client Error: for url: https://api.aiven.io/v1/x",
+                response=cast(requests.Response, resp),
+            )
 
     resp.raise_for_status.side_effect = _raise
     return resp
@@ -54,7 +57,8 @@ class TestFetch:
     def test_retryable_statuses_retry_then_raise(self, _name: str, status: int) -> None:
         session = MagicMock()
         session.get.return_value = _response(status)
-        fetch = _fetch.retry_with(stop=stop_after_attempt(3), wait=wait_none())
+        # tenacity attaches `retry_with` to the wrapped fn at runtime; the type stub omits it.
+        fetch = _fetch.retry_with(stop=stop_after_attempt(3), wait=wait_none())  # type: ignore[attr-defined]
         with pytest.raises(aiven.AivenRetryableError):
             fetch("https://api.aiven.io/v1/project", {}, MagicMock(), session)
         assert session.get.call_count == 3
@@ -160,7 +164,7 @@ class TestFanOut:
         ]
 
     def test_empty_batches_are_not_yielded(self) -> None:
-        responses = {
+        responses: dict[str, dict[str, Any]] = {
             "/project": {"projects": [{"project_name": "p1"}, {"project_name": "p2"}]},
             "/project/p1/service": {"services": []},
             "/project/p2/service": {"services": [{"service_name": "s2"}]},

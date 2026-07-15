@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import AIVEN_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.source import AivenSource
@@ -29,6 +31,7 @@ class TestSourceConfig:
         fields = AivenSource().get_source_config.fields
         assert [f.name for f in fields] == ["api_token"]
         token = fields[0]
+        assert isinstance(token, SourceFieldInputConfig)
         assert token.required is True
         assert token.secret is True
         assert token.type == "password"
