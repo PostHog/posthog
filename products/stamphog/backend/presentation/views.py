@@ -63,15 +63,15 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     """Bind a manually-created (installation-less) config to a now-verified installation.
 
     Reached when the installation sync hits the unique (team, repository) constraint: a row for this
-    repo already exists on the team, created through the plain API/MCP path with a blank installation_id.
-    Stamp the verified installation onto it so it starts resolving webhooks, rather than reporting it
-    skipped and leaving it unbound forever. Returns None (caller skips) when the existing row is already
-    bound to a different installation — a genuine conflict we must not silently rebind.
+    repo already exists on the team, created through the plain API/MCP path with a blank installation_id
+    — or bound to a PREVIOUS installation after an uninstall/reinstall cycle (each reinstall mints a new
+    installation id, and the app can only be installed once per repo, so the old binding is dead).
+    Stamp the verified installation onto it so it starts resolving webhooks again, rather than reporting
+    it skipped and leaving it unbound forever. Safe to rebind: this helper is team-scoped and only
+    reached from the sync flow, which already proved the caller owns the NEW installation.
     """
     existing = StamphogRepoConfig.objects.for_team(team_id).filter(provider="github", repository=repository).first()
     if existing is None:
-        return None
-    if existing.installation_id and existing.installation_id != installation_id:
         return None
     if existing.installation_id != installation_id:
         existing.installation_id = installation_id

@@ -438,6 +438,31 @@ def test_mark_review_failed_captures_failure_event(team, raw_error, expected_sto
     assert props["stamphog_error"] == expected_stored
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mark_review_failed_never_rewrites_a_terminal_run(team) -> None:
+    # post_verdict saves COMPLETED (approval already posted to GitHub) before its trailing digest
+    # stamp; a failure in that tail must not rewrite the delivered outcome to FAILED.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=102, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-y",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+    )
+
+    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"):
+        _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "late digest stamp blew up"))
+
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+    assert not run.error
+
+
 def _refused_engine_output() -> str:
     payload = {
         "final_verdict": "REFUSED",

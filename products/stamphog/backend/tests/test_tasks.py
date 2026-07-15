@@ -190,6 +190,21 @@ def test_author_permission_skip_retracts_stale_approvals_on_head_change(team, re
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_disabled_repo_skip_retracts_stale_approvals_on_head_change(team, repo_config):
+    # Disabling a repo opts out of reviews, but the standing approval from before the disable must
+    # not keep satisfying required reviews over commits pushed after it.
+    _run_task(_pr_payload(), "delivery-disabled-approved", team.id)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(enabled=False)
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        mock_execute = _run_task(_pr_payload(action="synchronize"), "delivery-disabled-push", team.id)
+
+    dismiss.assert_called_once()
+    mock_execute.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, repo_config):
     # An author who loses their trusted association (left the org, collaborator removed) can still
     # push to an approved PR; the payload-only skip must retract the standing approval, not just

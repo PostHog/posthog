@@ -267,6 +267,26 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.installation_id == "42"
         assert manual.connected_by_user_id == self.user.id
 
+    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_sync_rebinds_repo_after_reinstall(self, mock_exchange, mock_verify, mock_list) -> None:
+        # An uninstall/reinstall cycle mints a new installation id; the old binding is dead (the app
+        # can only be installed once per repo). Re-syncing the verified new installation must rebind
+        # the team's existing row instead of skipping it and leaving the repo dead forever.
+        stale = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="41", enabled=True
+        )
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["repository"] for row in response.json()["synced"]] == ["PostHog/posthog"]
+        stale.refresh_from_db()
+        assert stale.installation_id == "42"
+        assert stale.enabled is True  # settings survive the rebind
+
     @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")

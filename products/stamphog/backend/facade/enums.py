@@ -25,6 +25,14 @@ class ReviewRunStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+# A run in one of these states is done and must not be superseded or rewritten. GATED is terminal
+# too: a deterministic gate block is a completed outcome (completed_at is set), and superseding it
+# on the next webhook would rewrite the gate result out of the run history.
+TERMINAL_STATUSES = frozenset(
+    {ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED, ReviewRunStatus.GATED}
+)
+
+
 class ReviewVerdict(StrEnum):
     NONE = "none"
     APPROVED = "approved"

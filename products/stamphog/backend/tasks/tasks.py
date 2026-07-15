@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from celery import shared_task
 
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
@@ -64,13 +64,6 @@ _UNTRUSTED_SKIP_DISMISS_MESSAGE = (
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
 STAMPHOG_LABEL_REREVIEW_KEY_PREFIX = "stamphog:label_rereview:"
 
-# A run in one of these states is done and must not be superseded.
-TERMINAL_STATUSES = frozenset(
-    # GATED is terminal too: a deterministic gate block is a completed outcome (completed_at is set),
-    # and superseding it on the next webhook would rewrite the gate result out of the run history.
-    {ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED, ReviewRunStatus.GATED}
-)
-
 # PR body is trimmed to this at capture time so rows (and the digest LLM prompt) stay bounded.
 PR_BODY_EXCERPT_MAX_CHARS = 2000
 
@@ -83,8 +76,13 @@ TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 # access, and COLLABORATOR covers read/triage-only invites. Auto-approval must also require that the
 # author can push — otherwise an under-privileged user gets an approval that satisfies branch
 # protection. GitHub's legacy permission field folds maintain into write and triage into read.
+#
+# Asymmetric cache TTLs: a cached ALLOW is a revocation window (a just-removed collaborator could
+# still mint an approval until it expires), so it stays short — just enough to absorb a synchronize
+# burst. A cached DENY only delays a just-granted collaborator's first review, which is benign.
 WRITE_PERMISSIONS = frozenset({"admin", "write"})
-_AUTHOR_PERMISSION_CACHE_SECONDS = 10 * 60
+_AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
+_AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
@@ -121,7 +119,12 @@ def _author_lacks_write_permission(repo_config: StamphogRepoConfig, repo: str, p
     permission = cache.get(cache_key)
     if permission is None:
         permission = StamphogGitHubClient(repo_config.installation_id).get_collaborator_permission(repo, login)
-        cache.set(cache_key, permission, _AUTHOR_PERMISSION_CACHE_SECONDS)
+        ttl = (
+            _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS
+            if permission in WRITE_PERMISSIONS
+            else _AUTHOR_PERMISSION_DENY_CACHE_SECONDS
+        )
+        cache.set(cache_key, permission, ttl)
     return permission not in WRITE_PERMISSIONS
 
 
@@ -160,9 +163,12 @@ def _resolve_repo_config(installation_id: str, repo: str) -> StamphogRepoConfig 
     unscoped(): the team is unknown until this installation->config resolution completes — the one
     genuinely cross-team read on the webhook path; everything after it is for_team-scoped. Oldest
     config wins so a later duplicate registration can't non-deterministically hijack whose team runs.
+    Pinned to the writer: a config synced or toggled moments before the webhook may not have
+    replicated to the product-DB reader yet, and a miss here silently drops the delivery.
     """
     return (
         StamphogRepoConfig.objects.unscoped()
+        .using(router.db_for_write(StamphogRepoConfig))
         .filter(provider="github", installation_id=installation_id, repository=repo)
         .order_by("created_at", "id")
         .first()
@@ -583,7 +589,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         # failure so a transient blip can't leave the stale approval live.
         if action in _HEAD_CHANGING_ACTIONS:
             skip_repo_config = _resolve_repo_config(installation_id, repo)
-            if skip_repo_config is not None and skip_repo_config.enabled:
+            # No .enabled filter: a disabled repo's standing approval must not survive a push either.
+            if skip_repo_config is not None:
                 try:
                     _retract_stale_approvals_on_skip(skip_repo_config, pr, _UNTRUSTED_SKIP_DISMISS_MESSAGE)
                 except Exception as e:
@@ -596,13 +603,31 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             _mark_pr_event_processed(delivery_id)
         return
 
-    # Creation is guarded against cross-team duplicates (see StamphogRepoConfigViewSet).
-    repo_config = _resolve_repo_config(installation_id, repo)
+    # Creation is guarded against cross-team duplicates (see StamphogRepoConfigViewSet). Retry (don't
+    # drop) on a transient DB error: this is the first DB touch on the main path, and the webhook was
+    # already ACKed, so an unhandled blip here would silently lose the delivery.
+    try:
+        repo_config = _resolve_repo_config(installation_id, repo)
+    except Exception as e:
+        logger.exception("stamphog_pr_event_config_resolution_failed", delivery_id=delivery_id, error=str(e))
+        raise cast(Any, process_pull_request_event).retry(exc=e)
     if not repo_config:
         logger.info("stamphog_pr_event_repo_not_configured", repo=repo, installation_id=installation_id)
         return
     if not repo_config.enabled:
+        # Disabling a repo opts out of reviews, but a standing approval from before the disable must
+        # still not survive new commits — same retraction as every other head-changing skip path.
+        if action in _HEAD_CHANGING_ACTIONS:
+            try:
+                _retract_stale_approvals_on_skip(repo_config, pr, _UNTRUSTED_SKIP_DISMISS_MESSAGE)
+            except Exception as e:
+                logger.exception(
+                    "stamphog_pr_event_disabled_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
+                )
+                raise cast(Any, process_pull_request_event).retry(exc=e)
         logger.info("stamphog_pr_event_repo_disabled", repo=repo)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
         return
 
     mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr)

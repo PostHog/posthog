@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import router
 from django.utils import timezone
 
 import yaml
@@ -35,7 +36,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
@@ -90,8 +91,12 @@ class MarkReviewFailedInput:
 
 
 def _load_run(input: StamphogReviewInput) -> ReviewRun:
+    # Pinned to the writer: every activity re-loads the run the previous step just wrote, and the
+    # webhook task committed the row moments before the workflow started — a lagged product-DB
+    # reader would miss it (or serve a stale status) and fail the run spuriously.
     return (
         ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
         .select_related("pull_request__repo_config")
         .get(id=input.review_run_id)
     )
@@ -472,16 +477,18 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 @asyncify
 def mark_review_failed(input: MarkReviewFailedInput) -> None:
     """Mark a run FAILED after an unrecoverable workflow error."""
-    run = (
-        ReviewRun.objects.for_team(input.team_id)
-        .select_related("pull_request__repo_config")
-        .get(id=input.review_run_id)
-    )
+    run = _load_run(StamphogReviewInput(review_run_id=input.review_run_id, team_id=input.team_id))
+    # A run that already reached a terminal state stays there: post_verdict saves COMPLETED (with the
+    # approval already posted to GitHub) before its trailing digest stamp, so a late failure must not
+    # rewrite a delivered outcome to FAILED — record the error for the logs and leave the status alone.
+    first_error_line = (input.error.splitlines() or [""])[0][:300]
+    if run.status in TERMINAL_STATUSES:
+        activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
+        return
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
     # already in the worker logs — the workflow logs the complete error before calling this activity.
-    first_error_line = (input.error.splitlines() or [""])[0][:300]
     run.status = ReviewRunStatus.FAILED
     run.error = first_error_line
     run.completed_at = timezone.now()
