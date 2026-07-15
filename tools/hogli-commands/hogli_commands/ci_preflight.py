@@ -107,7 +107,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="Python type checking (mypy)",
         triggers=["*.py", "*.pyi"],
         # ty already runs in lint-staged; use mypy without inheriting unrelated repo-wide failures.
-        verify=["mypy", "--cache-fine-grained"],
+        verify=["mypy"],
         takes_files=True,
     ),
     DiffCheck(

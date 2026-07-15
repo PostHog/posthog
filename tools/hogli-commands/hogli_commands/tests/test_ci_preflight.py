@@ -107,7 +107,6 @@ class TestStrictAndFixContracts:
             call.args[0]
             == [
                 "mypy",
-                "--cache-fine-grained",
                 "tools/hogli-commands/hogli_commands/ci_preflight.py",
             ]
             for call in mock_run.call_args_list
