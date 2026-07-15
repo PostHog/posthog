@@ -9,6 +9,17 @@ export interface MessageContext {
 }
 
 /**
+ * What the record pipeline emits per message, and what accumulates for the flush: the source
+ * partition and offset — present for every message (recorded, dropped, or DLQ'd), so the flush's
+ * commit advances past dropped messages too — plus whether the message was recorded.
+ */
+export interface ReplayRecordRow {
+    partition: number
+    offset: number
+    recorded: boolean
+}
+
+/**
  * The message headers a session replay message is guaranteed to carry and that the pipeline consumes.
  * These are exactly the fields capture sets for the replay path (see `rust/capture/src/events/recordings.rs`),
  * narrowed to their required, non-optional form — downstream steps take this instead of the wide,

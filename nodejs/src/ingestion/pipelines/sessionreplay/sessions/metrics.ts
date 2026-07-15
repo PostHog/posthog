@@ -173,9 +173,9 @@ export class SessionBatchMetrics {
 
     /**
      * Records the flush counters (batches/sessions/events/bytes) for one flushed batch, from the
-     * write step's block metadata. Called by the record-metrics flush step on the flushed turn,
-     * before the consumer commits — a batch whose commit then fails is reprocessed and counted
-     * again. A batch with no written blocks is a no-op.
+     * write step's block metadata. Called by the record-metrics flush step after the commit step,
+     * so a cycle that fails to commit (and will be reprocessed) is not counted. A batch with no
+     * written blocks is a no-op.
      */
     public static recordFlushedBatch(blockMetadata: SessionBlockMetadata[]): void {
         if (blockMetadata.length === 0) {

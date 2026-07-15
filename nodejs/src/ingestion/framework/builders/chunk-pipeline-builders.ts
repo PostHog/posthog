@@ -11,6 +11,10 @@ import {
     ConcurrentlyGroupingChunkPipeline,
     GroupingFunction,
 } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import {
+    ElementMappingChunkPipeline,
+    ElementMappingFunction,
+} from '~/ingestion/framework/element-mapping-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
 import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
@@ -168,6 +172,19 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         options: { await: boolean }
     ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
         return new ChunkPipelineBuilder(new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options))
+    }
+
+    /**
+     * Maps every element — non-OK results included — to a final OK value, reading both the result
+     * and its context. Use at a pipeline's tail, after result and side-effect handling: a non-OK
+     * result's fate is sealed by then, so what flows on is just the per-message row downstream
+     * readers need (e.g. the source partition and offset to commit), and the heavy contexts are
+     * dropped with it.
+     */
+    mapElements<U>(
+        mapFn: ElementMappingFunction<TOutput, COutput, U, R>
+    ): ChunkPipelineBuilder<TInput, U, CInput, Record<never, object>, R> {
+        return new ChunkPipelineBuilder(new ElementMappingChunkPipeline(this.pipeline, mapFn))
     }
 
     messageAware<TOut, COut = COutput, ROut extends string = never>(

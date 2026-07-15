@@ -47,7 +47,7 @@ export interface SessionBatchManagerConfig {
  *     ├── write          → recorder.flush()              ── S3 write + metadata
  *     └── recordMetrics  → SessionBatchMetrics           ── flush counters off the block metadata
  *
- * Offsets are tracked in the accumulating pipeline's afterRecord hook and committed by the consumer after a flush.
+ * Offsets are derived from the accumulated per-message rows and committed by the flush's commit step.
  * ```
  */
 export class SessionBatchManager {

@@ -272,7 +272,8 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Feed messages into the session replay pipeline (records into the current batch) and drain it.
-        // The pipeline decides when to flush (size or age); the consumer commits offsets on each flush.
+        // The pipeline decides when to flush (size or age) and its flush steps write to storage and
+        // commit the offsets the cycle covers; the consumer only drives feed()/next().
         await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () => {
             await this.pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
             await this.drainPipeline()
@@ -280,42 +281,26 @@ export class SessionRecordingIngester {
     }
 
     /**
-     * Drains the session replay pipeline to completion. Offsets are tracked inside the record
-     * pipeline's afterRecord hook (for every fed message — recorded, dropped, or DLQ'd); the flush
-     * pipeline's steps write to storage and record flush metrics. Offset commits stay here, outside
-     * the pipeline: after a flushed turn's side effects are durable, the consumer commits the
-     * offsets that flush covers.
-     *
-     * Each turn surfaces the side effects produced this turn (DLQ/overflow produces). We schedule
-     * them and await all in-flight produces before committing or pulling the next turn, so a
-     * message's produce is durable before the offset that covers it is committed.
+     * Drains the session replay pipeline to completion. Everything offset-related lives in the
+     * pipeline: every fed message (recorded, dropped, or DLQ'd) accumulates as a row carrying its
+     * partition and offset, and the flush's commit step derives and commits the offsets — after
+     * the write persisted the batch and all in-flight produces settled. The consumer just settles
+     * any side effects each turn surfaces.
      */
     private async drainPipeline(): Promise<void> {
         let result = await this.pipeline.next()
         while (result !== null) {
             await this.settleSideEffects(result)
-            if (result.flushed) {
-                await this.commitFlushedOffsets()
-            }
             result = await this.pipeline.next()
         }
     }
 
     /** Schedules a turn's surfaced side effects and awaits all in-flight produces. */
-    private async settleSideEffects(
-        result: AccumulatingResult<unknown, unknown, unknown, unknown, string>
-    ): Promise<void> {
+    private async settleSideEffects(result: AccumulatingResult<unknown, unknown, unknown, string>): Promise<void> {
         for (const sideEffect of result.sideEffects) {
             void this.promiseScheduler.schedule(sideEffect)
         }
         await this.promiseScheduler.waitForAllSettled()
-    }
-
-    /** Commits the offsets tracked for the just-flushed batch. Only safe right after a flush. */
-    private async commitFlushedOffsets(): Promise<void> {
-        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, async () =>
-            this.offsetManager.commit()
-        )
     }
 
     public async start(): Promise<void> {
@@ -349,6 +334,7 @@ export class SessionRecordingIngester {
             recordPipeline,
             sessionBatchManager: this.sessionBatchManager,
             offsetManager: this.offsetManager,
+            promiseScheduler: this.promiseScheduler,
             maxBatchSizeBytes: this.maxBatchSizeBytes,
             maxBatchAgeMs: this.maxBatchAgeMs,
         })
@@ -375,14 +361,14 @@ export class SessionRecordingIngester {
         // Stop TopHog and flush final metrics
         await this.topHog.stop()
 
-        // Final flush: stop the age timer, persist the last partial batch, and commit its offsets
-        // while we still own the partitions — disconnect then commits the stored offsets as it
-        // leaves the group. The pipeline serializes this against any in-flight processing.
+        // Final flush: stop the age timer and persist the last partial batch while we still own the
+        // partitions — the flush's commit step stores its offsets, and disconnect then commits the
+        // stored offsets as it leaves the group. The pipeline serializes this against any in-flight
+        // processing.
         const finalResult = await this.pipeline.stop()
         if (finalResult) {
             await this.settleSideEffects(finalResult)
         }
-        await this.commitFlushedOffsets()
         await this.kafkaConsumer.disconnect()
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
@@ -424,14 +410,13 @@ export class SessionRecordingIngester {
         }
 
         SessionRecordingIngesterMetrics.resetSessionsHandled()
-        // Runs inside the revoke hook, before the unassign: the flush persists the batch, its side
-        // effects settle, and the commit stores offsets that librdkafka commits as it gives the
-        // partitions up. The pipeline serializes this against any in-flight processing.
+        // Runs inside the revoke hook, before the unassign: the flush persists the batch and its
+        // commit step stores offsets that librdkafka commits as it gives the partitions up. The
+        // pipeline serializes this against any in-flight processing.
         const result = await this.pipeline.flush()
         if (result) {
             await this.settleSideEffects(result)
         }
-        await this.commitFlushedOffsets()
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {

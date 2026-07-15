@@ -5,7 +5,6 @@ export {
     type SessionReplayPipelineConfig,
     type SessionReplayInnerPipelineConfig,
     type SessionReplayPipelineInput,
-    type SessionReplayPipelineOutput,
     type SessionReplayInnerPipeline,
 } from './session-replay-pipeline'
 

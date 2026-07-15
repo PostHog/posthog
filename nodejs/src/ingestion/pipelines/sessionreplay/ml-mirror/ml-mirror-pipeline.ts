@@ -3,10 +3,11 @@ import { Message } from 'node-rdkafka'
 
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
+import { CycleContext } from '~/ingestion/framework/accumulating-pipeline'
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { isOkResult } from '~/ingestion/framework/results'
 import {
     SessionReplayInnerPipeline,
     SessionReplayInnerPipelineConfig,
@@ -43,7 +44,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
     const topHogWrapper = createTopHogWrapper(topHog)
 
     const processed = newChunkPipelineBuilder<
-        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+        SessionReplayPipelineInput & SessionBatchContext & CycleContext,
         { message: Message }
     >().messageAware((batch) =>
         batch
@@ -146,11 +147,17 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
     )
 
     // Route non-OK results (DLQ/overflow/drop) into produce side effects and schedule them on the
-    // shared promise scheduler; the consumer awaits all in-flight produces before committing the
-    // offsets a flush covers.
+    // shared promise scheduler, then reduce every handled result — recorded, dropped, or DLQ'd —
+    // to the row the flush reads: the source partition and offset to commit. The raw Kafka message
+    // dies here, so the accumulated rows never pin payloads.
     return processed
         .handleResults(pipelineConfig)
         .handleSideEffects(promiseScheduler, { await: false })
+        .mapElements((element) => ({
+            partition: element.context.message.partition,
+            offset: element.context.message.offset,
+            recorded: isOkResult(element.result),
+        }))
         .gather()
         .build()
 }

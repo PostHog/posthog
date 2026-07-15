@@ -153,7 +153,7 @@ describe('ml-mirror-pipeline', () => {
     ): Promise<void> {
         pipeline.feed(
             messages.map((message) =>
-                createOkContext({ message, sessionBatchRecorder: recorder, batchId: 0 }, { message })
+                createOkContext({ message, sessionBatchRecorder: recorder, cycleId: 0 }, { message })
             )
         )
         while ((await pipeline.next()) !== null) {

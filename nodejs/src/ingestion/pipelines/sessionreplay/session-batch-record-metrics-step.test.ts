@@ -18,7 +18,7 @@ describe('createRecordMetricsStep', () => {
             { sessionId: 's1', eventCount: 2, blockLength: 100 },
             { sessionId: 's2', eventCount: 1, blockLength: 40 },
         ] as unknown as SessionBlockMetadata[]
-        const input = { elements: [], batchContext: { batchId: 0 }, blockMetadata: blocks }
+        const input = { elements: [], cycleContext: { cycleId: 0 }, blockMetadata: blocks }
 
         const result = await createRecordMetricsStep()(input)
 
@@ -30,7 +30,7 @@ describe('createRecordMetricsStep', () => {
     })
 
     it('passes an empty flush through as ok (recordFlushedBatch no-ops on it)', async () => {
-        const input = { elements: [], batchContext: { batchId: 0 }, blockMetadata: [] as SessionBlockMetadata[] }
+        const input = { elements: [], cycleContext: { cycleId: 0 }, blockMetadata: [] as SessionBlockMetadata[] }
 
         const result = await createRecordMetricsStep()(input)
 

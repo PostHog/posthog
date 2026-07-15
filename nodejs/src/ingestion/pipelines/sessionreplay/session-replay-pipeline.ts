@@ -6,17 +6,13 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import {
-    AccumulatedFlushInput,
-    AccumulatingPipeline,
-    AccumulationContext,
-} from '~/ingestion/framework/accumulating-pipeline'
+import { AccumulatingPipeline, CycleContext, CycleFlushInput } from '~/ingestion/framework/accumulating-pipeline'
 import { newAccumulatingPipeline, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { isOkResult } from '~/ingestion/framework/results'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -25,17 +21,17 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
+import { ReplayRecordRow } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
-import { TrimmedReplayElement, createReplayAfterRecordHook } from './session-batch-after-record'
+import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createRecordMetricsStep } from './session-batch-record-metrics-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
-import { createCreateSessionBatchStep } from './session-batch-step'
+import { createMintSessionBatchStep } from './session-batch-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { createWriteStep } from './session-batch-write-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
@@ -46,47 +42,38 @@ export interface SessionReplayPipelineInput {
     message: Message
 }
 
-export interface SessionReplayPipelineOutput {
-    team: TeamForReplay
-    parsedMessage: ParsedMessageData
-}
-
 /**
  * The per-message inner pipeline driven by the session replay pipeline: a plain chunk pipeline of
- * steps. Its input carries the batch context (the recorder) tagged on by the accumulating pipeline,
- * which the retention and record steps read; offset tracking and result trimming live in the
- * accumulating pipeline's afterRecord hook, not here.
+ * steps. Its input carries the cycle context (the recorder) tagged on by the accumulating pipeline,
+ * which the retention and record steps read. Its tail reduces every handled result to a
+ * {@link ReplayRecordRow} — the source partition and offset — which is what accumulates for the
+ * flush; the flush's commit step derives the offsets to commit from those rows.
  */
 export type SessionReplayInnerPipeline = ChunkPipeline<
-    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput: raw input + batch recorder + batch id
-    SessionReplayPipelineOutput, // TOutput: recorded element (narrowed to the declared output)
+    SessionReplayPipelineInput & SessionBatchContext & CycleContext, // TInput: raw input + cycle recorder + cycle id
+    ReplayRecordRow, // TOutput: the per-message row that accumulates for the flush
     { message: Message }, // CInput: per-element context in (the Kafka message)
-    { message: Message }, // COutput: per-element context out (the Kafka message)
+    Record<never, object>, // COutput: per-element context out (empty — the tail drops the message)
     OverflowOutput // R: redirect output names this pipeline can emit
 >
 
 /**
- * The value the flush pipeline threads through its steps: the accumulated (trimmed) elements plus the
- * batch context, with the written block metadata tacked on by the write step.
+ * The value the flush pipeline threads through its steps: the accumulated rows plus the cycle
+ * context, with the written block metadata tacked on by the write step.
  */
-export type SessionReplayFlushOutput = AccumulatedFlushInput<
-    TrimmedReplayElement,
-    Record<never, object>,
-    SessionBatchContext,
-    OverflowOutput
-> & { blockMetadata: SessionBlockMetadata[] }
+export type SessionReplayFlushOutput = CycleFlushInput<ReplayRecordRow, SessionBatchContext, OverflowOutput> & {
+    blockMetadata: SessionBlockMetadata[]
+}
 
 export type SessionReplayPipeline = AccumulatingPipeline<
-    SessionReplayPipelineInput, // TRecordIn: element fed in per message (batch context is added internally)
-    SessionReplayPipelineOutput, // TRecordOut: recorded element out of the inner pipeline
+    SessionReplayPipelineInput, // TRecordIn: element fed in per message (cycle context is added internally)
+    ReplayRecordRow, // TRecordOut: the per-message row out of the inner pipeline; accumulates as a bare result
     { message: Message }, // CRecordIn: inner-pipeline context in (the Kafka message)
-    { message: Message }, // CRecordOut: inner-pipeline context out (the Kafka message)
-    SessionBatchContext, // CBatch: batch context minted per cycle (the recorder), tagged on every element and the flush unit
-    SessionReplayFlushOutput, // TFlushOut: value threaded out of the flush pipeline (elements + batch context + block metadata)
+    Record<never, object>, // CRecordOut: inner-pipeline context out (empty — dropped when results accumulate)
+    SessionBatchContext, // CCycle: cycle context minted per cycle (the recorder), tagged on every element and the flush unit
+    SessionReplayFlushOutput, // TFlushOut: value threaded out of the flush pipeline (rows + cycle context + block metadata)
     Record<string, never>, // CFlushOut: flush-pipeline context out (empty — the flush unit carries no context)
-    OverflowOutput, // R: redirect output names this pipeline can emit
-    TrimmedReplayElement, // TAccOut: trimmed element the afterRecord hook accumulates
-    Record<never, object> // CAccOut: trimmed context the afterRecord hook accumulates (empty)
+    OverflowOutput // R: redirect output names this pipeline can emit
 >
 
 export interface SessionReplayInnerPipelineConfig {
@@ -114,8 +101,10 @@ export interface SessionReplayInnerPipelineConfig {
 export interface SessionReplayPipelineConfig {
     recordPipeline: SessionReplayInnerPipeline
     sessionBatchManager: SessionBatchManager
-    /** Offsets are tracked in the afterRecord hook, for every message (recorded, dropped, or DLQ'd); the consumer commits them after a flush */
+    /** The flush's commit step derives the offsets to commit from the accumulated rows and commits them here */
     offsetManager: KafkaOffsetManager
+    /** The commit step awaits all in-flight produces on this scheduler before committing */
+    promiseScheduler: PromiseScheduler
     /** Maximum raw size (before compression) of a batch in bytes before it is flushed */
     maxBatchSizeBytes: number
     /** Maximum age of a batch in milliseconds before it is flushed */
@@ -161,7 +150,7 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
     const topHogWrapper = createTopHogWrapper(topHog)
 
     const processed = newChunkPipelineBuilder<
-        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+        SessionReplayPipelineInput & SessionBatchContext & CycleContext,
         { message: Message }
     >().messageAware((batch) =>
         batch
@@ -269,11 +258,17 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
     )
 
     // Route non-OK results (DLQ/overflow/drop) into produce side effects and schedule them on the
-    // shared promise scheduler; the consumer awaits all in-flight produces before committing the
-    // offsets a flush covers.
+    // shared promise scheduler, then reduce every handled result — recorded, dropped, or DLQ'd —
+    // to the row the flush reads: the source partition and offset to commit. The raw Kafka message
+    // dies here, so the accumulated rows never pin payloads.
     return processed
         .handleResults(pipelineConfig)
         .handleSideEffects(promiseScheduler, { await: false })
+        .mapElements((element) => ({
+            partition: element.context.message.partition,
+            offset: element.context.message.offset,
+            recorded: isOkResult(element.result),
+        }))
         .gather()
         .build()
 }
@@ -286,30 +281,32 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
  * consumer, which commits after the flush (and its side effects) are durable.
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
-    const { recordPipeline, sessionBatchManager, offsetManager, maxBatchSizeBytes, maxBatchAgeMs } = config
+    const { recordPipeline, sessionBatchManager, offsetManager, promiseScheduler, maxBatchSizeBytes, maxBatchAgeMs } =
+        config
 
     return newAccumulatingPipeline<
         SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
+        ReplayRecordRow,
         { message: Message },
-        { message: Message },
+        Record<never, object>,
         SessionBatchContext,
         SessionReplayFlushOutput,
         Record<string, never>,
-        OverflowOutput,
-        TrimmedReplayElement,
-        Record<never, object>
+        OverflowOutput
     >({
-        beforeBatch: (builder) => builder.pipe(createCreateSessionBatchStep(sessionBatchManager)),
+        beforeCycle: (builder) => builder.pipe(createMintSessionBatchStep(sessionBatchManager)),
         pipeline: recordPipeline,
-        // Tracks every message's offset (recorded, dropped, or DLQ'd) and trims each result to the
-        // lightweight row that accumulates for the flush.
-        afterRecord: createReplayAfterRecordHook(offsetManager),
         // The flush lifecycle: write to storage (retention and keys already resolved at record time),
-        // then record the flush metrics from the write step's block metadata. Offsets are committed by
-        // the consumer after the flush and its surfaced side effects are durable.
-        flush: (builder) => builder.sequentially((b) => b.pipe(createWriteStep()).pipe(createRecordMetricsStep())),
-        shouldFlush: (batchContext) => batchContext.sessionBatchRecorder.size >= maxBatchSizeBytes,
-        maxBatchAgeMs,
+        // commit the offsets the cycle covers (derived from the accumulated rows, with in-flight
+        // produces awaited first), then record the flush metrics from the write step's block metadata.
+        flush: (builder) =>
+            builder.sequentially((b) =>
+                b
+                    .pipe(createWriteStep())
+                    .pipe(createCommitOffsetsStep(offsetManager, promiseScheduler))
+                    .pipe(createRecordMetricsStep())
+            ),
+        shouldFlush: (cycleContext) => cycleContext.sessionBatchRecorder.size >= maxBatchSizeBytes,
+        maxCycleAgeMs: maxBatchAgeMs,
     })
 }

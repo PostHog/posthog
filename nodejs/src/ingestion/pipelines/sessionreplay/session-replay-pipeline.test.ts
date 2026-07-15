@@ -23,8 +23,7 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { KafkaOffsetManager } from './kafka/offset-manager'
-import { TrimmedReplayElement, createReplayAfterRecordHook } from './session-batch-after-record'
+import { ReplayRecordRow } from './pipeline-types'
 import { SessionReplayInnerPipelineConfig, createSessionReplayInnerPipeline } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
@@ -84,7 +83,6 @@ describe('session-replay-pipeline', () => {
     let mockRestrictionManager: EventIngestionRestrictionManager
     let mockTeamService: TeamService
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
-    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let promiseScheduler: PromiseScheduler
     let topHog: MockTopHogRegistry
     let outputs: jest.Mocked<
@@ -193,33 +191,40 @@ describe('session-replay-pipeline', () => {
         })
     }
 
-    // Feeds messages through the inner pipeline with the batch recorder tagged on each element,
-    // drains it, and runs the afterRecord hook on every drained result — exactly what the
-    // accumulating pipeline does. Returns the unwrapped OK outputs: the trimmed per-message rows.
-    async function runPipeline(
+    // Feeds messages through the inner pipeline with the batch recorder tagged on each element (as
+    // the accumulating pipeline does), drains it, and returns every message's row — the pipeline
+    // emits one row per fed message, whether it recorded or not.
+    async function runPipelineAllRows(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
         messages: Message[]
-    ): Promise<TrimmedReplayElement[]> {
+    ): Promise<ReplayRecordRow[]> {
         // The accumulating pipeline skips empty feeds; mirror that.
         if (messages.length > 0) {
             pipeline.feed(
                 messages.map((message) =>
-                    createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message })
+                    createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, cycleId: 0 }, { message })
                 )
             )
         }
-        const afterRecord = createReplayAfterRecordHook(mockOffsetManager)
-        const results: TrimmedReplayElement[] = []
+        const rows: ReplayRecordRow[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
-            for (const element of afterRecord(batch)) {
+            for (const element of batch) {
                 if (isOkResult(element.result)) {
-                    results.push(element.result.value)
+                    rows.push(element.result.value)
                 }
             }
             batch = await pipeline.next()
         }
-        return results
+        return rows
+    }
+
+    // Like runPipelineAllRows, but keeps only the recorded messages' rows — what most tests assert on.
+    async function runPipeline(
+        pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
+        messages: Message[]
+    ): Promise<ReplayRecordRow[]> {
+        return (await runPipelineAllRows(pipeline, messages)).filter((row) => row.recorded)
     }
 
     // The session ids recorded into the batch, in call order — the observable effect of a message
@@ -245,7 +250,6 @@ describe('session-replay-pipeline', () => {
         } as unknown as TeamService
 
         mockBatchRecorder = createMockBatchRecorder()
-        mockOffsetManager = { trackOffset: jest.fn() } as unknown as jest.Mocked<KafkaOffsetManager>
         topHog = createMockTopHog()
 
         promiseScheduler = new PromiseScheduler()
@@ -345,8 +349,8 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(2)
             expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
-            // trimmed output is the lightweight per-message row (in feed order), not the parsed message
-            expect(result[0]).toEqual({ partition: 0, timestamp: expect.any(Number) })
+            // the output is the lightweight per-message row (in feed order), not the parsed message
+            expect(result[0]).toEqual({ partition: 0, offset: 1, recorded: true })
         })
 
         it('filters out dropped messages from restrictions', async () => {
@@ -704,7 +708,7 @@ describe('session-replay-pipeline', () => {
             expect(mockBatch.record).toHaveBeenCalledTimes(3)
         })
 
-        it('tracks the offset of every fed message in the afterRecord hook, including dropped ones', async () => {
+        it('emits a row carrying the source offset for every fed message, dropped ones included', async () => {
             // Drop offset 2 at restrictions; offsets 1 and 3 record.
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
@@ -722,21 +726,15 @@ describe('session-replay-pipeline', () => {
                 createMessage(0, 3, 'session-3'),
             ]
 
-            const result = await runPipeline(pipeline, messages)
+            const rows = await runPipelineAllRows(pipeline, messages)
 
-            // Only the recorded messages surface as trimmed rows, in feed order.
-            expect(result).toEqual([
-                { partition: 0, timestamp: expect.any(Number) },
-                { partition: 0, timestamp: expect.any(Number) },
-            ])
-            // Every fed message's offset is tracked (so the dropped one advances too). Results drain
-            // in completion order, not feed order — the offset manager never moves backwards.
-            expect(
-                mockOffsetManager.trackOffset.mock.calls.map((call) => call[0]).sort((a, b) => a.offset - b.offset)
-            ).toEqual([
-                { partition: 0, offset: 1 },
-                { partition: 0, offset: 2 },
-                { partition: 0, offset: 3 },
+            // Every fed message surfaces as a row with its offset — the flush's commit step derives
+            // the offsets to commit from these, so the dropped one must advance too. Rows drain in
+            // completion order, not feed order.
+            expect(rows.sort((a, b) => a.offset - b.offset)).toEqual([
+                { partition: 0, offset: 1, recorded: true },
+                { partition: 0, offset: 2, recorded: false },
+                { partition: 0, offset: 3, recorded: true },
             ])
         })
 

@@ -264,7 +264,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     async function runBatch(sessionId: string, offset: number): Promise<void> {
         const message = createMessage(sessionId, offset)
         const pipeline = buildPipeline()
-        pipeline.feed([createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message })])
+        pipeline.feed([createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, cycleId: 0 }, { message })])
         let batch = await pipeline.next()
         while (batch !== null) {
             batch = await pipeline.next()

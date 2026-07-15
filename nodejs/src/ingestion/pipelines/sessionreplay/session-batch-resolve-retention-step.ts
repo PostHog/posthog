@@ -21,9 +21,9 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * guarantees is present. A session whose retention can't be resolved because its team is unknown or
  * deleted is dropped; a corrupt/invalid stored value instead throws (crashes) rather than recording
  * against a wrong retention. A transient failure (e.g. Redis) is thrown by the service so the
- * pipeline's retry wrapper can re-run the step. A dropped message still commits its offset — the
- * drop result flows out to the accumulating pipeline's afterRecord hook, which tracks offsets for
- * every fed message (recorded, dropped, or DLQ'd).
+ * pipeline's retry wrapper can re-run the step. A dropped message still commits its offset — every
+ * result (recorded, dropped, or DLQ'd) leaves the pipeline as a row carrying its partition and
+ * offset, which the flush's commit step covers.
  */
 export function createResolveRetentionStep<
     T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
