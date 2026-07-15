@@ -109,10 +109,11 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             (s) => [s.experimentItems],
             (experimentItems: ExperimentSessionContextItemApi[]): boolean => experimentItems.length > 0,
         ],
+        // Scoped to seenItems: this warns the chip that summarizes only in-recording experiments, so a
+        // carried-over enrollment that saw multiple variants must not trigger the warning.
         hasMultipleVariantWarning: [
-            (s) => [s.experimentItems],
-            (experimentItems: ExperimentSessionContextItemApi[]): boolean =>
-                experimentItems.some((item) => item.multiple_variants),
+            (s) => [s.seenItems],
+            (seenItems: ExperimentSessionContextItemApi[]): boolean => seenItems.some((item) => item.multiple_variants),
         ],
     }),
     // Feature flags can arrive after the player mounts (posthog-js loads them asynchronously),
