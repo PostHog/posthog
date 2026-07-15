@@ -23,6 +23,9 @@ REEXPORT_WINDOW_DAYS = SCORE_LOOKBACK_DAYS + 1
 # `cityHash64(session_id) % OF_CHUNKS` partitioning, same scheme as the scoring sweep.
 DEFAULT_OF_CHUNKS = 8
 
+# Keep this background export within a small share of the shared ClickHouse query capacity.
+MAX_CONCURRENT_EXPORT_PARTITIONS = 4
+
 SCORE_EXPORT_PREFIX_ENV_VAR = "SESSION_RECORDING_ML_SCORE_EXPORT_PREFIX"
 DEFAULT_SCORE_EXPORT_PREFIX = "score"
 
