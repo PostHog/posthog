@@ -507,22 +507,41 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
 
 
 if TYPE_CHECKING:
-    # Declared for type-checkers only; resolved at runtime by __getattr__ -> get_sandbox_class().
+    # Type-checkers treat `Sandbox` as the concrete class; at runtime it is the lazy proxy below.
     Sandbox: SandboxClass
 else:
 
-    def __getattr__(name: str) -> object:
-        # Resolve `Sandbox` lazily. Computing it at import time calls get_sandbox_class(),
-        # which for the docker / modal_docker providers imports a sibling module
-        # (docker_sandbox / modal_sandbox). When that sibling is the first of the pair to be
-        # imported (e.g. test_docker_sandbox.py imports docker_sandbox, which imports this
-        # module), the eager call reaches back into the still-initializing sibling and fails
-        # as a circular import. Deferring to first attribute access breaks the cycle.
-        if name == "Sandbox":
-            sandbox_class = get_sandbox_class()
-            globals()["Sandbox"] = sandbox_class  # cache so later lookups skip __getattr__
-            return sandbox_class
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    class _SandboxProxyMeta(type):
+        """Metaclass that resolves the concrete sandbox class lazily, on first attribute use.
+
+        `Sandbox` must look and behave like the resolved class — `Sandbox.create(...)`,
+        `Sandbox.get_by_id(...)`, and `mock.patch.object(Sandbox, ...)` all have to work — but
+        importing it must NOT resolve the class. Resolution must stay lazy for two reasons:
+        - `get_sandbox_class()` imports a sibling module (docker_sandbox / modal_sandbox) for the
+          docker / modal_docker providers. If that sibling imports first (e.g. test_docker_sandbox
+          imports docker_sandbox, which imports this module), an eager call reaches back into the
+          still-initializing sibling and fails as a circular import.
+        - `get_sandbox_class()` runs a dev-only guard that raises outside DEBUG/TEST. This module is
+          reachable from posthog/urls.py, so resolving at import time would trip that guard during
+          URL loading and crash every management command whenever SANDBOX_PROVIDER=MODAL_DOCKER
+          leaks into a non-DEBUG/TEST env.
+
+        `from ...sandbox import Sandbox` only binds the proxy class; resolution is deferred to the
+        first attribute access or call, which happens inside a running activity — never at import.
+        """
+
+        def __getattr__(cls, name: str) -> object:
+            # Dunders are served by `type`; only genuinely-missing attributes reach here, so a
+            # leaked dunder probe must not resolve the class (and re-enter the guard).
+            if name.startswith("__"):
+                raise AttributeError(name)
+            return getattr(get_sandbox_class(), name)
+
+        def __call__(cls, *args: object, **kwargs: object) -> object:
+            return get_sandbox_class()(*args, **kwargs)
+
+    class Sandbox(metaclass=_SandboxProxyMeta):
+        pass
 
 
 __all__ = [
