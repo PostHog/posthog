@@ -676,6 +676,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
                 },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('linear'),
+                },
             },
         },
         {
@@ -693,6 +696,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
                 },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('github'),
+                },
             },
         },
         {
@@ -709,6 +715,9 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 posthog_issue_id: {
                     value: '{event.distinct_id}',
+                },
+                posthog_issue_url: {
+                    value: errorTrackingIssueLinkHogTemplate('gitlab'),
                 },
             },
         },

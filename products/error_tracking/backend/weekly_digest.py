@@ -320,12 +320,23 @@ def get_new_issues_for_team(team: Team, issue_rows: list | None = None) -> list[
 
 def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[dict]:
     """Build issue dicts with sparkline from query results containing issue_id, occurrence_count, daily_counts."""
+    from products.error_tracking.backend.logic import build_issue_permalink_path, list_first_fingerprints
+
+    issue_ids = [issue_id for issue_id, _, _ in results if issue_id]
+    fingerprints_by_issue_id = {
+        str(fingerprint.issue_id): fingerprint.fingerprint
+        for fingerprint in list_first_fingerprints(team_id=team.pk, issue_ids=issue_ids)
+    }
+
     issues = []
     for issue_id, occurrence_count, daily_counts in results:
         if not issue_id:
             continue
         issue = issues_by_id.get(str(issue_id))
         sparkline = _daily_counts_to_sparkline(daily_counts)
+        permalink_path = build_issue_permalink_path(
+            project_id=team.pk, issue_id=issue_id, fingerprint=fingerprints_by_issue_id.get(str(issue_id))
+        )
         issues.append(
             {
                 "id": issue_id,
@@ -333,7 +344,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
                 "description": issue.description if issue else None,
                 "occurrence_count": occurrence_count,
                 "sparkline": sparkline,
-                "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}?utm_source=error_tracking_weekly_digest",
+                "url": f"{settings.SITE_URL}{permalink_path}?utm_source=error_tracking_weekly_digest",
             }
         )
     return issues

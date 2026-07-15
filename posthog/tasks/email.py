@@ -1305,6 +1305,7 @@ def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_
             "assignment": assignment,
             "team": team,
             "site_url": settings.SITE_URL,
+            "issue_url": error_tracking_api.get_issue_permalink(team_id=team.id, issue_id=assignment.issue_id),
         },
     )
     for membership in memberships_to_email:

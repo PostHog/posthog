@@ -111,9 +111,12 @@ all three:
 "inputs": {
   "title": { "value": "{event.properties.name}" },
   "description": { "value": "{event.properties.description}" },
-  "posthog_issue_id": { "value": "{event.distinct_id}" }
+  "posthog_issue_id": { "value": "{event.distinct_id}" },
+  "posthog_issue_url": { "value": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=linear" }
 }
 ```
+
+Set `utm_medium` to the destination (`linear`, `github`, `gitlab`). `posthog_issue_url` is the merge-stable deep link embedded in the external issue; when omitted, the destination falls back to building a link from `posthog_issue_id`.
 
 ## `$error_tracking_issue_reopened`
 
