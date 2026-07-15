@@ -131,16 +131,24 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 billing?.products?.find((p) => p.type === INBOX_PRODUCT_TYPE) ?? null,
         ],
         isLoading: [
-            (s) => [s.billing, s.billingLoading, s.refundSummary, s.refundSummaryLoading, s.featureFlags],
-            (billing, billingLoading, refundSummary, refundSummaryLoading, featureFlags): boolean => {
+            (s) => [
+                s.billing,
+                s.billingLoading,
+                s.product,
+                s.refundSummary,
+                s.refundSummaryLoading,
+                s.refundsFlagEnabled,
+            ],
+            (billing, billingLoading, product, refundSummary, refundSummaryLoading, refundsFlagEnabled): boolean => {
                 if (billing === null && billingLoading) {
                     return true
                 }
                 // With refunds on, the PR count needs the refund summary too (live top-up +
-                // credited netting) — rendering on billing alone briefly shows the gross number.
-                return (
-                    !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] && refundSummary === null && refundSummaryLoading
-                )
+                // credited netting) — but only hold the skeleton while the card has nothing to
+                // show yet. Once billing has rendered a count, a summary load kicked off by the
+                // late-resolving org-keyed flag updates the number in place instead of tearing
+                // the card down into a skeleton and back.
+                return !product && refundsFlagEnabled && refundSummary === null && refundSummaryLoading
             },
         ],
         // Free plan can't raise the limit past the free allocation — the widget points to

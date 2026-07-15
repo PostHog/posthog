@@ -97,6 +97,10 @@ describe('inboxUsageLogic', () => {
         expect(logic.values.usedPrs).toBe(1)
 
         setRefundsFlag()
+        await expectLogic(logic).toDispatchActions(['loadRefundSummary'])
+        // The already-rendered card must not collapse into a skeleton while the late-triggered
+        // summary load is in flight — the count updates in place once it lands.
+        expect(logic.values.isLoading).toBe(false)
         await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
 
         expect(logic.values.usedPrs).toBe(4)
