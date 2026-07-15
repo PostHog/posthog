@@ -1,6 +1,7 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -100,7 +101,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             sceneLogic,
             ['sceneId', 'sceneConfig'],
             teamLogic,
-            ['currentTeamIdStrict'],
+            ['currentTeam', 'currentTeamIdStrict'],
             featureFlagLogic,
             ['featureFlags'],
             sidePanelStateLogic,
@@ -283,6 +284,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             logic.actions.setPendingBindTaskId(taskId)
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
+            // Stay quiet when the user isn't in a workspace with conversations (no accessible
+            // team/org, e.g. mid-onboarding). The team-scoped request 404s there, so a red toast
+            // would be both misleading and repeated on every org/project switch.
+            if (!values.canLoadConversationHistory) {
+                return
+            }
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
         deleteConversation: async ({ id }) => {
@@ -302,11 +309,25 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadConversationHistory()
-    }),
+    // Load history once the user is in an accessible workspace. kea-subscriptions fires this on
+    // mount too (so it covers the initial load when the team is already present) and again if the
+    // team is still loading at mount and lands afterwards, or the workspace changes.
+    subscriptions(({ actions }) => ({
+        canLoadConversationHistory: (canLoad: boolean, previousCanLoad?: boolean) => {
+            if (canLoad && !previousCanLoad) {
+                actions.loadConversationHistory()
+            }
+        },
+    })),
 
     selectors({
+        // Conversations are team-scoped, so there's nothing to load (the request only 404s) until
+        // the user is in an accessible team/org. Gate the load on that to keep PostHog AI quiet
+        // during no-org onboarding and when switching to a workspace with no access.
+        canLoadConversationHistory: [
+            (s) => [s.currentTeam, s.currentOrganization],
+            (currentTeam, currentOrganization): boolean => !!currentTeam?.id && !!currentOrganization,
+        ],
         currentConversationId: [
             () => [router.selectors.searchParams],
             (searchParams): string | null => searchParams?.chat ?? null,

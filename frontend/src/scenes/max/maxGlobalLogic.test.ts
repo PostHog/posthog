@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -5,6 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -155,5 +158,36 @@ describe('maxGlobalLogic', () => {
                 await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
             }
         )
+    })
+
+    // Conversations are team-scoped, so loading them without an accessible team/org only 404s and
+    // fires a misleading "Failed to load conversation history" toast (during no-org onboarding and
+    // on every org/project switch to a workspace the user can't access). The load must wait until
+    // the user is actually in a workspace.
+    describe('conversation history load gate', () => {
+        it('loads on mount when the user has an accessible team', async () => {
+            // The shared beforeEach mounts with the default (accessible) team.
+            await expectLogic(logic).toDispatchActions(['loadConversationHistory'])
+        })
+
+        it('does not load on mount when there is no accessible team', async () => {
+            // Advance past the accessible-team mount from beforeEach, then remount with no team.
+            await expectLogic(logic).toDispatchActions(['loadConversationHistory'])
+            logic.unmount()
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadConversationHistory'])
+        })
+
+        it('loads once the team becomes available after mount', async () => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistory'])
+            logic.unmount()
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+            logic.mount()
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            }).toDispatchActions(['loadConversationHistory'])
+        })
     })
 })
