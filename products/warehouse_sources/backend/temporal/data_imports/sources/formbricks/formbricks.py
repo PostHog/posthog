@@ -1,5 +1,6 @@
 import re
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -28,12 +29,19 @@ PAGE_SIZE = 250
 # default, and the read timeout only guards idle gaps, not a steady large transfer). Cap what we
 # read into memory. Generous enough for a full v1 collection page; anything past it is refused.
 MAX_RESPONSE_BYTES = 256 * 1024 * 1024
-RESPONSE_CHUNK_BYTES = 1024 * 1024
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Wall-clock budget for downloading one page's body. requests' timeout only bounds each individual
+# socket read, so a host that dribbles the body slowly could hold the connection (and a shared
+# worker) open far longer than any read timeout while staying under MAX_RESPONSE_BYTES. This caps
+# total transfer time — 256 MiB in 300s is a ~0.85 MiB/s floor, far below any real API response and
+# far above a slow-drip stall.
+MAX_DOWNLOAD_SECONDS = 300
 
 DEFAULT_HOST = "https://app.formbricks.com"
 HOST_NOT_ALLOWED_ERROR = "Formbricks host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Formbricks host must use HTTPS"
 RESPONSE_TOO_LARGE_ERROR = "Formbricks response body was too large"
+RESPONSE_TOO_SLOW_ERROR = "Formbricks response download was too slow"
 # Cheap probe returning the environment/project the API key is scoped to.
 DEFAULT_PROBE_PATH = "/api/v1/management/me"
 
@@ -50,16 +58,26 @@ class FormbricksResponseTooLargeError(Exception):
     pass
 
 
-def _read_capped_body(response: requests.Response) -> bytes:
-    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES.
+class FormbricksResponseTooSlowError(Exception):
+    pass
 
-    The host is customer-controlled, so a body must never be buffered unbounded — see
-    MAX_RESPONSE_BYTES. Non-retryable: re-fetching the same page yields the same oversized body.
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES or MAX_DOWNLOAD_SECONDS.
+
+    The host is customer-controlled, so a body must never be buffered unbounded (size cap) nor be
+    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
+    cap). Both are non-retryable: re-fetching the same page yields the same oversized/slow body.
     """
     chunks: list[bytes] = []
     total = 0
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     try:
         for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise FormbricksResponseTooSlowError(
+                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {MAX_DOWNLOAD_SECONDS}s download budget"
+                )
             if not chunk:
                 continue
             total += len(chunk)

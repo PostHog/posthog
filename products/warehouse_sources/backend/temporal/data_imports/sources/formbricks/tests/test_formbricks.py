@@ -307,6 +307,21 @@ class TestFetchPage:
             _fetch_page_unwrapped(session, "https://x/api", MagicMock())
         response.close.assert_called_once()
 
+    def test_slow_download_is_refused_and_connection_closed(self, monkeypatch: Any) -> None:
+        # A host that dribbles the body must not hold the connection past the wall-clock budget.
+        monkeypatch.setattr(formbricks, "MAX_DOWNLOAD_SECONDS", -1)
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.is_redirect = False
+        response.is_permanent_redirect = False
+        response.iter_content.return_value = [b"x" * 10]
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(formbricks.FormbricksResponseTooSlowError):
+            _fetch_page_unwrapped(session, "https://x/api", MagicMock())
+        response.close.assert_called_once()
+
 
 class TestCheckAccess:
     @staticmethod
