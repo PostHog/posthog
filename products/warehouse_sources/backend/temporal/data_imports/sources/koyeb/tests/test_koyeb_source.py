@@ -49,8 +49,6 @@ class TestKoyebSource:
         assert config.label == "Koyeb"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until it's been exercised against the live API.
-        assert config.unreleasedSource is True
         # Slug must agree with the posthog.com doc filename.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/koyeb"
         # get_schemas is a static catalog, so the public docs can list tables credential-free.
