@@ -253,7 +253,7 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+class CHQueryErrorNumberOfArgumentsDoesntMatch(ExposedCHQueryError):
     pass
 
 
@@ -358,7 +358,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=QueryErrorCategory.USER_ERROR),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN", category=QueryErrorCategory.USER_ERROR
