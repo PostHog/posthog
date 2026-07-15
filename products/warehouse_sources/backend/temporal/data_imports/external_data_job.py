@@ -116,6 +116,13 @@ Any_Source_Errors: dict[str, str | None] = {
     # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
     # volatile `_ssl.c:NNNN` suffix or per-request host.
     "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
+    # Raised by `get_incremental_field_value` when the configured incremental field isn't a column
+    # in the extracted rows (e.g. a display label persisted instead of the real field name). The
+    # config is wrong, so every retry replays the same failure — pause and tell the user to fix it.
+    "was not found in the data returned by the source": (
+        "The incremental field configured for this table doesn't exist in the data the source returns. "
+        "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
+    ),
 }
 
 
