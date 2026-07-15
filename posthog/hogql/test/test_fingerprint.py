@@ -90,3 +90,34 @@ class TestHogQLFingerprint(BaseTest):
         with_hop = "SELECT count() FROM events WHERE person.properties.email = 'x'"
         without_hop = "SELECT count() FROM events WHERE properties.email = 'x'"
         self.assertNotEqual(_fp(with_hop), _fp(without_hop))
+
+    # Fingerprints are persisted in query_log and grouped over time: a change in
+    # output for the same version silently re-shards every downstream series.
+    # If this test fails, your change altered fingerprint output (possibly
+    # indirectly, via the parser or the HogQL printer). Bump FINGERPRINT_VERSION
+    # and re-pin these values in the same PR; never re-pin without bumping.
+    @parameterized.expand(
+        [
+            ("v1:3f567df03e7683df", "SELECT event, count() FROM events WHERE event = 'x' GROUP BY event"),
+            (
+                "v1:033325ddcb92a8a6",
+                "SELECT event, count() AS cnt FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY cnt DESC LIMIT 10",
+            ),
+            ("v1:11e4c038992f75e6", "SELECT e.event FROM events e WHERE e.event ILIKE '%x%'"),
+            ("v1:6536973b299a961c", "SELECT count() FROM events WHERE event IN ('a', 'b', 'c')"),
+            ("v1:ff828fffc7532f96", "SELECT person.properties.email FROM events WHERE timestamp > '2026-01-01'"),
+            (
+                "v1:6e040279d7a70204",
+                "SELECT uuid FROM (SELECT uuid, count() AS c FROM events GROUP BY uuid) WHERE c > 5",
+            ),
+            ("v1:13bb56577e78da73", "SELECT event FROM events UNION ALL SELECT event FROM events WHERE event = 'y'"),
+        ]
+    )
+    def test_fingerprint_values_are_pinned_to_the_version(self, expected, query):
+        self.assertEqual(
+            _fp(query),
+            expected,
+            "Fingerprint output changed for an unchanged version. If intentional, bump "
+            "FINGERPRINT_VERSION and re-pin every value in this test in the same PR.",
+        )
+        self.assertTrue(expected.startswith(f"{FINGERPRINT_VERSION}:"), "pinned values must match the current version")
