@@ -184,6 +184,7 @@ rules:
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
                               |LLMTraceSummary
@@ -476,6 +477,7 @@ rules:
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
                         |LLMTraceSummary
