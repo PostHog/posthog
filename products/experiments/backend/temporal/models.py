@@ -16,9 +16,16 @@ MAX_CANARY_DETAIL_LENGTH = 1000
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter, applied via
-# ApplicationError(next_retry_delay=...) instead of the retry policy's 5s exponential schedule.
+# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
+# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
+# exponential schedule.
 CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
+
+# classify_experiment_query_error classes that are deterministic for a fixed query and data window: retrying
+# burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
+# and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
+# SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
+NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
 # this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing

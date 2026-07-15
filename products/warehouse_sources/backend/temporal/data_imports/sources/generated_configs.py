@@ -1489,7 +1489,8 @@ class FirecrawlSourceConfig(config.Config):
 
 @config.config
 class FireworksAISourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str
 
 
 @config.config
@@ -1987,7 +1988,7 @@ class HuntrSourceConfig(config.Config):
 class HyperspellSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
-    user_id: str | None = None
+    user_ids: str | None = None
 
 
 @config.config
@@ -2255,7 +2256,7 @@ class KongKonnectSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config

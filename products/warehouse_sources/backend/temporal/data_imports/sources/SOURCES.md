@@ -179,6 +179,7 @@ the row lists both.
 | finnhub                   | HTTP                        | requests                                                        | ✅                          |
 | finnworlds                | HTTP                        | requests                                                        | ✅                          |
 | firecrawl                 | HTTP                        | requests                                                        | ✅                          |
+| fireworks_ai              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                   | HTTP                        | requests                                                        | ✅                          |
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
@@ -245,6 +246,7 @@ the row lists both.
 | katana                    | HTTP                        | requests                                                        | ✅                          |
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
+| koyeb                     | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs               | HTTP                        | requests                                                        | ✅                          |
 | langfuse                  | HTTP                        | requests                                                        | ✅                          |
@@ -620,7 +622,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- fireworks_ai
 - flagsmith
 - flexmail
 - flexport
