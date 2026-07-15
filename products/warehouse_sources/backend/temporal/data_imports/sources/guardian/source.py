@@ -49,7 +49,6 @@ class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="The Guardian",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Guardian Open Platform API key to pull Guardian news content into the PostHog Data warehouse.
 
 You can request a free developer key from the [Guardian Open Platform](https://open-platform.theguardian.com/access/). Free keys are rate-limited (~12 requests/second, ~5,000 requests/day), so an initial backfill of the full content archive can take a while.

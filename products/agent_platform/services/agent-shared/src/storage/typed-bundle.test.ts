@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { AgentSpecSchema } from '../spec/spec'
+import { AgentSpecObjectSchema } from '../spec/spec'
 import { deriveSkillDescription, TypedSpecSchema } from './typed-bundle'
 
 describe('deriveSkillDescription', () => {
@@ -38,21 +38,22 @@ describe('TypedSpecSchema ↔ AgentSpec key parity', () => {
     // superset) catches drift in both directions:
     //   - a new canonical field with no author passthrough → PUT /spec strict-
     //     rejects it with "Unrecognized key" and the runtime never sees a valid
-    //     spec;
+    //     spec (the failure `authoritative_provider` hit);
     //   - a stray author-only key with no canonical counterpart → dead cruft
     //     that freeze silently strips anyway (the `auth` field that used to be
     //     here).
     const SERVER_DERIVED = new Set(['skills', 'tools'])
 
     it('carries exactly the canonical author-facing top-level fields', () => {
-        const canonicalAuthorKeys = Object.keys(AgentSpecSchema.shape)
+        const canonicalAuthorKeys = Object.keys(AgentSpecObjectSchema.shape)
             .filter((k) => !SERVER_DERIVED.has(k))
             .sort()
         const authorKeys = Object.keys(TypedSpecSchema.shape).sort()
         expect(authorKeys).toEqual(canonicalAuthorKeys)
     })
 
-    it('still rejects unknown keys', () => {
+    it('accepts authoritative_provider and still rejects unknown keys', () => {
+        expect(TypedSpecSchema.safeParse({ authoritative_provider: 'posthog' }).success).toBe(true)
         expect(TypedSpecSchema.safeParse({ not_a_real_field: 1 }).success).toBe(false)
     })
 })

@@ -184,6 +184,39 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
+    def test_create_canonicalizes_incremental_field_label_to_declared_field(self, _mock_validate):
+        # Discovery surfaces Stripe's incremental field as label "created_at" / field "created";
+        # callers regularly send the label, which used to be persisted verbatim and then fail
+        # every sync with a missing-column error at cursor extraction.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "append",
+                            "incremental_field": "created_at",
+                            "incremental_field_type": "datetime",
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        schema = ExternalDataSchema.objects.get(source_id=response.json()["id"], name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.assertEqual(schema.sync_type_config["incremental_field"], "created")
+        self.assertEqual(schema.sync_type_config["incremental_field_type"], "integer")
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
     def test_create_rejects_row_filters_for_source_without_pushdown(self, _mock_validate):
         # Stripe doesn't push filters into a SQL WHERE — accepting one on creation would save it
         # and then silently sync unfiltered rows (mirrors the PATCH-path
@@ -372,6 +405,18 @@ class TestExternalDataSource(APIBaseTest):
             # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
             ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
             ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The wizard's self-driving program marks its UA distinctly → self_driving, not plain wizard.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # The self-driving marker only refines the mcp upgrade — it never rewrites explicit values.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.API,
+                ExternalDataSource.CreatedVia.API,
+            ),
             # The MCP server appends the originating client to its own UA when proxying.
             (
                 "posthog/mcp-server; version: 1.0.0; for posthog/code",

@@ -38,7 +38,7 @@ PostHog products:
 - **Feature flags** – targeting rules, gradual rollouts, kill switches
 - **Experiments** – A/B testing and no-code A/B testing with statistical rigor
 - **Surveys** – in-app questionnaires, NPS, user feedback collection
-- **AI observability** – monitor AI/LLM application costs, latency, and quality
+- **AI observability** (also called AIO, LLM analytics, or LLMA) – monitor AI/LLM application costs, latency, and quality
 - **Data warehouse** – connect external data sources (Stripe, Hubspot, Postgres, etc.) for combined analysis
 - **Data pipelines (CDP)** – import data from 20+ sources, transform events in real-time, and export to external destinations
 - **Revenue analytics** – track and analyze revenue metrics alongside product data

@@ -1,0 +1,16 @@
+version: 1
+owners: []
+rules:
+    - match: ['/CODEOWNERS', '/actions/']
+      owners: team-devex
+    - match: '/auto-assign-labels.json'
+      owners: team-feature-flags
+    - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
+      owners: team-devex
+    - match: '/workflows/cd-llm-analytics-image.yml'
+      owners: [team-devex, team-ai-observability]
+    - match:
+          - '/workflows/ci-llm-gateway.yml'
+          - '/workflows/llm-gateway-cd.yml'
+          - '/workflows/update-ai-costs.yml'
+      owners: [team-devex, team-ai-gateway]
