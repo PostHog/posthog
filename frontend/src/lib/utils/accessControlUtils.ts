@@ -69,6 +69,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking'
     } else if (resource === AccessControlResourceType.WarehouseObjects) {
         // Umbrella label for warehouse tables + views (both inherit from this)
         return 'data warehouse tables & views'
