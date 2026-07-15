@@ -58,7 +58,10 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
                 hog_function_ids=[destination.id, other.id],
             )
 
-        assert str(error.exception.detail["hog_function_ids"][0]) == (
+        assert isinstance(error.exception.detail, dict)
+        hog_function_id_errors = error.exception.detail["hog_function_ids"]
+        assert isinstance(hog_function_id_errors, list)
+        assert str(hog_function_id_errors[0]) == (
             f"These HogFunctions do not belong to this alert: {other.id}. Refresh the alert and try again."
         )
         for hog_function in (destination, other):
