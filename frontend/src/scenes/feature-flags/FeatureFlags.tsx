@@ -33,6 +33,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { toParams } from 'lib/utils/url'
 import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
 import { NotificationsPane } from 'scenes/hog-functions/list/NotificationsPane'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -57,6 +58,7 @@ import {
 } from '~/types'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
+import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
@@ -394,9 +396,10 @@ export function OverviewTab({
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { paramsFromFilters } = useValues(featureFlagsLogic({}))
     const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
-    const { bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { bulkDeleteFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
     const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
@@ -597,6 +600,7 @@ export function OverviewTab({
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <BulkDeleteResultsModal />
+            <BulkCopyFlagsModal />
 
             <LemonTable
                 dataSource={displayedFlags}
@@ -671,6 +675,23 @@ export function OverviewTab({
                                         Select all {totalMatchingCount} matching flags
                                     </LemonButton>
                                 )}
+                                <BulkCopyToProjectsButton
+                                    dataAttr="bulk-copy-flags-button"
+                                    selectedCount={ctx.selectedCount}
+                                    extraDisabledReason={
+                                        (currentOrganization?.teams?.length ?? 0) <= 1
+                                            ? 'Your organization has only one project'
+                                            : undefined
+                                    }
+                                    onOpen={() => {
+                                        if (currentProjectId) {
+                                            openBulkCopyModal({
+                                                sourceProjectId: currentProjectId,
+                                                flagIds: [...ctx.selectedKeys],
+                                            })
+                                        }
+                                    }}
+                                />
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
                                     selectedIds={ctx.selectedKeys}

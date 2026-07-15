@@ -70,6 +70,7 @@ the row lists both.
 | awin                      | HTTP                        | requests                                                        | ✅                          |
 | azure_devops              | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                  | HTTP                        | requests                                                        | ✅                          |
+| baseten                   | HTTP                        | requests                                                        | ✅                          |
 | beamer                    | HTTP                        | requests                                                        | ✅                          |
 | bigmailer                 | HTTP                        | requests                                                        | ✅                          |
 | bigquery                  | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
@@ -141,6 +142,7 @@ the row lists both.
 | deno_deploy               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                  | HTTP                        | requests                                                        | ✅                          |
 | ding_connect              | HTTP                        | requests                                                        | ✅                          |
+| digitalocean              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dixa                      | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                 | HTTP                        | requests                                                        | ✅                          |
 | docuseal                  | HTTP                        | requests                                                        | ✅                          |
@@ -176,6 +178,7 @@ the row lists both.
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
+| fly_io                    | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -494,7 +497,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - backblaze
 - basecamp
-- baseten
 - bigcommerce
 - bitly
 - box
@@ -535,7 +537,6 @@ doesn't conflict with concurrent PRs.
 - dbt
 - deno_deploy
 - deputy
-- digitalocean
 - display_video_360
 - docusign
 - dolibarr
@@ -562,7 +563,6 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
-- fly_io
 - formbricks
 - freeagent
 - freightview

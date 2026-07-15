@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BranchPRMatchApi,
     CICardSummaryApi,
     CIFailureLogsApi,
     CurrentBranchHealthApi,
@@ -26,6 +27,7 @@ import type {
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
     EngineeringAnalyticsRepoRunActivityParams,
+    EngineeringAnalyticsResolveBranchParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -298,7 +300,7 @@ export const getEngineeringAnalyticsPrCostUrl = (projectId: string, params: Engi
 }
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const engineeringAnalyticsPrCost = async (
     projectId: string,
@@ -482,7 +484,7 @@ export const getEngineeringAnalyticsRepoOverviewUrl = (
 }
 
 /**
- * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series. Cost figures are null until the job-level source is synced.
+ * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
  */
 export const engineeringAnalyticsRepoOverview = async (
     projectId: string,
@@ -523,6 +525,39 @@ export const engineeringAnalyticsRepoRunActivity = async (
     options?: RequestInit
 ): Promise<WorkflowRunActivityApi> => {
     return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsRepoRunActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsResolveBranchUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsResolveBranchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/resolve_branch/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/resolve_branch/`
+}
+
+/**
+ * Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR that was active at that moment when a branch name has been reused across PRs. `branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
+ */
+export const engineeringAnalyticsResolveBranch = async (
+    projectId: string,
+    params: EngineeringAnalyticsResolveBranchParams,
+    options?: RequestInit
+): Promise<BranchPRMatchApi[]> => {
+    return apiMutator<BranchPRMatchApi[]>(getEngineeringAnalyticsResolveBranchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
