@@ -8,6 +8,7 @@ READINESS_STATE_CHOICES = [
     "up_to_date",
     "needs_attention",
     "unknown",
+    "sync_paused",
 ]
 
 
