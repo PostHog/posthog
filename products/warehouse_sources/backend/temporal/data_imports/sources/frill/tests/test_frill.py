@@ -127,8 +127,9 @@ class TestNextCursor:
         assert _next_cursor(data, records, None) == "cur"
 
     def test_after_shape_short_page_returns_none(self) -> None:
-        data = {"data": [{"idx": "1"}], "pagination": {"total": 1, "after": "cur"}}
-        assert _next_cursor(data, data["data"], None) is None
+        records = [{"idx": "1"}]
+        data: dict[str, Any] = {"data": records, "pagination": {"total": 1, "after": "cur"}}
+        assert _next_cursor(data, records, None) is None
 
 
 class TestGetRows:
@@ -205,7 +206,7 @@ class TestGetRows:
 class TestCommentsFanOut:
     def test_fans_out_over_ideas_and_injects_parent_idx(self) -> None:
         manager = _manager()
-        ideas = [
+        ideas: list[dict[str, Any]] = [
             {"idx": "idea_a", "comment_count": 2, "note_count": 0},
             # Both counts explicitly zero — the per-idea request is skipped.
             {"idx": "idea_b", "comment_count": 0, "note_count": 0},
