@@ -383,7 +383,8 @@ def _build_sql_query(sdk_type: str, version: Optional[str]) -> str:
     version_filter = f" AND properties.$lib_version = '{version}'" if version is not None else ""
     return (
         "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY "
-        f"AND properties.$lib = '{sdk_type}'{version_filter} "
+        f"AND properties.$lib = '{sdk_type}'"
+        f"{version_filter} "
         "ORDER BY timestamp DESC LIMIT 50"
     )
 
