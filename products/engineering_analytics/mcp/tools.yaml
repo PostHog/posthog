@@ -170,9 +170,6 @@ tools:
     engineering-analytics-team-ci-activity:
         operation: engineering_analytics_team_ci_activity
         enabled: false
-    engineering-analytics-team-merge-trend:
-        operation: engineering_analytics_team_merge_trend
-        enabled: false
     engineering-analytics-team-ci-health:
         operation: engineering_analytics_team_ci_health
         enabled: true
@@ -195,6 +192,9 @@ tools:
             surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted,
             so there is no honest denominator.
         feature_flag: engineering-analytics
+    engineering-analytics-team-merge-trend:
+        operation: engineering_analytics_team_merge_trend
+        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
