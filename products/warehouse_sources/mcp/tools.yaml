@@ -100,9 +100,6 @@ tools:
         description: >
             Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error.
             Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.
-    external-data-schemas-create:
-        operation: external_data_schemas_create
-        enabled: false
     external-data-schemas-delete-data:
         operation: external_data_schemas_delete_data_destroy
         enabled: true
