@@ -1,6 +1,9 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
+use dashmap::DashMap;
+use metrics::counter;
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
@@ -13,14 +16,27 @@ use personhog_proto::personhog::types::v1::Person;
 use crate::cache::{CachedPerson, DirtyMark, PersonCacheKey};
 use crate::warming::make_consumer;
 
+/// How long to wait before retrying a transiently failed fetch.
+const RETRY_BACKOFF: Duration = Duration::from_millis(100);
+
 /// Configuration for targeted changelog recovery.
 #[derive(Clone)]
 pub struct RecoveryConfig {
     pub kafka: KafkaConfig,
     pub topic: String,
     pub pod_name: String,
-    /// Timeout for receiving the record after seeking to its offset.
+    /// Overall deadline for one recovery, including transient-failure
+    /// retries.
     pub recv_timeout: Duration,
+}
+
+/// Classifies a failed fetch step for the retry loop: transient failures
+/// (broker errors, timeouts, the sought record not coming back) retry
+/// until the recovery deadline; permanent ones (a record that contradicts
+/// its mark) fail immediately.
+enum FetchError {
+    Transient(String),
+    Permanent(String),
 }
 
 /// Fetches single persons from the changelog — the recovery path for cache
@@ -32,30 +48,58 @@ pub struct RecoveryConfig {
 /// record at the dirty index's marked offset supersedes anything before
 /// it; no replay is needed. And because the topic compacts by person key,
 /// compaction never removes the latest record for a key — the only offset
-/// the index ever holds — so the seek lands on it for as long as the
+/// the index ever holds — so the fetch lands on it for as long as the
 /// topic's `delete` retention keeps it, far longer than any mark should
 /// live.
+///
+/// The consumer pool tracks partition ownership: warming registers a
+/// partition's consumer before the partition serves traffic and release
+/// drops it, so the fetch path is a read-only lookup and the fallible
+/// client construction never happens under a request. Concurrent
+/// recoveries only contend when they target the same partition. Errors
+/// never manage the pool — librdkafka clients self-heal their connections
+/// — so transient fetch failures retry on the same consumer within the
+/// recovery deadline.
 pub struct ChangelogRecovery {
-    /// One long-lived consumer shared across recoveries, with the
-    /// assignment swapped per fetch. Guarded by a mutex: recoveries only
-    /// happen on the rare evicted-while-dirty miss, and serializing them
-    /// is far cheaper than paying a consumer's broker-metadata round-trips
-    /// on every recovering request.
-    consumer: Mutex<StreamConsumer>,
+    kafka: KafkaConfig,
+    group: String,
     topic: String,
     recv_timeout: Duration,
+    consumers: DashMap<u32, Arc<Mutex<StreamConsumer>>>,
 }
 
 impl ChangelogRecovery {
-    pub fn new(cfg: RecoveryConfig) -> Result<Self, String> {
-        let group = format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name);
-        let consumer = make_consumer(&cfg.kafka, &group)
-            .map_err(|e| format!("create recovery consumer: {e}"))?;
-        Ok(Self {
-            consumer: Mutex::new(consumer),
+    pub fn new(cfg: RecoveryConfig) -> Self {
+        Self {
+            kafka: cfg.kafka,
+            group: format!("personhog-leader-recovery-{pod}", pod = cfg.pod_name),
             topic: cfg.topic,
             recv_timeout: cfg.recv_timeout,
-        })
+            consumers: DashMap::new(),
+        }
+    }
+
+    /// Create the partition's recovery consumer as the pod takes
+    /// ownership. Idempotent: a re-warm without an intervening release
+    /// keeps the existing consumer.
+    pub fn add_partition(&self, partition: u32) -> Result<(), String> {
+        use dashmap::mapref::entry::Entry;
+
+        match self.consumers.entry(partition) {
+            Entry::Occupied(_) => Ok(()),
+            Entry::Vacant(entry) => {
+                let consumer = make_consumer(&self.kafka, &self.group)
+                    .map_err(|e| format!("create recovery consumer: {e}"))?;
+                entry.insert(Arc::new(Mutex::new(consumer)));
+                Ok(())
+            }
+        }
+    }
+
+    /// Drop the partition's recovery consumer on release. A recovery
+    /// already holding the slot finishes on the old consumer harmlessly.
+    pub fn remove_partition(&self, partition: u32) {
+        self.consumers.remove(&partition);
     }
 
     /// Fetch a person's latest state from the changelog record the dirty
@@ -74,55 +118,102 @@ impl ChangelogRecovery {
         let partition_i32 = i32::try_from(partition)
             .map_err(|_| format!("partition {partition} exceeds i32::MAX"))?;
 
-        let consumer = self.consumer.lock().await;
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition_offset(&self.topic, partition_i32, Offset::Offset(offset))
-            .map_err(|e| format!("tpl add_partition_offset: {e}"))?;
-        consumer
-            .assign(&tpl)
-            .map_err(|e| format!("recovery consumer assign: {e}"))?;
+        let Some(slot) = self
+            .consumers
+            .get(&partition)
+            .map(|entry| Arc::clone(entry.value()))
+        else {
+            return Err(format!(
+                "no recovery consumer for partition {partition}; partition not owned"
+            ));
+        };
+        let consumer = slot.lock().await;
 
+        // Each attempt repositions with a fresh assign: it starts fetching
+        // at the target immediately (repositioning a live stream via seek
+        // stalls ~1s while librdkafka drains the previous position's
+        // outstanding long-poll) and purges records buffered by a previous
+        // attempt.
         let deadline = Instant::now() + self.recv_timeout;
         let result = loop {
-            // An exhausted budget saturates to zero, which makes the
-            // timeout fire on its next poll — no separate deadline check.
+            let attempt = self
+                .attempt_fetch(&consumer, partition_i32, mark, expected, deadline)
+                .await;
+            match attempt {
+                Ok(person) => break Ok(person),
+                Err(FetchError::Permanent(message)) => break Err(message),
+                Err(FetchError::Transient(message)) => {
+                    if Instant::now() + RETRY_BACKOFF >= deadline {
+                        break Err(message);
+                    }
+                    counter!("personhog_leader_recovery_retries_total").increment(1);
+                    tracing::debug!(
+                        partition,
+                        offset,
+                        error = %message,
+                        "transient recovery failure, retrying"
+                    );
+                    tokio::time::sleep(RETRY_BACKOFF).await;
+                }
+            }
+        };
+
+        // Park the consumer so it does not keep fetching the partition
+        // tail between recoveries.
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!(partition, error = %e, "recovery consumer unassign failed");
+        }
+        result
+    }
+
+    /// One positioning-and-receive attempt against a locked consumer.
+    async fn attempt_fetch(
+        &self,
+        consumer: &StreamConsumer,
+        partition_i32: i32,
+        mark: &DirtyMark,
+        expected: &PersonCacheKey,
+        deadline: Instant,
+    ) -> Result<CachedPerson, FetchError> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset(&self.topic, partition_i32, Offset::Offset(mark.offset))
+            .map_err(|e| FetchError::Permanent(format!("tpl add_partition_offset: {e}")))?;
+        consumer
+            .assign(&tpl)
+            .map_err(|e| FetchError::Transient(format!("recovery consumer assign: {e}")))?;
+
+        let offset = mark.offset;
+        loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let msg = match timeout(remaining, consumer.recv()).await {
                 Ok(Ok(msg)) => msg,
-                Ok(Err(e)) => break Err(format!("recovery recv: {e}")),
+                Ok(Err(e)) => return Err(FetchError::Transient(format!("recovery recv: {e}"))),
                 Err(_) => {
-                    break Err(format!(
-                        "recovery timed out after {:?} seeking partition {partition} offset {offset}",
-                        self.recv_timeout
-                    ));
+                    return Err(FetchError::Transient(format!(
+                        "recovery timed out after {:?} seeking partition {} offset {offset}",
+                        self.recv_timeout, mark.partition
+                    )));
                 }
             };
 
-            // Records from a previous fetch's assignment can linger in the
-            // consumer's queue; skip anything that is not the sought record.
+            // Skip anything that is not the sought record.
             if msg.partition() != partition_i32 || msg.offset() < offset {
                 continue;
             }
             if msg.offset() > offset {
-                // Seeking to an existing offset returns exactly that record;
-                // reading past it means the record is gone — impossible
-                // while the index only holds latest-record offsets, so fail
-                // loudly rather than install whatever came back.
-                break Err(format!(
+                // A record past the target before the target itself means
+                // the sought record was not returned: either a stale
+                // buffered record from a previous position, which the next
+                // attempt's assign purges, or a record genuinely gone from
+                // the changelog, which keeps failing until the deadline.
+                return Err(FetchError::Transient(format!(
                     "recovery expected offset {offset} but read {}; record missing from changelog",
                     msg.offset()
-                ));
+                )));
             }
 
-            break decode_person(msg.payload(), mark, expected);
-        };
-
-        // Stop background fetching until the next recovery swaps in a new
-        // assignment.
-        if let Err(e) = consumer.unassign() {
-            tracing::warn!(error = %e, "recovery consumer unassign failed");
+            return decode_person(msg.payload(), mark, expected).map_err(FetchError::Permanent);
         }
-        result
     }
 }
 

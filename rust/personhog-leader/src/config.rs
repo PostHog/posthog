@@ -131,11 +131,12 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub dirty_index_prune_interval_secs: u64,
 
-    /// Timeout for receiving a single changelog record when recovering an
-    /// evicted dirty person from Kafka. A point read that hasn't returned
-    /// in a few seconds isn't going to, and recoveries serialize on a
-    /// shared consumer while holding the person's per-key lock — a long
-    /// timeout amplifies a broker blip into queued multi-second stalls.
+    /// Overall deadline for recovering one evicted dirty person from the
+    /// changelog, including transient-failure retries. A point read that
+    /// hasn't returned in a few seconds isn't going to, and recoveries for
+    /// the same partition serialize while holding the person's per-key
+    /// lock — a long deadline amplifies a broker blip into queued
+    /// multi-second stalls.
     #[envconfig(default = "5")]
     pub recovery_recv_timeout_secs: u64,
 

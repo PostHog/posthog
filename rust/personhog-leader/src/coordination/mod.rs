@@ -2,12 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use personhog_coordination::error::Result;
+use personhog_coordination::error::{Error as CoordError, Result};
 use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::inflight::InflightTracker;
+use crate::recovery::ChangelogRecovery;
 use crate::warming::{warm_from_kafka, WarmingConfig};
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -44,6 +45,7 @@ pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
     dirty_index: Arc<DirtyIndex>,
+    recovery: Arc<ChangelogRecovery>,
     warming: WarmingConfig,
 }
 
@@ -52,12 +54,14 @@ impl LeaderHandoffHandler {
         cache: Arc<PartitionedCache>,
         inflight: Arc<InflightTracker>,
         dirty_index: Arc<DirtyIndex>,
+        recovery: Arc<ChangelogRecovery>,
         warming: WarmingConfig,
     ) -> Self {
         Self {
             cache,
             inflight,
             dirty_index,
+            recovery,
             warming,
         }
     }
@@ -85,6 +89,13 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
+        // Register the recovery consumer first: the fallible client
+        // construction happens here at handoff time, never under a read,
+        // and a failure aborts the warm before any observable cache
+        // mutation so the coordinator can retry the handoff cleanly.
+        self.recovery
+            .add_partition(partition)
+            .map_err(CoordError::invalid_state)?;
         warm_from_kafka(&self.warming, &self.cache, &self.dirty_index, partition).await?;
         // This pod may still carry a fence from a previous ownership of
         // the partition (a drain whose handoff never completed); taking
@@ -101,6 +112,7 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
+        self.recovery.remove_partition(partition);
         info!(partition, "partition released");
         Ok(())
     }
@@ -124,30 +136,37 @@ mod tests {
     /// cover the parts of `LeaderHandoffHandler` that don't require
     /// Kafka: drain semantics, release semantics, and `owns_partition`.
     fn handler() -> LeaderHandoffHandler {
+        let kafka = KafkaConfig {
+            kafka_producer_linger_ms: 0,
+            kafka_producer_queue_mib: 50,
+            kafka_message_timeout_ms: 5000,
+            kafka_compression_codec: "none".to_string(),
+            kafka_hosts: "localhost:9092".to_string(),
+            kafka_tls: false,
+            kafka_producer_queue_messages: 1000,
+            kafka_client_rack: String::new(),
+            kafka_client_id: String::new(),
+            kafka_producer_batch_size: None,
+            kafka_producer_batch_num_messages: None,
+            kafka_producer_enable_idempotence: None,
+            kafka_producer_max_in_flight_requests_per_connection: None,
+            kafka_producer_topic_metadata_refresh_interval_ms: None,
+            kafka_producer_message_max_bytes: None,
+            kafka_producer_sticky_partitioning_linger_ms: None,
+            kafka_producer_partitioner: None,
+        };
         LeaderHandoffHandler::new(
             Arc::new(PartitionedCache::new(100)),
             Arc::new(InflightTracker::new()),
             Arc::new(DirtyIndex::new(1_000_000)),
+            Arc::new(ChangelogRecovery::new(crate::recovery::RecoveryConfig {
+                kafka: kafka.clone(),
+                topic: "personhog_updates".to_string(),
+                pod_name: "test".to_string(),
+                recv_timeout: Duration::from_secs(2),
+            })),
             WarmingConfig {
-                kafka: KafkaConfig {
-                    kafka_producer_linger_ms: 0,
-                    kafka_producer_queue_mib: 50,
-                    kafka_message_timeout_ms: 5000,
-                    kafka_compression_codec: "none".to_string(),
-                    kafka_hosts: "localhost:9092".to_string(),
-                    kafka_tls: false,
-                    kafka_producer_queue_messages: 1000,
-                    kafka_client_rack: String::new(),
-                    kafka_client_id: String::new(),
-                    kafka_producer_batch_size: None,
-                    kafka_producer_batch_num_messages: None,
-                    kafka_producer_enable_idempotence: None,
-                    kafka_producer_max_in_flight_requests_per_connection: None,
-                    kafka_producer_topic_metadata_refresh_interval_ms: None,
-                    kafka_producer_message_max_bytes: None,
-                    kafka_producer_sticky_partitioning_linger_ms: None,
-                    kafka_producer_partitioner: None,
-                },
+                kafka,
                 topic: "personhog_updates".to_string(),
                 pod_name: "test".to_string(),
                 writer_consumer_group: "personhog-writer".to_string(),

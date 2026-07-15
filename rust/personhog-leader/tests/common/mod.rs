@@ -234,15 +234,12 @@ pub fn test_warming_config(
 pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = kafka_bootstrap.to_string();
-    Arc::new(
-        ChangelogRecovery::new(RecoveryConfig {
-            kafka,
-            topic: CHANGELOG_TOPIC.to_string(),
-            pod_name: "test-pod".to_string(),
-            recv_timeout: Duration::from_secs(2),
-        })
-        .expect("recovery consumer"),
-    )
+    Arc::new(ChangelogRecovery::new(RecoveryConfig {
+        kafka,
+        topic: CHANGELOG_TOPIC.to_string(),
+        pod_name: "test-pod".to_string(),
+        recv_timeout: Duration::from_secs(2),
+    }))
 }
 
 /// Create a producer against local Kafka for e2e tests.
@@ -319,13 +316,17 @@ pub async fn start_leader_pod(
     // mock broker the producer is publishing to so the topic actually
     // exists when warming queries watermarks.
     let inflight = Arc::new(InflightTracker::new());
-    // One dirty index per pod, shared by handler and service exactly as
-    // main.rs wires them: warming seeds the marks the service consults.
+    // One dirty index and one recovery pool per pod, shared by handler and
+    // service exactly as main.rs wires them: warming seeds the marks and
+    // registers the consumers the service consults.
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // Recovery must read the broker the service produces to.
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
     );
     let pod = PodHandle::new(
@@ -350,8 +351,7 @@ pub async fn start_leader_pod(
         Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        // Recovery must read the broker the service produces to.
-        test_recovery(&mock_cluster.bootstrap_servers()),
+        recovery,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -390,10 +390,12 @@ pub async fn start_leader_pod_with_lease_ttl(
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
         test_warming_config(name, &mock_cluster.bootstrap_servers()),
     );
     let pod = PodHandle::new(
@@ -419,7 +421,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(&mock_cluster.bootstrap_servers()),
+        recovery,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();

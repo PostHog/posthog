@@ -407,6 +407,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -416,14 +417,15 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(KAFKA_BOOTSTRAP),
+        Arc::clone(&recovery),
     );
-    // The handler shares the cache, inflight tracker, and dirty index with
-    // the service, exactly as main.rs wires them.
+    // The handler shares the cache, inflight tracker, dirty index, and
+    // recovery pool with the service, exactly as main.rs wires them.
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
         test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
     );
 
@@ -515,6 +517,7 @@ async fn drain_fences_before_waiting_on_inflight() {
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -524,12 +527,13 @@ async fn drain_fences_before_waiting_on_inflight() {
         Arc::clone(&inflight),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(KAFKA_BOOTSTRAP),
+        Arc::clone(&recovery),
     );
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
         test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
     ));
 
@@ -1287,6 +1291,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     // Recovery reads from the same mock broker the update produces to.
     // Deliberately no PG pool: a recovery path that (wrongly) fell back to
     // PG would return NotFound and fail the final assertion.
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -1296,10 +1301,13 @@ async fn evicted_dirty_person_recovers_from_changelog() {
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(&mock_cluster.bootstrap_servers()),
+        Arc::clone(&recovery),
     );
 
     cache.create_partition(routing_partition);
+    recovery
+        .add_partition(routing_partition)
+        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1382,6 +1390,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
 
     let cache = Arc::new(PartitionedCache::new(100));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -1391,10 +1400,13 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(&mock_cluster.bootstrap_servers()),
+        Arc::clone(&recovery),
     );
 
     cache.create_partition(routing_partition);
+    recovery
+        .add_partition(routing_partition)
+        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1576,6 +1588,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
 
     let cache = Arc::new(PartitionedCache::new(100));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -1585,10 +1598,13 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
-        test_recovery(&mock_cluster.bootstrap_servers()),
+        Arc::clone(&recovery),
     );
 
     cache.create_partition(routing_partition);
+    recovery
+        .add_partition(routing_partition)
+        .expect("add recovery partition");
     let person = CachedPerson {
         id: PERSON_ID,
         ..test_cached_person()
@@ -1658,6 +1674,128 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         .await
         .unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unavailable);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Recovery consumer pooling: repeated recoveries on a partition
+// reuse one consumer, repositioning forward and backward
+// ============================================================
+
+#[tokio::test]
+async fn recovery_reuses_the_partition_consumer_across_fetches() {
+    let partition: u32 = 2;
+    let person_a = person_id_for_partition(1, partition);
+    let person_b = (person_a + 1..)
+        .find(|pid| partition_for_person(1, *pid, NUM_PARTITIONS) == partition)
+        .expect("a second person maps to the same partition");
+
+    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let cache = Arc::new(PartitionedCache::new(100));
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
+    );
+
+    cache.create_partition(partition);
+    recovery
+        .add_partition(partition)
+        .expect("add recovery partition");
+    for person_id in [person_a, person_b] {
+        seed_person(
+            &cache,
+            partition,
+            CachedPerson {
+                id: person_id,
+                ..test_cached_person()
+            },
+        );
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let client = create_leader_client(addr).await;
+
+    let update_for = |person_id: i64, value: &str| UpdatePersonPropertiesRequest {
+        team_id: 1,
+        person_id,
+        event_name: "$set".to_string(),
+        set_properties: serde_json::to_vec(&serde_json::json!({ "who": value })).unwrap(),
+        set_once_properties: vec![],
+        unset_properties: vec![],
+    };
+    // A's record lands at offset 0, B's at offset 1.
+    for (person_id, value) in [(person_a, "a"), (person_b, "b")] {
+        client
+            .clone()
+            .update_person_properties(with_partition(update_for(person_id, value), partition))
+            .await
+            .unwrap();
+    }
+
+    let recover = |person_id: i64| {
+        let mut client = client.clone();
+        async move {
+            let response = client
+                .get_person(with_partition(
+                    GetPersonRequest {
+                        team_id: 1,
+                        person_id,
+                        read_options: None,
+                    },
+                    partition,
+                ))
+                .await
+                .unwrap();
+            let person = response.into_inner().person.unwrap();
+            let props: serde_json::Value = serde_json::from_slice(&person.properties).unwrap();
+            props["who"].as_str().unwrap().to_string()
+        }
+    };
+    let evict = |person_id: i64| {
+        cache.remove(
+            partition,
+            &PersonCacheKey {
+                team_id: 1,
+                person_id,
+            },
+        )
+    };
+
+    // All three recoveries share the partition's pooled consumer: the
+    // first fetches at offset 0, the second repositions forward, and the
+    // third repositions backward past a record the consumer already read.
+    // A consumer that fails to reposition serves the wrong record (key
+    // mismatch) or times out — either fails the unwraps above.
+    evict(person_a);
+    assert_eq!(recover(person_a).await, "a");
+    evict(person_b);
+    assert_eq!(recover(person_b).await, "b");
+    evict(person_a);
+    assert_eq!(recover(person_a).await, "a");
 
     cancel.cancel();
 }

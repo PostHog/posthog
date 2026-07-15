@@ -168,15 +168,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let locks = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
-    let recovery = Arc::new(
-        ChangelogRecovery::new(RecoveryConfig {
-            kafka: config.kafka.clone(),
-            topic: config.kafka_person_state_topic.clone(),
-            pod_name: config.pod_name.clone(),
-            recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
-        })
-        .expect("failed to create changelog recovery consumer"),
-    );
+    let recovery = Arc::new(ChangelogRecovery::new(RecoveryConfig {
+        kafka: config.kafka.clone(),
+        topic: config.kafka_person_state_topic.clone(),
+        pod_name: config.pod_name.clone(),
+        recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
+    }));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
@@ -186,13 +183,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&inflight),
         num_partitions,
         Arc::clone(&dirty_index),
-        recovery,
+        Arc::clone(&recovery),
     );
 
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
+        Arc::clone(&recovery),
         WarmingConfig {
             kafka: config.kafka.clone(),
             topic: config.kafka_person_state_topic.clone(),
