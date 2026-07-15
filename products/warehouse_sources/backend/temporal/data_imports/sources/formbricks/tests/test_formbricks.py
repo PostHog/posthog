@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -243,13 +244,14 @@ class TestGetRows:
 
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: Any = None, redirect: bool = False) -> MagicMock:
+        payload = body if body is not None else {"data": []}
         response = MagicMock()
         response.status_code = status_code
         response.ok = status_code < 400
         response.is_redirect = redirect
         response.is_permanent_redirect = False
-        response.json.return_value = body if body is not None else {"data": []}
-        response.text = ""
+        # The source streams the body and caps it, so feed bytes via iter_content rather than .json().
+        response.iter_content.return_value = [json.dumps(payload).encode()]
         response.raise_for_status.side_effect = (
             requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
         )
@@ -289,6 +291,21 @@ class TestFetchPage:
         session = self._session_returning(200)
         _fetch_page_unwrapped(session, "https://x/api", MagicMock())
         assert session.get.call_args.kwargs["allow_redirects"] is False
+
+    def test_oversized_body_is_refused_and_connection_closed(self, monkeypatch: Any) -> None:
+        # A customer-controlled host must not be able to stream an unbounded body into worker memory.
+        monkeypatch.setattr(formbricks, "MAX_RESPONSE_BYTES", 10)
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.is_redirect = False
+        response.is_permanent_redirect = False
+        response.iter_content.return_value = [b"x" * 6, b"x" * 6]
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(formbricks.FormbricksResponseTooLargeError):
+            _fetch_page_unwrapped(session, "https://x/api", MagicMock())
+        response.close.assert_called_once()
 
 
 class TestCheckAccess:

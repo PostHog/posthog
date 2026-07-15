@@ -1,4 +1,5 @@
 import re
+import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -22,10 +23,17 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 # v2 list endpoints accept a limit of 1-250; the largest page minimises round trips.
 PAGE_SIZE = 250
+# The host is customer-controlled, so a malicious or misconfigured server could stream an
+# unbounded body and exhaust a shared worker (requests buffers the whole body into memory by
+# default, and the read timeout only guards idle gaps, not a steady large transfer). Cap what we
+# read into memory. Generous enough for a full v1 collection page; anything past it is refused.
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 1024 * 1024
 
 DEFAULT_HOST = "https://app.formbricks.com"
 HOST_NOT_ALLOWED_ERROR = "Formbricks host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Formbricks host must use HTTPS"
+RESPONSE_TOO_LARGE_ERROR = "Formbricks response body was too large"
 # Cheap probe returning the environment/project the API key is scoped to.
 DEFAULT_PROBE_PATH = "/api/v1/management/me"
 
@@ -36,6 +44,33 @@ class FormbricksRetryableError(Exception):
 
 class FormbricksHostNotAllowedError(Exception):
     pass
+
+
+class FormbricksResponseTooLargeError(Exception):
+    pass
+
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES.
+
+    The host is customer-controlled, so a body must never be buffered unbounded — see
+    MAX_RESPONSE_BYTES. Non-retryable: re-fetching the same page yields the same oversized body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_RESPONSE_BYTES:
+                raise FormbricksResponseTooLargeError(
+                    f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {MAX_RESPONSE_BYTES} bytes"
+                )
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -167,22 +202,32 @@ def _fetch_page(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     # Don't follow redirects: a customer-controlled host could 3xx at an internal address (SSRF).
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+    # stream=True so the body isn't buffered until we cap it — see _read_capped_body.
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True)
 
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise FormbricksRetryableError(f"Formbricks API error (retryable): status={response.status_code}, url={url}")
 
     if response.is_redirect or response.is_permanent_redirect:
+        response.close()
         raise FormbricksHostNotAllowedError(
             f"{HOST_NOT_ALLOWED_ERROR}: Formbricks API returned an unexpected redirect "
             f"(status={response.status_code}); refusing to follow it"
         )
 
+    body = _read_capped_body(response)
+
     if not response.ok:
-        logger.error(f"Formbricks API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error(
+            f"Formbricks API error: status={response.status_code}, body={body.decode(errors='replace')}, url={url}"
+        )
         response.raise_for_status()
 
-    data = response.json()
+    try:
+        data = json.loads(body or b"null")
+    except ValueError:
+        raise FormbricksRetryableError(f"Formbricks returned a non-JSON payload for {url}")
     # Both v1 and v2 management endpoints wrap rows in {"data": [...]}.
     if not isinstance(data, dict) or not isinstance(data.get("data"), list):
         raise FormbricksRetryableError(f"Formbricks returned an unexpected payload for {url}: {type(data).__name__}")
@@ -306,24 +351,31 @@ def check_access(host: str | None, api_key: str, team_id: Optional[int] = None) 
 
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
     try:
-        response = session.get(f"{normalize_host(host)}{DEFAULT_PROBE_PATH}", timeout=15, allow_redirects=False)
+        # stream=True so a customer-controlled host can't force us to buffer an unbounded probe
+        # body: we only ever inspect the status line here, never the body.
+        response = session.get(
+            f"{normalize_host(host)}{DEFAULT_PROBE_PATH}", timeout=15, allow_redirects=False, stream=True
+        )
     except Exception as e:
         return 0, f"Could not connect to Formbricks: {e}"
 
-    if response.is_redirect or response.is_permanent_redirect:
-        return 0, (
-            "The Formbricks instance URL returned an unexpected redirect. Enter just your instance URL "
-            "(for example https://app.formbricks.com or https://formbricks.example.com) and make sure it "
-            "points directly at Formbricks rather than a login or proxy page."
-        )
+    try:
+        if response.is_redirect or response.is_permanent_redirect:
+            return 0, (
+                "The Formbricks instance URL returned an unexpected redirect. Enter just your instance URL "
+                "(for example https://app.formbricks.com or https://formbricks.example.com) and make sure it "
+                "points directly at Formbricks rather than a login or proxy page."
+            )
 
-    if response.status_code in (401, 403):
-        return response.status_code, None
+        if response.status_code in (401, 403):
+            return response.status_code, None
 
-    if not response.ok:
-        return response.status_code, f"Formbricks returned HTTP {response.status_code}"
+        if not response.ok:
+            return response.status_code, f"Formbricks returned HTTP {response.status_code}"
 
-    return 200, None
+        return 200, None
+    finally:
+        response.close()
 
 
 def validate_credentials(host: str | None, api_key: str, team_id: Optional[int] = None) -> tuple[bool, str | None]:

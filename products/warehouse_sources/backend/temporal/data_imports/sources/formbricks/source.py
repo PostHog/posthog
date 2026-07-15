@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    RESPONSE_TOO_LARGE_ERROR,
     FormbricksResumeConfig,
     formbricks_source,
     validate_credentials as validate_formbricks_credentials,
@@ -100,6 +101,7 @@ For self-hosted Formbricks, set your instance URL (for example `https://formbric
             "403 Client Error": "Your Formbricks API key does not have access to this data. Check the key's environment permissions, then reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Formbricks host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Formbricks host must use HTTPS. Please update the instance URL to use https://.",
+            RESPONSE_TOO_LARGE_ERROR: "Formbricks returned a response that was too large to process. Please contact support if this persists.",
         }
 
     def get_schemas(
