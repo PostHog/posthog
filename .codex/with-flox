@@ -13,18 +13,80 @@ if (($# == 0)); then
     exit 2
 fi
 
+caller_cwd="$PWD"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$repo_root/.flox/cache/codex-env"
+fingerprint_file="$env_file.fingerprint"
+fingerprint_inputs=(
+    "$repo_root/.flox/env/manifest.toml"
+    "$repo_root/.flox/env/on-activate.sh"
+    "$repo_root/pnpm-lock.yaml"
+    "$repo_root/uv.lock"
+)
+
+environment_fingerprint() {
+    cksum "${fingerprint_inputs[@]}" | cksum
+}
 
 cd "$repo_root"
 
-if [[ "$prepare" -eq 0 && -f "$env_file" ]]; then
-    # shellcheck disable=SC1090
-    source "$env_file"
-    if [[ -n "${CODEX_SANDBOX:-}" ]]; then
-        export POSTHOG_DEV_SANDBOX=0
+if [[ "$prepare" -eq 0 ]]; then
+    if [[ ! -f "$env_file" || ! -f "$fingerprint_file" ]]; then
+        echo "error: Codex environment is not prepared; run 'bash .codex/with-flox --prepare true'" >&2
+        exit 1
     fi
-    exec "$@"
+
+    if [[ "$(<"$fingerprint_file")" != "$(environment_fingerprint)" ]]; then
+        echo "error: Codex environment is stale; run 'bash .codex/with-flox --prepare true'" >&2
+        exit 1
+    fi
+
+    runtime_env=(env -i)
+    [[ -n "${CODEX_SANDBOX:-}" ]] && runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
+    [[ -n "${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]] && runtime_env+=("CODEX_SANDBOX_NETWORK_DISABLED=$CODEX_SANDBOX_NETWORK_DISABLED")
+    [[ -n "${TERM:-}" ]] && runtime_env+=("TERM=$TERM")
+
+    # Start from the prepared toolchain environment, then load current local
+    # application settings without persisting them in the cache.
+    # shellcheck disable=SC2016
+    exec "${runtime_env[@]}" "$BASH" -c '
+        set -euo pipefail
+        env_file="$1"
+        repo_root="$2"
+        caller_cwd="$3"
+        shift 3
+        # shellcheck disable=SC1090
+        source "$env_file"
+        cd "$repo_root"
+        dotenv_file="${DOTENV_FILE:-}"
+        if [[ -n "$dotenv_file" && "$dotenv_file" != /* ]]; then
+            dotenv_file="$repo_root/$dotenv_file"
+        fi
+        if [[ -n "$dotenv_file" && -f "$dotenv_file" ]]; then
+            set -o allexport
+            # shellcheck disable=SC1090
+            source "$dotenv_file"
+            set +o allexport
+        fi
+        cd "$caller_cwd"
+
+        if [[ "$(uname -s)" == "Darwin" && -f "$repo_root/bin/dev-sandbox-shims" ]]; then
+            # shellcheck disable=SC1090
+            source "$repo_root/bin/dev-sandbox-shims"
+            should_sandbox=0
+            _ph_sandbox_should_wrap "$@" && should_sandbox=1
+            unset -f uv pnpm _ph_sandbox_run _ph_sandbox_should_wrap 2>/dev/null || true
+            if [[ "$should_sandbox" -eq 1 ]]; then
+                if [[ -n "${CODEX_SANDBOX:-}" ]]; then
+                    echo "error: dependency changes require elevated execution so bin/dev-sandbox can protect credentials" >&2
+                    exit 77
+                fi
+                exec "$repo_root/bin/dev-sandbox" "$(printf "%q " "$@")"
+            fi
+        fi
+
+        exec "$@"
+    ' bash "$env_file" "$repo_root" "$caller_cwd" "$@"
 fi
 
 flox_bin="$(command -v flox || true)"
@@ -57,14 +119,22 @@ exec env -i \
     "$flox_bin" activate --dir "$repo_root" -- bash -c '
         set -euo pipefail
         prepare="$1"
-        shift
+        fingerprint="$2"
+        shift 2
         export VIRTUAL_ENV="$FLOX_ENV_CACHE/venv"
         export UV_PROJECT_ENVIRONMENT="$VIRTUAL_ENV"
         export PATH="$VIRTUAL_ENV/bin:$PATH"
         if [[ "$prepare" -eq 1 ]]; then
             umask 077
+            if [[ -n "${DOTENV_FILE:-}" && -f "$DOTENV_FILE" ]]; then
+                while IFS= read -r name; do
+                    unset "$name"
+                done < <(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\\2/p" "$DOTENV_FILE")
+            fi
             export -p > "$FLOX_ENV_CACHE/codex-env.tmp"
+            printf "%s\n" "$fingerprint" > "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp"
             mv "$FLOX_ENV_CACHE/codex-env.tmp" "$FLOX_ENV_CACHE/codex-env"
+            mv "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp" "$FLOX_ENV_CACHE/codex-env.fingerprint"
         fi
         exec "$@"
-    ' bash "$prepare" "$@"
+    ' bash "$prepare" "$(environment_fingerprint)" "$@"
