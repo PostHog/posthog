@@ -86,25 +86,37 @@ def _severity(levelno: int) -> "tuple[str, SeverityNumber]":
     return _severity_by_levelno.get(levelno, _severity_by_levelno[logging.INFO])
 
 
-def _body_and_attributes(record: logging.LogRecord) -> tuple[str, dict[str, str]]:
+def _body_and_attributes(record: logging.LogRecord, allowlist: frozenset[str] | None) -> tuple[str, dict[str, str]]:
     """Extract a human message plus a stringified, scalar-only attribute map from a log record.
 
     The logs pipeline only indexes string-typed attributes into the queryable map, so every value
     is stringified and non-scalars are dropped. structlog's `ProcessorFormatter` path leaves the
     event dict on `record.msg` (the message under `event`, the rest structured fields); a plain
     stdlib record leaves a format string there instead.
+
+    When `allowlist` is set the handler is fail-closed: only those event-dict keys are forwarded and
+    the exception contributes just its type name, so payload-derived fields (model output previews,
+    prompts, exception messages/tracebacks) never leave the emitting process. When it is None every
+    scalar field and the full traceback are forwarded.
     """
     attributes: dict[str, str] = {"logger": record.name}
     msg = record.msg
     if isinstance(msg, dict):
         body = str(msg.get("event", ""))
         for key, value in msg.items():
-            if key != "event" and isinstance(value, str | int | float | bool):
+            if key == "event" or (allowlist is not None and key not in allowlist):
+                continue
+            if isinstance(value, str | int | float | bool):
                 attributes[key] = str(value)
     else:
         body = record.getMessage()
-    if record.exc_info:
-        attributes["exception"] = logging.Formatter().formatException(record.exc_info)
+    if record.exc_info and record.exc_info[0] is not None:
+        if allowlist is None:
+            attributes["exception"] = logging.Formatter().formatException(record.exc_info)
+        else:
+            # Restricted mode: the class name is operational, but the message and traceback can embed
+            # payload data, so ship only the type.
+            attributes["exception_type"] = record.exc_info[0].__name__
     return body, attributes
 
 
@@ -114,17 +126,23 @@ class OtelLogHandler(logging.Handler):
     Fail-soft and a no-op until OTLP_LOGS_INGEST_* are configured, so it is safe to attach
     unconditionally. `service_name` becomes the record's `service.name` resource — the field the Logs
     read side filters on. `static_attributes` ride every record (stringified).
+
+    Pass `attribute_allowlist` to run fail-closed when the destination is a shared project: only those
+    event-dict keys are forwarded (plus the logger name and, for exceptions, the type), so
+    payload-derived fields never cross into it. Omit it to forward every scalar field.
     """
 
     def __init__(
         self,
         service_name: str,
         *,
+        attribute_allowlist: set[str] | frozenset[str] | None = None,
         static_attributes: dict[str, str] | None = None,
         level: int = logging.INFO,
     ) -> None:
         super().__init__(level=level)
         self._service_name = service_name
+        self._attribute_allowlist = frozenset(attribute_allowlist) if attribute_allowlist is not None else None
         self._static_attributes = {key: str(value) for key, value in (static_attributes or {}).items()}
         self._resource: Resource | None = None
 
@@ -143,7 +161,7 @@ class OtelLogHandler(logging.Handler):
             if self._resource is None:
                 self._resource = Resource.create({"service.name": self._service_name})
 
-            body, extra = _body_and_attributes(record)
+            body, extra = _body_and_attributes(record, self._attribute_allowlist)
             severity_text, severity_number = _severity(record.levelno)
             timestamp = int(record.created * 1_000_000_000)
             # Pin the resource on the record: Logger.emit attaches only the scope, and a LogRecord

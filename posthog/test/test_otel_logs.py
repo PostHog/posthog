@@ -40,12 +40,15 @@ class TestOtelLogs(SimpleTestCase):
         *,
         service_name: str = "replay-vision",
         static_attributes: dict[str, str] | None = None,
+        attribute_allowlist: set[str] | None = None,
     ) -> list[Any]:
         exporter = InMemoryLogExporter()
         provider = LoggerProvider(resource=Resource.create({"service.name": service_name}))
         provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
         with mock.patch("posthog.otel_logs._build_provider", return_value=provider):
-            OtelLogHandler(service_name, static_attributes=static_attributes).emit(record)
+            OtelLogHandler(
+                service_name, attribute_allowlist=attribute_allowlist, static_attributes=static_attributes
+            ).emit(record)
         return [item.log_record for item in exporter.get_finished_logs()]
 
     @parameterized.expand(
@@ -126,6 +129,32 @@ class TestOtelLogs(SimpleTestCase):
             record = _structlog_record({"event": "scan_failed"}, level=logging.ERROR, exc_info=sys.exc_info())
         records = self._emit(record)
         assert "ValueError: boom" in records[0].attributes["exception"]
+
+    def test_attribute_allowlist_drops_payload_derived_fields(self) -> None:
+        # Fail-closed: shipping to a shared project forwards only allowlisted operational fields. A
+        # content field like response_preview (model output derived from customer sessions) must never
+        # leave the process. Guards the cross-tenant content-exposure fix.
+        records = self._emit(
+            _structlog_record(
+                {"event": "invalid_response", "observation_id": "obs_1", "response_preview": "customer session text"}
+            ),
+            attribute_allowlist={"observation_id"},
+        )
+        assert records[0].body == "invalid_response"
+        assert records[0].attributes["observation_id"] == "obs_1"
+        assert "response_preview" not in records[0].attributes
+
+    def test_restricted_mode_ships_exception_type_not_traceback(self) -> None:
+        # With an allowlist the exception contributes only its class name — the message and traceback
+        # can embed customer data, so they must not be forwarded.
+        try:
+            raise ValueError("customer data in message")
+        except ValueError:
+            record = _structlog_record({"event": "scan_failed"}, level=logging.ERROR, exc_info=sys.exc_info())
+        records = self._emit(record, attribute_allowlist={"observation_id"})
+        assert records[0].attributes["exception_type"] == "ValueError"
+        assert "exception" not in records[0].attributes
+        assert all("customer data" not in str(value) for value in records[0].attributes.values())
 
     def test_emit_is_fail_soft(self) -> None:
         # A telemetry throw must never propagate out of emit — that would crash the activity it rode in on.

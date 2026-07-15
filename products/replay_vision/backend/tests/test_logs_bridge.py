@@ -37,6 +37,9 @@ class TestVisionLogBridge(SimpleTestCase):
         handlers = [handler for handler in self.logger.handlers if isinstance(handler, OtelLogHandler)]
         assert len(handlers) == 1
         assert handlers[0]._service_name == bridge.VISION_LOGS_SERVICE_NAME
+        # Fail-closed allowlist must be wired so payload-derived fields never reach the shared project.
+        assert handlers[0]._attribute_allowlist == bridge.VISION_LOG_ATTRIBUTE_ALLOWLIST
+        assert "response_preview" not in bridge.VISION_LOG_ATTRIBUTE_ALLOWLIST
 
     def test_pipeline_logs_reach_the_logs_product_under_the_service_name(self) -> None:
         # The load-bearing claim of the bridge: a record from any logger under the pipeline namespace
