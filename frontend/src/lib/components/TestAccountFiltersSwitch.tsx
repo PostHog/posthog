@@ -40,13 +40,7 @@ export function TestAccountFilterSwitch({
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
-                    <LemonButton
-                        icon={<IconGear />}
-                        size="small"
-                        noPadding
-                        className="ml-1"
-                        to={filtersSettingsUrl}
-                    />
+                    <LemonButton icon={<IconGear />} size="small" noPadding className="ml-1" to={filtersSettingsUrl} />
                 </div>
             }
         />
@@ -57,8 +51,8 @@ export function TestAccountFilterSwitch({
             <div className="flex flex-col items-end gap-1">
                 {lemonSwitch}
                 <span className="text-xs text-muted text-right">
-                    You haven't set any internal test filters yet.{' '}
-                    <Link to={filtersSettingsUrl}>Configure them</Link> to enable this.
+                    You haven't set any internal test filters yet. <Link to={filtersSettingsUrl}>Configure them</Link>{' '}
+                    to enable this.
                 </span>
             </div>
         )
