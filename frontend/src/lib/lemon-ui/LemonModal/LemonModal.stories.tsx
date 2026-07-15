@@ -95,28 +95,6 @@ export const WithoutContent: Story = {
     },
 }
 
-export const WithLongTitle: Story = {
-    render: () => (
-        <div className="bg-default p-4">
-            <LemonModal
-                inline
-                width={480}
-                title={
-                    <span className="flex gap-2">
-                        <span>Session recordings</span>
-                        <span aria-hidden="true">•</span>
-                        <span>example.myshopify.com/with/a/title/that/is/too/long/to/display/in/full</span>
-                    </span>
-                }
-                onClose={() => undefined}
-            >
-                The title wraps without overlapping the close button and shows the full value in a tooltip when it is
-                truncated.
-            </LemonModal>
-        </div>
-    ),
-}
-
 export const Inline: Story = {
     render: () => {
         const [isOpen, setIsOpen] = useState(false)
@@ -157,10 +135,7 @@ export const WithCustomContent: Story = {
                 >
                     <div className="rounded">
                         <LemonModal.Header>
-                            <h3>
-                                I am a custom header that can wrap across as many lines as needed without hiding the
-                                full title
-                            </h3>
+                            <h3>I am a custom header</h3>
                         </LemonModal.Header>
                         <LemonModal.Content>
                             In some situations it may be necessary to have greater control over the modal contents. The
