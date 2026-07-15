@@ -55,6 +55,11 @@ class TestHyperspellSource:
         assert user_id.required is False
         assert user_id.secret is False
 
+    def test_connection_host_fields_cover_region_and_user(self):
+        # region picks the host the key is sent to and user_id sets the X-As-User identity, so
+        # changing either must force the secret to be re-entered rather than reusing the stored key.
+        assert self.source.connection_host_fields == ["region", "user_id"]
+
     def test_get_schemas_returns_all_endpoints_as_full_refresh(self):
         schemas = self.source.get_schemas(HyperspellSourceConfig(api_key="key"), self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
