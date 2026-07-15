@@ -141,9 +141,7 @@ Preview first (no `confirm`), surface it to the user, then apply:
 
 ```json
 {
-  "operations": [
-    { "action": "append", "alias": "/users/<id>/profile", "regex": "/users/\\d+/profile" }
-  ],
+  "operations": [{ "action": "append", "alias": "/users/<id>/profile", "regex": "/users/\\d+/profile" }],
   "sample_paths": ["/users/123/profile", "/users/me/profile"],
   "confirm": true
 }
