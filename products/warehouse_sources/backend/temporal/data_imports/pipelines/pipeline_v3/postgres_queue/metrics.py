@@ -82,17 +82,6 @@ OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     multiprocess_mode="livemax",
 )
 
-# Non-terminal runs old enough to be nearing the queue's partition retention.
-# Anything non-zero here is pre-announced data loss: once retention drops the
-# partition, the batch rows and their S3 payloads are unrecoverable. Queue-wide
-# value reported by every pod, so aggregate with max() (livemax, like the
-# freshness gauge above).
-RUNS_NEARING_RETENTION = Gauge(
-    "warehouse_pg_queue_runs_nearing_retention",
-    "Runs with non-terminal batches close to aging past queue retention. Sampled on the reconcile cadence.",
-    multiprocess_mode="livemax",
-)
-
 
 @dataclass(frozen=True)
 class ConsumerMetrics:

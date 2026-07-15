@@ -37,11 +37,9 @@ LEASE_TABLE = "sourcegrouplease"
 LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
-# Set to 2x the retention period so the planner can skip dropped partitions.
-# Mostly a planner hint — rows older than this are already dropped — but the
-# failed-run claim gate reads the failed sibling through this window, so it stays
-# load-bearing there: the retention sweep terminalizes stranded batches before
-# their failed evidence is dropped, keeping the gate correct within the window.
+# Set to 2x the retention period so the planner can skip dropped
+# partitions. Not a correctness filter -- older partitions are already
+# gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
@@ -53,14 +51,6 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # window, which is already far past any sane alert threshold.
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
-
-# Warn-before-destruction window. Queue partitions and their S3 extraction
-# payloads are dropped after RETENTION_DAYS (7d, see
-# posthog/temporal/warehouse_sources_queue_partition_management/activities.py),
-# after which an unloaded batch is unrecoverable. Runs with non-terminal batches
-# older than this are surfaced loudly so an operator can recover or fail them
-# before the cliff. Must stay comfortably below the retention period.
-RETENTION_WARNING_AGE_SECONDS = 5 * 24 * 60 * 60
 
 
 def pending_batch_select_columns(status_alias: str) -> str:
@@ -371,18 +361,6 @@ class RunActivitySummary:
     # Ages behind the staleness verdict, surfaced so takeover logs are diagnosable.
     last_status_write_age_seconds: float | None = None
     oldest_unclaimed_age_seconds: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExpiringRunRef:
-    """A run with non-terminal batches old enough to be nearing queue retention."""
-
-    run_uuid: str
-    job_id: str
-    team_id: int
-    schema_id: str
-    oldest_created_at: datetime
-    non_terminal_batches: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -811,38 +789,6 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
-    def fail_stranded_batches_in_failed_runs_sync(
-        conn: psycopg.Connection[Any],
-        *,
-        reason: str,
-    ) -> int:
-        """Fail non-terminal batches whose run already contains a failed batch. Returns the count failed.
-
-        The claim gate excludes every batch in a run once any sibling is 'failed', so these
-        stragglers can never load — yet they stay non-terminal, which means retention's guard
-        preserves their partitions indefinitely, and once the failed sibling's own partition is
-        dropped the gate can no longer see it, briefly re-opening the run to a stale load (a
-        batch enqueued into an already-failed run stays 'pending' forever — seen in production).
-        Marking them terminal while the failed sibling still exists both frees their partitions
-        for normal retention and removes the gate's dependence on a row about to be deleted.
-
-        Meant to run inside the retention activity right before the drop, catching stragglers the
-        24h-lookback reconcile sweep no longer sees. Idempotent: a no-op once nothing is stranded.
-        """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql(
-                f"""EXISTS (
-                    SELECT 1 FROM {BATCH_TABLE} f
-                    WHERE f.run_uuid = b.run_uuid
-                        AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND f.latest_state = 'failed'
-                )"""
-            ),
-            {"error_response": json.dumps({"error": reason})},
-        )
-        return cursor.rowcount or 0
-
-    @staticmethod
     async def get_failed_runs(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -965,42 +911,6 @@ class BatchQueue:
         if row is None or row[0] is None:
             return None
         return float(row[0])
-
-    @staticmethod
-    async def get_runs_nearing_retention(
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        older_than_seconds: int = RETENTION_WARNING_AGE_SECONDS,
-        limit: int = 50,
-    ) -> list[ExpiringRunRef]:
-        """Runs with non-terminal batches older than ``older_than_seconds`` — work about to
-        age past queue retention and be destroyed with its S3 payloads.
-
-        Read from the denormalized state columns and bounded to the pruning window,
-        so the scan touches only the oldest retained partitions.
-        """
-        async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT
-                    b.run_uuid,
-                    MAX(b.job_id) AS job_id,
-                    b.team_id,
-                    b.schema_id,
-                    MIN(b.created_at) AS oldest_created_at,
-                    COUNT(*) AS non_terminal_batches
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                  AND b.created_at <= now() - make_interval(secs => %(age)s)
-                  AND b.latest_state IN ('pending', 'waiting', 'executing', 'waiting_retry')
-                GROUP BY b.run_uuid, b.team_id, b.schema_id
-                ORDER BY oldest_created_at ASC
-                LIMIT %(limit)s
-                """,
-                {"age": older_than_seconds, "limit": limit},
-            )
-            rows = await cur.fetchall()
-        return [ExpiringRunRef(**row) for row in rows]
 
     @staticmethod
     async def unlock_for_batches(

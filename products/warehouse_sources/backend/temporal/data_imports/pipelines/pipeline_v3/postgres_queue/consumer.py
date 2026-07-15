@@ -41,13 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
-    RETENTION_WARNING_AGE_SECONDS,
     BatchQueue,
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
-    RUNS_NEARING_RETENTION,
     RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -254,7 +252,6 @@ class DeltaBatchConsumerAdapter:
         # Piggyback the reconcile cadence for the queue-freshness gauge: same
         # connection, same periodicity, and isolated so it can't break the sweep.
         await self._observe_queue_freshness(conn)
-        await self._warn_runs_nearing_retention(conn)
 
         refs = await BatchQueue.get_failed_runs(
             conn,
@@ -355,38 +352,6 @@ class DeltaBatchConsumerAdapter:
             capture_exception(e)
             return
         OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
-
-    async def _warn_runs_nearing_retention(self, conn: psycopg.AsyncConnection[Any]) -> None:
-        """Surface runs whose non-terminal batches are about to age past queue retention.
-
-        Once the partition-management job drops a batch's partition (and its S3
-        extraction payload), the data is unrecoverable and every signal that was
-        tracking it — the freshness gauge, the CDC backpressure guard — quietly
-        resets, so the loss would otherwise be silent. This does not remediate
-        (a stuck run may still be loadable if the wedge is fixed); it makes the
-        countdown loud so an operator recovers or fails the run deliberately.
-        Isolated so a broken probe can't take the reconcile sweep down.
-        """
-        try:
-            async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                expiring = await BatchQueue.get_runs_nearing_retention(conn)
-        except Exception as e:
-            logger.exception("runs_nearing_retention_probe_failed")
-            capture_exception(e)
-            return
-
-        RUNS_NEARING_RETENTION.set(len(expiring))
-        for ref in expiring:
-            logger.error(  # noqa: TRY400 — no exception here; the log itself is the alertable signal
-                "run_nearing_queue_retention",
-                run_uuid=ref.run_uuid,
-                job_id=ref.job_id,
-                team_id=ref.team_id,
-                external_data_schema_id=ref.schema_id,
-                oldest_batch_created_at=ref.oldest_created_at.isoformat(),
-                non_terminal_batches=ref.non_terminal_batches,
-                retention_warning_age_seconds=RETENTION_WARNING_AGE_SECONDS,
-            )
 
     async def should_process_batch(
         self,

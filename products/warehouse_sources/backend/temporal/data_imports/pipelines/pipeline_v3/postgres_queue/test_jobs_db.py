@@ -348,53 +348,6 @@ class TestBatchQueueFailRun:
         assert len(batches) == 0
 
 
-@pytest.mark.django_db(transaction=True)
-class TestFailStrandedBatchesInFailedRuns:
-    @pytest.mark.asyncio
-    async def test_straggler_stays_gated_after_failed_evidence_is_dropped(self, conn, sync_conn):
-        # A pending straggler (batch 0) sits in a run whose sibling (batch 1) already failed. Today
-        # it is unclaimable only because that failed row exists; retention drops the failed
-        # partition at its 7-day cliff while the newer straggler survives to its own later cliff, so
-        # without the sweep the straggler would pass every gate and load week-old data. The sweep
-        # must terminalize the straggler so dropping the failed evidence can't re-open the run.
-        straggler = await _insert_batch(conn, batch_index=0, run_uuid="run-fail")
-        failed = await _insert_batch(conn, batch_index=1, run_uuid="run-fail")
-        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
-
-        swept = BatchQueue.fail_stranded_batches_in_failed_runs_sync(sync_conn, reason="pre-drop sweep")
-
-        assert swept == 1
-
-        # Retention drops the failed sibling's partition (its row and, via cascade, its status).
-        await conn.execute(f"DELETE FROM {BATCH_TABLE} WHERE id = %s", [failed])
-
-        assert await _claim(conn) == []
-        state = await (
-            await conn.execute(f"SELECT latest_state FROM {BATCH_TABLE} WHERE id = %s", [straggler])
-        ).fetchone()
-        assert state[0] == "failed"
-
-    @pytest.mark.asyncio
-    async def test_leaves_run_without_a_failed_batch_untouched(self, conn, sync_conn):
-        # A genuinely in-flight run (no failed sibling) must survive the sweep intact — failing it
-        # would destroy loadable work and stall the sync.
-        pending = await _insert_batch(conn, batch_index=0, run_uuid="run-ok")
-        executing = await _insert_batch(conn, batch_index=1, run_uuid="run-ok")
-        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
-
-        swept = BatchQueue.fail_stranded_batches_in_failed_runs_sync(sync_conn, reason="pre-drop sweep")
-
-        assert swept == 0
-        states = {
-            str(row[0]): row[1]
-            for row in await (
-                await conn.execute(f"SELECT id, latest_state FROM {BATCH_TABLE} WHERE run_uuid = %s", ["run-ok"])
-            ).fetchall()
-        }
-        assert states[pending] == "pending"
-        assert states[executing] == "executing"
-
-
 async def _insert_lease(
     conn: psycopg.AsyncConnection[Any],
     *,
@@ -1152,47 +1105,3 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
-
-
-@pytest.mark.django_db(transaction=True)
-class TestGetRunsNearingRetention:
-    # Guards the pre-destruction warning: partition retention drops batch rows and
-    # their S3 payloads unconditionally, so a filter regression here (age direction,
-    # state set) silences the only advance signal of that data loss.
-
-    async def _backdate(self, conn, batch_id: str, days: int) -> None:
-        await conn.execute(
-            f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(days => %s) WHERE id = %s",
-            (days, batch_id),
-        )
-
-    @pytest.mark.asyncio
-    async def test_returns_only_old_non_terminal_runs(self, conn):
-        old_pending = await _insert_batch(conn, run_uuid="run-old-pending", schema_id="s-a", batch_index=0)
-        await self._backdate(conn, old_pending, days=6)
-
-        old_retry = await _insert_batch(conn, run_uuid="run-old-retry", schema_id="s-b", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=old_retry, job_state="waiting_retry", attempt=1)
-        await self._backdate(conn, old_retry, days=6)
-
-        old_done = await _insert_batch(conn, run_uuid="run-old-done", schema_id="s-c", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=old_done, job_state="succeeded", attempt=1)
-        await self._backdate(conn, old_done, days=6)
-
-        await _insert_batch(conn, run_uuid="run-fresh", schema_id="s-d", batch_index=0)
-
-        expiring = await BatchQueue.get_runs_nearing_retention(conn, older_than_seconds=5 * 24 * 60 * 60)
-
-        assert sorted(ref.run_uuid for ref in expiring) == ["run-old-pending", "run-old-retry"]
-
-    @pytest.mark.asyncio
-    async def test_groups_batches_per_run(self, conn):
-        for index in range(3):
-            batch_id = await _insert_batch(conn, run_uuid="run-old", schema_id="s-a", batch_index=index)
-            await self._backdate(conn, batch_id, days=6)
-
-        expiring = await BatchQueue.get_runs_nearing_retention(conn, older_than_seconds=5 * 24 * 60 * 60)
-
-        assert len(expiring) == 1
-        assert expiring[0].run_uuid == "run-old"
-        assert expiring[0].non_terminal_batches == 3
