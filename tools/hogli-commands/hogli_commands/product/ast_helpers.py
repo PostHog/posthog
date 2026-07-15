@@ -207,14 +207,44 @@ def _class_kind(node: ast.ClassDef) -> str:
     return "type"
 
 
-def _definitions(backend_dir: Path, wanted: set[str]) -> dict[str, tuple[str, str]]:
-    """Locate each wanted name outside facade/, as name -> (kind, product-relative path).
+def _top_level_kind(tree: ast.Module, name: str) -> str | None:
+    """Classify a module-level definition of `name`, or None if the module doesn't define it.
 
-    One pass over the tree, dropping names as they're found. A name that is never found is a
-    module-level assignment, which this walk cannot see — the caller reads it as a constant.
+    Module-level only: a nested walk would match a method (a viewset action named `certify`
+    shadowing the logic function of the same name) and resolve the re-export to the view.
+    """
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return _class_kind(node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return "function"
+    return None
+
+
+def _definitions(backend_dir: Path, wanted: dict[str, Path | None]) -> dict[str, tuple[str, str]]:
+    """Locate each wanted name, as name -> (kind, product-relative path).
+
+    `wanted` maps the name to the module the facade imported it from. That module is consulted
+    first, because a bare name search across the backend is ambiguous: data_modeling defines a
+    distinct `NodeType` in both models/node.py and models/modeling.py and deliberately exposes
+    one from each facade module, so first-match-wins would resolve half of them to the wrong
+    implementation and read its coverage off the wrong file.
+
+    The fallback scan exists for re-export chains — facade/models.py re-exporting the ORM class
+    means the immediate source defines nothing, and the real definition is elsewhere. A name
+    found by neither is a module-level assignment, which this can't see; the caller reads it as
+    a constant.
     """
     found: dict[str, tuple[str, str]] = {}
-    remaining = set(wanted)
+    remaining: set[str] = set()
+    for name, source in wanted.items():
+        tree = ast_parse_safe(source) if source else None
+        kind = _top_level_kind(tree, name) if tree else None
+        if kind and source and "facade" not in source.parts:
+            found[name] = (kind, str(source.relative_to(backend_dir.parent)))
+        else:
+            remaining.add(name)
+
     for py in sorted(backend_dir.rglob("*.py")):
         if not remaining:
             break
@@ -223,23 +253,49 @@ def _definitions(backend_dir: Path, wanted: set[str]) -> dict[str, tuple[str, st
         tree = ast_parse_safe(py)
         if not tree:
             continue
-        rel = str(py.relative_to(backend_dir.parent))
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if node.name in remaining:
-                kind = _class_kind(node) if isinstance(node, ast.ClassDef) else "function"
-                found[node.name] = (kind, rel)
-                remaining.discard(node.name)
+        for name in sorted(remaining):
+            kind = _top_level_kind(tree, name)
+            if kind:
+                found[name] = (kind, str(py.relative_to(backend_dir.parent)))
+                remaining.discard(name)
     return found
 
 
-def _module_reexports(module: Path) -> dict[str, str]:
-    """A facade module's advertised-but-not-defined names, as advertised name -> defined name.
+def _resolve_module(dotted: str, anchor: Path) -> Path | None:
+    """Turn a dotted module path into a file, relative to the package directory `anchor`."""
+    target = anchor.joinpath(*dotted.split("."))
+    for candidate in (target.with_suffix(".py"), target / "__init__.py"):
+        if candidate.exists():
+            return candidate
+    return None
 
-    The two differ under an alias (`from ..logic.runner import Runner as PublicRunner`): the
-    class to find is `Runner`, so carrying only the public name would search for a definition
-    that doesn't exist and silently read the class as an unlocatable constant.
+
+def _import_source(node: ast.ImportFrom, module: Path, backend_dir: Path) -> tuple[str, Path | None]:
+    """The dotted source of an import, plus the file it resolves to.
+
+    Relative imports climb from the facade module's own package; an absolute
+    `products.<name>.backend.x.y` is anchored at the product's backend instead.
+    """
+    dotted = ("." * node.level) + (node.module or "")
+    if node.level:
+        anchor = module.parent
+        for _ in range(node.level - 1):
+            anchor = anchor.parent
+        return dotted, _resolve_module(node.module or "", anchor)
+    if node.module and node.module.startswith("products."):
+        parts = node.module.split(".")
+        if "backend" in parts:
+            return dotted, _resolve_module(".".join(parts[parts.index("backend") + 1 :]), backend_dir)
+    return dotted, None
+
+
+def _module_reexports(module: Path, backend_dir: Path) -> dict[str, tuple[str, Path | None]]:
+    """A facade module's advertised-but-not-defined names.
+
+    Maps the advertised name to (name to look for, module it came from). The two names differ
+    under an alias (`from ..logic.runner import Runner as PublicRunner`): the class to find is
+    `Runner`, so carrying only the public name would search for a definition that doesn't exist
+    and silently read the class as an unlocatable constant.
     """
     tree = ast_parse_safe(module)
     if not tree:
@@ -254,30 +310,32 @@ def _module_reexports(module: Path) -> dict[str, str]:
         for node in ast.iter_child_nodes(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     }
-    # advertised name -> (original name, source module)
-    sources = {
-        alias.asname or alias.name: (alias.name, ("." * node.level) + (node.module or ""))
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        for alias in node.names
-    }
-    # A lazy facade resolves against its own backend package, so those entries are owned by
-    # construction — mark them relative so they read the same as an eager relative import.
-    sources.update({name: (name, "." + module_path) for name, module_path in lazy_sources.items()})
+    # advertised name -> (original name, dotted source, resolved file)
+    sources: dict[str, tuple[str, str, Path | None]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        dotted, path = _import_source(node, module, backend_dir)
+        for alias in node.names:
+            sources[alias.asname or alias.name] = (alias.name, dotted, path)
+    # A lazy facade resolves each name against its own backend package, so those entries are
+    # owned by construction — mark them relative so they read like an eager relative import.
+    for name, dotted in lazy_sources.items():
+        sources[name] = (name, "." + dotted, _resolve_module(dotted, backend_dir))
 
-    names = {}
+    names: dict[str, tuple[str, Path | None]] = {}
     for name in exported:
         if name in local:
             continue
         entry = sources.get(name)
         if entry is None:
             continue
-        original, source = entry
+        original, source, path = entry
         if not _is_product_owned(source):
             continue
         if "contracts" in source or "enums" in source:
             continue
-        names[name] = original
+        names[name] = (original, path)
     return names
 
 
@@ -308,16 +366,16 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str, str]]:
     if not facade_dir.is_dir():
         return []
 
-    # advertised name -> name to look for (they differ under an alias)
-    candidates: dict[str, str] = {}
+    # advertised name -> (name to look for, module it came from)
+    candidates: dict[str, tuple[str, Path | None]] = {}
     for module in sorted(facade_dir.glob("*.py")):
         if module.stem in {"__init__", "contracts", "enums"}:
             continue
-        candidates.update(_module_reexports(module))
+        candidates.update(_module_reexports(module, backend_dir))
 
-    definitions = _definitions(backend_dir, set(candidates.values()))
+    definitions = _definitions(backend_dir, dict(candidates.values()))
     return sorted(
-        (advertised, *definitions.get(original, ("constant", ""))) for advertised, original in candidates.items()
+        (advertised, *definitions.get(original, ("constant", ""))) for advertised, (original, _p) in candidates.items()
     )
 
 

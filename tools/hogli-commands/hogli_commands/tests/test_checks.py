@@ -29,6 +29,7 @@ from hogli_commands.product.checks import (
 from hogli_commands.product.isolation import (
     IsolationStatus,
     _input_covers_path,
+    _input_targets_reexport,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -190,6 +191,26 @@ class TestFacadeReexports:
         )
         assert get_facade_reexports(backend_dir) == [("PublicThing", "class", "backend/logic/matrix.py")]
 
+    def test_duplicate_name_resolves_in_the_module_it_was_imported_from(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import NodeType\n\n__all__ = ["NodeType"]\n',
+            logic_source="class NodeType:\n    pass\n",
+        )
+        # a same-named behavioral class elsewhere must not win the lookup
+        (backend_dir / "other.py").write_text("class NodeType:\n    def run(self):\n        pass\n")
+        assert get_facade_reexports(backend_dir) == [("NodeType", "type", "backend/logic/matrix.py")]
+
+    def test_method_of_the_same_name_does_not_resolve_a_reexport(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import certify\n\n__all__ = ["certify"]\n',
+            logic_source="def certify():\n    pass\n",
+        )
+        (backend_dir / "presentation").mkdir()
+        (backend_dir / "presentation" / "views.py").write_text("class V:\n    def certify(self):\n        pass\n")
+        assert get_facade_reexports(backend_dir) == [("certify", "function", "backend/logic/matrix.py")]
+
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
             tmp_path,
@@ -268,6 +289,20 @@ class TestUncoveredFacadeClasses:
     )
     def test_input_glob_follows_turbo_segment_semantics(self, glob: str, rel_path: str, expected: bool) -> None:
         assert _input_covers_path(glob, rel_path) is expected
+
+    @pytest.mark.parametrize(
+        "glob, expected",
+        [
+            ("backend/query_runner.py", True),
+            ("backend/hogql_queries/**", True),
+            # a whole-backend glob covers the re-export but is the broad-input case
+            ("backend/**", False),
+            ("backend/facade/**", False),
+        ],
+    )
+    def test_a_broad_glob_is_not_reexport_coverage(self, glob: str, expected: bool) -> None:
+        paths = ["backend/query_runner.py", "backend/hogql_queries/runner.py"]
+        assert _input_targets_reexport(glob, paths) is expected
 
 
 class TestParseHelpers:

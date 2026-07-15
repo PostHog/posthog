@@ -331,8 +331,16 @@ def _input_covers_path(glob: str, rel_path: str) -> bool:
 
 
 def _input_targets_reexport(glob: str, reexport_paths: Sequence[str]) -> bool:
-    """True if the glob exists to watch a module that defines a facade-re-exported class."""
-    return any(_input_covers_path(glob, path) for path in reexport_paths)
+    """True if the glob is aimed at a module defining a facade-re-exported class.
+
+    A whole-backend glob is excluded even though it does cover those modules: it covers
+    everything, which is the broad-input case that keeps the skip inert, and letting a
+    re-export justify it would hand back the narrowing this rejects elsewhere.
+    """
+    normalized = glob.removeprefix("./")
+    if normalized.split("*")[0].rstrip("/") in {"", "backend"}:
+        return False
+    return any(_input_covers_path(normalized, path) for path in reexport_paths)
 
 
 def has_narrowed_turbo_inputs(
