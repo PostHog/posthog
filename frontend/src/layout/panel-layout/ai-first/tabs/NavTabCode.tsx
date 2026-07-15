@@ -21,8 +21,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { dayjs } from 'lib/dayjs'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -75,27 +75,31 @@ function CodeNavRow({
     icon,
     label,
     active,
-    onClick,
+    to,
     endContent,
 }: {
     icon: JSX.Element
     label: string
     active?: boolean
-    onClick: () => void
+    to: string
     endContent?: JSX.Element
 }): JSX.Element {
+    // A real link, so the desktop link context menu (open in new tab/window, copy URL, ...)
+    // and cmd/ctrl+click apply to these rows like everywhere else
     return (
-        <ButtonPrimitive
-            menuItem
-            active={active}
-            onClick={onClick}
-            className="w-full text-[13px] leading-snug"
+        <Link
+            to={to}
+            buttonProps={{
+                menuItem: true,
+                active,
+                className: 'w-full text-[13px] leading-snug',
+            }}
             data-attr={`nav-code-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
             <span className={cn('flex size-4 shrink-0 items-center opacity-80', active && 'opacity-100')}>{icon}</span>
             <span className="flex-1 truncate text-left">{label}</span>
             {endContent}
-        </ButtonPrimitive>
+        </Link>
     )
 }
 
@@ -117,10 +121,6 @@ export function NavTabCode(): JSX.Element {
     const isCodeSection = (section?: string): boolean =>
         currentPath === (section ? `/code/${section}` : '/code') || (!section && currentPath === '/code/home')
 
-    const goTo = (path: string): (() => void) => {
-        return () => router.actions.push(path)
-    }
-
     const runningCount = tasks.filter(
         (task: Task) => task.latest_run?.status === 'in_progress' || task.latest_run?.status === 'queued'
     ).length
@@ -134,15 +134,15 @@ export function NavTabCode(): JSX.Element {
                         icon={<IconPlusSmall />}
                         label="New task"
                         active={currentPath === '/tasks/new'}
-                        onClick={goTo(urls.taskNew())}
+                        to={urls.taskNew()}
                     />
                 </div>
-                <CodeNavRow icon={<IconHome />} label="Home" active={isCodeSection()} onClick={goTo(urls.code())} />
+                <CodeNavRow icon={<IconHome />} label="Home" active={isCodeSection()} to={urls.code()} />
                 <CodeNavRow
                     icon={<IconLetter />}
                     label="Inbox"
                     active={currentPath.startsWith('/inbox')}
-                    onClick={goTo(urls.inbox())}
+                    to={urls.inbox()}
                     endContent={
                         <LemonTag type="warning" size="small">
                             Beta
@@ -153,25 +153,25 @@ export function NavTabCode(): JSX.Element {
                     icon={<IconAI />}
                     label="Agents"
                     active={isCodeSection('agents')}
-                    onClick={goTo(urls.code('agents'))}
+                    to={urls.code('agents')}
                 />
                 <CodeNavRow
                     icon={<IconLightBulb />}
                     label="Skills"
                     active={isCodeSection('skills')}
-                    onClick={goTo(urls.code('skills'))}
+                    to={urls.code('skills')}
                 />
                 <CodeNavRow
                     icon={<IconPlug />}
                     label="MCP servers"
                     active={isCodeSection('mcp-servers')}
-                    onClick={goTo(urls.code('mcp-servers'))}
+                    to={urls.code('mcp-servers')}
                 />
                 <CodeNavRow
                     icon={<IconBolt />}
                     label="Command Center"
                     active={isCodeSection('command-center')}
-                    onClick={goTo(urls.code('command-center'))}
+                    to={urls.code('command-center')}
                     endContent={
                         runningCount > 0 ? (
                             <span className="shrink-0 rounded bg-fill-highlight-100 px-1 text-[11px] text-secondary">
@@ -184,13 +184,14 @@ export function NavTabCode(): JSX.Element {
                     <span className="flex size-4 shrink-0 items-center opacity-80">
                         <IconCircleDashed />
                     </span>
-                    <button
-                        type="button"
-                        className="flex-1 truncate text-left cursor-pointer"
-                        onClick={goTo(urls.code('contexts'))}
+                    <Link
+                        to={urls.code('contexts')}
+                        subtle
+                        className="flex-1 truncate text-left"
+                        data-attr="nav-code-contexts"
                     >
                         Contexts
-                    </button>
+                    </Link>
                     <LemonTag type="completion" size="small">
                         Alpha
                     </LemonTag>
@@ -213,21 +214,24 @@ export function NavTabCode(): JSX.Element {
                     ) : tasks.length === 0 ? (
                         <div className="flex flex-col items-center gap-2 px-2 py-6">
                             <span className="text-[13px] text-secondary">No tasks yet</span>
-                            <ButtonPrimitive
-                                onClick={goTo(urls.taskNew())}
-                                className="rounded-md bg-fill-highlight-100 px-3 py-1.5 text-[13px]"
+                            <Link
+                                to={urls.taskNew()}
+                                buttonProps={{ className: 'rounded-md bg-fill-highlight-100 px-3 py-1.5 text-[13px]' }}
+                                data-attr="nav-code-start-building"
                             >
                                 Start building
-                            </ButtonPrimitive>
+                            </Link>
                         </div>
                     ) : (
                         tasks.map((task: Task) => (
-                            <ButtonPrimitive
+                            <Link
                                 key={task.id}
-                                menuItem
-                                active={currentPath === `/tasks/${task.id}`}
-                                onClick={goTo(urls.taskDetail(task.id))}
-                                className="group w-full text-[13px] leading-snug"
+                                to={urls.taskDetail(task.id)}
+                                buttonProps={{
+                                    menuItem: true,
+                                    active: currentPath === `/tasks/${task.id}`,
+                                    className: 'group w-full text-[13px] leading-snug',
+                                }}
                                 data-attr="nav-code-task"
                             >
                                 <TaskStatusIcon task={task} />
@@ -242,7 +246,7 @@ export function NavTabCode(): JSX.Element {
                                         {formatRelativeShort(task.updated_at)}
                                     </span>
                                 )}
-                            </ButtonPrimitive>
+                            </Link>
                         ))
                     )}
                 </div>
