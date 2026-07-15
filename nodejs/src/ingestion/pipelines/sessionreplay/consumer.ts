@@ -362,6 +362,10 @@ export class SessionRecordingIngester {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
+        // Stop the consume loop and drain in-flight batches first, so the final flush below can't
+        // race a poll batch that is still recording (and scheduling side effects) concurrently.
+        await this.kafkaConsumer.stopConsuming()
+
         // Stop TopHog and flush final metrics
         await this.topHog.stop()
 

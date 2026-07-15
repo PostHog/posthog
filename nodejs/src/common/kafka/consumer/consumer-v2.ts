@@ -235,10 +235,13 @@ export class KafkaConsumerV2 {
         })
     }
 
-    public async disconnect(): Promise<void> {
-        if (!this.running) {
-            return
-        }
+    /**
+     * Stop the consume loop and drain in-flight batches without leaving the group. After this
+     * resolves, eachBatch will never be called again. Callers that buffer work across batches
+     * flush and store offsets between this and disconnect(), which then commits the stored
+     * offsets as it leaves the group — that ordering is what makes the final flush race-free.
+     */
+    public async stopConsuming(): Promise<void> {
         // Flip running so the loop exits and so the final REVOKE during disconnect goes
         // through rebalanceCallback's special-case path.
         this.running = false
@@ -247,6 +250,10 @@ export class KafkaConsumerV2 {
                 logger.error('🔁', 'kafka_consumer_v2_loop_failed_during_disconnect', { error: String(error) })
             })
         }
+    }
+
+    public async disconnect(): Promise<void> {
+        await this.stopConsuming()
         if (this.rdKafkaConsumer.isConnected()) {
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
         }
