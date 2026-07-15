@@ -215,7 +215,8 @@ def _execute_and_serialize_insight_query(
         return {
             "query_results": None,
             "cache_key": None,
-            "query_error": {"type": type(e).__name__, "message": str(e)},
+            # str(e) can echo offending query data, so scrub it like the result payload.
+            "query_error": {"type": type(e).__name__, "message": strip_null_bytes(str(e))},
         }
 
     if isinstance(insight_result, NothingInCacheResult):
