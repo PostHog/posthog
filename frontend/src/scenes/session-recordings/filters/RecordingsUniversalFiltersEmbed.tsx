@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef, useState } from 'react'
 
@@ -64,6 +64,9 @@ import {
     SessionRecordingPlaylistType,
     UniversalFiltersGroup,
 } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -139,6 +142,13 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+
+    useAttachedContext([
+        { type: 'recording_filters', value: JSON.stringify(filters), label: 'Current filters' },
+        ...(currentSessionRecordingId
+            ? [{ type: 'session_recording', key: currentSessionRecordingId, label: 'Current session' } as const]
+            : []),
+    ] as AttachedContextItem[])
 
     return (
         <>

@@ -15,6 +15,41 @@ if [[ -z "$flox_bin" ]]; then
     exit 127
 fi
 
+strip_checkout_paths() {
+    local path_list="$1"
+    shift
+    local cleaned=""
+    local entry root skip
+    local -a entries
+
+    IFS=':' read -r -a entries <<< "$path_list"
+    for entry in "${entries[@]}"; do
+        skip=false
+        for root in "$@"; do
+            if [[ -n "$root" && "$root" != "/" && ( "$entry" == "$root" || "$entry" == "$root/"* ) ]]; then
+                skip=true
+                break
+            fi
+        done
+        if [[ "$skip" == false ]]; then
+            [[ -z "$cleaned" ]] || cleaned+=":"
+            cleaned+="$entry"
+        fi
+    done
+    printf '%s' "$cleaned"
+}
+
+inherited_roots=(
+    "${FLOX_ENV_PROJECT:-}"
+    "${FLOX_ENV:-}"
+    "${FLOX_ENV_CACHE:-}"
+    "${UV_PROJECT_ENVIRONMENT:-}"
+    "${VIRTUAL_ENV:-}"
+)
+clean_path="$(strip_checkout_paths "${PATH:-}" "${inherited_roots[@]}")"
+clean_library_path="$(strip_checkout_paths "${LIBRARY_PATH:-}" "${inherited_roots[@]}")"
+clean_manpath="$(strip_checkout_paths "${MANPATH:-}" "${inherited_roots[@]}")"
+
 # Codex and other agent hosts can inherit an activated parent checkout. Flox
 # uses these values to detect nesting, so clear them before selecting this repo.
 exec env \
@@ -31,4 +66,7 @@ exec env \
     -u _FLOX_ACTIVE_ENVIRONMENTS \
     -u _FLOX_HOOK_DIFF \
     -u _FLOX_INVOCATION_TYPE \
+    "PATH=$clean_path" \
+    "LIBRARY_PATH=$clean_library_path" \
+    "MANPATH=$clean_manpath" \
     "$flox_bin" activate --dir "$repo_root" -- "$@"

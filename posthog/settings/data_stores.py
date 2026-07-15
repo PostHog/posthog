@@ -1,8 +1,6 @@
 import os
 import json
-import time
 from contextlib import suppress
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -404,23 +402,6 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
-
-
-def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
 
 
 # Set of teams querying the data before we switched to new limits

@@ -26,6 +26,8 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
@@ -43,6 +45,7 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
 from products.data_warehouse.backend.presentation.views.external_data_source import (
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
+    get_oauth_integration_kinds,
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
@@ -174,6 +177,39 @@ class TestExternalDataSource(APIBaseTest):
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
             len(STRIPE_ENDPOINTS),
         )
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_canonicalizes_incremental_field_label_to_declared_field(self, _mock_validate):
+        # Discovery surfaces Stripe's incremental field as label "created_at" / field "created";
+        # callers regularly send the label, which used to be persisted verbatim and then fail
+        # every sync with a missing-column error at cursor extraction.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "append",
+                            "incremental_field": "created_at",
+                            "incremental_field_type": "datetime",
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        schema = ExternalDataSchema.objects.get(source_id=response.json()["id"], name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.assertEqual(schema.sync_type_config["incremental_field"], "created")
+        self.assertEqual(schema.sync_type_config["incremental_field_type"], "integer")
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -367,6 +403,18 @@ class TestExternalDataSource(APIBaseTest):
             # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
             ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
             ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The wizard's self-driving program marks its UA distinctly → self_driving, not plain wizard.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # The self-driving marker only refines the mcp upgrade — it never rewrites explicit values.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.API,
+                ExternalDataSource.CreatedVia.API,
+            ),
             # The MCP server appends the originating client to its own UA when proxying.
             (
                 "posthog/mcp-server; version: 1.0.0; for posthog/code",
@@ -1147,7 +1195,12 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Prefix already exists"})
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "Another source of this type already uses the prefix 'test_'. Choose a different prefix so this connection's tables don't clash."
+            },
+        )
 
     def _make_external_data_source(
         self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
@@ -1188,7 +1241,7 @@ class TestExternalDataSource(APIBaseTest):
                 [("foo_", False)],
                 "foo_",
                 400,
-                "Prefix already exists",
+                "Another source of this type already uses the prefix 'foo_'. Choose a different prefix so this connection's tables don't clash.",
             ),
             (
                 "no-prefix source (null) blocks another no-prefix",
@@ -10748,6 +10801,61 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_with_stored_credential_targets_only_requested_schemas_and_consumes_it(
+        self, mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        # The stored secret was merged in server-side and used for validation.
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+        # Unlike setup, create honors the caller's schemas: only the requested table syncs.
+        should_sync = {s.name: s.should_sync for s in ExternalDataSchema.objects.filter(source_id=source.pk)}
+        assert should_sync.get(STRIPE_CUSTOMER_RESOURCE_NAME) is True
+        assert should_sync.get(STRIPE_SUBSCRIPTION_RESOURCE_NAME) in (False, None)
+        # Stored credentials are single-use — consumed on successful create.
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_create_with_stored_credential_failure_keeps_it(self, _mock_validate):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):
     def _store(self, source_type: str = "Stripe", payload: dict | None = None):
@@ -10860,6 +10968,96 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert response.status_code == status.HTTP_200_OK
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
+
+
+class TestGetOAuthIntegrationKinds(APIBaseTest):
+    """These kinds are what the OAuth accounts endpoint pins a caller-supplied integration id against, so
+    a source whose OAuth field this fails to find would have its account listing rejected."""
+
+    def test_collects_kinds_from_both_oauth_field_types(self):
+        # A picker (`oauth-account-select`) and the plain `oauth` field it reads from, as the ad sources
+        # declare them. GitHub lists accounts off the plain field alone, with no picker.
+        fields = [
+            SourceFieldOauthConfig(
+                name="linkedin_ads_integration_id", label="Account", kind="linkedin-ads", required=True
+            ),
+            SourceFieldOauthAccountSelectConfig(
+                name="account_id",
+                label="Account ID",
+                integrationField="linkedin_ads_integration_id",
+                integrationKind="linkedin-ads",
+                required=True,
+            ),
+            SourceFieldInputConfig(
+                name="unrelated",
+                label="Unrelated",
+                type=SourceFieldInputConfigType.TEXT,
+                required=False,
+                placeholder="",
+                secret=False,
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"linkedin-ads"}
+
+    def test_finds_nested_oauth_fields(self):
+        # No source nests its OAuth field today, but one that did would otherwise resolve to no kinds at
+        # all and get its account listing 400'd.
+        fields = [
+            SourceFieldSwitchGroupConfig(
+                name="advanced",
+                label="Advanced",
+                default=False,
+                fields=cast(
+                    list,
+                    [
+                        SourceFieldOauthConfig(
+                            name="integration_id", label="Connection", kind="in-a-switch-group", required=True
+                        )
+                    ],
+                ),
+            ),
+            SourceFieldSelectConfig(
+                name="auth_method",
+                label="Auth method",
+                required=True,
+                defaultValue="oauth",
+                options=[
+                    SourceFieldSelectConfigOption(
+                        label="OAuth",
+                        value="oauth",
+                        fields=cast(
+                            list,
+                            [
+                                SourceFieldOauthAccountSelectConfig(
+                                    name="account_id",
+                                    label="Account",
+                                    integrationField="integration_id",
+                                    integrationKind="in-a-select-option",
+                                    required=True,
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            ),
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == {"in-a-switch-group", "in-a-select-option"}
+
+    def test_source_without_oauth_fields_has_no_kinds(self):
+        fields = [
+            SourceFieldInputConfig(
+                name="host",
+                label="Host",
+                type=SourceFieldInputConfigType.TEXT,
+                required=True,
+                placeholder="",
+                secret=False,
+            )
+        ]
+
+        assert get_oauth_integration_kinds(cast(list, fields)) == set()
 
 
 class TestOAuthAccountsEndpoint(APIBaseTest):

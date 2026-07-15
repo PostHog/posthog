@@ -3,6 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge, histogram};
 
+use crate::debug_recorder::{
+    record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, SubBatchInfo,
+};
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
@@ -126,6 +129,18 @@ impl WorkerAssignments {
         builder.routing_keys.push(group.routing_key);
     }
 
+    fn sub_batch_infos(&self) -> Vec<SubBatchInfo> {
+        self.by_worker
+            .iter()
+            .filter(|(_, builder)| !builder.is_empty())
+            .map(|(worker, builder)| SubBatchInfo {
+                worker: worker.to_string(),
+                messages: builder.message_count(),
+                distinct_ids: builder.routing_keys.len(),
+            })
+            .collect()
+    }
+
     fn routed_counts(&self) -> impl Iterator<Item = (WorkerId, usize)> + '_ {
         self.by_worker
             .iter()
@@ -170,6 +185,8 @@ pub struct Dispatcher {
     /// order: pin_table → sentinel; the sentinel never takes the pin table),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl Dispatcher {
@@ -185,6 +202,7 @@ impl Dispatcher {
             registry,
             router: Mutex::new(Router::new(strategy)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            debug_recorder: None,
         }
     }
 
@@ -200,6 +218,7 @@ impl Dispatcher {
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            debug_recorder: None,
         }
     }
 
@@ -207,6 +226,31 @@ impl Dispatcher {
     /// so rebalances can reset its baselines.
     pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
         Arc::clone(&self.key_sentinel)
+    }
+
+    /// Inject the debug UI recorder. Call before the dispatcher is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
+    }
+
+    /// Point-in-time load/pin/stash snapshot for the debug UI.
+    pub fn debug_load(&self) -> DispatcherLoad {
+        let table = self.pin_table.lock().unwrap();
+        let per_worker: Vec<LoadEntry> = table
+            .in_flight
+            .iter()
+            .map(|(worker, in_flight)| LoadEntry {
+                worker: worker.to_string(),
+                in_flight: *in_flight,
+            })
+            .collect();
+        DispatcherLoad {
+            total_in_flight: per_worker.iter().map(|e| e.in_flight).sum(),
+            per_worker,
+            pin_count: table.pins.len(),
+            stashed_messages: table.stash.message_count(),
+            stashed_batches: table.stash.batch_count(),
+        }
     }
 
     /// Assign a batch of messages to workers.
@@ -235,7 +279,8 @@ impl Dispatcher {
                 .increment(missing_header_count);
         }
 
-        histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
+        let distinct_ids = key_groups.len();
+        histogram!("ingestion_consumer_distinct_ids_per_batch").record(distinct_ids as f64);
 
         let mut assignments = WorkerAssignments::new();
 
@@ -373,6 +418,28 @@ impl Dispatcher {
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
 
+        if deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "drain",
+                groups: deferred_count,
+            });
+        }
+        if unroutable_deferred_count > 0 {
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "unroutable",
+                groups: unroutable_deferred_count,
+            });
+        }
+        record_if(&self.debug_recorder, || DebugEventKind::BatchAssigned {
+            batch_id: batch_id.to_string(),
+            distinct_ids,
+            sub_batches: assignments.sub_batch_infos(),
+            deferred_groups: deferred_count,
+            unroutable_groups: unroutable_deferred_count,
+        });
+
         assignments.into_sub_batches()
     }
 
@@ -436,6 +503,11 @@ impl Dispatcher {
                 "reason" => "send_failed",
             )
             .increment(deferred_count);
+            record_if(&self.debug_recorder, || DebugEventKind::Deferred {
+                batch_id: batch_id.to_string(),
+                reason: "send_failed",
+                groups: deferred_count,
+            });
         }
         record_stash_gauges(&table.stash);
     }
@@ -527,6 +599,13 @@ impl Dispatcher {
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
 
+        if !assignments.by_worker.is_empty() {
+            record_if(&self.debug_recorder, || DebugEventKind::DeferredFlushed {
+                batch_id: batch_id.to_string(),
+                sub_batches: assignments.sub_batch_infos(),
+            });
+        }
+
         assignments.into_sub_batches()
     }
 
@@ -613,6 +692,14 @@ impl Dispatcher {
         }
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
+        drop(table);
+
+        record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
+            worker: worker.to_string(),
+            messages: message_count,
+            distinct_ids: routing_keys.len(),
+            cleared_deferral: clears_deferral,
+        });
     }
 
     /// Record the outcome of a send attempt for passive health tracking.
@@ -1391,6 +1478,47 @@ mod tests {
             !dispatcher.has_deferred("batch-2"),
             "nothing left after flush"
         );
+    }
+
+    #[test]
+    fn test_flush_deferred_records_debug_event() {
+        let registry = healthy_registry(2);
+        let mut dispatcher = Dispatcher::new(Arc::clone(&registry));
+        let recorder = DebugRecorder::new(100, Duration::from_secs(60));
+        dispatcher.set_debug_recorder(Arc::clone(&recorder));
+
+        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let pinned = b1[0].worker.clone();
+        registry.start_draining(&pinned);
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+        dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys, false);
+
+        let flushed = dispatcher.flush_deferred("batch-2");
+        assert_eq!(flushed.len(), 1);
+
+        let flush_events: Vec<_> = recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|e| match e.kind {
+                DebugEventKind::DeferredFlushed {
+                    batch_id,
+                    sub_batches,
+                } => Some((batch_id, sub_batches)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            flush_events.len(),
+            1,
+            "flush_deferred must record a DeferredFlushed debug event"
+        );
+        let (batch_id, sub_batches) = &flush_events[0];
+        assert_eq!(batch_id, "batch-2");
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(sub_batches[0].worker, flushed[0].worker.to_string());
+        assert_eq!(sub_batches[0].messages, 1);
     }
 
     #[test]

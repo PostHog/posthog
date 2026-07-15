@@ -82,7 +82,6 @@ Create a Personal API token (or use a Grafana Stack API token) and find your sta
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

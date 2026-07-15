@@ -3,17 +3,25 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-venv="$repo_root/.flox/cache/venv"
-agent_env_file="$repo_root/.flox/cache/agent-env"
+venv=""
+for candidate in "$repo_root/.flox/cache/venv" "$repo_root/.venv" "$repo_root/env"; do
+    if [[ -x "$candidate/bin/python" ]]; then
+        venv="$candidate"
+        break
+    fi
+done
 
-if [[ ! -x "$venv/bin/python" || ! -f "$agent_env_file" ]]; then
-    exec "$repo_root/bin/setup-worktree-env" "$repo_root/bin/phrocs-mcp"
+cd "$repo_root"
+if [[ -n "$venv" ]]; then
+    export PATH="$venv/bin:${PATH:-}"
+    export VIRTUAL_ENV="$venv"
+    export UV_PROJECT_ENVIRONMENT="$venv"
+    exec "$venv/bin/python" "$repo_root/tools/phrocs/mcp_server.py"
 fi
 
-# shellcheck disable=SC1090
-source "$agent_env_file"
-export PATH="$venv/bin:${PATH:-}"
-export VIRTUAL_ENV="$venv"
-export UV_PROJECT_ENVIRONMENT="$venv"
-cd "$repo_root"
-exec "$venv/bin/python" "$repo_root/tools/phrocs/mcp_server.py"
+if command -v uv >/dev/null 2>&1; then
+    exec env -u VIRTUAL_ENV -u UV_PROJECT_ENVIRONMENT uv run python "$repo_root/tools/phrocs/mcp_server.py"
+fi
+
+echo "error: run bin/setup-worktree-env before starting phrocs MCP" >&2
+exit 127

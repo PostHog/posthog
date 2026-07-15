@@ -19,6 +19,7 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 VENV_DIR="$PROJECT_DIR/.flox/cache/venv"
 CACHE_FILE="$PROJECT_DIR/.flox/cache/claude-env-cache"
 FLOX_MANIFEST="$PROJECT_DIR/.flox/env/manifest.toml"
+CACHE_VERSION="2"
 
 # Checksum the flox manifest to auto-invalidate cache on env changes
 MANIFEST_HASH=""
@@ -32,15 +33,18 @@ fi
 
 # Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
-  CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
-  if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
+  CACHED_KEY=$(head -1 "$CACHE_FILE" | sed 's/^# cache-key: //')
+  if [ "$CACHED_KEY" = "$CACHE_VERSION:$MANIFEST_HASH" ]; then
     tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
     exit 0
   fi
 fi
 
-# Slow path: provision this worktree and capture its Flox environment.
-if ! FLOX_ENV_SNAPSHOT=$("$PROJECT_DIR/bin/setup-worktree-env" printenv 2>/dev/null) || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+# Slow path: provision this worktree and capture its Flox environment. Preserve
+# an already-active environment for this checkout instead of replacing it.
+if [ "${FLOX_ENV_PROJECT:-}" = "$PROJECT_DIR" ]; then
+  FLOX_ENV_SNAPSHOT=$(printenv)
+elif ! FLOX_ENV_SNAPSHOT=$("$PROJECT_DIR/bin/setup-worktree-env" printenv 2>/dev/null) || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
   exit 0
 fi
@@ -57,6 +61,6 @@ fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
 printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
-printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
+printf '# cache-key: %s:%s\n%s' "$CACHE_VERSION" "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0

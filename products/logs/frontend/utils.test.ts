@@ -93,6 +93,61 @@ describe('logs utils', () => {
         })
     })
 
+    describe('configured session ID keys', () => {
+        it.each([
+            [
+                'configured key wins over a built-in convention key',
+                ['my.custom.key'],
+                { session_id: 'builtin', 'my.custom.key': 'custom' },
+                undefined,
+                'custom',
+            ],
+            [
+                'configured keys are checked in list order',
+                ['second.key', 'first.key'],
+                { 'first.key': 'first', 'second.key': 'second' },
+                undefined,
+                'second',
+            ],
+            [
+                'configured key found in resource_attributes',
+                ['my.custom.key'],
+                undefined,
+                { 'my.custom.key': 'from-resource' },
+                'from-resource',
+            ],
+            [
+                'falls back to built-in conventions when configured keys are absent',
+                ['my.custom.key'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'configured keys match exactly, not by dot suffix',
+                ['custom.key'],
+                { 'prefix.custom.key': 'suffixed' },
+                undefined,
+                null,
+            ],
+        ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
+            expect(
+                getSessionIdFromLogAttributes(
+                    attributes as Record<string, unknown> | undefined,
+                    resourceAttributes as Record<string, unknown> | undefined,
+                    configuredKeys
+                )
+            ).toBe(expected)
+        })
+
+        it.each([
+            ['my.custom.key', ['my.custom.key'], true],
+            ['prefix.my.custom.key', ['my.custom.key'], false],
+        ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
+            expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
     const filterGroup = (
         ...filters: Array<{ key: string; value: any; type?: string; operator?: string }>
     ): Record<string, any> => ({

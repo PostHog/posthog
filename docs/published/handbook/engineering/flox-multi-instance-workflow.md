@@ -19,6 +19,14 @@ This guide explains how to create isolated PostHog development environments usin
 
 > **Important:** Only one PostHog instance (`hogli start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
+## Light worktrees
+
+You only need the full setup below when you want to run the app in a worktree. For edit and commit workflows, a plain `git worktree add <path> <branch>` is enough:
+
+- Pre-commit hooks (lint-staged, hogli, ruff, ty) work out of the box: they borrow the main clone's `node_modules` and Python venv automatically, as long as the worktree's `pnpm-lock.yaml` and `uv.lock` match the main clone's.
+- If a lockfile differs, the hooks tell you what to install locally instead.
+- Use `phw` (below) only when you need to run the app in that worktree.
+
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/
@@ -255,9 +263,9 @@ phw list                            # List all worktrees
 5. **`phw` function**: Provides auto-cd functionality and smart tab completion
 6. **Git-native Management**: `phw list` and `phw remove` use Git's authoritative worktree tracking, working with worktrees from any location
 
-Agent-managed worktrees use `bin/setup-worktree-env` through the checked-in PostHog Code and Codex environment configurations. Codex copies `.env` and `.env.local` according to `.worktreeinclude`; the setup script provides the same safe copy behavior for other clients. It then clears any Flox environment inherited from another checkout and provisions the current worktree. Claude's `SessionStart` hook uses the same script before persisting the resulting environment.
+Agent-managed worktrees use `bin/setup-worktree-env` through the checked-in PostHog Code and Codex environment configurations. Codex copies `.env` and `.env.local` according to `.worktreeinclude`; other clients leave local environment files untouched. The setup script clears any Flox environment inherited from another checkout and provisions the current worktree. Claude's `SessionStart` hook uses the same script before persisting the resulting environment.
 
-Agents should invoke repo tooling through `bin/hogli`. The wrapper selects the checkout containing the current directory, prefers that checkout's venv, and provisions it on first use. This keeps commands worktree-local without wrapping each command in `flox activate`.
+Use bare `hogli` inside an activated Flox environment. Outside Flox, `bin/hogli` selects the checkout containing the current directory, prefers that checkout's venv, and provisions it on first use.
 
 ### The Magic Flow
 
