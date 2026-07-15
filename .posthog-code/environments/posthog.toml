@@ -4,4 +4,4 @@ version = 1
 name = "posthog"
 
 [setup]
-script = "bin/setup-worktree-env && direnv allow ."
+script = "direnv allow ."

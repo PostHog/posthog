@@ -263,10 +263,6 @@ phw list                            # List all worktrees
 5. **`phw` function**: Provides auto-cd functionality and smart tab completion
 6. **Git-native Management**: `phw list` and `phw remove` use Git's authoritative worktree tracking, working with worktrees from any location
 
-Agent-managed worktrees use `bin/setup-worktree-env` through the checked-in PostHog Code and Codex environment configurations. Codex copies `.env` and `.env.local` according to `.worktreeinclude`; other clients leave local environment files untouched. The setup script clears any Flox environment inherited from another checkout and provisions the current worktree. Claude's `SessionStart` hook uses the same script before persisting the resulting environment.
-
-Use bare `hogli` inside an activated Flox environment. Outside Flox, `bin/hogli` selects the checkout containing the current directory, prefers that checkout's venv, and provisions it on first use.
-
 ### The Magic Flow
 
 ```text

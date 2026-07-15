@@ -177,14 +177,12 @@ tail -f /tmp/phrocs-debug.log
 ## MCP server
 
 phrocs exposes process data over a Unix domain socket (IPC) so external tools can query status and logs.
-A Python MCP server (`mcp_server.py`) connects to this socket and provides four tools for MCP-compatible coding agents:
+A Python MCP server (`mcp_server.py`) connects to this socket and provides two tools for Claude Code:
 
 - `get_process_status` — query process status (running, stopped, exit code, etc.)
 - `get_process_logs` — fetch recent log lines, optionally filtered by grep pattern
-- `send_keys` — send input to a process
-- `toggle_process` — start or stop a process
 
-The checked-in Claude and Codex MCP configurations launch `bin/phrocs-mcp`. The wrapper starts the server from the current worktree root, so it connects to that worktree's socket.
+The socket path is derived from a hash of the workspace directory, so multiple phrocs instances can coexist.
 
 ## Package structure
 

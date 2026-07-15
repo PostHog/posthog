@@ -1,6 +1,5 @@
 [sandbox_workspace_write]
-# Dependency managers keep mutable indexes outside the checkout. Limit Codex to
-# those caches instead of granting broad home-directory access.
+# Flox and dependency managers keep mutable caches outside the worktree.
 writable_roots = [
     "~/.cache/flox",
     "~/.cache/node",
@@ -12,12 +11,24 @@ writable_roots = [
 network_access = false
 
 [shell_environment_policy]
-# pytest-rerunfailures opens a loopback socket whenever xdist is loaded, even
-# without `-n`. Codex keeps network access disabled, so skip the unused plugin.
+# Codex can inherit Flox from the source checkout that spawned its worktree.
+# Commands should activate this worktree instead of trusting those markers.
+exclude = [
+    "CONDA_*",
+    "DIRENV_*",
+    "FLOX_*",
+    "PYTHONPATH",
+    "UV_PROJECT_ENVIRONMENT",
+    "VIRTUAL_ENV*",
+    "_FLOX_*",
+]
+# xdist opens a loopback socket even without parallel workers, which the
+# Codex sandbox blocks.
 set = { PYTEST_ADDOPTS = "-p no:xdist" }
 
 [mcp_servers.phrocs]
-command = "./bin/phrocs-mcp"
+command = "bash"
+args = [".codex/with-flox", "uv", "run", "--no-sync", "python", "tools/phrocs/mcp_server.py"]
 startup_timeout_sec = 120
 
 [mcp_servers.posthog-local]

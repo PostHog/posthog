@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/docker"
-	gops "github.com/shirou/gopsutil/v4/process"
 )
 
 // Orchestrates all processes for the dev environment
@@ -101,18 +100,6 @@ func (m *Manager) Procs() []*Process {
 	cp := make([]*Process, len(m.procs))
 	copy(cp, m.procs)
 	return cp
-}
-
-// Snapshots samples all process trees from one shared OS process scan.
-func (m *Manager) Snapshots() map[string]Snapshot {
-	procs := m.Procs()
-	allProcs, _ := gops.Processes()
-	snapshots := make(map[string]Snapshot, len(procs))
-	for _, p := range procs {
-		p.sampleMetricsFrom(allProcs)
-		snapshots[p.Name] = p.Snapshot()
-	}
-	return snapshots
 }
 
 // Returns a process by name

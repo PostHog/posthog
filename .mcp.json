@@ -1,7 +1,8 @@
 {
     "mcpServers": {
         "phrocs": {
-            "command": "./bin/phrocs-mcp"
+            "command": "uv",
+            "args": ["run", "python", "tools/phrocs/mcp_server.py"]
         },
         "posthog-local": {
             "type": "http",

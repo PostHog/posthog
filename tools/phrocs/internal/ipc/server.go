@@ -189,10 +189,15 @@ func dispatch(req request, mgr *process.Manager) any {
 		if !ok {
 			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
 		}
-		return okSnapshot{OK: true, Snapshot: p.SnapshotWithMetrics()}
+		return okSnapshot{OK: true, Snapshot: p.Snapshot()}
 
 	case "status_all":
-		return map[string]any{"ok": true, "processes": mgr.Snapshots()}
+		procs := mgr.Procs()
+		result := make(map[string]any, len(procs))
+		for _, p := range procs {
+			result[p.Name] = p.Snapshot()
+		}
+		return map[string]any{"ok": true, "processes": result}
 
 	case "logs":
 		p, ok := mgr.Get(req.Process)

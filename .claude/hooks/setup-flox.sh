@@ -19,7 +19,6 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 VENV_DIR="$PROJECT_DIR/.flox/cache/venv"
 CACHE_FILE="$PROJECT_DIR/.flox/cache/claude-env-cache"
 FLOX_MANIFEST="$PROJECT_DIR/.flox/env/manifest.toml"
-CACHE_VERSION="2"
 
 # Checksum the flox manifest to auto-invalidate cache on env changes
 MANIFEST_HASH=""
@@ -33,18 +32,17 @@ fi
 
 # Fast path: reuse cached env if manifest hash matches
 if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
-  CACHED_KEY=$(head -1 "$CACHE_FILE" | sed 's/^# cache-key: //')
-  if [ "$CACHED_KEY" = "$CACHE_VERSION:$MANIFEST_HASH" ]; then
+  CACHED_HASH=$(head -1 "$CACHE_FILE" | sed 's/^# manifest-hash: //')
+  if [ "$CACHED_HASH" = "$MANIFEST_HASH" ]; then
     tail -n +2 "$CACHE_FILE" >> "$CLAUDE_ENV_FILE"
     exit 0
   fi
 fi
 
-# Slow path: provision this worktree and capture its Flox environment. Preserve
-# an already-active environment for this checkout instead of replacing it.
-if [ "${FLOX_ENV_PROJECT:-}" = "$PROJECT_DIR" ]; then
-  FLOX_ENV_SNAPSHOT=$(printenv)
-elif ! FLOX_ENV_SNAPSHOT=$("$PROJECT_DIR/bin/setup-worktree-env" printenv 2>/dev/null) || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+# Slow path: capture the flox activation environment
+FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
+
+if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
   exit 0
 fi
@@ -52,7 +50,7 @@ fi
 ENV_CONTENT=""
 while IFS='=' read -r key value; do
   ENV_CONTENT="${ENV_CONTENT}$(printf 'export %s=%q\n' "$key" "$value")"$'\n'
-done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_ACTIVATE_START_SERVICES|FLOX_CONFIG_DIR|FLOX_ENV|FLOX_ENV_CACHE|FLOX_ENV_DESCRIPTION|FLOX_ENV_DIRS|FLOX_ENV_PROJECT|_FLOX_ACTIVE_ENVIRONMENTS|UV_PROJECT_ENVIRONMENT|OPENSSL_ROOT_DIR|OPENSSL_LIB_DIR|OPENSSL_INCLUDE_DIR|LDFLAGS|CPPFLAGS|RUST_LOG|RUST_SRC_PATH|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER)=")
+done < <(echo "$FLOX_ENV_SNAPSHOT" | grep -E "^(PATH|FLOX_|UV_PROJECT_ENVIRONMENT|OPENSSL_|LDFLAGS|CPPFLAGS|RUST_|LIBRARY_PATH|MANPATH|DOTENV_FILE|DEBUG|POSTHOG_SKIP_MIGRATION_CHECKS|FLAGS_REDIS_URL|RUSTC_WRAPPER|SCCACHE_)=")
 
 if [ -d "$VENV_DIR/bin" ]; then
   ENV_CONTENT="${ENV_CONTENT}export PATH=\"${VENV_DIR}/bin:\$PATH\""$'\n'
@@ -61,6 +59,6 @@ fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
 printf '%s' "$ENV_CONTENT" >> "$CLAUDE_ENV_FILE"
-printf '# cache-key: %s:%s\n%s' "$CACHE_VERSION" "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
+printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE"
 
 exit 0

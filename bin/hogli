@@ -4,95 +4,26 @@
 
 set -euo pipefail
 
-SCRIPT_PATH="${BASH_SOURCE[0]}"
-while [[ -L "$SCRIPT_PATH" ]]; do
-    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
-    [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
-done
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_CMD="python"
 
-SCRIPT_REPO_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
-CURRENT_REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
-SCRIPT_GIT_COMMON_DIR="$(git -C "$SCRIPT_REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-CURRENT_GIT_COMMON_DIR="$(git -C "$CURRENT_REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -z "${VIRTUAL_ENV:-}" ]; then
+    # Only local venvs are considered here. Standalone hogli must never adopt
+    # the main clone's venv: commands like `uv sync --active` would rewrite it
+    # against this worktree. Hooks that need borrowing export VIRTUAL_ENV via
+    # bin/helpers/worktree-borrow.sh before hogli runs.
+    FOUND_VENV=""
+    if [ -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]; then
+        source "$REPO_ROOT/bin/helpers/worktree-borrow.sh"
+        FOUND_VENV="$(posthog_find_venv "$REPO_ROOT")"
+    fi
 
-# A bare `hogli` may resolve through another worktree's venv. Prefer the
-# checkout containing the caller, but never trust an unrelated Git repository.
-if [[ -n "$CURRENT_REPO_ROOT" \
-    && "$CURRENT_GIT_COMMON_DIR" == "$SCRIPT_GIT_COMMON_DIR" \
-    && -x "$CURRENT_REPO_ROOT/bin/hogli" ]]; then
-    REPO_ROOT="$CURRENT_REPO_ROOT"
+    if [ -n "$FOUND_VENV" ]; then
+        source "$FOUND_VENV/bin/activate"
+        PYTHON_CMD="$FOUND_VENV/bin/python"
+    fi
 else
-    REPO_ROOT="$SCRIPT_REPO_ROOT"
-fi
-
-LOCAL_VENV=""
-if [[ -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]]; then
-    # shellcheck disable=SC1091
-    source "$REPO_ROOT/bin/helpers/worktree-borrow.sh"
-fi
-for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
-    if [[ -x "$venv/bin/python" ]]; then
-        LOCAL_VENV="$venv"
-        break
-    fi
-done
-
-ACTIVE_VENV=""
-if [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/python" ]]; then
-    if [[ "${FLOX_ENV_PROJECT:-}" == "$REPO_ROOT" || "$VIRTUAL_ENV" == "$LOCAL_VENV" ]]; then
-        ACTIVE_VENV="$VIRTUAL_ENV"
-    elif [[ "${UV_NO_SYNC:-}" == "1" && -f "$REPO_ROOT/bin/helpers/worktree-borrow.sh" ]]; then
-        MAIN_REPO="$(posthog_main_repo "$REPO_ROOT")"
-        MAIN_VENV=""
-        if [[ -n "$MAIN_REPO" ]]; then
-            MAIN_VENV="$(posthog_find_venv "$MAIN_REPO")"
-        fi
-        if [[ -n "$MAIN_REPO" && "$VIRTUAL_ENV" == "$MAIN_VENV" ]] && cmp -s "$REPO_ROOT/uv.lock" "$MAIN_REPO/uv.lock"; then
-            ACTIVE_VENV="$VIRTUAL_ENV"
-        fi
-    fi
-fi
-
-AGENT_ENV_FILE="$REPO_ROOT/.flox/cache/agent-env"
-AGENT_ENV_VALID=false
-MANIFEST_HASH="$(git hash-object "$REPO_ROOT/.flox/env/manifest.toml" 2>/dev/null || true)"
-if [[ -n "$MANIFEST_HASH" && -f "$AGENT_ENV_FILE" ]] \
-    && grep -Fqx 'export POSTHOG_AGENT_ENV_VERSION=2' "$AGENT_ENV_FILE" \
-    && grep -Fqx "export POSTHOG_AGENT_ENV_MANIFEST=$MANIFEST_HASH" "$AGENT_ENV_FILE"; then
-    AGENT_ENV_VALID=true
-fi
-
-NEEDS_SETUP=false
-if [[ -z "$ACTIVE_VENV" && -z "$LOCAL_VENV" ]]; then
-    NEEDS_SETUP=true
-elif [[ -z "$ACTIVE_VENV" && "$LOCAL_VENV" == "$REPO_ROOT/.flox/cache/venv" && "$AGENT_ENV_VALID" == false ]]; then
-    NEEDS_SETUP=true
-fi
-
-if [[ "$NEEDS_SETUP" == true && -z "${POSTHOG_HOGLI_REEXEC:-}" && -x "$REPO_ROOT/bin/setup-worktree-env" ]] \
-    && command -v flox >/dev/null 2>&1; then
-    export POSTHOG_HOGLI_REEXEC=1
-    exec "$REPO_ROOT/bin/setup-worktree-env" "$REPO_ROOT/bin/hogli" "$@"
-fi
-
-if [[ -n "$ACTIVE_VENV" ]]; then
-    PYTHON_CMD="$ACTIVE_VENV/bin/python"
-elif [[ -n "$LOCAL_VENV" ]]; then
-    if [[ "$AGENT_ENV_VALID" == true && "$LOCAL_VENV" == "$REPO_ROOT/.flox/cache/venv" ]]; then
-        # shellcheck disable=SC1090
-        source "$AGENT_ENV_FILE"
-    fi
-    export PATH="$LOCAL_VENV/bin:${PATH:-}"
-    export VIRTUAL_ENV="$LOCAL_VENV"
-    export UV_PROJECT_ENVIRONMENT="$LOCAL_VENV"
-    PYTHON_CMD="$LOCAL_VENV/bin/python"
-else
-    PYTHON_CMD="$(command -v python3 || command -v python || true)"
-    if [[ -z "$PYTHON_CMD" ]]; then
-        echo "error: Python is required to run hogli" >&2
-        exit 127
-    fi
+    PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi
 
 # Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
