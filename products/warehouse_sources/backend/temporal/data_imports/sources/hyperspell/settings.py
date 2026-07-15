@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 
@@ -9,87 +8,98 @@ from products.warehouse_sources.backend.types import IncrementalField
 class HyperspellEndpointConfig:
     name: str
     path: str
-    # Response body key holding the row list (Hyperspell wraps every listing differently:
-    # `items`, `documents`, `connections`, `integrations`).
+    # Key that wraps the list of rows in the JSON response body (e.g. {"items": [...]}).
     data_key: str
-    primary_key: list[str]
-    # Row arrival order where Hyperspell documents it ("newest first" on queries and context
-    # documents), None where ordering is undocumented. Informational only today: every endpoint
-    # is full-refresh, so no incremental watermark depends on it.
-    sort_mode: Optional[SortMode] = None
-    # Cursor-paginated endpoints take a `cursor` param and return `next_cursor` in the body.
-    # Connections and integrations return the complete list in a single unpaginated response.
+    primary_keys: list[str]
+    # Endpoints whose data is scoped to a Hyperspell user. When the source is configured with
+    # user IDs, these endpoints are fetched once per user via the X-As-User header and every
+    # row is stamped with a `user_id` column (empty string when querying as the app).
+    user_scoped: bool = False
+    # Cursor-paginated endpoints return {..., "next_cursor": "..."} and accept a `cursor` param.
     paginated: bool = True
-    # Hyperspell is inconsistent about the page-size param name: /memories/list and
-    # /evaluate/queries take `size` (max 100), /entities and /context-documents take `limit`.
-    size_param: str = "size"
+    # Query param that controls page size ("size" or "limit", varies per endpoint).
+    page_size_param: Optional[str] = "size"
     page_size: int = 100
-    # Stable datetime field used for datetime partitioning, or None when the resource exposes
-    # no immutable timestamp. We never partition on fields that move (e.g. updated_at,
-    # last_modified_at) — only ones fixed at row creation.
+    # Stable datetime field to partition on. Never use a field that changes after creation.
     partition_key: Optional[str] = None
-    # No Hyperspell list endpoint exposes a server-side updated-since/created-since filter
-    # (memories only filter on source/collection/status/metadata), so every endpoint is
-    # full-refresh only (empty incremental_fields).
-    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Nullable fields that participate in the primary key, mapped to the value that replaces
+    # null so merged/deduped rows keep a non-null key.
+    null_key_defaults: dict[str, str] = field(default_factory=dict)
 
 
+# Hyperspell's list endpoints expose no server-side timestamp filter (the /memories/list
+# `filter` param only matches custom metadata), so every endpoint is full refresh only.
 HYPERSPELL_ENDPOINTS: dict[str, HyperspellEndpointConfig] = {
+    # https://api.hyperspell.com/openapi.json — GET /memories/list
     "memories": HyperspellEndpointConfig(
         name="memories",
         path="/memories/list",
         data_key="items",
-        # resource_id is only unique within its source provider (the read/update endpoints are
-        # keyed by {source}/{resource_id}), so the composite key keeps rows unique table-wide.
-        primary_key=["source", "resource_id"],
-        # When Hyperspell first indexed the document — set once, never moves.
-        partition_key="ingested_at",
+        # resource_id is unique per source provider (memories are addressed as
+        # /{source}/{resource_id}), and per user when fanning out over users.
+        primary_keys=["user_id", "source", "resource_id"],
+        user_scoped=True,
+        # No partition key: the only stable timestamp (ingested_at) is nullable.
     ),
+    # GET /connections/list — not paginated, returns every connection in one response.
     "connections": HyperspellEndpointConfig(
         name="connections",
         path="/connections/list",
         data_key="connections",
-        primary_key=["id"],
+        primary_keys=["user_id", "id"],
+        user_scoped=True,
         paginated=False,
     ),
+    # GET /integrations/list — app-level catalog of available integrations, not paginated.
     "integrations": HyperspellEndpointConfig(
         name="integrations",
         path="/integrations/list",
         data_key="integrations",
-        primary_key=["id"],
+        primary_keys=["id"],
         paginated=False,
     ),
+    # GET /vault/list — collections of manually added documents.
+    "vaults": HyperspellEndpointConfig(
+        name="vaults",
+        path="/vault/list",
+        data_key="items",
+        primary_keys=["user_id", "collection"],
+        user_scoped=True,
+        # A null collection is the user's default vault; keep the key non-null.
+        null_key_defaults={"collection": ""},
+    ),
+    # GET /entities — entities extracted from indexed memories.
     "entities": HyperspellEndpointConfig(
         name="entities",
         path="/entities",
         data_key="items",
-        primary_key=["id"],
-        size_param="limit",
-        page_size=500,
+        primary_keys=["user_id", "id"],
+        user_scoped=True,
+        page_size_param="limit",
+        page_size=500,  # /entities caps `limit` at 500 (other endpoints cap `size` at 100)
         partition_key="created_at",
     ),
+    # GET /evaluate/queries — prior queries issued against the app (rows carry their own
+    # user_id, so the listing is app-level and query_id is unique app-wide).
     "queries": HyperspellEndpointConfig(
         name="queries",
         path="/evaluate/queries",
         data_key="items",
-        primary_key=["query_id"],
-        sort_mode="desc",
-        # `time` is when the query was issued; query log rows are immutable.
+        primary_keys=["query_id"],
         partition_key="time",
     ),
+    # GET /context-documents — generated context documents for the authenticated app.
     "context_documents": HyperspellEndpointConfig(
         name="context_documents",
         path="/context-documents",
         data_key="documents",
-        primary_key=["document_id"],
-        sort_mode="desc",
-        size_param="limit",
+        primary_keys=["document_id"],
+        page_size_param="limit",
         partition_key="created_at",
     ),
 }
 
 ENDPOINTS = tuple(HYPERSPELL_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in HYPERSPELL_ENDPOINTS.items()
-}
+# No endpoint exposes a server-side timestamp filter, so nothing is advertised as incremental.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in HYPERSPELL_ENDPOINTS}

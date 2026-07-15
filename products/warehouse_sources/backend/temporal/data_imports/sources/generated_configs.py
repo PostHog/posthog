@@ -1987,7 +1987,7 @@ class HuntrSourceConfig(config.Config):
 class HyperspellSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
-    user_id: str | None = None
+    user_ids: str | None = None
 
 
 @config.config

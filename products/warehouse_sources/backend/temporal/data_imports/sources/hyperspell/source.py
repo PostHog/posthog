@@ -30,16 +30,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.settings import (
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    HYPERSPELL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeConfig]):
-    # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
-    # render in the public docs without credentials.
-    lists_tables_without_credentials = True
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -47,10 +45,12 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `region` picks the host the API key is sent to (api.hyperspell.com vs api.eu.hyperspell.com)
-        # and `user_id` sets the `X-As-User` identity the key acts as. Changing either retargets the
-        # stored key, so both must re-require the secret to be re-entered.
-        return ["region", "user_id"]
+        # The stored API key is sent to the host derived from `region`, so retargeting the
+        # region must re-require the key rather than reusing it against a different host.
+        # `user_ids` is the upstream identity the key acts as (via X-As-User); changing it
+        # must also re-require the key so an editor without the credential can't retarget the
+        # stored key at other users' data.
+        return ["region", "user_ids"]
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -58,17 +58,16 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
             name=SchemaExternalDataSourceType.HYPERSPELL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hyperspell",
-            caption=(
-                "Sync your Hyperspell memories, connections, integrations, extracted entities, query logs "
-                "and context documents. Create an API key in the **[Hyperspell dashboard](https://dashboard.hyperspell.com)** "
-                "and paste it below, choosing the region the key was created in.\n\n"
-                "Hyperspell data is scoped per user: set a user ID to sync that user's memories, or leave "
-                "it blank to sync app-scoped data only."
-            ),
+            releaseStatus=ReleaseStatus.ALPHA,
+            caption="""Enter your Hyperspell API key to pull your app's memories, connections, and extracted entities into the PostHog Data warehouse.
+
+Create an API key in the [Hyperspell dashboard](https://app.hyperspell.com/). Keys are region-specific, so pick the region your Hyperspell app lives in.
+
+Memories and connections are scoped to individual users of your Hyperspell app. To sync them, list the user IDs to sync as a comma-separated list — each is fetched via Hyperspell's `X-As-User` header. Leaving it empty syncs app-level data only.
+""",
             iconPath="/static/services/hyperspell.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/hyperspell",
             keywords=["ai", "memory", "agents", "context"],
-            releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],
                 [
@@ -77,7 +76,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
                         label="API key",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="Your Hyperspell API key",
+                        placeholder="",
                         secret=True,
                     ),
                     SourceFieldSelectConfig(
@@ -91,25 +90,19 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
                         ],
                     ),
                     SourceFieldInputConfig(
-                        name="user_id",
-                        label="User ID (optional)",
+                        name="user_ids",
+                        label="User IDs (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="Sync data for a specific user",
+                        placeholder="user-1, user-2",
                         secret=False,
                     ),
                 ],
             ),
         )
 
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            "401 Client Error": "Invalid Hyperspell API key. Please check your API key and its region, and reconnect.",
-            "403 Client Error": "Your Hyperspell API key lacks the required permissions. Please check the key and reconnect.",
-        }
-
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.canonical_descriptions import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
         )
 
@@ -123,16 +116,17 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        # No Hyperspell list endpoint exposes a server-side timestamp filter, so every
+        # table is full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                # Hyperspell has no server-side updated-since/created-since filter on any list
-                # endpoint, so every schema is full-refresh only.
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+                detected_primary_keys=HYPERSPELL_ENDPOINTS[endpoint].primary_keys,
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)
@@ -142,7 +136,13 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
     def validate_credentials(
         self, config: HyperspellSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        return validate_hyperspell_credentials(config.api_key, config.region, config.user_id)
+        return validate_hyperspell_credentials(config.api_key, config.region, schema_name)
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized": "Your Hyperspell API key is invalid, expired, or for a different region. Please check the key and region, then reconnect.",
+            "403 Client Error: Forbidden": "Your Hyperspell API key was not accepted. Please generate a new key in the Hyperspell dashboard and reconnect.",
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HyperspellResumeConfig]:
         return ResumableSourceManager[HyperspellResumeConfig](inputs, HyperspellResumeConfig)
@@ -156,7 +156,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
         return hyperspell_source(
             api_key=config.api_key,
             region=config.region,
-            user_id=config.user_id,
+            user_ids=config.user_ids,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
