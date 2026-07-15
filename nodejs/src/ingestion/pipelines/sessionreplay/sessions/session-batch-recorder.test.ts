@@ -3,7 +3,7 @@ import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -13,11 +13,16 @@ import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
-import { SessionBatchRecorder } from './session-batch-recorder'
-import { SessionConsoleLogRecorder } from './session-console-log-recorder'
+import { SessionBatchRecorder, SessionRef } from './session-batch-recorder'
+import { SessionConsoleLogRecorder, extractConsoleLogs } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
+import {
+    EndResult,
+    SerializedSessionData,
+    SnappySessionRecorder,
+    serializeSessionData,
+} from './snappy-session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -56,31 +61,22 @@ export class SnappySessionRecorderMock {
         private readonly batchId: string
     ) {}
 
-    public recordMessage(message: ParsedMessageData): number {
-        let bytesWritten = 0
-
+    public recordSessionData(data: SerializedSessionData): number {
         // Store distinctId from first message
         if (!this._distinctId) {
-            this._distinctId = message.distinct_id
+            this._distinctId = data.distinctId
         }
 
-        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
-            this.startDateTime = message.eventsRange.start
+        if (!this.startDateTime || data.eventsRange.start < this.startDateTime) {
+            this.startDateTime = data.eventsRange.start
         }
-        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
-            this.endDateTime = message.eventsRange.end
+        if (!this.endDateTime || data.eventsRange.end > this.endDateTime) {
+            this.endDateTime = data.eventsRange.end
         }
 
-        Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
-            events.forEach((event) => {
-                const serializedLine = JSON.stringify([windowId, event]) + '\n'
-                this.chunks.push(Buffer.from(serializedLine))
-                bytesWritten += Buffer.byteLength(serializedLine)
-            })
-        })
-
-        this.size += bytesWritten
-        return bytesWritten
+        this.chunks.push(...data.chunks)
+        this.size += data.rawBytes
+        return data.rawBytes
     }
 
     public get distinctId(): string {
@@ -113,8 +109,9 @@ export class SnappySessionRecorderMock {
 }
 
 jest.mock('./session-console-log-recorder', () => ({
+    ...jest.requireActual('./session-console-log-recorder'),
     SessionConsoleLogRecorder: jest.fn().mockImplementation((_sessionId, _teamId, _batchId) => ({
-        recordMessage: jest.fn().mockResolvedValue(undefined),
+        recordSessionLogs: jest.fn().mockResolvedValue(undefined),
         end: jest.fn().mockReturnValue({
             consoleLogCount: 3,
             consoleWarnCount: 2,
@@ -188,6 +185,7 @@ jest.mock('./metrics', () => ({
 
 jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
+    ...jest.requireActual('./snappy-session-recorder'),
     SnappySessionRecorder: jest
         .fn()
         .mockImplementation(
@@ -206,13 +204,29 @@ describe('SessionBatchRecorder', () => {
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
-    // Records a message with its resolved retention and encryption key (both resolved upstream in
-    // production). Defaults to 30d and a fresh cleartext key — most tests don't vary either.
-    const record = (
+    // Serializes a message and records it with its resolved retention and encryption key (all
+    // computed upstream in production), following the record step's call order: session data first,
+    // then logs and features only when the data was accepted. Defaults to 30d and a fresh cleartext
+    // key — most tests don't vary either.
+    const record = async (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d',
         sessionKey: SessionKey = createMockSessionKey()
-    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
+    ): Promise<number> => {
+        const session: SessionRef = {
+            teamId: message.team.teamId,
+            sessionId: message.message.session_id,
+            partition: message.message.metadata.partition,
+            retentionPeriod,
+            sessionKey,
+        }
+        const { accepted, bytesWritten } = recorder.recordSessionData(session, serializeSessionData(message.message))
+        if (accepted) {
+            await recorder.recordSessionLogs(session, extractConsoleLogs(message))
+            recorder.recordSessionFeatures(session, message.message)
+        }
+        return bytesWritten
+    }
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -646,8 +660,8 @@ describe('SessionBatchRecorder', () => {
                 expect.any(String),
                 mockConsoleLogStore
             )
-            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                message
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordSessionLogs).toHaveBeenCalledWith(
+                extractConsoleLogs(message)
             )
         })
 
@@ -682,9 +696,9 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
-            expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
+            expect(mockRecorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
+            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[1]))
         })
 
         it('should create separate console log recorders for different sessions', async () => {
@@ -722,11 +736,11 @@ describe('SessionBatchRecorder', () => {
                 expect.any(String),
                 mockConsoleLogStore
             )
-            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                messages[0]
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordSessionLogs).toHaveBeenCalledWith(
+                extractConsoleLogs(messages[0])
             )
-            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordMessage).toHaveBeenCalledWith(
-                messages[1]
+            expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordSessionLogs).toHaveBeenCalledWith(
+                extractConsoleLogs(messages[1])
             )
         })
 
@@ -834,18 +848,18 @@ describe('SessionBatchRecorder', () => {
             const session3Recorder = mockRecorders[2].value
 
             // Verify session1 recorder calls
-            expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2])
+            expect(session1Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[2]))
 
             // Verify session2 recorder calls
-            expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1])
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4])
+            expect(session2Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[1]))
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[4]))
 
             // Verify session3 recorder calls
-            expect(session3Recorder.recordMessage).toHaveBeenCalledTimes(1)
-            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3])
+            expect(session3Recorder.recordSessionLogs).toHaveBeenCalledTimes(1)
+            expect(session3Recorder.recordSessionLogs).toHaveBeenCalledWith(extractConsoleLogs(messages[3]))
         })
 
         it('should handle messages with different team IDs', async () => {
@@ -882,13 +896,13 @@ describe('SessionBatchRecorder', () => {
             const session2Recorder = mockRecorders[1].value
 
             // Verify correct message recording for each team
-            expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
+            expect(session1Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[1]))
 
-            expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2])
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3])
+            expect(session2Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[2]))
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[3]))
         })
     })
 
@@ -1351,7 +1365,7 @@ describe('SessionBatchRecorder', () => {
             jest.mocked(SessionConsoleLogRecorder).mockImplementationOnce(
                 (_sessionId, _teamId, _batchId) =>
                     ({
-                        recordMessage: jest.fn().mockResolvedValue(undefined),
+                        recordSessionLogs: jest.fn().mockResolvedValue(undefined),
                         end: jest.fn().mockReturnValue({
                             consoleLogCount: 5,
                             consoleWarnCount: 3,
@@ -1535,7 +1549,7 @@ describe('SessionBatchRecorder', () => {
             jest.mocked(SnappySessionRecorder).mockImplementation(
                 () =>
                     ({
-                        recordMessage: jest.fn().mockReturnValue(1),
+                        recordSessionData: jest.fn().mockReturnValue(1),
                         end: () => Promise.reject(new Error('Stream read error')),
                     }) as unknown as SnappySessionRecorder
             )

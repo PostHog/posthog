@@ -3,17 +3,12 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import { SerializeSessionStepOutput } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
-export interface RecordSessionEventStepInput extends SessionBatchContext {
-    team: TeamForReplay
+export interface RecordSessionEventStepInput extends SessionBatchContext, SerializeSessionStepOutput {
     parsedMessage: ParsedMessageData
-    retentionPeriod: RetentionPeriod
-    sessionKey: SessionKey
 }
 
 export interface RecordSessionEventStepConfig {
@@ -21,8 +16,10 @@ export interface RecordSessionEventStepConfig {
 }
 
 /**
- * Creates a step that records parsed session event messages to the session batch.
- * This is a side-effect step that writes to the session batch recorder.
+ * Creates a step that aggregates a message's precomputed record data — derived by the serialize
+ * step — into the session batch: session data first, then, if the recorder accepted the message,
+ * its console logs and features. The parsed message still feeds feature extraction, which is a
+ * sequential state machine across a session's messages and can't be precomputed.
  *
  * Metrics (tracked via TopHog wrapper in the pipeline):
  * - message_size_by_session_id: Sum of raw message sizes per session
@@ -34,13 +31,12 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
     const { isDebugLoggingEnabled } = config
 
     return async function recordSessionEventStep(input) {
-        const { team, parsedMessage, retentionPeriod, sessionKey, sessionBatchRecorder } = input
+        const { session, data, logs, parsedMessage, sessionBatchRecorder } = input
 
         // Reset revoked sessions counter once we're consuming
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
 
-        const { partition } = parsedMessage.metadata
-        if (isDebugLoggingEnabled(partition)) {
+        if (isDebugLoggingEnabled(session.partition)) {
             logger.debug('🔄', 'processing_session_recording', {
                 partition: parsedMessage.metadata.partition,
                 offset: parsedMessage.metadata.offset,
@@ -50,16 +46,19 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
             })
             logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
                 ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
+                team_id: session.teamId,
+                session_id: session.sessionId,
             })
         }
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
-        // Record to the batch's recorder, carried on the element by the pipeline's beforeBatch.
-        const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
-        await sessionBatchRecorder.record(messageWithTeam, retentionPeriod, sessionKey)
+        // Aggregate into the batch's recorder, carried on the element by the pipeline's beforeBatch.
+        const { accepted } = sessionBatchRecorder.recordSessionData(session, data)
+        if (accepted) {
+            await sessionBatchRecorder.recordSessionLogs(session, logs)
+            sessionBatchRecorder.recordSessionFeatures(session, parsedMessage)
+        }
 
         return ok(input)
     }

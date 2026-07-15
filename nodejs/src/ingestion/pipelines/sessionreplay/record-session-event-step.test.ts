@@ -4,6 +4,8 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-recorder'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
@@ -44,27 +46,39 @@ describe('createRecordSessionEventStep', () => {
         ...overrides,
     })
 
+    // Builds the step's input the way the serialize step does in the pipeline.
     const createInput = (
         overrides: Partial<ParsedMessageData> = {},
         team: TeamForReplay = defaultTeam
-    ): RecordSessionEventStepInput => ({
-        team,
-        parsedMessage: createParsedMessage(overrides),
-        retentionPeriod: '30d',
-        sessionKey: createMockSessionKey(),
-        // The recorder is tagged onto the element by the pipeline's beforeBatch.
-        sessionBatchRecorder: mockBatchRecorder,
-    })
+    ): RecordSessionEventStepInput => {
+        const parsedMessage = createParsedMessage(overrides)
+        return {
+            session: {
+                teamId: team.teamId,
+                sessionId: parsedMessage.session_id,
+                partition: parsedMessage.metadata.partition,
+                retentionPeriod: '30d',
+                sessionKey: createMockSessionKey(),
+            },
+            data: serializeSessionData(parsedMessage),
+            logs: extractConsoleLogs({ team, message: parsedMessage }),
+            parsedMessage,
+            // The recorder is tagged onto the element by the pipeline's beforeBatch.
+            sessionBatchRecorder: mockBatchRecorder,
+        }
+    }
 
     beforeEach(() => {
         jest.clearAllMocks()
 
         mockBatchRecorder = {
-            record: jest.fn().mockResolvedValue(100),
+            recordSessionData: jest.fn().mockReturnValue({ accepted: true, bytesWritten: 100 }),
+            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+            recordSessionFeatures: jest.fn(),
         } as unknown as jest.Mocked<SessionBatchRecorder>
     })
 
-    it('should record message to the batch recorder carried on the element', async () => {
+    it('should record the serialized data, logs, and features to the recorder on the element', async () => {
         const step = createRecordSessionEventStep({
             isDebugLoggingEnabled: () => false,
         })
@@ -72,15 +86,22 @@ describe('createRecordSessionEventStep', () => {
         const input = createInput()
         await step(input)
 
-        expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
-        expect(mockBatchRecorder.record).toHaveBeenCalledWith(
-            {
-                team: defaultTeam,
-                message: input.parsedMessage,
-            },
-            '30d',
-            input.sessionKey
-        )
+        expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledTimes(1)
+        expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledWith(input.session, input.data)
+        expect(mockBatchRecorder.recordSessionLogs).toHaveBeenCalledWith(input.session, input.logs)
+        expect(mockBatchRecorder.recordSessionFeatures).toHaveBeenCalledWith(input.session, input.parsedMessage)
+    })
+
+    it('should not record logs or features when the recorder rejects the message', async () => {
+        mockBatchRecorder.recordSessionData.mockReturnValue({ accepted: false, bytesWritten: 0 })
+        const step = createRecordSessionEventStep({
+            isDebugLoggingEnabled: () => false,
+        })
+
+        await step(createInput())
+
+        expect(mockBatchRecorder.recordSessionLogs).not.toHaveBeenCalled()
+        expect(mockBatchRecorder.recordSessionFeatures).not.toHaveBeenCalled()
     })
 
     it('should return ok result with input preserved', async () => {
@@ -94,7 +115,7 @@ describe('createRecordSessionEventStep', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             expect(result.value).toBe(input)
-            expect(result.value.team).toBe(defaultTeam)
+            expect(result.value.session).toBe(input.session)
             expect(result.value.parsedMessage).toBe(input.parsedMessage)
         }
     })

@@ -5,7 +5,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
-import { SnappySessionRecorder } from './snappy-session-recorder'
+import { SnappySessionRecorder, serializeSessionData } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
@@ -13,6 +13,10 @@ describe('SnappySessionRecorder', () => {
     beforeEach(() => {
         recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
     })
+
+    // Serializes the message and folds it into the recorder, as the reduce steps do in production.
+    const recordMessage = (recorder: SnappySessionRecorder, message: ParsedMessageData): number =>
+        recorder.recordSessionData(serializeSessionData(message))
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
         distinct_id: 'distinct_id',
@@ -52,7 +56,7 @@ describe('SnappySessionRecorder', () => {
             .map((line) => parseJSON(line))
     }
 
-    describe('recordMessage', () => {
+    describe('recording session data', () => {
         it('should record events in snappy-compressed JSONL format', async () => {
             const events = [
                 {
@@ -71,7 +75,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            const rawBytesWritten = recorder.recordMessage(message)
+            const rawBytesWritten = recordMessage(recorder, message)
             expect(rawBytesWritten).toBeGreaterThan(0)
 
             const { buffer, eventCount } = await recorder.end()
@@ -119,7 +123,7 @@ describe('SnappySessionRecorder', () => {
                 eventsByWindowId: events,
             }
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const { buffer, eventCount } = await recorder.end()
             const lines = await parseSnappyBuffer(buffer)
 
@@ -134,7 +138,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should handle empty events array', async () => {
             const message = createMessage('window1', [])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
 
             const { buffer, eventCount } = await recorder.end()
             const lines = await parseSnappyBuffer(buffer)
@@ -154,7 +158,7 @@ describe('SnappySessionRecorder', () => {
             for (let i = 0; i < events.length; i += 100) {
                 const messageEvents = events.slice(i, i + 100)
                 const message = createMessage('window1', messageEvents)
-                recorder.recordMessage(message)
+                recordMessage(recorder, message)
             }
 
             const { buffer, eventCount } = await recorder.end()
@@ -172,17 +176,17 @@ describe('SnappySessionRecorder', () => {
             const message = createMessage('window1', [
                 { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
             ])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             await recorder.end()
 
-            expect(() => recorder.recordMessage(message)).toThrow('Cannot record message after end() has been called')
+            expect(() => recordMessage(recorder, message)).toThrow('Cannot record message after end() has been called')
         })
 
         it('should throw error when calling end multiple times', async () => {
             const message = createMessage('window1', [
                 { type: RRWebEventType.Custom, timestamp: new Date('2025-01-01T01:00:00Z').getTime(), data: {} },
             ])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             await recorder.end()
 
             await expect(recorder.end()).rejects.toThrow('end() has already been called')
@@ -205,7 +209,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime()))
@@ -224,7 +228,7 @@ describe('SnappySessionRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.recordMessage(message))
+            messages.forEach((message) => recordMessage(recorder, message))
             const result = await recorder.end()
 
             expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime())) // Min from all messages
@@ -233,7 +237,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should handle empty events array', async () => {
             const message = createMessage('window1', [])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('1970-01-01T00:00:00Z').getTime()))
@@ -271,13 +275,14 @@ describe('SnappySessionRecorder', () => {
                     data: {},
                 },
             ])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
 
             expect(recorder.distinctId).toBe('distinct_id')
         })
 
         it('should keep first message distinctId even if later messages have different distinctId', () => {
-            recorder.recordMessage(
+            recordMessage(
+                recorder,
                 createMessage('window1', [
                     {
                         type: RRWebEventType.Meta,
@@ -297,7 +302,7 @@ describe('SnappySessionRecorder', () => {
                 ]),
                 distinct_id: 'different_distinct_id',
             }
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message2)
 
             expect(recorder.distinctId).toBe('distinct_id')
         })
@@ -310,7 +315,7 @@ describe('SnappySessionRecorder', () => {
                     data: {},
                 },
             ])
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             await recorder.end()
 
             expect(recorder.distinctId).toBe('distinct_id')
@@ -328,7 +333,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBe('https://example.com')
@@ -348,7 +353,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             // URL should be truncated to 4KB (4096 characters)
@@ -366,7 +371,7 @@ describe('SnappySessionRecorder', () => {
 
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             // Only the first 25 URLs should be stored
@@ -391,8 +396,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBe('https://example1.com')
@@ -415,8 +420,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBe('https://first-url.com')
@@ -439,8 +444,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBe('https://example.com')
@@ -456,7 +461,7 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBeNull()
@@ -483,7 +488,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.firstUrl).toBe('https://example1.com')
@@ -502,7 +507,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.clickCount).toBe(1)
@@ -523,7 +528,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.clickCount).toBe(2)
@@ -545,8 +550,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.clickCount).toBe(2)
@@ -567,7 +572,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.clickCount).toBe(0)
@@ -593,7 +598,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.clickCount).toBe(2)
@@ -611,7 +616,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.keypressCount).toBe(1)
@@ -632,7 +637,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.keypressCount).toBe(2)
@@ -654,8 +659,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.keypressCount).toBe(2)
@@ -676,7 +681,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.keypressCount).toBe(0)
@@ -702,7 +707,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.keypressCount).toBe(2)
@@ -720,7 +725,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.mouseActivityCount).toBe(1)
@@ -741,7 +746,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.mouseActivityCount).toBe(2)
@@ -763,8 +768,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.mouseActivityCount).toBe(2)
@@ -790,7 +795,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.mouseActivityCount).toBe(0)
@@ -826,7 +831,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             // Only MouseMove and TouchMove should be counted
@@ -844,7 +849,7 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.messageCount).toBe(1)
@@ -866,8 +871,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.messageCount).toBe(2)
@@ -892,7 +897,7 @@ describe('SnappySessionRecorder', () => {
 
             // Message already has null values for snapshot_source and snapshot_library
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.snapshotSource).toBe('web') // Default value for source
@@ -911,7 +916,7 @@ describe('SnappySessionRecorder', () => {
             message.snapshot_source = 'mobile'
             message.snapshot_library = 'posthog-android'
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.snapshotSource).toBe('mobile')
@@ -931,7 +936,7 @@ describe('SnappySessionRecorder', () => {
             message.snapshot_source = longString
             message.snapshot_library = longString
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.snapshotSource).toBe('a'.repeat(1000))
@@ -961,8 +966,8 @@ describe('SnappySessionRecorder', () => {
             message2.snapshot_source = 'mobile'
             message2.snapshot_library = 'posthog-android'
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.snapshotSource).toBe('web')
@@ -981,7 +986,7 @@ describe('SnappySessionRecorder', () => {
             // Keep snapshot_source as null and set library
             message.snapshot_library = 'posthog-js'
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.snapshotSource).toBe('web')
@@ -1001,7 +1006,7 @@ describe('SnappySessionRecorder', () => {
             ]
 
             const message = createMessage('window1', events)
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             const decompressedBuffer = await readSnappyBuffer(result.buffer)
@@ -1021,7 +1026,7 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)
@@ -1038,8 +1043,8 @@ describe('SnappySessionRecorder', () => {
                 { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:01Z').toMillis(), data: {} },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)
@@ -1076,7 +1081,7 @@ describe('SnappySessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            recordMessage(recorder, message)
             const result = await recorder.end()
 
             expect(result.activeMilliseconds).toEqual(1000)
@@ -1111,8 +1116,8 @@ describe('SnappySessionRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            recordMessage(recorder, message1)
+            recordMessage(recorder, message2)
             const result = await recorder.end()
 
             // The active time should be calculated based on events from both windows
@@ -1146,7 +1151,7 @@ describe('SnappySessionRecorder', () => {
                 },
             }
 
-            const rawBytesWritten = recorder.recordMessage(message)
+            const rawBytesWritten = recordMessage(recorder, message)
             expect(rawBytesWritten).toBe(lines.length)
 
             const result = await recorder.end()

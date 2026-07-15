@@ -20,6 +20,128 @@ const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
 const MAX_URLS_COUNT = 25
 
+/**
+ * Per-message session data, precomputed by the serialize reduce step (business logic): the
+ * serialized JSONL chunks plus everything the session block aggregates per message. Pure data —
+ * the recorder folds it into session state without looking at the raw events again.
+ */
+export interface SerializedSessionData {
+    /** Serialized JSONL chunks of `[windowId, event]` lines. */
+    chunks: Buffer[]
+    /** Raw bytes across the chunks (before compression). */
+    rawBytes: number
+    eventCount: number
+    segmentationEvents: SegmentationEvent[]
+    /** Hrefs seen, in event order — may repeat; the recorder dedupes, truncates, and caps. */
+    urls: string[]
+    clickCount: number
+    keypressCount: number
+    mouseActivityCount: number
+    eventsRange: { start: DateTime; end: DateTime }
+    distinctId: string
+    snapshotSource: string
+    snapshotLibrary: string | null
+}
+
+/**
+ * Serializes one parsed message into the per-message session data the recorder aggregates:
+ * the JSONL block chunks plus the counts, urls, and segmentation events derived from the events.
+ * Handles both parsed events and the native anonymizer's pre-serialized fast path.
+ */
+export function serializeSessionData(message: ParsedMessageData): SerializedSessionData {
+    const base = {
+        eventsRange: { start: message.eventsRange.start, end: message.eventsRange.end },
+        distinctId: message.distinct_id,
+        snapshotSource: (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH),
+        snapshotLibrary: message.snapshot_library ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH) : null,
+    }
+
+    if (message.preSerialized) {
+        // The native anonymizer already serialized the block lines; the counts, segmentation, and
+        // urls come from the per-event metadata instead of walking parsed events.
+        const { lines, events } = message.preSerialized
+        const segmentationEvents: SegmentationEvent[] = []
+        const urls: string[] = []
+        let clickCount = 0
+        let keypressCount = 0
+        let mouseActivityCount = 0
+        for (const event of events) {
+            segmentationEvents.push({
+                timestamp: event.ts,
+                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
+            })
+            if (event.href) {
+                urls.push(event.href)
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
+                clickCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
+                keypressCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
+                mouseActivityCount += 1
+            }
+        }
+        return {
+            ...base,
+            chunks: [lines],
+            rawBytes: lines.length,
+            eventCount: events.length,
+            segmentationEvents,
+            urls,
+            clickCount,
+            keypressCount,
+            mouseActivityCount,
+        }
+    }
+
+    const chunks: Buffer[] = []
+    const segmentationEvents: SegmentationEvent[] = []
+    const urls: string[] = []
+    let rawBytes = 0
+    let eventCount = 0
+    let clickCount = 0
+    let keypressCount = 0
+    let mouseActivityCount = 0
+    for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
+        for (const event of events) {
+            const serializedLine = JSON.stringify([windowId, event]) + '\n'
+            const chunk = Buffer.from(serializedLine)
+            chunks.push(chunk)
+            rawBytes += chunk.length
+
+            segmentationEvents.push(toSegmentationEvent(event))
+
+            const eventUrl = hrefFrom(event)
+            if (eventUrl) {
+                urls.push(eventUrl)
+            }
+            if (isClick(event)) {
+                clickCount += 1
+            }
+            if (isKeypress(event)) {
+                keypressCount += 1
+            }
+            if (isMouseActivity(event)) {
+                mouseActivityCount += 1
+            }
+            eventCount++
+        }
+    }
+    return {
+        ...base,
+        chunks,
+        rawBytes,
+        eventCount,
+        segmentationEvents,
+        urls,
+        clickCount,
+        keypressCount,
+        mouseActivityCount,
+    }
+}
+
 export interface EndResult {
     /** The complete compressed session block */
     buffer: Buffer
@@ -102,115 +224,51 @@ export class SnappySessionRecorder {
     ) {}
 
     /**
-     * Records a message containing events for this session
-     * Events are buffered until end() is called
+     * Aggregates one message's precomputed session data ({@link serializeSessionData}) into the
+     * session block: appends the serialized chunks and folds the counts, urls, and ranges in.
+     * Buffered until end() is called.
      *
-     * @param message - Message containing events for one or more windows
      * @returns Number of raw bytes written (before compression)
      * @throws If called after end()
      */
-    public recordMessage(message: ParsedMessageData): number {
+    public recordSessionData(data: SerializedSessionData): number {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
         }
 
         if (!this._distinctId) {
-            this._distinctId = message.distinct_id
+            this._distinctId = data.distinctId
         }
-
         if (!this.snapshotSource) {
-            this.snapshotSource = (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+            this.snapshotSource = data.snapshotSource
         }
         if (!this.snapshotLibrary) {
-            this.snapshotLibrary = message.snapshot_library
-                ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
-                : null
+            this.snapshotLibrary = data.snapshotLibrary
         }
-
-        let rawBytesWritten = 0
 
         // Note: We don't need to check for zero timestamps here because:
         // 1. The parse step filters out events with zero timestamps
         // 2. The parse step drops messages with no valid events
         // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
-        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
-            this.startDateTime = message.eventsRange.start
+        if (!this.startDateTime || data.eventsRange.start < this.startDateTime) {
+            this.startDateTime = data.eventsRange.start
         }
-        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
-            this.endDateTime = message.eventsRange.end
-        }
-
-        if (message.preSerialized) {
-            return this.recordPreSerialized(message)
+        if (!this.endDateTime || data.eventsRange.end > this.endDateTime) {
+            this.endDateTime = data.eventsRange.end
         }
 
-        for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
-            for (const event of events) {
-                const serializedLine = JSON.stringify([windowId, event]) + '\n'
-                const chunk = Buffer.from(serializedLine)
-                this.uncompressedChunks.push(chunk)
-
-                // Store segmentation event for later use in active time calculation
-                this.segmentationEvents.push(toSegmentationEvent(event))
-
-                const eventUrl = hrefFrom(event)
-                if (eventUrl) {
-                    this.addUrl(eventUrl)
-                }
-
-                if (isClick(event)) {
-                    this.clickCount += 1
-                }
-
-                if (isKeypress(event)) {
-                    this.keypressCount += 1
-                }
-
-                if (isMouseActivity(event)) {
-                    this.mouseActivityCount += 1
-                }
-
-                this.eventCount++
-                this.size += chunk.length
-                rawBytesWritten += chunk.length
-            }
+        this.uncompressedChunks.push(...data.chunks)
+        this.segmentationEvents.push(...data.segmentationEvents)
+        for (const url of data.urls) {
+            this.addUrl(url)
         }
-
+        this.clickCount += data.clickCount
+        this.keypressCount += data.keypressCount
+        this.mouseActivityCount += data.mouseActivityCount
+        this.eventCount += data.eventCount
+        this.size += data.rawBytes
         this.messageCount += 1
-        return rawBytesWritten
-    }
-
-    /**
-     * Fast path for messages the native anonymizer already serialized: the JSONL block lines are
-     * appended as one chunk, and the counts/segmentation/urls come from the per-event metadata
-     * instead of walking parsed events.
-     */
-    private recordPreSerialized(message: ParsedMessageData): number {
-        const { lines, events } = message.preSerialized!
-
-        this.uncompressedChunks.push(lines)
-        for (const event of events) {
-            this.segmentationEvents.push({
-                timestamp: event.ts,
-                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
-            })
-            if (event.href) {
-                this.addUrl(event.href)
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
-                this.clickCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
-                this.keypressCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
-                this.mouseActivityCount += 1
-            }
-            this.eventCount++
-        }
-        this.size += lines.length
-        this.messageCount += 1
-        return lines.length
+        return data.rawBytes
     }
 
     private addUrl(url: string): void {
