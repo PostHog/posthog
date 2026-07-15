@@ -107,6 +107,14 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
             f"Splunk Observability Cloud API error (retryable): status={response.status_code}, url={url}"
         )
 
+    # Redirects are never followed (the session pins allow_redirects=False so the
+    # X-SF-TOKEN header can't be replayed to another host); the API answers directly,
+    # so a 3xx means the realm doesn't point at a real API tenant.
+    if response.is_redirect:
+        raise Exception(
+            f"Splunk Observability Cloud returned a redirect, which usually means the realm is wrong. url={url}"
+        )
+
     if not response.ok:
         logger.error(
             f"Splunk Observability Cloud API error: status={response.status_code}, body={response.text}, url={url}"
@@ -312,6 +320,12 @@ def _get_signalflow_rows(
         stream=True,
         timeout=STREAM_TIMEOUT_SECONDS,
     )
+    # A 3xx passes `response.ok`, and the session never follows redirects (token
+    # replay protection) — fail loudly instead of ending the stream empty.
+    if response.is_redirect:
+        raise Exception(
+            "Splunk Observability Cloud SignalFlow returned a redirect, which usually means the realm is wrong"
+        )
     if not response.ok:
         logger.error(
             f"Splunk Observability Cloud SignalFlow error: status={response.status_code}, body={response.text[:2000]}"
@@ -380,7 +394,10 @@ def get_rows(
     config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS[endpoint]
     base_url = _api_base_url(realm)
     headers = _get_headers(access_token)
-    session = make_tracked_session(redact_values=(access_token,))
+    # allow_redirects=False pins every credentialed request to the Splunk hosts:
+    # requests only strips `Authorization` on a cross-host redirect, so a followed
+    # redirect would replay the X-SF-TOKEN header to whatever host the 3xx names.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
     now_ms = _to_epoch_ms(datetime.now(UTC))
 
     if config.uses_signalflow:
@@ -473,7 +490,8 @@ def validate_credentials(realm: str, access_token: str) -> tuple[bool, str | Non
 
     try:
         # One cheap probe: /v2/organization answers for any valid API-scoped token.
-        response = make_tracked_session(redact_values=(access_token,)).get(
+        # allow_redirects=False so the X-SF-TOKEN header can't be replayed off-host.
+        response = make_tracked_session(redact_values=(access_token,), allow_redirects=False).get(
             f"{base_url}/v2/organization",
             headers=_get_headers(access_token),
             timeout=10,
@@ -485,4 +503,6 @@ def validate_credentials(realm: str, access_token: str) -> tuple[bool, str | Non
         return True, None
     if response.status_code in (401, 403):
         return False, "Invalid Splunk Observability Cloud access token or realm"
+    if response.is_redirect:
+        return False, "Splunk Observability Cloud redirected the request, which usually means the realm is wrong"
     return False, f"Splunk Observability Cloud returned an unexpected status code: {response.status_code}"

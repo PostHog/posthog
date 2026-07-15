@@ -32,6 +32,7 @@ def _json_response(body: Any, status_code: int = 200) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.ok = status_code < 400
+    response.is_redirect = False
     response.json.return_value = body
     response.text = json.dumps(body)
     if status_code >= 400:
@@ -255,6 +256,7 @@ def _stream_response(events: list[tuple[str, dict[str, Any]]]) -> MagicMock:
     response = MagicMock()
     response.ok = True
     response.status_code = 200
+    response.is_redirect = False
     response.iter_lines.return_value = _sse_lines(events)
     return response
 
@@ -411,6 +413,33 @@ class TestSourceResponse:
         assert response.sort_mode == "asc"
 
 
+class TestRedirectHardening:
+    # requests strips only `Authorization` when a redirect crosses hosts, so a session
+    # that follows redirects would replay the X-SF-TOKEN header to whatever host a 3xx
+    # names. Both session constructions must pin redirects off.
+    def test_get_rows_session_never_follows_redirects(self) -> None:
+        with patch(f"{_MODULE}.make_tracked_session") as factory:
+            factory.return_value.get.side_effect = [_json_response(_wrapped([]))]
+            list(
+                get_rows(
+                    realm="us0",
+                    access_token="test-token",
+                    endpoint="detectors",
+                    logger=MagicMock(),
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+        assert factory.call_args.kwargs["allow_redirects"] is False
+
+    def test_validate_credentials_session_never_follows_redirects(self) -> None:
+        with patch(f"{_MODULE}.make_tracked_session") as factory:
+            response = MagicMock()
+            response.status_code = 200
+            factory.return_value.get.return_value = response
+            validate_credentials("us0", "test-token")
+        assert factory.call_args.kwargs["allow_redirects"] is False
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
@@ -420,12 +449,27 @@ class TestValidateCredentials:
         with patch(f"{_MODULE}.make_tracked_session") as mock_session_factory:
             response = MagicMock()
             response.status_code = status_code
+            response.is_redirect = False
             mock_session_factory.return_value.get.return_value = response
 
             valid, error = validate_credentials("us0", "test-token")
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
+
+    def test_redirect_returns_actionable_realm_message(self) -> None:
+        # A 3xx passes `status_code < 400` checks; with redirects pinned off it must
+        # surface as "wrong realm", not a confusing unexpected-status error.
+        with patch(f"{_MODULE}.make_tracked_session") as mock_session_factory:
+            response = MagicMock()
+            response.status_code = 302
+            response.is_redirect = True
+            mock_session_factory.return_value.get.return_value = response
+
+            valid, error = validate_credentials("us0", "test-token")
+
+        assert valid is False
+        assert error is not None and "realm" in error
 
     def test_invalid_realm_fails_without_request(self) -> None:
         with patch(f"{_MODULE}.make_tracked_session") as mock_session_factory:
