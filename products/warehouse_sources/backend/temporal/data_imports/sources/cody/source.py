@@ -89,7 +89,6 @@ Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create a
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -62,7 +62,6 @@ class TestCodySource:
 
         assert config.name == SchemaExternalDataSourceType.CODY
         assert config.label == "Cody"
-        assert config.unreleasedSource is True
         assert len(config.fields) == 2
         instance_url, access_token = config.fields
         assert isinstance(instance_url, SourceFieldInputConfig)
