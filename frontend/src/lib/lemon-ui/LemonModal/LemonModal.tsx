@@ -77,19 +77,29 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
         return ''
     }
 
-    const textSegments: string[] = []
-    const textNodeWalker = document.createTreeWalker(titleElement, NodeFilter.SHOW_TEXT)
-
-    while (textNodeWalker.nextNode()) {
-        const ariaHiddenAncestor = textNodeWalker.currentNode.parentElement?.closest('[aria-hidden="true"]')
-        if (ariaHiddenAncestor) {
-            continue
+    const getText = (node: Node): string => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return node.textContent ?? ''
         }
 
-        textSegments.push(textNodeWalker.currentNode.textContent ?? '')
+        if (!(node instanceof Element)) {
+            return ''
+        }
+
+        if (node !== titleElement && node.getAttribute('aria-hidden') === 'true') {
+            return ''
+        }
+
+        if (node instanceof HTMLBRElement) {
+            return '\n'
+        }
+
+        return Array.from(node.childNodes)
+            .map((childNode) => getText(childNode))
+            .join('')
     }
 
-    return textSegments.join('').replace(/\s+/g, ' ').trim()
+    return getText(titleElement).replace(/\s+/g, ' ').trim()
 }
 
 function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
