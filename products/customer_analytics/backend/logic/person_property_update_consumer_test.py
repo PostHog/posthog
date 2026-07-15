@@ -164,3 +164,39 @@ class TestProcessRecord:
 
         get_producer.assert_called_once()
         assert get_producer.return_value.produce.call_count == 2
+
+
+class TestProcessWithRetries:
+    def test_transient_failure_reprocesses_same_message_until_terminal(self):
+        # A RETRY must not advance past the message (committing a later offset would skip it):
+        # the same message is re-sent in place until it succeeds.
+        capture = MagicMock(
+            side_effect=[
+                _capture_result(succeeded=False),
+                _capture_result(succeeded=False),
+                _capture_result(succeeded=True),
+            ]
+        )
+        sleeps: list[float] = []
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture, bucket=MagicMock(), dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
+        )
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        assert c._process_with_retries(value) == SENT
+        assert capture.call_count == 3
+        assert len(sleeps) == 2  # slept between each retry, not after the terminal outcome
+
+    def test_shutdown_mid_retry_stops_reprocessing_and_stays_uncommitted(self):
+        # On shutdown we stop retrying and return RETRY so the offset is left uncommitted and the
+        # message is redelivered on the next start rather than blocking shutdown forever.
+        capture = MagicMock(return_value=_capture_result(succeeded=False))
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, bucket=MagicMock(), dlq_producer=MagicMock())
+
+        def stop_after_first(_seconds: float) -> None:
+            c._shutdown = True
+
+        c._sleep = stop_after_first
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        assert c._process_with_retries(value) == RETRY

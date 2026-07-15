@@ -43,6 +43,9 @@ RETRY_TOTAL = Counter("warehouse_person_property_retry_total", "person-property 
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 
+# Pause between in-place retries of a transiently-failing message (capture down / timeout).
+_RETRY_BACKOFF_SECONDS = 1.0
+
 
 class InvalidPersonPropertyMessage(Exception):
     """A message that can never succeed (bad shape) -> DLQ, not retry."""
@@ -120,6 +123,7 @@ class PersonPropertyUpdateConsumer:
         capture_fn: Callable[..., Any] | None = None,
         bucket: TokenBucket | None = None,
         dlq_producer: Any | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         # Lazy default import so tests can inject without importing the capture stack.
         if capture_fn is None:
@@ -129,6 +133,7 @@ class PersonPropertyUpdateConsumer:
         self._capture = capture_fn
         self._bucket = bucket or TokenBucket(_current_rate)
         self._dlq_producer = dlq_producer
+        self._sleep = sleep
         self._shutdown = False
 
     def _get_dlq_producer(self) -> Any:
@@ -196,6 +201,18 @@ class PersonPropertyUpdateConsumer:
         RETRY_TOTAL.inc()
         return RETRY
 
+    def _process_with_retries(self, value: bytes) -> str:
+        """Process one message, retrying transient failures in place. A ``RETRY`` must never
+        advance past the message: Kafka offset commits are a high-water mark, so committing a
+        later message's offset would silently skip this one. We re-send the same message (Kafka
+        lag is the backpressure) until it's terminal, or return ``RETRY`` if shutdown is requested
+        mid-retry so the uncommitted offset is redelivered on the next start."""
+        outcome = self.process_record(value)
+        while outcome == RETRY and not self._shutdown:
+            self._sleep(_RETRY_BACKOFF_SECONDS)
+            outcome = self.process_record(value)
+        return outcome
+
     def run(self, poll_timeout: float = 1.0) -> None:  # pragma: no cover - exercised in dogfood
         from confluent_kafka import Consumer as ConfluentConsumer  # noqa: PLC0415
 
@@ -235,7 +252,7 @@ class PersonPropertyUpdateConsumer:
                     # Tombstone / empty payload: nothing to $set. Commit past it so it doesn't replay.
                     consumer.commit(message=message, asynchronous=False)
                     continue
-                outcome = self.process_record(value)
+                outcome = self._process_with_retries(value)
                 if outcome in (SENT, DLQ):
                     consumer.commit(message=message, asynchronous=False)
         finally:
