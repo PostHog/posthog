@@ -503,12 +503,67 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     return int(result[0][0]) if result else 0
 
 
-def _property_presence_where(request: "DataDeletionRequest") -> tuple[str, dict]:
+def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
+    """ "Value is present" checks for DEFAULT-materialized property columns: ``col != ''``.
+
+    Matches the deletion path in posthog/dags/data_deletion_requests.py: the DEFAULT expression
+    stores ``''`` for missing keys, so ``!= ''`` (not ``IS NOT NULL``) is the correct presence test.
+    """
+    return [f"`{name}` != ''" for name, _ in mat_cols]
+
+
+def discover_affected_mat_columns(properties: list[str], table_column: str) -> list[tuple[str, bool]]:
+    """DEFAULT-materialized columns on the distributed ``events`` table for the given properties.
+
+    Returns ``(column_name, is_nullable)`` for columns whose comment follows the
+    ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
+    in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
+    value left in a materialized column after its JSON key is gone still counts.
+    """
+    if not properties:
+        return []
+
+    from django.conf import settings as django_settings
+
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+
+    from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
+
+    rows = sync_execute(
+        """
+        SELECT name, comment, type LIKE 'Nullable(%%)'
+        FROM system.columns
+        WHERE database = %(database)s
+          AND table = 'events'
+          AND comment LIKE '%%column_materializer::%%'
+          AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
+        """,
+        {"database": django_settings.CLICKHOUSE_DATABASE},
+        readonly=True,
+        ch_user=ClickHouseUser.META,
+    )
+    target = set(properties)
+    result: list[tuple[str, bool]] = []
+    for name, comment, is_nullable in rows:
+        details = MaterializedColumnDetails.from_column_comment(comment)
+        if details.table_column == table_column and details.property_name in target:
+            result.append((name, bool(is_nullable)))
+    return result
+
+
+def _property_presence_where(
+    request: "DataDeletionRequest",
+    mat_cols: list[tuple[str, bool]] | None = None,
+    person_mat_cols: list[tuple[str, bool]] | None = None,
+) -> tuple[str, dict]:
     """WHERE predicate + params matching events that still carry any target (person_)property.
 
     Mirrors ``event_removal_where`` but swaps the events filter for a presence check over
-    ``properties`` / ``person_properties``. Used to verify a property_removal request: once the
-    property has been stripped from every matching event, this count reaches zero.
+    ``properties`` / ``person_properties`` and their DEFAULT-materialized columns. Used to verify a
+    property_removal request: once the property has been stripped from the JSON and its materialized
+    column reset on every matching event, this count reaches zero. The presence set must match the
+    deletion path (``_property_removal_where``) or a row it still considers dirty reads as clean here.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(request)]
     params = event_match_params(request)
@@ -518,10 +573,14 @@ def _property_presence_where(request: "DataDeletionRequest") -> tuple[str, dict]
         presence.append(jsonhas_expr(prop, f"fp_{i}"))
         for j, part in enumerate(prop.split(".")):
             params[f"fp_{i}_{j}"] = part
+    if mat_cols:
+        presence.extend(_mat_col_presence_clauses(mat_cols))
     for i, prop in enumerate(request.person_properties or []):
         presence.append(jsonhas_expr(prop, f"pp_{i}", column="person_properties"))
         for j, part in enumerate(prop.split(".")):
             params[f"pp_{i}_{j}"] = part
+    if person_mat_cols:
+        presence.extend(_mat_col_presence_clauses(person_mat_cols))
     if presence:
         parts.append(f"AND ({' OR '.join(presence)})")
 
@@ -539,7 +598,9 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
 
-    predicate, params = _property_presence_where(request)
+    mat_cols = discover_affected_mat_columns(request.properties or [], "properties")
+    person_mat_cols = discover_affected_mat_columns(request.person_properties or [], "person_properties")
+    predicate, params = _property_presence_where(request, mat_cols, person_mat_cols)
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
