@@ -105,6 +105,40 @@ export interface _DayBreakdownApi {
     truncated: boolean
 }
 
+export interface _BucketBreakdownRowApi {
+    /** UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`). */
+    bucket_start: string
+    /** Number of $ai_generation + $ai_embedding events in this bucket for the scoped product. */
+    event_count: number
+    /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events; render any remainder as uncategorized rather than assuming the components reconcile. */
+    cost_usd: number
+    /** Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` minus the cache read/write costs (the stored input cost includes them), clamped at zero. The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is present, so they can be stacked without double counting cache costs. */
+    input_cost_usd: number
+    /** Cost of output tokens in USD (sum of `$ai_output_cost_usd`). */
+    output_cost_usd: number
+    /** Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`). */
+    cache_read_cost_usd: number
+    /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
+    cache_creation_cost_usd: number
+    /** Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, OpenAI-style events include them, so don't stack this with the cache token sums. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` in this bucket. */
+    output_tokens: number
+    /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket. */
+    cache_read_input_tokens: number
+    /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket. */
+    cache_creation_input_tokens: number
+}
+
+export interface _BucketBreakdownApi {
+    /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted; zero-fill client-side when rendering a continuous series. */
+    items: _BucketBreakdownRowApi[]
+    /** Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`. */
+    bucket_minutes: number
+    /** Effectively always false: `by_bucket` ignores `limit` because truncating a time series by cost would be meaningless, and the 600-bucket window cap already bounds the series length. */
+    truncated: boolean
+}
+
 export interface _TopTraceRowApi {
     /**
      * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -143,6 +177,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
+    by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
     top_traces: _TopTracesApi
 }
@@ -2396,6 +2432,15 @@ export interface TestHogTaggerResponseApi {
 
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
+     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
+     *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
+     * * `60` - 60
+     */
+    bucket_minutes?: LlmAnalyticsPersonalSpendListBucketMinutes
+    /**
      * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
      * @minLength 1
      * @maxLength 32
@@ -2424,6 +2469,16 @@ export type LlmAnalyticsPersonalSpendListParams = {
      */
     refresh?: boolean
 }
+
+export type LlmAnalyticsPersonalSpendListBucketMinutes =
+    (typeof LlmAnalyticsPersonalSpendListBucketMinutes)[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes]
+
+export const LlmAnalyticsPersonalSpendListBucketMinutes = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
+    Number60: 60,
+} as const
 
 export type DatasetItemsListParams = {
     /**

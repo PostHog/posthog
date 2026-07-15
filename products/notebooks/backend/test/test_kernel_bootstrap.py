@@ -62,6 +62,14 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "error")
         self.assertIn("ValueError: boom", envelope["error"])
 
+    def test_keyboard_interrupt_surfaces_as_interrupted_with_captured_output(self):
+        # A SIGINT lands in run_cell as KeyboardInterrupt: the run is `interrupted`, not a
+        # red failure, and the output captured before the stop still ships in the envelope.
+        envelope = self._run("print('partial output')\nraise KeyboardInterrupt")
+        self.assertEqual(envelope["status"], "interrupted")
+        self.assertEqual(envelope["error"], "Run interrupted.")
+        self.assertIn("partial output", envelope["stdout"])
+
     def test_syntax_error_surfaces_as_error_envelope(self):
         # run_cell reports compile errors via error_before_exec (error_in_exec stays None);
         # they must not masquerade as a successful empty run stored as DONE.

@@ -48,19 +48,29 @@ class KernelExecutor:
         self._km: KernelManager | None = None
         self._kc: Any = None
         self._lock = threading.Lock()
+        # The run currently executing a cell in the kernel, so an interrupt for a queued or
+        # already-finished run can never SIGINT somebody else's cell. Written while holding
+        # _lock; read lock-free from the HTTP handler thread (a stale read is benign; the
+        # worst case is a missed/late SIGINT, and the cancel event still stops the run).
+        self._active_run_id: str | None = None
 
-    def run_kernel_node(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def run_kernel_node(self, payload: dict[str, Any], cancel_event: threading.Event | None = None) -> dict[str, Any]:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
+            # Cancelled while queued behind another run: never touch the kernel.
+            if cancel_event is not None and cancel_event.is_set():
+                return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
             try:
                 self._ensure_kernel()
                 fetch_notes: list[str] = []
-                inputs = self._materialize_inputs(payload, fetch_notes)
+                inputs = self._materialize_inputs(payload, cancel_event, fetch_notes)
                 result = self._invoke_run_node(payload, inputs)
                 if fetch_notes:
                     # Surface where each frame's bytes came from (truncated presigned host,
                     # never the full URL) in the node's stdout, next to the run's own output.
                     result["stdout"] = "\n".join([*fetch_notes, result.get("stdout") or ""]).strip("\n")
                 return result
+            except data_plane.DataPlaneInterrupted:
+                return envelope.from_python_execution(status="interrupted", error=envelope.INTERRUPTED_MESSAGE)
             except data_plane.DataPlaneError as exc:
                 return envelope.from_python_execution(status="error", error=str(exc))
             except Exception as exc:  # noqa: BLE001 — a run must always yield a callback envelope
@@ -69,6 +79,13 @@ class KernelExecutor:
     def interrupt(self) -> None:
         if self._km is not None:
             self._km.interrupt_kernel()
+
+    def interrupt_for_run(self, run_id: str) -> bool:
+        """SIGINT the kernel only if `run_id` is the run executing a cell right now."""
+        if run_id and run_id == self._active_run_id and self._km is not None:
+            self._km.interrupt_kernel()
+            return True
+        return False
 
     def restart(self) -> None:
         with self._lock:
@@ -105,11 +122,16 @@ class KernelExecutor:
             raise RuntimeError(f"failed to initialize the kernel session ({error_detail or 'no error detail'})")
 
     def _materialize_inputs(
-        self, payload: dict[str, Any], fetch_notes: list[str] | None = None
+        self,
+        payload: dict[str, Any],
+        cancel_event: threading.Event | None = None,
+        fetch_notes: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only)."""
         kernel_inputs: list[dict[str, Any]] = []
         for spec in payload.get("inputs") or []:
+            if cancel_event is not None and cancel_event.is_set():
+                raise data_plane.DataPlaneInterrupted("Run interrupted.")
             name = spec["name"]
             if spec.get("kind") == "local":
                 kernel_inputs.append({"name": name, "kind": "local"})
@@ -129,6 +151,7 @@ class KernelExecutor:
                     spec["query"],
                     frame_path,
                     limit=_MATERIALIZE_ROW_CAP,
+                    cancel_event=cancel_event,
                 )
                 if fetched_from and fetch_notes is not None:
                     # Only object deliveries carry a source (the inline fallback has none) —
@@ -162,12 +185,17 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
-            status, error_detail = self._execute(
-                "import json as __j\n"
-                f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
-                "__envelope = _ph.run_node(__payload)\n"
-                f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
-            )
+            # Only while the cell is actually executing may an interrupt SIGINT the kernel.
+            self._active_run_id = run_id
+            try:
+                status, error_detail = self._execute(
+                    "import json as __j\n"
+                    f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
+                    "__envelope = _ph.run_node(__payload)\n"
+                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
+                )
+            finally:
+                self._active_run_id = None
             if status != "ok" or not os.path.exists(envelope_path):
                 message = (
                     f"The kernel run failed: {error_detail}"
