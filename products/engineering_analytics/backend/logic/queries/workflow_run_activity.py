@@ -84,7 +84,11 @@ def query_workflow_run_activity(
     truncated = len(rows) > _LIMIT
     capped = rows[:_LIMIT]
     real = [row for row in capped if not row[7]]
-    chosen = real if len(real) >= _MIN_REAL_RUNS else capped
+    # The threshold counts duration-bearing rows only: in-flight runs are kept but can't land on the
+    # scatter, so real rows without durations must not veto the fallback — dropping the no-ops around
+    # a lone completed run plus an in-flight one would leave the chart below MIN_POINTS and blank.
+    plottable_real = sum(1 for row in real if row[3] is not None)
+    chosen = real if plottable_real >= _MIN_REAL_RUNS else capped
     # The is_noop sort put real runs first — restore the newest-first order the chart contract promises.
     chosen = sorted(chosen, key=lambda row: row[2], reverse=True)
     points = [_to_point(row) for row in chosen]

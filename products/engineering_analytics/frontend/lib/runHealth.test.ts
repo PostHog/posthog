@@ -108,6 +108,17 @@ describe('runHealth', () => {
         expect(summary.medianSeconds).toBe(4)
     })
 
+    it('lets a lone real duration win over no-op noise', () => {
+        // With exactly one real execution among gate runs, falling back to all durations would let
+        // the no-ops drown it (~4s median) — the single real sample is the honest answer.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
+    })
+
     const fleetRow = (
         latestRunFailed: boolean | null,
         successRate: number | null = 1,

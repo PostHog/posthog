@@ -1289,6 +1289,12 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 # tell it from a gate no-op, so with no real runs to show the filter must stand down.
                 _run_row(8110, "Guard", "sha-h", "completed", "success", *_ago_with_duration(2, 3)),
                 _run_row(8111, "Guard", "sha-i", "completed", "success", *_ago_with_duration(1, 4)),
+                # A sparse workflow: one real execution, one in flight, one fast no-op. The in-flight
+                # run has no duration to plot, so dropping the no-op would leave the scatter below its
+                # 2-point minimum — the fallback must count duration-bearing runs, not kept rows.
+                _run_row(8120, "Sparse", "sha-j", "completed", "success", *_ago_with_duration(3, 300)),
+                _run_row(8121, "Sparse", "sha-k", "in_progress", None, _ago(2), _ago(2)),
+                _run_row(8122, "Sparse", "sha-l", "completed", "success", *_ago_with_duration(1, 4)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
@@ -1316,6 +1322,10 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # would blank the chart, so the filter stands down and both runs come back.
         guard = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Guard")
         assert [p.run_id for p in guard.points] == [8111, 8110]
+
+        # One plottable real run isn't enough for the scatter either — the no-op stays visible too.
+        sparse = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Sparse")
+        assert [p.run_id for p in sparse.points] == [8122, 8121, 8120]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the

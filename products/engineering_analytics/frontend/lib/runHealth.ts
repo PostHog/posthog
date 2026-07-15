@@ -131,15 +131,15 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const passRate = completed.length ? passed / completed.length : null
 
     // No-op runs stay in the counts and pass rate (they are real runs) but not in the duration
-    // percentiles, so the median/p95 tiles agree with the activity chart, which hides them too. Below
-    // 2 real samples (the chart's MIN_POINTS) fall back to every duration — duration alone can't tell
-    // a gate no-op from an intentionally fast workflow, and "—" would be wrong for the latter.
+    // percentiles, so the median/p95 tiles agree with the activity chart, which hides them too. The
+    // all-duration fallback is reserved for ZERO real samples (an intentionally fast workflow, where
+    // "—" would be wrong): even a lone real execution is a more honest median than gate-run noise.
     const allDurations = completed.map((run) => run.durationSeconds).filter((d): d is number => d != null)
     const realDurations = completed
         .filter((run) => !isNoOpRun(run))
         .map((run) => run.durationSeconds)
         .filter((d): d is number => d != null)
-    const durations = (realDurations.length >= 2 ? realDurations : allDurations).sort((a, b) => a - b)
+    const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
     const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     const latestConclusion = byStartDesc[0]?.conclusion ?? null
