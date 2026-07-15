@@ -340,6 +340,14 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
+# Cap on optimizer passes ClickHouse applies to a query plan. ClickHouse's own default is 10000;
+# some large generated HogQL plans exceed it and abort with code 572 (TOO_MANY_QUERY_PLAN_OPTIMIZATIONS).
+# We raise the ceiling so those plans finish. Tunable per-env; per-team overrides still go through
+# CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.
+CLICKHOUSE_QUERY_PLAN_MAX_OPTIMIZATIONS: int = get_from_env(
+    "CLICKHOUSE_QUERY_PLAN_MAX_OPTIMIZATIONS", 100000, type_cast=int
+)
+
 # Connection to the autoresearch test cluster, used by the query-performance
 # autoresearch proxy. Unset host fails closed at the call site.
 CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
