@@ -5,6 +5,6 @@ own presentation layer are allowed to reach the ORM classes, keeping direct mode
 the isolation boundary.
 """
 
-from ..models import Metric
+from ..models import Metric, RelationshipProposal, TableCertification
 
-__all__ = ["Metric"]
+__all__ = ["Metric", "RelationshipProposal", "TableCertification"]

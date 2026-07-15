@@ -190,6 +190,9 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         RUNNING = "running", "running"
         DONE = "done", "done"
         FAILED = "failed", "failed"
+        # A user-requested stop (Journey 9); unlike FAILED, the envelope's captured
+        # stdout/stderr still surface to the UI.
+        INTERRUPTED = "interrupted", "interrupted"
 
     class NodeType(models.TextChoices):
         HOGQL = "hogql", "hogql"

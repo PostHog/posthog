@@ -354,6 +354,7 @@ export interface UserType extends UserBaseType {
     is_impersonated: boolean
     is_impersonated_until?: string
     is_impersonated_read_only?: boolean
+    is_impersonated_reason?: string | null
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -4728,6 +4729,17 @@ export interface PropertyDefinition {
     verified_by?: string
     hidden?: boolean
     virtual?: boolean
+    // Provenance when a person property is populated from a data warehouse source. Read-only.
+    warehouse_origin?: WarehousePropertyOrigin | null
+}
+
+export interface WarehousePropertyOrigin {
+    source_id?: string
+    schema_id?: string
+    table_name?: string
+    column?: string
+    custom_property_source_id?: string
+    last_synced_at?: string
 }
 
 export enum PropertyDefinitionState {
@@ -5011,6 +5023,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
+    oauth_mcp_consent?: OAuthMcpConsentContext
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5411,6 +5425,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'apns',
     'postgresql',
     'aws-s3',
     's3-compatible',
@@ -5638,100 +5653,116 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-export type APIScopeObject =
-    | 'action'
-    | 'access_control'
-    | 'account'
-    | 'activity_log'
-    | 'agents'
-    | 'agent_approvals'
-    | 'alert'
-    | 'annotation'
-    | 'approvals'
-    | 'batch_export'
-    | 'business_knowledge'
-    | 'clickhouse_test_cluster_perf'
-    | 'cohort'
-    | 'comment'
-    | 'conversation'
-    | 'customer_analytics'
-    | 'customer_journey'
-    | 'customer_profile_config'
-    | 'data_catalog'
-    | 'data_catalog_approval'
-    | 'dashboard'
-    | 'dashboard_template'
-    | 'dataset'
-    | 'early_access_feature'
-    | 'element'
-    | 'endpoint'
-    | 'engineering_analytics'
-    | 'error_tracking'
-    | 'evaluation'
-    | 'event_definition'
-    | 'experiment'
-    | 'experiment_holdout'
-    | 'experiment_saved_metric'
-    | 'external_data_source'
-    | 'export'
-    | 'feature_flag'
-    | 'file_system'
-    | 'file_system_shortcut'
-    | 'group'
-    | 'health_issue'
-    | 'heatmap'
-    | 'hog_flow'
-    | 'hog_function'
-    | 'ingestion_warning'
-    | 'insight'
-    | 'insight_variable'
-    | 'integration'
-    | 'legal_document'
-    | 'live_debugger'
-    | 'llm_analytics'
-    | 'llm_gateway'
-    | 'llm_prompt'
-    | 'llm_provider_key'
-    | 'llm_skill'
-    | 'logs'
-    | 'marketing_analytics'
-    | 'mcp_analytics'
-    | 'metrics'
-    | 'notebook'
-    | 'organization'
-    | 'organization_integration'
-    | 'organization_member'
-    | 'person'
-    | 'plugin'
-    | 'product_enablement'
-    | 'product_tour'
-    | 'project'
-    | 'property_definition'
-    | 'query'
-    | 'query_performance'
-    | 'replay_scanner'
-    | 'revenue_analytics'
-    | 'session_recording'
-    | 'session_recording_playlist'
-    | 'sharing_configuration'
-    | 'signal_scout'
-    | 'subscription'
-    | 'survey'
-    | 'tagger'
-    | 'task'
-    | 'ticket'
-    | 'uploaded_media'
-    | 'usage_metric'
-    | 'user'
-    | 'user_interview'
-    | 'visual_review'
-    | 'warehouse_objects'
-    | 'warehouse_table'
-    | 'warehouse_view'
-    | 'web_analytics'
-    | 'webhook'
-    | 'tracing'
-    | 'field_note'
+// Single source of truth for scope objects on the frontend. Keep in sync with
+// `APIScopeObject` in posthog/scopes.py (same order). The runtime array lets
+// scopes.test.ts assert that every scope object is either offered in the PAK
+// creation modal or explicitly omitted — see `API_SCOPES_OMITTED_FROM_MODAL`.
+export const API_SCOPE_OBJECTS = [
+    'action',
+    'access_control',
+    'account',
+    'activity_log',
+    'agents',
+    'agent_approvals',
+    'alert',
+    'annotation',
+    'approvals',
+    'batch_export',
+    'batch_import',
+    'business_knowledge',
+    'clickhouse_test_cluster_perf',
+    'cohort',
+    'comment',
+    'conversation',
+    'customer_analytics',
+    'customer_journey',
+    'customer_profile_config',
+    'data_catalog',
+    'data_catalog_approval',
+    'dashboard',
+    'event_filter',
+    'dashboard_template',
+    'dataset',
+    'early_access_feature',
+    'endpoint',
+    'engineering_analytics',
+    'error_tracking',
+    'evaluation',
+    'element',
+    'event_definition',
+    'experiment',
+    'experiment_holdout',
+    'experiment_saved_metric',
+    'export',
+    'external_data_schema',
+    'external_data_source',
+    'feature_flag',
+    'file_system',
+    'file_system_shortcut',
+    'group',
+    'health_issue',
+    'heatmap',
+    'hog_flow',
+    'hog_function',
+    'ingestion_warning',
+    'insight',
+    'insight_variable',
+    'integration',
+    'legal_document',
+    'link',
+    'live_debugger',
+    'llm_analytics',
+    'llm_gateway',
+    'llm_prompt',
+    'llm_provider_key',
+    'llm_skill',
+    'logs',
+    'marketing_analytics',
+    'mcp_analytics',
+    'metrics',
+    'notebook',
+    'organization',
+    'organization_integration',
+    'organization_member',
+    'person',
+    'plugin',
+    'product_enablement',
+    'product_tour',
+    'project',
+    'property_definition',
+    'query',
+    'query_performance',
+    'replay_scanner',
+    'revenue_analytics',
+    'session_recording',
+    'session_recording_playlist',
+    'sharing_configuration',
+    'signal_scout',
+    'signal_scout_internal',
+    'signal_scout_report',
+    'streamlit_app',
+    'subscription',
+    'survey',
+    'tagger',
+    'ticket',
+    'task',
+    'tracing',
+    'field_note',
+    'uploaded_media',
+    'usage_metric',
+    'user',
+    'user_interview',
+    'vision_action',
+    'visual_review',
+    'warehouse_objects',
+    'warehouse_table',
+    'warehouse_view',
+    'web_analytics',
+    'webhook',
+    'wizard_session',
+] as const
+
+export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5876,6 +5907,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    BILLING = 'Billing',
     EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
@@ -6915,7 +6947,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
-    | ProductKey.MCP_ANALYTICS,
+    | ProductKey.MCP_ANALYTICS
+    | ProductKey.CONVERSATIONS,
     OnboardingProduct
 >
 
@@ -6946,6 +6979,7 @@ export type CyclotronJobInputSchemaType = {
         | 'choice'
         | 'json'
         | 'integration'
+        | 'integration_multi'
         | 'integration_field'
         | 'email'
         | 'native_email'
@@ -7029,7 +7063,6 @@ export type CyclotronJobInputType = CyclotronInputType
 
 export interface HogFunctionMappingType {
     name: string
-    disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
@@ -7474,6 +7507,11 @@ export interface ProjectTreeRef {
      * "null" opens the "new" page
      */
     ref: string | null
+}
+
+export type OAuthMcpConsentContext = {
+    is_mcp_resource: boolean
+    scopes?: string[]
 }
 
 export type OAuthApplicationPublicMetadata = {

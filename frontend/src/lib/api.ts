@@ -236,6 +236,7 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
@@ -2595,10 +2596,7 @@ const api = {
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{
-            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
-            failed: any
-        }> {
+        ): Promise<CopyFlagsResponseApi> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
@@ -4904,11 +4902,17 @@ const api = {
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
+        async sqlV2RunInterrupt(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{ status: string; detail?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}/interrupt`).create()
+        },
         async sqlV2RunResult(
             notebookId: NotebookType['short_id'],
             runId: string
         ): Promise<{
-            status: 'running' | 'done' | 'failed'
+            status: 'running' | 'done' | 'failed' | 'interrupted'
             result: {
                 columns?: string[]
                 types?: [string, string][]

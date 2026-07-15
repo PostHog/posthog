@@ -149,6 +149,10 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.signup_enrichment import (
+    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
+)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -209,6 +213,10 @@ from products.notebooks.backend.facade.temporal import (
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
+)
+from products.review_hog.backend.temporal import (
+    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
+    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
 from products.signals.backend.emission.temporal_settings import (
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
@@ -285,7 +293,8 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
         + JOB_LOGS_WORKFLOWS
-        + NOTEBOOKS_WORKFLOWS,
+        + NOTEBOOKS_WORKFLOWS
+        + SIGNUP_ENRICHMENT_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -303,7 +312,16 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
-        + NOTEBOOKS_ACTIVITIES,
+        + NOTEBOOKS_ACTIVITIES
+        + SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
+    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    (
+        settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+        SIGNUP_ENRICHMENT_WORKFLOWS,
+        SIGNUP_ENRICHMENT_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -355,11 +373,13 @@ _task_queue_specs = [
         SIGNALS_PRODUCT_WORKFLOWS
         + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
         + BUSINESS_KNOWLEDGE_WORKFLOWS
-        + CONVERSATIONS_WORKFLOWS,
+        + CONVERSATIONS_WORKFLOWS
+        + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
-        + CONVERSATIONS_ACTIVITIES,
+        + CONVERSATIONS_ACTIVITIES
+        + REVIEW_HOG_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
