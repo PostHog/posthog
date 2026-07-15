@@ -239,7 +239,7 @@ def _ownership_path_escapes_repo(d: dict) -> None:
 
 
 def _ownership_wrong_locator_for_format(d: dict) -> None:
-    d["ownership"]["sources"][1] = {"format": "ph-product", "path": "products/foo/product.yaml"}
+    d["ownership"]["sources"][0] = {"format": "hogli-resolver", "glob": "products/*/product.yaml"}
 
 
 @pytest.mark.parametrize(

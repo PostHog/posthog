@@ -166,8 +166,9 @@ registerToolRenderers([
 ])
 ```
 
-This is the generic per-product mechanism. Max is its first consumer
-(`scenes/max/messages/adapters/registerMaxToolRenderers`), not a special case.
+This is the generic per-product mechanism. The surface itself is its first consumer: the PostHog product
+data-tool widgets live in `components/tool/widgets/` and self-register via `widgets/registerDataToolRenderers`
+(side-effect-imported by `ToolCallCard`), so every surface that renders a tool card gets them.
 
 ### Headless status badge / automation
 

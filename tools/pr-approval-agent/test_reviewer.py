@@ -209,3 +209,23 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
     # No steering.md must mean a byte-identical prompt — the Action's existing repos see no change.
     _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
     assert _load_review_guidance() == "norms prose\n"
+
+@pytest.mark.parametrize(
+    "ownership, summary, expected_head",
+    [
+        # Individual-only ownership must reach the prompt, not collapse to
+        # "no ownership-source match", and the team-membership note (computed
+        # against teams the author can't be "on") must stay out.
+        (
+            {"teams": [], "individuals": ["@handle"]},
+            "individually owned by @handle",
+            "Ownership: individually owned by @handle",
+        ),
+        ({"teams": [], "individuals": []}, "", "Ownership: no ownership-source match"),
+    ],
+)
+def test_format_ownership_individual_only(ownership: dict, summary: str, expected_head: str) -> None:
+    cl = {"ownership": ownership, "ownership_summary": summary, "author_on_owning_team": False}
+    out = Reviewer(Path("."))._format_ownership(cl)
+    assert out.splitlines()[0] == expected_head
+    assert "NOT on the owning team" not in out

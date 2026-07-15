@@ -109,6 +109,7 @@ the row lists both.
 | coassemble                | HTTP                        | requests                                                        | ✅                          |
 | coda                      | HTTP                        | requests                                                        | ✅                          |
 | codefresh                 | HTTP                        | requests                                                        | ✅                          |
+| cohere                    | HTTP                        | requests                                                        | ✅                          |
 | coin_api                  | HTTP                        | requests                                                        | ✅                          |
 | coingecko                 | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -180,7 +181,9 @@ the row lists both.
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
+| flowlu                    | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -240,6 +243,7 @@ the row lists both.
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
+| langfuse                  | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly              | HTTP                        | requests                                                        | ✅                          |
 | kustomer                  | HTTP                        | requests                                                        | ✅                          |
 | lattice                   | HTTP                        | requests                                                        | ✅                          |
@@ -280,6 +284,7 @@ the row lists both.
 | my_hours                  | HTTP                        | requests                                                        | ✅                          |
 | mysql                     | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                       | HTTP                        | requests                                                        | ✅                          |
+| nebius_ai                 | HTTP                        | requests                                                        | ✅                          |
 | netlify                   | HTTP                        | requests                                                        | ✅                          |
 | new_york_times            | HTTP                        | requests                                                        | ✅                          |
 | news_api                  | HTTP                        | requests                                                        | ✅                          |
@@ -297,6 +302,7 @@ the row lists both.
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
+| openrouter                | HTTP                        | requests                                                        | ✅                          |
 | openweather               | HTTP                        | requests                                                        | ✅                          |
 | ortto                     | HTTP                        | requests                                                        | ✅                          |
 | oura                      | HTTP                        | requests                                                        | ✅                          |
@@ -354,6 +360,7 @@ the row lists both.
 | rss                       | HTTP                        | requests                                                        | ✅                          |
 | ruddr                     | HTTP                        | requests                                                        | ✅                          |
 | safetyculture             | HTTP                        | requests                                                        | ✅                          |
+| sage_hr                   | HTTP                        | requests                                                        | ✅                          |
 | salesforce                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                | HTTP                        | requests                                                        | ✅                          |
 | salesloft                 | HTTP                        | requests                                                        | ✅                          |
@@ -417,6 +424,7 @@ the row lists both.
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -526,7 +534,6 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - cody
-- cohere
 - constant_contact
 - copper
 - cosmosdb
@@ -543,6 +550,7 @@ doesn't conflict with concurrent PRs.
 - deputy
 - display_video_360
 - docusign
+- dodopayments
 - dolibarr
 - dremio
 - dropbox
@@ -567,6 +575,7 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
@@ -637,7 +646,6 @@ doesn't conflict with concurrent PRs.
 - koyeb
 - kyve
 - lambda_labs
-- langfuse
 - langsmith
 - leexi
 - lemon_squeezy
@@ -674,7 +682,6 @@ doesn't conflict with concurrent PRs.
 - mono
 - nasa
 - navan
-- nebius_ai
 - neon
 - netsuite
 - new_relic
@@ -691,7 +698,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - openai
-- openrouter
 - opsgenie
 - opuswatch
 - oracle
@@ -756,10 +762,10 @@ doesn't conflict with concurrent PRs.
 - rudderstack
 - runpod
 - safetyculture
-- sage_hr
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
+- salestrics
 - sanity
 - sap_concur
 - sap_erp
@@ -839,7 +845,6 @@ doesn't conflict with concurrent PRs.
 - uptick
 - us_census
 - uservoice
-- vapi
 - veeqo
 - vespa
 - visma_economic

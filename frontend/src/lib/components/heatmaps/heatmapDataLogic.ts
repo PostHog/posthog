@@ -36,6 +36,10 @@ import type { heatmapDataLogicType } from './heatmapDataLogicType'
 // The endpoint defaults to a bounded page for API callers; the overlay renders every point.
 const UNBOUNDED_HEATMAP_LIMIT = 0
 
+// Limit canvas height to prevent browser freezing with heatmap.js
+// Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
+export const MAX_HEATMAP_HEIGHT = 8000
+
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -437,14 +441,23 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         heightOverride: [
             (s) => [s.maxYFromEvents, s.windowHeight],
             (maxYFromEvents: number, windowHeight: number): number => {
-                // Limit canvas height to prevent browser freezing with heatmap.js
-                // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
-                const MAX_HEATMAP_HEIGHT = 8000
                 if (maxYFromEvents > 0) {
                     const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
                     return Math.min(Math.max(calculatedHeight, windowHeight), MAX_HEATMAP_HEIGHT)
                 }
                 return Math.max(DEFAULT_HEATMAP_HEIGHT, windowHeight)
+            },
+        ],
+
+        // True when captured points extend past the rendered canvas cap, so the overlay is clipped
+        isHeightCapped: [
+            (s) => [s.maxYFromEvents],
+            (maxYFromEvents: number): boolean => {
+                if (maxYFromEvents <= 0) {
+                    return false
+                }
+                const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
+                return calculatedHeight > MAX_HEATMAP_HEIGHT
             },
         ],
 
