@@ -1939,7 +1939,12 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
     """
     if workspace:
         ensure_runtime_ready()
-        name, _ = resolve_workspace_name(workspace)
+        # Cleanup is destructive (removes caches and build artifacts), so refuse
+        # to run it against someone else's shared `@user[/label]` devbox.
+        if workspace.startswith("@"):
+            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+        name, workspaces = resolve_workspace_name(workspace)
+        _get_workspace_or_fail(name, workspaces)
         if not coder_ssh_alias_configured(name):
             _fail(
                 "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
