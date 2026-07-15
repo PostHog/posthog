@@ -1,9 +1,11 @@
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.db.models import Max, Q
+from django.db.models import F, OuterRef, Q, Subquery, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from temporalio import activity
@@ -21,7 +23,11 @@ from products.tasks.backend.logic.code_workstreams.grouping import (
     build_workstreams,
 )
 from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
-from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW, MAX_TASKS_PER_TEAM
+from products.tasks.backend.temporal.code_workstreams.constants import (
+    ACTIVITY_WINDOW,
+    MAX_TASKS_PER_TEAM,
+    MAX_TASKS_PER_USER,
+)
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 
@@ -147,6 +153,32 @@ def _github_logins_by_user(user_ids: list[int]) -> dict[int, set[str]]:
     return logins
 
 
+def _select_recent_task_ids(team_id: int, cutoff: datetime) -> list[uuid.UUID]:
+    # Rank each user's tasks by most-recent run activity and keep only their freshest
+    # MAX_TASKS_PER_USER, so one high-volume user can't evict another user's tasks. The
+    # MAX_TASKS_PER_TEAM cap then bounds the whole team's set, still favouring recency.
+    last_activity = (
+        TaskRun.objects.filter(task_id=OuterRef("pk"), updated_at__gte=cutoff)
+        .order_by("-updated_at")
+        .values("updated_at")[:1]
+    )
+    return list(
+        Task.objects.filter(team_id=team_id, archived=False, deleted=False, created_by__isnull=False)
+        .annotate(last_activity=Subquery(last_activity))
+        .filter(last_activity__isnull=False)
+        .annotate(
+            user_rank=Window(
+                expression=RowNumber(),
+                partition_by=F("created_by_id"),
+                order_by=F("last_activity").desc(),
+            )
+        )
+        .filter(user_rank__lte=MAX_TASKS_PER_USER)
+        .order_by("-last_activity")
+        .values_list("id", flat=True)[:MAX_TASKS_PER_TEAM]
+    )
+
+
 @activity.defn
 @close_db_connections
 def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamWorkstreamsOutput:
@@ -154,15 +186,7 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
     cutoff = now - ACTIVITY_WINDOW
     now_ms = _epoch_ms(now)
 
-    # Group by task and order by most-recent activity so the MAX_TASKS_PER_TEAM cap deterministically
-    # keeps the freshest tasks instead of an arbitrary slice that flickers between cycles.
-    recent_task_ids = [
-        row["task_id"]
-        for row in TaskRun.objects.filter(team_id=input.team_id, updated_at__gte=cutoff)
-        .values("task_id")
-        .annotate(last_activity=Max("updated_at"))
-        .order_by("-last_activity")[:MAX_TASKS_PER_TEAM]
-    ]
+    recent_task_ids = _select_recent_task_ids(input.team_id, cutoff)
     tasks = list(
         Task.objects.filter(id__in=recent_task_ids, team_id=input.team_id, archived=False, deleted=False)
         .select_related("created_by")
