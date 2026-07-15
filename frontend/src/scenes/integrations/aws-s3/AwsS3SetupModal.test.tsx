@@ -44,8 +44,8 @@ describe('AwsS3SetupModal', () => {
     })
 
     it.each<[string, Region | null, string]>([
-        ['US cloud', Region.US, 'arn:aws:iam::<US_ACCOUNT_ID>:role/<US_ROLE_NAME>'],
-        ['EU cloud', Region.EU, 'arn:aws:iam::<EU_ACCOUNT_ID>:role/<EU_ROLE_NAME>'],
+        ['US cloud', Region.US, 'arn:aws:iam::309986977637:role/posthog-external-batch-exports'],
+        ['EU cloud', Region.EU, 'arn:aws:iam::623789312881:role/posthog-external-batch-exports'],
         ['dev', Region.DEV, 'Check with your instance administrator'],
         ['self-hosted', null, 'Check with your instance administrator'],
     ])('shows the right role to trust on %s', (_label, region, expectedText) => {
