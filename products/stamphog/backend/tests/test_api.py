@@ -86,6 +86,21 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         repos = [row["repository"] for row in response.json()["results"]]
         assert repos == ["PostHog/posthog"]
 
+    def test_environment_url_reads_canonical_parent_rows(self) -> None:
+        # With a child environment id in the URL, reads must resolve to the canonical (parent) team.
+        # ProductTeamModel.save() writes rows at the parent id, so scoping the list by the raw child id
+        # would miss them. The viewset canonicalizes self.team_id, so the parent's config still lists.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="7"
+        )
+
+        response = self.client.get(f"/api/projects/{env.id}/stamphog/repo_configs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        repos = [row["repository"] for row in response.json()["results"]]
+        assert repos == ["PostHog/posthog"]
+
     def test_cannot_retrieve_other_teams_config(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         theirs = StamphogRepoConfig.objects.unscoped().create(

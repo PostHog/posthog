@@ -14,6 +14,7 @@ from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.digest import DigestSummary, summarize_merged_prs
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import (
+    DIGEST_LOOKBACK_DAYS,
     STALE_PENDING_RUN_MINUTES,
     _reclaim_stale_pending_runs,
     send_digest_for_channel,
@@ -38,7 +39,11 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
     )
     for number in range(1, pr_count + 1):
         PullRequest.objects.for_team(team_id).create(
-            team_id=team_id, repo_config=repo_config, pr_number=number, audience_key=AUDIENCE
+            team_id=team_id,
+            repo_config=repo_config,
+            pr_number=number,
+            audience_key=AUDIENCE,
+            merged_at=timezone.now(),
         )
     return str(channel.id)
 
@@ -132,6 +137,47 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     with team_scope(team.id):
         completed = DigestRun.objects.get(status=DigestRunStatus.COMPLETED)
         assert PullRequest.objects.filter(digest_run=completed).count() == 2  # retry picked them up
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_first_digest_claims_only_prs_within_lookback_window(team) -> None:
+    # A channel created (or auto-provisioned) long after merges started being captured must not dump
+    # the whole backlog into its first digest. The claim query bounds by merged_at >= now - lookback,
+    # so a merge older than the window is never claimed while a recent one is. Without the floor both
+    # would be claimed and the digest would flood.
+    with team_scope(team.id):
+        repo_config = StamphogRepoConfig.objects.for_team(team.id).create(
+            team_id=team.id, repository=REPO, installation_id="9001"
+        )
+        channel = DigestChannel.objects.for_team(team.id).create(
+            team_id=team.id, audience_key=AUDIENCE, slack_integration_id=1, slack_channel_id="C1"
+        )
+        recent = PullRequest.objects.for_team(team.id).create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=1,
+            audience_key=AUDIENCE,
+            merged_at=timezone.now() - timedelta(days=1),
+        )
+        old = PullRequest.objects.for_team(team.id).create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=2,
+            audience_key=AUDIENCE,
+            merged_at=timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS + 1),
+        )
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+    ):
+        send_digest_for_channel(digest_channel_id=str(channel.id), team_id=team.id)
+
+    with team_scope(team.id):
+        recent.refresh_from_db()
+        old.refresh_from_db()
+    assert recent.digest_run_id is not None  # within window -> claimed and digested
+    assert old.digest_run_id is None  # outside window -> left for no one, never flooded in
 
 
 # ---- Finding 3: same PR number from different repos must not collapse --------------------------

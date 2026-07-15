@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from functools import cached_property
 from urllib.parse import quote
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from ..logic.github_client import (
     StamphogGitHubError,
@@ -76,7 +78,29 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     return existing
 
 
-class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
+    """Shared base that exposes the canonical (parent) team id for queryset scoping.
+
+    ProductTeamModel.save() rewrites new rows to the canonical team id (parent when the team is a
+    child environment, else itself). A request made with a child environment's project id must read
+    under that same canonical id — scoping by the raw request team_id would miss rows the parent
+    stored. resolve_effective_team_id is the framework helper the model uses; self.team is already
+    loaded by the permission checks, so this resolves cheaply and is cached for the request.
+    """
+
+    @cached_property
+    def canonical_team_id(self) -> int:
+        return resolve_effective_team_id(self.team_id)
+
+    def _should_skip_parents_filter(self) -> bool:
+        # safely_get_queryset already scopes every read by canonical_team_id, which resolves a child
+        # environment's id to its parent. The default parent-lookup filter would re-add the RAW url
+        # team_id, ANDing it with the canonical filter and hiding rows stored under the parent. Skip it
+        # and let canonical_team_id be the single source of truth for team scoping.
+        return True
+
+
+class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSet):
     """Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides."""
 
     scope_object = "stamphog"
@@ -86,7 +110,7 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = StamphogRepoConfig.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[StamphogRepoConfig]) -> QuerySet[StamphogRepoConfig]:
-        return queryset.filter(team_id=self.team_id).order_by("repository")
+        return queryset.filter(team_id=self.canonical_team_id).order_by("repository")
 
     def perform_create(self, serializer: BaseSerializer[StamphogRepoConfig]) -> None:
         # installation_id is read-only on this serializer, so a manual create can never claim an
@@ -106,7 +130,7 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         already_claimed = bool(installation_id) and (
             StamphogRepoConfig.objects.unscoped()
             .filter(provider=provider, installation_id=installation_id, repository=repository)
-            .exclude(team_id=self.team_id)
+            .exclude(team_id=self.canonical_team_id)
             .exists()
         )
         if already_claimed:
@@ -251,7 +275,7 @@ class StamphogRepoConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response.data)
 
 
-class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet):
     """Read-only history of stamphog review runs, filterable by repository, PR number, and status."""
 
     scope_object = "stamphog"
@@ -262,7 +286,9 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[ReviewRun]) -> QuerySet[ReviewRun]:
         queryset = (
-            queryset.filter(team_id=self.team_id).select_related("pull_request__repo_config").order_by("-created_at")
+            queryset.filter(team_id=self.canonical_team_id)
+            .select_related("pull_request__repo_config")
+            .order_by("-created_at")
         )
 
         repository = self.request.query_params.get("repository")
@@ -312,7 +338,7 @@ class ReviewRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         return super().list(request, **kwargs)
 
 
-class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet):
     """Read-only pull requests stamphog knows about, filterable by PR number and merge state."""
 
     scope_object = "stamphog"
@@ -322,7 +348,7 @@ class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = PullRequest.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[PullRequest]) -> QuerySet[PullRequest]:
-        queryset = queryset.filter(team_id=self.team_id).select_related("repo_config").order_by("-created_at")
+        queryset = queryset.filter(team_id=self.canonical_team_id).select_related("repo_config").order_by("-created_at")
 
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
@@ -360,7 +386,7 @@ class PullRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         return super().list(request, **kwargs)
 
 
-class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DigestChannelViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSet):
     """Per-audience Slack destinations for the daily merged-PR digest."""
 
     scope_object = "stamphog"
@@ -370,7 +396,7 @@ class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = DigestChannel.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[DigestChannel]) -> QuerySet[DigestChannel]:
-        return queryset.filter(team_id=self.team_id).order_by("audience_key")
+        return queryset.filter(team_id=self.canonical_team_id).order_by("audience_key")
 
     def perform_create(self, serializer: BaseSerializer[DigestChannel]) -> None:
         serializer.save(team_id=self.team_id)
@@ -384,7 +410,7 @@ class DigestChannelViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save(update_fields=["enabled", "updated_at"])
 
 
-class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet):
     """Read-only history of posted (or attempted) digests, filterable by digest channel."""
 
     scope_object = "stamphog"
@@ -394,7 +420,7 @@ class DigestRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = DigestRun.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[DigestRun]) -> QuerySet[DigestRun]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.canonical_team_id).order_by("-created_at")
 
         digest_channel = self.request.query_params.get("digest_channel")
         if digest_channel:
