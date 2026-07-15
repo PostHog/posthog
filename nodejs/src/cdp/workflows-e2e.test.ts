@@ -3863,7 +3863,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 // + real Kafka produce — the seam the mocked unit tests can't cover: an isolated
 // poison pill is recorded as a failed, replayable result on hog_invocation_results
 // BEFORE its cyclotron row is deleted, and with recovery disabled the janitor
-// pauses giving up (rows kept, never dropped).
+// reverts to master's legacy path (marks the pill failed, no recovery record).
 describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
     jest.setTimeout(30000)
 
@@ -3982,19 +3982,20 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
         expect(remaining.rowCount).toBe(0)
     })
 
-    it('pauses giving up (records nothing, deletes nothing) when recovery is disabled', async () => {
+    it('reverts to legacy mark-failed (records nothing) when recovery is disabled', async () => {
         const id = await insertPoisonedHogflowJob()
 
         janitor = createJanitor({ poisonRecoveryEnabled: false })
         const result = await janitor.runOnce()
 
-        // Kill-switch off → the janitor never gives up: nothing is produced and
-        // the row is kept (reset to available for retry), never dropped.
-        expect(result.poisonedIds).toHaveLength(0)
+        // Kill-switch off → master's legacy path: mark the pill failed and produce
+        // no recovery record. The give-up is terminal (no infinite retry) but not
+        // replayable — exactly master's pre-recovery behavior.
+        expect(result.poisonedIds).toEqual([id])
         expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(0)
 
         const rows = await cyclotronPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
         expect(rows.rowCount).toBe(1)
-        expect(rows.rows[0].status).toBe('available')
+        expect(rows.rows[0].status).toBe('failed')
     })
 })
