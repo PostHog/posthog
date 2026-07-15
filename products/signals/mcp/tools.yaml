@@ -142,7 +142,10 @@ tools:
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers
             (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see
-            which reports you are already working against). For picking up work, filter to `ready` — earlier statuses
+            which reports you are already working against). Some statuses are hidden by default (currently suppressed,
+            i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when
+            deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
+            `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
             full work log — signal findings (evidence), judgments, and log entries — is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
@@ -267,7 +270,7 @@ tools:
             `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox
             with no config row needed. The only reason to create a `source_product=signals_scout`,
             `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit`
-            flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product,
+            flag is set separately via `scout-config-update`). There is at most one config per (source_product,
             source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster
             source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
@@ -341,13 +344,7 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
-    signals-report-artefacts-diff:
-        operation: signals_report_artefacts_diff
-        enabled: false
-    signals-reports-signals-retrieve:
-        operation: signals_reports_signals_retrieve
-        enabled: false
-    signals-scout-config-create:
+    scout-config-create:
         operation: signals_scout_config_create
         enabled: true
         scopes:
@@ -363,7 +360,7 @@ tools:
             `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
             (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
             fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
-    signals-scout-config-delete:
+    scout-config-delete:
         operation: signals_scout_config_destroy
         enabled: true
         scopes:
@@ -375,12 +372,12 @@ tools:
         title: Delete a scout config
         description: >
             Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up
-            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in
-            `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed.
-            Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule
-            config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via
-            `signals-scout-config-update` to make it inert) rather than deleting the config.
-    signals-scout-config-list:
+            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `scout-config-list`
+            with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note:
+            if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire
+            a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it inert) rather
+            than deleting the config.
+    scout-config-list:
         operation: signals_scout_config_list
         enabled: true
         scopes:
@@ -394,11 +391,10 @@ tools:
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
             (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
-            once its config is registered — immediately via `signals-scout-config-create` (one skill) or
-            `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
-            scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update`
-            to tune them.
-    signals-scout-config-sync:
+            once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync`
+            (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and
+            whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.
+    scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
         scopes:
@@ -413,9 +409,8 @@ tools:
             Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*`
             skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The
             Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
-            immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned
-            configs.
-    signals-scout-config-update:
+            immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned configs.
+    scout-config-update:
         operation: signals_scout_config_update
         enabled: true
         scopes:
@@ -430,7 +425,7 @@ tools:
             Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or
             `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
-    signals-scout-edit-report:
+    scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true
         scopes:
@@ -450,7 +445,7 @@ tools:
             audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite
             them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that
             list `edit_report` in their skill's `allowed_tools`.
-    signals-scout-emit-report:
+    scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
         scopes:
@@ -467,12 +462,12 @@ tools:
             (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
             an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
             behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
-            to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the
-            primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved
-            server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
-            opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.
-            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
-    signals-scout-emit-signal:
+            to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary
+            way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for
+            a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR
+            automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available
+            to scouts that list `emit_report` in their skill's `allowed_tools`.
+    scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
         scopes:
@@ -487,7 +482,7 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
-    signals-scout-members-list:
+    scout-members-list:
         operation: signals_scout_members_list
         enabled: true
         scopes:
@@ -504,12 +499,12 @@ tools:
             linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
             fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
             members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on
-            `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be
-            routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
-    signals-scout-metadata-get:
+            `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be routed to — pick
+            another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
+    scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false
-    signals-scout-project-profile-get:
+    scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
         scopes:
@@ -526,9 +521,9 @@ tools:
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad
-            is the scout's inferred learnings.
-    signals-scout-run-now:
+            Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is
+            the scout's inferred learnings.
+    scout-run-now:
         operation: signals_scout_config_run
         enabled: true
         scopes:
@@ -546,8 +541,8 @@ tools:
             the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
             in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
             change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
-            Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.
-    signals-scout-runs-emission-reports:
+            Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.
+    scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true
         scopes:
@@ -565,15 +560,15 @@ tools:
             with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
             `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
-            surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
-            it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
-    signals-scout-runs-emission-reports-batch:
+            surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
+            exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+    scout-runs-emission-reports-batch:
         operation: signals_scout_runs_emission_reports_batch
         enabled: false
-    signals-scout-runs-emissions-batch:
+    scout-runs-emissions-batch:
         operation: signals_scout_runs_emissions_batch
         enabled: false
-    signals-scout-runs-emissions-list:
+    scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
         scopes:
@@ -590,10 +585,10 @@ tools:
             deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
             Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
             (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
-    signals-scout-runs-findings-summary:
+    scout-runs-findings-summary:
         operation: signals_scout_runs_findings_summary
         enabled: false
-    signals-scout-runs-list:
+    scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
         scopes:
@@ -617,7 +612,7 @@ tools:
             the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
             `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
             capped at 100.
-    signals-scout-runs-recent-emissions:
+    scout-runs-recent-emissions:
         operation: signals_scout_runs_recent_emissions
         enabled: true
         scopes:
@@ -630,14 +625,14 @@ tools:
         title: List recent emitted findings across all scout runs
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
-            cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries
-            its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and
-            the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
+            cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
+            `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
             surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
             `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
             upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
             walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.
-    signals-scout-runs-retrieve:
+    scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
         scopes:
@@ -653,7 +648,7 @@ tools:
             the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
-    signals-scout-scratchpad-forget:
+    scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
         scopes:
@@ -665,7 +660,7 @@ tools:
         title: Forget a scratchpad entry by key
         description: |
             Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.
-    signals-scout-scratchpad-remember:
+    scout-scratchpad-remember:
         operation: signals_scout_scratchpad_remember
         enabled: true
         scopes:
@@ -682,7 +677,7 @@ tools:
             defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as
             Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for
             ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.
-    signals-scout-scratchpad-search:
+    scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
         scopes:
@@ -700,6 +695,275 @@ tools:
             oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist
             without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
             — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.
+    signals-report-artefacts-diff:
+        operation: signals_report_artefacts_diff
+        enabled: false
+    signals-reports-refund-create:
+        operation: signals_reports_refund_create
+        enabled: false
+    signals-reports-refund-summary-retrieve:
+        operation: signals_reports_refund_summary_retrieve
+        enabled: false
+    signals-reports-signals-retrieve:
+        operation: signals_reports_signals_retrieve
+        enabled: false
+    signals-scout-config-create:
+        operation: signals_scout_config_create
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a scout config (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed.
+            Call scout-config-create directly with the same arguments.'
+    signals-scout-config-delete:
+        operation: signals_scout_config_destroy
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout config (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-config-delete. This alias forwards to the same endpoint and will be removed.
+            Call scout-config-delete directly with the same arguments.'
+    signals-scout-config-list:
+        operation: signals_scout_config_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scout configs (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-config-list. This alias forwards to the same endpoint and will be removed.
+            Call scout-config-list directly with the same arguments.'
+    signals-scout-config-sync:
+        operation: signals_scout_config_sync
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        list: true
+        title: Sync scout configs (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed.
+            Call scout-config-sync directly with the same arguments.'
+    signals-scout-config-update:
+        operation: signals_scout_config_update
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a scout config (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-config-update. This alias forwards to the same endpoint and will be removed.
+            Call scout-config-update directly with the same arguments.'
+    signals-scout-edit-report:
+        operation: signals_scout_edit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit an existing report for a run (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-edit-report. This alias forwards to the same endpoint and will be removed.
+            Call scout-edit-report directly with the same arguments.'
+    signals-scout-emit-report:
+        operation: signals_scout_emit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Author a full report for a run (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed.
+            Call scout-emit-report directly with the same arguments.'
+    signals-scout-emit-signal:
+        operation: signals_scout_emit_signal
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Emit a finding for a run (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-emit-signal. This alias forwards to the same endpoint and will be removed.
+            Call scout-emit-signal directly with the same arguments.'
+    signals-scout-members-list:
+        operation: signals_scout_members_list
+        enabled: true
+        scopes:
+            - signal_scout_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List project members for reviewer routing (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-members-list. This alias forwards to the same endpoint and will be removed.
+            Call scout-members-list directly with the same arguments.'
+    signals-scout-project-profile-get:
+        operation: signals_scout_project_profile_get
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the project profile (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be
+            removed. Call scout-project-profile-get directly with the same arguments.'
+    signals-scout-run-now:
+        operation: signals_scout_config_run
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a scout now (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call
+            scout-run-now directly with the same arguments.'
+    signals-scout-runs-emission-reports:
+        operation: signals_scout_runs_emission_reports
+        enabled: true
+        scopes:
+            - signal_scout:read
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List the inbox reports a scout run's findings linked to (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-runs-emission-reports. This alias forwards to the same endpoint and will be
+            removed. Call scout-runs-emission-reports directly with the same arguments.'
+    signals-scout-runs-emissions-list:
+        operation: signals_scout_runs_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a scout run's emitted findings (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-runs-emissions-list. This alias forwards to the same endpoint and will be
+            removed. Call scout-runs-emissions-list directly with the same arguments.'
+    signals-scout-runs-list:
+        operation: signals_scout_runs_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent scout runs (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-runs-list. This alias forwards to the same endpoint and will be removed. Call
+            scout-runs-list directly with the same arguments.'
+    signals-scout-runs-recent-emissions:
+        operation: signals_scout_runs_recent_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent emitted findings across all scout runs (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be
+            removed. Call scout-runs-recent-emissions directly with the same arguments.'
+    signals-scout-runs-retrieve:
+        operation: signals_scout_runs_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout run by ID (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed.
+            Call scout-runs-retrieve directly with the same arguments.'
+    signals-scout-scratchpad-forget:
+        operation: signals_scout_scratchpad_forget
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Forget a scratchpad entry by key (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be
+            removed. Call scout-scratchpad-forget directly with the same arguments.'
+    signals-scout-scratchpad-remember:
+        operation: signals_scout_scratchpad_remember
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Remember a scratchpad entry (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-scratchpad-remember. This alias forwards to the same endpoint and will be
+            removed. Call scout-scratchpad-remember directly with the same arguments.'
+    signals-scout-scratchpad-search:
+        operation: signals_scout_scratchpad_search
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Search the scout scratchpad (deprecated)
+        description:
+            'DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be
+            removed. Call scout-scratchpad-search directly with the same arguments.'
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

@@ -346,6 +346,8 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
@@ -403,9 +405,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksCreateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -479,6 +484,8 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
+export const tasksUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksUpdateBodyBranchMax = 255
 
 export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -536,9 +543,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -612,6 +622,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksPartialUpdateBodyBranchMax = 255
 
 export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
@@ -669,9 +681,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -1799,7 +1814,7 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.'
         ),
     content_type: zod
         .string()
@@ -1811,11 +1826,15 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the initial content source.'),
+        .describe(
+            'Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the initial content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1855,11 +1874,15 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the next version content source.'),
+        .describe(
+            'Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the next version content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
