@@ -1,6 +1,8 @@
 import re
 from typing import Optional, cast
 
+from django.core.cache import cache
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -39,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
     IntegrationAccountListingError,
+    filter_integration_accounts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -64,6 +67,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
 # enforced at the creation/update endpoints.
 GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+
+_OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
+
+
+def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
+    # Keyed on (team, integration) only — never the search term — so distinct searches share one walk.
+    return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
 
 
 @SourceRegistry.register
@@ -257,8 +267,15 @@ class GoogleAdsSource(
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
-        # Google returns the whole hierarchy in one walk, so `search` is ignored here and the endpoint
-        # filters the returned list.
+        # The whole account list comes from one expensive hierarchy walk (listAccessibleCustomers plus a
+        # searchStream per accessible root) that ignores `search`. Cache the unfiltered result keyed only
+        # on (team, integration) — never `search` — so distinct search terms reuse one walk instead of
+        # repeating it and burning shared Google Ads API quota, then filter the cached list in memory.
+        cache_key = _oauth_accounts_cache_key(team_id, integration_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return filter_integration_accounts(cached, search)
+
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
@@ -285,7 +302,7 @@ class GoogleAdsSource(
             ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}
-        return [
+        integration_accounts = [
             IntegrationAccount(
                 # The bare digits are what the API and every pipeline read site use, and what existing
                 # sources already have stored; the dashed form the Google Ads UI shows is display-only.
@@ -301,6 +318,12 @@ class GoogleAdsSource(
             )
             for account in accounts
         ]
+
+        # Don't cache an empty result: a transient walk that returns [] without raising would otherwise
+        # freeze the picker empty for the whole TTL for every admin on the team.
+        if integration_accounts:
+            cache.set(cache_key, integration_accounts, _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS)
+        return filter_integration_accounts(integration_accounts, search)
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)
