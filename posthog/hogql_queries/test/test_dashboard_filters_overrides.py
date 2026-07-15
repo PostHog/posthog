@@ -137,9 +137,9 @@ class TestDashboardFiltersTestAccountsOverride(BaseTest):
 
 
 class TestDashboardPropertyOverrides(BaseTest):
-    def test_warehouse_insight_property_is_kept_when_dashboard_properties_are_ignored(self):
-        insight_property = {"key": "region", "value": "US", "type": "data_warehouse"}
-        dashboard_property = {"key": "region", "value": "EU", "type": "data_warehouse"}
+    def test_warehouse_insight_property_is_kept_when_dashboard_properties_are_ignored(self) -> None:
+        insight_property = {"key": "region", "value": "US", "operator": "exact", "type": "data_warehouse"}
+        dashboard_property = {"key": "region", "value": "EU", "operator": "exact", "type": "data_warehouse"}
         query = TrendsQuery(
             series=[
                 DataWarehouseNode(

@@ -4363,6 +4363,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
 
+    def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="restricted dashboard",
+            created_by=self.user,
+            filters={
+                "properties": [
+                    {"key": "email", "type": "person", "operator": "exact", "value": ["private@example.com"]}
+                ]
+            },
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}]
+            },
+        )
+        AccessControl.objects.create(
+            resource="dashboard",
+            resource_id=dashboard.id,
+            team=self.team,
+            access_level="none",
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["filter_override_context"] is None
+        properties = response_data["query"]["source"].get("properties")
+        assert self._collect_property_values(properties, "email") == []
+        assert self._collect_property_values(properties, "$browser") == []
+
     @staticmethod
     def _collect_property_values(properties: object, key: str) -> list:
         """Flatten a query's properties (flat list or nested PropertyGroupFilter) to the values set for one key."""

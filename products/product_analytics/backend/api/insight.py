@@ -962,7 +962,7 @@ class InsightSerializer(InsightBasicSerializer):
         return AlertSerializer(alerts, many=True, context=self.context).data
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
-    def get_filter_override_context(self, insight: Insight) -> dict[str, dict | None] | None:
+    def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
         if request is None:
@@ -1959,6 +1959,21 @@ When set, the specified dashboard's filters and date range override will be appl
                 .select_related("dashboard")
                 .first()
             )
+
+            if dashboard_tile is not None:
+                authenticator = request.successful_authenticator
+                if isinstance(
+                    authenticator,
+                    SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+                ):
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                else:
+                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
+                        dashboard_tile.dashboard, "viewer"
+                    )
+
+                if not can_view_dashboard:
+                    dashboard_tile = None
 
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
