@@ -24,7 +24,9 @@ export function createReplayBeforeBatchStep<TInput, CInput>(): ProcessingStep<
     BeforeBatchInput<TInput, CInput>,
     BeforeBatchOutput<TInput, CInput, Record<never, object>>
 > {
-    return (input) => Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+    return function replayBeforeBatchStep(input) {
+        return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+    }
 }
 
 /**
@@ -45,7 +47,9 @@ export function createProjectReplayOutputStep<T extends SessionReplayPipelineOut
     T,
     SessionReplayPipelineOutput
 > {
-    return (input) => Promise.resolve(ok({ team: input.team, parsedMessage: input.parsedMessage }))
+    return function projectReplayOutputStep(input) {
+        return Promise.resolve(ok({ team: input.team, parsedMessage: input.parsedMessage }))
+    }
 }
 
 type PostProcessInput = AfterBatchInput<
