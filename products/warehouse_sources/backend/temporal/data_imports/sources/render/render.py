@@ -20,6 +20,8 @@ RENDER_BASE_URL = "https://api.render.com/v1"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+REDACTED_VALUE = "__redacted__"
+
 
 class RenderRetryableError(Exception):
     pass
@@ -313,6 +315,26 @@ def _get_fan_out_rows(
             resumable_source_manager.save_state(RenderResumeConfig(cursor=None, parent_id=remaining[index + 1][0]))
 
 
+def _redact_row(row: dict[str, Any], redact_spec: dict[str, tuple[str, ...]]) -> dict[str, Any]:
+    """Strip secret values out of a row before it reaches the warehouse.
+
+    Render's env-group payload carries the actual env var values and secret-file contents; the
+    API key is meant to *use* those for sync, not surface them as queryable columns. Replace the
+    value-bearing fields with a marker while keeping the surrounding metadata (names/keys/ids).
+    """
+    for list_field, secret_keys in redact_spec.items():
+        items = row.get(list_field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for key in secret_keys:
+                if key in item:
+                    item[key] = REDACTED_VALUE
+    return row
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -326,17 +348,24 @@ def get_rows(
     config = RENDER_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page (and, for fan-out, every parent) so urllib3 keeps
-    # the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # the connection alive instead of re-handshaking per request. Sensitive endpoints opt out of
+    # HTTP sample capture — capture snapshots the raw response before row-level redaction runs.
+    session = make_tracked_session(capture=not config.is_sensitive)
 
     params = _build_params(
         config, owner_id, should_use_incremental_field, db_incremental_field_last_value, incremental_field, logger
     )
 
     if config.parent:
-        yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config, params, owner_id)
+        batches = _get_fan_out_rows(session, headers, logger, resumable_source_manager, config, params, owner_id)
     else:
-        yield from _get_top_level_rows(session, headers, logger, resumable_source_manager, config, params)
+        batches = _get_top_level_rows(session, headers, logger, resumable_source_manager, config, params)
+
+    if config.redact_list_item_fields:
+        for batch in batches:
+            yield [_redact_row(row, config.redact_list_item_fields) for row in batch]
+    else:
+        yield from batches
 
 
 def render_source(

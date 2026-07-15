@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -351,10 +351,63 @@ class TestFanOut:
         assert _query(session.urls[1])["startTime"] == ["2026-03-04T02:58:14Z"]
 
 
+class TestSensitiveEndpointHandling:
+    def test_env_group_secret_values_are_redacted_from_rows(self) -> None:
+        # Env var values and secret-file contents are credentials the key is only meant to use
+        # for sync; leaking them into a queryable table exposes database URLs and API tokens.
+        batches, _, _ = _rows(
+            "env_groups",
+            [
+                [
+                    {
+                        "id": "evg-1",
+                        "name": "prod",
+                        "envVars": [{"key": "DATABASE_URL", "value": "postgres://user:pw@host/db"}],
+                        "secretFiles": [{"name": "config.yaml", "contents": "token: super-secret"}],
+                    }
+                ],
+            ],
+        )
+
+        row = batches[0][0]
+        # Metadata survives so the table stays useful.
+        assert row["id"] == "evg-1"
+        assert row["name"] == "prod"
+        assert row["envVars"][0]["key"] == "DATABASE_URL"
+        assert row["secretFiles"][0]["name"] == "config.yaml"
+        # The actual secrets do not.
+        assert row["envVars"][0]["value"] == render.REDACTED_VALUE
+        assert row["secretFiles"][0]["contents"] == render.REDACTED_VALUE
+
+    @parameterized.expand(
+        [
+            # Sensitive endpoints skip sample capture — capture snapshots the raw response before
+            # row-level redaction, so it would otherwise persist secrets to the sample store.
+            ("env_groups", [{"id": "evg-1"}], False),
+            ("owners", [{"owner": {"id": "own-1"}}], True),
+        ]
+    )
+    def test_sample_capture_disabled_for_sensitive_endpoints(
+        self, endpoint: str, page: list[dict], expected_capture: bool
+    ) -> None:
+        session = FakeSession([page])
+        with patch.object(render, "make_tracked_session", return_value=session) as make_session:
+            list(
+                get_rows(
+                    api_key="rnd_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+
+        make_session.assert_called_once_with(capture=expected_capture)
+
+
 class TestFetchPage:
     def test_retryable_status_is_retried_until_success(self) -> None:
         session = FakeSession([_response({"message": "rate limited"}, status=429), [{"owner": {"id": "own-1"}}]])
-        result = _fetch_page(session, "https://api.render.com/v1/owners", {}, MagicMock())
+        result = _fetch_page(cast(requests.Session, session), "https://api.render.com/v1/owners", {}, MagicMock())
 
         assert result == [{"owner": {"id": "own-1"}}]
         assert len(session.urls) == 2
@@ -362,7 +415,7 @@ class TestFetchPage:
     def test_auth_error_raises_without_retry(self) -> None:
         session = FakeSession([_response({"message": "Unauthorized"}, status=401)])
         with pytest.raises(requests.HTTPError):
-            _fetch_page(session, "https://api.render.com/v1/owners", {}, MagicMock())
+            _fetch_page(cast(requests.Session, session), "https://api.render.com/v1/owners", {}, MagicMock())
 
         assert len(session.urls) == 1
 

@@ -52,6 +52,16 @@ class RenderEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway pagination.
     # A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 500
+    # Some endpoints return secrets the API key is only meant to *use* for sync (env var
+    # values, secret-file contents), not data worth warehousing. Maps a list column to the
+    # item keys whose values are redacted before a row is yielded, keeping the safe metadata
+    # (names, keys, ids). Any endpoint with entries here is treated as sensitive: its raw
+    # responses are also excluded from HTTP sample capture (see `is_sensitive`).
+    redact_list_item_fields: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def is_sensitive(self) -> bool:
+        return bool(self.redact_list_item_fields)
 
 
 RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
@@ -168,6 +178,9 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         incremental_param_by_field={"updatedAt": "updatedAfter", "createdAt": "createdAfter"},
         default_incremental_field="updatedAt",
         supports_owner_filter=True,
+        # The list response embeds env var values and secret-file contents (database URLs, API
+        # tokens, …). Redact the value-bearing fields so only names/keys/ids reach the warehouse.
+        redact_list_item_fields={"envVars": ("value",), "secretFiles": ("content", "contents")},
     ),
     "postgres": RenderEndpointConfig(
         name="postgres",
