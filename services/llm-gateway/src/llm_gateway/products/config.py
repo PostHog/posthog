@@ -261,18 +261,17 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
     # Stamphog's daily merged-PR digest summarization. Low volume, cheap model, internal infra.
-    # Billed (not unbilled): the worker authenticates with the shared LLM_GATEWAY_API_KEY (a
-    # personal API key), not OAuth, so the OAuth-only restriction knobs (allow_api_keys=False +
-    # allowed_application_ids) can't fence this route to just the worker without breaking it — a
-    # personal key is exactly what any caller would present. An unbilled personal-key route is a
-    # free-tokens endpoint for arbitrary callers, so bill it to AI_CREDITS instead: usage now
-    # counts against the caller's own team credit bucket (and is blocked when exhausted), removing
-    # the free-tokens incentive. Mirrors slack_app_routing (cheap Haiku, personal keys, AI_CREDITS).
+    # Deliberately unbilled, same posture as review_hog/conversations: the digest is work done by
+    # PostHog, not customer-billable usage, and the worker attributes spend per customer team via
+    # the team_id header — a credit_bucket here would silently charge customer AI credits for it.
+    # The trade-off (any personal API key can reach an unbilled route) is shared by every
+    # key-accessible unbilled product in this table and is bounded by the Haiku-only model pin;
+    # the class-wide fix is an internal-only/service-credential restriction on the gateway.
     "stamphog": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
-        credit_bucket=CreditBucket.AI_CREDITS,
+        credit_bucket=None,
     ),
 }
 
