@@ -1608,4 +1608,66 @@ mod tests {
         assert_eq!(analysis[1].matched, expected_release_condition_matched);
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
     }
+
+    #[test]
+    fn test_condition_analysis_attributes_winner_to_non_zero_release_condition() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // Two release groups, plus enrollment enabled, so this also exercises the interaction
+        // between the enrollment entry's analyses.insert(0, ...) and attribution to a non-zero
+        // condition_index: the enrollment entry must stay first while group 1 still wins.
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "beta-feature", "key": "beta-feature", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "groups": [
+                    {
+                        "properties": [{ "key": "is_scoped", "value": ["true"], "operator": "exact", "type": "person" }],
+                        "rollout_percentage": 100
+                    },
+                    {
+                        "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+
+        // is_scoped="false" fails group 0's ["true"] requirement and satisfies group 1's, so the
+        // matcher resolves through group 1, not group 0.
+        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: ConditionMatch,
+            condition_index: Some(1),
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        // Enrollment entry, then both release conditions in order, with only group 1 as the winner.
+        assert_eq!(analysis.len(), 3);
+        assert_eq!(analysis[0].index, SUPER_CONDITION_INDEX);
+        assert!(!analysis[0].matched);
+
+        assert_eq!(analysis[1].index, 0);
+        assert!(!analysis[1].properties_matched);
+        assert!(!analysis[1].matched);
+
+        assert_eq!(analysis[2].index, 1);
+        assert!(analysis[2].properties_matched);
+        assert!(analysis[2].matched);
+
+        assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
+    }
 }
