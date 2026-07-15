@@ -62,7 +62,10 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
         if self.should_use_two_phase and self._two_phase_selectivity_ok is not False:
-            WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_two_phase").inc()
+            # Count only executions whose preflight passed — `to_query` also runs for
+            # EXPLAIN/debug paths where selectivity was never checked (None).
+            if self._two_phase_selectivity_ok:
+                WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_two_phase").inc()
             return self.two_phase_select
         return self.outer_select
 
