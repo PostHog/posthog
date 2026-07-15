@@ -5,12 +5,10 @@
             "inputs": [
                 "backend/facade/**",
                 "backend/presentation/**",
-                "backend/routes.py",
-                "backend/sql.py",
-                "backend/embedding.py",
-                "backend/indexed_embedding.py",
-                "backend/hogql_queries/**",
-                "backend/logic/tools/search_issues.py"
+                "backend/logic/matrix/manager.py",
+                "backend/logic/matrix/matrix.py",
+                "backend/logic/products/hedgebox/matrix.py",
+                "backend/logic/products/spikegpt/matrix.py"
             ],
             "outputs": [],
             "cache": true

@@ -31,6 +31,7 @@ from hogli_commands.product.isolation import (
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
+    uncovered_facade_classes,
     uncovered_permanent_modules,
     unqualified_permanent_modules,
 )
@@ -110,25 +111,25 @@ class TestFacadeReexports:
                 "from products.p.backend.logic.matrix import Thing",
                 "Thing",
                 "class Thing:\n    def run(self):\n        pass\n",
-                [("Thing", "class")],
+                [("Thing", "class", "backend/logic/matrix.py")],
             ),
             (
                 "from ..logic.matrix import Thing",
                 "Thing",
                 "class Thing:\n    def run(self):\n        pass\n",
-                [("Thing", "class")],
+                [("Thing", "class", "backend/logic/matrix.py")],
             ),
             (
                 "from ..logic.matrix import make_thing",
                 "make_thing",
                 "def make_thing():\n    pass\n",
-                [("make_thing", "function")],
+                [("make_thing", "function", "backend/logic/matrix.py")],
             ),
             (
                 "from ..logic.matrix import MAX_SIZE",
                 "MAX_SIZE",
                 "MAX_SIZE = 10\n",
-                [("MAX_SIZE", "constant")],
+                [("MAX_SIZE", "constant", "")],
             ),
             ("from .contracts import Thing", "Thing", "", []),
             ("from .enums import Thing", "Thing", "", []),
@@ -136,7 +137,7 @@ class TestFacadeReexports:
         ],
     )
     def test_reexports_are_detected_by_import_style_and_kind(
-        self, tmp_path: Path, import_line: str, exported: str, logic_source: str, expected: list[tuple[str, str]]
+        self, tmp_path: Path, import_line: str, exported: str, logic_source: str, expected: list[tuple[str, str, str]]
     ) -> None:
         backend_dir = _make_facade(
             tmp_path,
@@ -163,7 +164,7 @@ class TestFacadeReexports:
             api_source='from ..logic.matrix import Thing\n\n__all__ = ["Thing"]\n',
             logic_source=logic_source,
         )
-        assert get_facade_reexports(backend_dir) == [("Thing", expected_kind)]
+        assert get_facade_reexports(backend_dir) == [("Thing", expected_kind, "backend/logic/matrix.py")]
 
     def test_lazy_facade_exports_are_read_from_the_lazy_map(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
@@ -175,7 +176,10 @@ class TestFacadeReexports:
             ),
             logic_source="class Thing:\n    def run(self):\n        pass\n\n\ndef go():\n    pass\n",
         )
-        assert get_facade_reexports(backend_dir) == [("Thing", "class"), ("go", "function")]
+        assert get_facade_reexports(backend_dir) == [
+            ("Thing", "class", "backend/logic/matrix.py"),
+            ("go", "function", "backend/logic/matrix.py"),
+        ]
 
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
@@ -186,18 +190,13 @@ class TestFacadeReexports:
         assert get_facade_reexports(backend_dir) == []
 
     @pytest.mark.parametrize(
-        "reexports, expected",
+        "uncovered, expected",
         [
-            ((("Thing", "class"),), True),
-            ((("Err", "type"),), False),
-            ((("MAX_SIZE", "constant"),), False),
-            ((("make_thing", "function"),), False),
+            (("Thing",), True),
             ((), False),
         ],
     )
-    def test_only_classes_and_constants_disqualify_the_skip(
-        self, reexports: tuple[tuple[str, str], ...], expected: bool
-    ) -> None:
+    def test_uncovered_classes_disqualify_the_skip(self, uncovered: tuple[str, ...], expected: bool) -> None:
         status = IsolationStatus(
             name="p",
             is_isolated=True,
@@ -207,10 +206,41 @@ class TestFacadeReexports:
             bypass_entries=(),
             has_contract_check_script=True,
             has_narrowed_turbo=True,
-            facade_reexports=reexports,
+            uncovered_facade_classes=uncovered,
         )
         assert status.facade_leaks_implementation is expected
         assert status.eligible_for_isolated_tests is not expected
+
+
+class TestUncoveredFacadeClasses:
+    REEXPORTS = (
+        ("Runner", "class", "backend/query_runner.py"),
+        ("Sink", "class", "backend/logic/sink.py"),
+        ("Err", "type", "backend/logic/errors.py"),
+        ("go", "function", "backend/logic/sink.py"),
+    )
+
+    def _product(self, tmp_path: Path, inputs: list[str] | None) -> Path:
+        product = tmp_path / "p"
+        product.mkdir()
+        if inputs is not None:
+            (product / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        return product
+
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**"], ("Runner", "Sink")),
+            (["backend/facade/**", "backend/query_runner.py"], ("Sink",)),
+            (["backend/facade/**", "backend/query_runner.py", "backend/logic/**"], ()),
+            (["backend/facade/**", "backend/logic/sink.py", "backend/query_runner.py"], ()),
+            (None, ()),
+        ],
+    )
+    def test_widening_inputs_covers_a_reexported_class(
+        self, tmp_path: Path, inputs: list[str] | None, expected: tuple[str, ...]
+    ) -> None:
+        assert uncovered_facade_classes(self._product(tmp_path, inputs), self.REEXPORTS) == expected
 
 
 class TestParseHelpers:

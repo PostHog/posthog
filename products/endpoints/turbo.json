@@ -6,12 +6,10 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
-                "backend/logic/repo_selection/types.py",
-                "backend/logic/services/**",
-                "backend/logic/stream/redis_stream.py",
-                "backend/max_tools.py",
-                "backend/models.py",
-                "backend/temporal/process_task/**"
+                "backend/logic/crud.py",
+                "backend/logic/execution.py",
+                "backend/logic/materialization.py",
+                "backend/models.py"
             ],
             "outputs": [],
             "cache": true

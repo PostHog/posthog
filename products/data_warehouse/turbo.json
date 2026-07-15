@@ -1,0 +1,20 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/presentation/**",
+                "backend/routes.py",
+                "backend/hogql_fixer_ai.py",
+                "backend/logic/backfill_status.py",
+                "backend/logic/webhook_consumer/consumer.py",
+                "backend/models/managed_warehouse_backfill_partition.py",
+                "backend/models/revenue_analytics_config.py",
+                "backend/models/team_data_warehouse_config.py"
+            ],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}

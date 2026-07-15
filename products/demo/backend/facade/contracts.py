@@ -1,29 +1,16 @@
 """Public data contracts for the demo product.
 
-######################################################################################
-#                                                                                    #
-#   DO NOT COPY THIS FILE, OR facade/api.py, INTO A NEW PRODUCT.                     #
-#   This product does NOT implement the facade pattern correctly.                    #
-#                                                                                    #
-#   An empty contracts.py does NOT make a product isolated. is_isolated_product()    #
-#   only checks that this file exists, so an empty one still satisfies the           #
-#   precondition that eligible_for_isolated_tests builds on. That is a gap in the    #
-#   gate, not a license to leave the file empty.                                     #
-#                                                                                    #
-#   This facade is behavioral: it re-exports `MatrixManager`, `Matrix`,              #
-#   `HedgeboxMatrix` and `SpikeGPTMatrix` from logic/. A re-exported class hands     #
-#   callers every method (core drives `ensure_account_and_save` from                 #
-#   posthog/api/signup.py, which no in-product test pins) while its behavior lives   #
-#   outside the contract-check inputs. tach cannot see this: core's import of        #
-#   facade.api is legal, and the class travels out through it.                       #
-#                                                                                    #
-#   So this product does NOT carry backend:contract-check and is NOT isolated -      #
-#   it pays the full Django suite. Re-adding the script fails `hogli product:lint`.  #
-#                                                                                    #
-#   Correct examples: products/visual_review, products/tasks, products/error_tracking#
-#                                                                                    #
-######################################################################################
+The demo facade is behavioral: it exposes the matrix-simulation entry points (the
+`MatrixManager`, the `HedgeboxMatrix`/`SpikeGPTMatrix` scenarios) and data-generation
+helpers, which write into core models and return primitives. The product owns no data
+model of its own, so there are no product-owned contracts to define here — this file is
+the home for any future cross-boundary data record.
 
-The product owns no data model of its own, so there is no product-owned record to define
-here yet. This file is the home for any future cross-boundary data record.
+Because those entry points are classes rather than contract data, callers reach every
+method on them, and the methods live in ``logic/`` rather than here. turbo.json therefore
+keeps each defining module in the contract-check inputs, so a change to one still re-runs
+the Django suite — core drives `MatrixManager.ensure_account_and_save` from
+`posthog/api/signup.py`, and that call is invisible to tach (the import of ``facade.api``
+is legal; the class travels out through it). Adding a class to this facade means adding
+its module there too, or `hogli product:lint` will fail.
 """

@@ -207,13 +207,13 @@ def _class_kind(node: ast.ClassDef) -> str:
     return "type"
 
 
-def _definition_kinds(backend_dir: Path, wanted: set[str]) -> dict[str, str]:
-    """Classify each wanted name by how it is defined outside facade/.
+def _definitions(backend_dir: Path, wanted: set[str]) -> dict[str, tuple[str, str]]:
+    """Locate each wanted name outside facade/, as name -> (kind, product-relative path).
 
     One pass over the tree, dropping names as they're found. A name that is never found is a
     module-level assignment, which this walk cannot see — the caller reads it as a constant.
     """
-    kinds: dict[str, str] = {}
+    found: dict[str, tuple[str, str]] = {}
     remaining = set(wanted)
     for py in sorted(backend_dir.rglob("*.py")):
         if not remaining:
@@ -223,41 +223,26 @@ def _definition_kinds(backend_dir: Path, wanted: set[str]) -> dict[str, str]:
         tree = ast_parse_safe(py)
         if not tree:
             continue
+        rel = str(py.relative_to(backend_dir.parent))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if node.name in remaining:
-                kinds[node.name] = _class_kind(node) if isinstance(node, ast.ClassDef) else "function"
+                kind = _class_kind(node) if isinstance(node, ast.ClassDef) else "function"
+                found[node.name] = (kind, rel)
                 remaining.discard(node.name)
-    return kinds
+    return found
 
 
-def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
-    """Names advertised in facade/api.py's `__all__` whose implementation lives outside facade/.
-
-    Returns (name, kind) pairs sorted by name, kind being "class" (carries behavior), "type"
-    (an error marker or plain data class), "function" or "constant".
-
-    A re-exported name puts its implementation outside the contract-check inputs (facade/**,
-    presentation/**): it is defined under logic/ or models/, so it can change while facade/**
-    stays byte-identical and turbo-discover skips the Django suite on a change core can still
-    observe. contracts/enums re-exports are fine — those files are contract-check inputs.
-
-    Only "class" is load-bearing for the skip; see IsolationStatus.leaked_facade_names.
-
-    Keyed on `__all__`, which is the product's *advertised* surface. A facade with no `__all__`
-    reads as clean here even though Python would still let a caller import its internals — the
-    alternative (treating every public module-level binding as exported) flags the helpers a
-    real facade imports in order to call them, so it demotes the correct products too.
-    """
-    facade_api = backend_dir / "facade" / "api.py"
-    tree = ast_parse_safe(facade_api)
+def _module_reexports(module: Path) -> set[str]:
+    """Names one facade module advertises in `__all__` but does not define itself."""
+    tree = ast_parse_safe(module)
     if not tree:
-        return []
+        return set()
 
     exported, lazy_sources = _facade_exports(tree)
     if not exported:
-        return []
+        return set()
 
     local = {
         node.name
@@ -272,9 +257,9 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
     }
     # A lazy facade resolves against its own backend package, so those entries are owned by
     # construction — mark them relative so they read the same as an eager relative import.
-    sources.update({name: "." + module for name, module in lazy_sources.items()})
+    sources.update({name: "." + module_path for name, module_path in lazy_sources.items()})
 
-    candidates = set()
+    names = set()
     for name in exported:
         if name in local:
             continue
@@ -283,10 +268,45 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
             continue
         if "contracts" in source or "enums" in source:
             continue
-        candidates.add(name)
+        names.add(name)
+    return names
 
-    kinds = _definition_kinds(backend_dir, candidates)
-    return sorted((name, kinds.get(name, "constant")) for name in candidates)
+
+def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str, str]]:
+    """Names the facade advertises but defines outside facade/, as (name, kind, path).
+
+    kind is "class" (carries behavior), "type" (an error marker or plain data class),
+    "function", or "constant". path is where the name is actually defined, product-relative,
+    and empty when the walk can't see it (a module-level assignment).
+
+    A re-exported name's implementation sits outside facade/, so unless the product's
+    contract-check inputs also watch the defining module, it can change while the watched
+    inputs stay byte-identical and turbo-discover skips the Django suite on a change core can
+    observe. Callers pair this with the input globs to decide — see
+    IsolationStatus.leaked_facade_names.
+
+    Every facade module is scanned, not just api.py: a product's public surface is the whole
+    `backend/facade/` package (tach exposes `backend.facade.*`, and capability submodules like
+    queries.py or temporal.py are what core registers and dispatches on). Reading api.py alone
+    would miss most of it, and moving a name into a sibling module would evade the check.
+
+    Keyed on `__all__`, the advertised surface. A facade module with no `__all__` reads as clean
+    even though Python would still let a caller import its internals — the alternative (treating
+    every public module-level binding as exported) flags the helpers a real facade imports in
+    order to call them, so it would demote the correct products too.
+    """
+    facade_dir = backend_dir / "facade"
+    if not facade_dir.is_dir():
+        return []
+
+    candidates: set[str] = set()
+    for module in sorted(facade_dir.glob("*.py")):
+        if module.stem in {"__init__", "contracts", "enums"}:
+            continue
+        candidates |= _module_reexports(module)
+
+    definitions = _definitions(backend_dir, candidates)
+    return sorted((name, *definitions.get(name, ("constant", ""))) for name in candidates)
 
 
 def imports_any(file_path: Path, prefixes: list[str]) -> bool:

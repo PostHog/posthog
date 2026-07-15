@@ -13,7 +13,16 @@
                 "backend/temporal/data_imports/sources/redshift/**",
                 "backend/temporal/data_imports/sources/salesforce/**",
                 "backend/temporal/data_imports/sources/snowflake/**",
-                "backend/temporal/data_imports/sources/stripe/**"
+                "backend/temporal/data_imports/sources/stripe/**",
+                "backend/temporal/data_imports/cdc/**",
+                "backend/temporal/data_imports/external_product_hooks.py",
+                "backend/temporal/data_imports/naming_convention.py",
+                "backend/temporal/data_imports/pipelines/pipeline_v3/load/health.py",
+                "backend/temporal/data_imports/sources/clickhouse/source.py",
+                "backend/temporal/data_imports/sources/custom/source.py",
+                "backend/temporal/data_imports/workflow_activities/sync_new_schemas.py",
+                "backend/tests/api/_access_control_base.py",
+                "backend/types.py"
             ],
             "outputs": [],
             "cache": true

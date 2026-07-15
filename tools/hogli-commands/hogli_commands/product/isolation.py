@@ -23,7 +23,7 @@ import re
 import json
 import tomllib
 import functools
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -289,7 +289,24 @@ def _input_targets_permanent(glob: str, permanent_modules: frozenset[str]) -> bo
     return any(normalized.startswith(_module_input_prefixes(m)) for m in permanent_modules)
 
 
-def has_narrowed_turbo_inputs(product_dir: Path, permanent_modules: frozenset[str] = frozenset()) -> bool:
+def _input_covers_path(glob: str, rel_path: str) -> bool:
+    """True if a contract-check input glob re-runs the suite when `rel_path` changes."""
+    base = glob.removeprefix("./").split("*")[0].rstrip("/")
+    if not base:
+        return False
+    return rel_path == base or rel_path.startswith(base + "/")
+
+
+def _input_targets_reexport(glob: str, reexport_paths: Sequence[str]) -> bool:
+    """True if the glob exists to watch a module that defines a facade-re-exported class."""
+    return any(_input_covers_path(glob, path) for path in reexport_paths)
+
+
+def has_narrowed_turbo_inputs(
+    product_dir: Path,
+    permanent_modules: frozenset[str] = frozenset(),
+    reexport_paths: Sequence[str] = (),
+) -> bool:
     """True only when contract-check inputs are confined to the public surface AND at least one
     targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
@@ -297,12 +314,45 @@ def has_narrowed_turbo_inputs(product_dir: Path, permanent_modules: frozenset[st
 
     Permanently-exposed modules (permanent_modules) count as extended surface: a product may
     list them without forfeiting the narrowing, since core depends on them outside the import
-    graph and they must re-run the suite on change (see uncovered_permanent_modules)."""
+    graph and they must re-run the suite on change (see uncovered_permanent_modules).
+
+    A module defining a class the facade re-exports (reexport_paths) is extended surface for the
+    same reason, reached the other way: core holds the class through the one legal facade import,
+    so its methods are public even though they live outside facade/. Watching that module is what
+    makes the skip sound (see uncovered_facade_classes), so it must not cost the narrowing."""
     inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
         return False
-    return all(_input_targets_surface(i) or _input_targets_permanent(i, permanent_modules) for i in inputs) and any(
-        _input_targets_facade_or_presentation(i) for i in inputs
+    return all(
+        _input_targets_surface(i)
+        or _input_targets_permanent(i, permanent_modules)
+        or _input_targets_reexport(i, reexport_paths)
+        for i in inputs
+    ) and any(_input_targets_facade_or_presentation(i) for i in inputs)
+
+
+def uncovered_facade_classes(product_dir: Path, reexports: Sequence[tuple[str, str, str]]) -> tuple[str, ...]:
+    """Re-exported behavioral classes whose defining module no contract-check input watches.
+
+    Re-exporting a class through the facade is how core gets the things it registers and
+    dispatches on (query runners, temporal workflows), so it isn't a leak by itself. It only
+    goes unsound when the defining module sits outside the contract-check inputs: then the
+    class's methods can change while the watched inputs stay byte-identical, and turbo-discover
+    skips the Django suite on a change core can observe. warehouse_sources and error_tracking
+    already settle it the sound way — widen the inputs to cover the module (see their
+    turbo.json). This mirrors uncovered_permanent_modules, for the re-export channel.
+
+    An un-narrowed product watches all of backend/ by default, so nothing is uncovered there.
+    """
+    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    if not inputs:
+        return ()
+    return tuple(
+        sorted(
+            name
+            for name, kind, path in reexports
+            if kind == "class" and path and not any(_input_covers_path(i, path) for i in inputs)
+        )
     )
 
 
@@ -416,8 +466,10 @@ class IsolationStatus:
     # schema registry — so they don't qualify as irreducible interfaces and the marker is being
     # abused to keep an internal (models/logic) walled off. IsolationChainCheck blocks on these.
     unqualified_permanent_exposures: tuple[str, ...] = ()
-    # (name, kind) pairs the facade advertises in __all__ but defines under logic/ or models/.
-    facade_reexports: tuple[tuple[str, str], ...] = ()
+    # (name, kind, path) triples the facade advertises in __all__ but defines outside facade/.
+    facade_reexports: tuple[tuple[str, str, str], ...] = ()
+    # Of those, the behavioral classes whose defining module no contract-check input watches.
+    uncovered_facade_classes: tuple[str, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -428,17 +480,17 @@ class IsolationStatus:
         """Advertised facade names that disqualify the contract-check skip.
 
         tach proves no caller imports past the facade, but a re-exported class is handed to
-        callers through that one legal import, and its methods live under logic/ or models/ —
-        outside the contract-check inputs. They can then change while facade/** stays
+        callers through that one legal import, and its methods live outside facade/. Unless an
+        input glob watches the defining module, they can change while the watched inputs stay
         byte-identical, so turbo-discover skips the Django suite on a change core can observe.
 
-        Only behavioral classes count. A function is one bounded entry point with one signature,
-        so "keep behavior tests in-product" stays checkable. An error marker, a plain data class
-        or a constant carries no methods to drive — each belongs in facade/contracts.py or
-        facade/enums.py, but misplacing it does not put behavior outside the inputs, so it earns
-        a warning rather than the full Django suite.
+        Only behavioral classes count, and only uncovered ones. A function is one bounded entry
+        point with one signature, so "keep behavior tests in-product" stays checkable. An error
+        marker, a plain data class or a constant carries no methods to drive. And a class whose
+        module is already in the inputs re-runs the suite when it changes, which is the whole
+        point — widening the inputs is the remedy, not removing the class.
         """
-        return tuple(name for name, kind in self.facade_reexports if kind == "class")
+        return self.uncovered_facade_classes
 
     @property
     def facade_leaks_implementation(self) -> bool:
@@ -494,6 +546,7 @@ def compute_isolation_status(
         repo_root = REPO_ROOT
     module_path = f"products.{name}"
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
+    reexports = tuple(get_facade_reexports(backend_dir))
     return IsolationStatus(
         name=name,
         is_isolated=is_isolated,
@@ -502,11 +555,14 @@ def compute_isolation_status(
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
         bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
         has_contract_check_script=has_contract_check_script(product_dir),
-        has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir, permanent_modules),
+        has_narrowed_turbo=has_narrowed_turbo_inputs(
+            product_dir, permanent_modules, [path for _name, _kind, path in reexports if path]
+        ),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
         unqualified_permanent_exposures=tuple(
             sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
         ),
-        facade_reexports=tuple(get_facade_reexports(backend_dir)),
+        facade_reexports=reexports,
+        uncovered_facade_classes=uncovered_facade_classes(product_dir, reexports),
     )
