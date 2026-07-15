@@ -215,12 +215,30 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+            # Vite's dependency optimization cache (node_modules/.vite) is the most
+            # expensive part of the build — without it, Vite re-bundles 15k+ modules
+            # from scratch (~14 min on degraded runners vs <1 min with cache). The
+            # pnpm lockfile hash ensures the cache is invalidated when deps change.
+            - name: Restore Vite build cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: storybook-vite-${{ runner.os }}-
+
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
+
+            - name: Save Vite build cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
