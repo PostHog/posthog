@@ -32,7 +32,6 @@ class TestRoarkSource:
         config = self.source.get_source_config
         assert config.label == "Roark"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/roark"
 
     def test_source_config_has_secret_api_key_field(self) -> None:

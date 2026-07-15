@@ -45,7 +45,6 @@ class RoarkSource(ResumableSource[RoarkSourceConfig, RoarkResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Roark",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Roark API key to sync your voice and chat AI observability data into the PostHog Data warehouse.
 
 Generate an API key in your [Roark dashboard](https://app.roark.ai). The key is a simple bearer token with read access to your organization's calls, chats, agents, metrics, issues, and simulations.
