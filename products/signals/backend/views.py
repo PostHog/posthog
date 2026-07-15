@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, timedelta
 from typing import cast
 
@@ -2230,7 +2231,7 @@ class SignalReportArtefactViewSet(
         return Response(read_serializer.data)
 
     def _schedule_reviewer_added_slack_notifications(
-        self, *, report_id: str, added_logins: list[str], actor_user_id: int | None
+        self, *, report_id: str, added_logins: Sequence[str], actor_user_id: int | None
     ) -> None:
         """After commit, Slack-notify reviewers a human just added to this report.
 
