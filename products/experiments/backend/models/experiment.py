@@ -15,7 +15,7 @@ from posthog.models.utils import RootTeamMixin, UUIDModel
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
     group_cohort_restriction_blocker,
-    groups_restricted_to_cohort,
+    groups_carry_restriction_marker,
 )
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return False
         # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
         # surfaces as the experiment reverting to "running".
-        return groups_restricted_to_cohort(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
+        return groups_carry_restriction_marker(self.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY)
 
     @property
     def freeze_exposure_blocker(self) -> ExposureFreezeBlocker | None:

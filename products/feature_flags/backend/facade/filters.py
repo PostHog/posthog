@@ -99,8 +99,11 @@ def strip_group_cohort_restriction(
     return {**current_filters, "groups": new_groups}, list(dict.fromkeys(cohort_ids))
 
 
-def groups_restricted_to_cohort(current_filters: dict, *, marker_key: str) -> bool:
+def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -> bool:
     """Whether EVERY release group carries the ``marker_key`` restriction stamp.
+
+    Checks only the stamp, not the AND'd cohort condition itself — a manually edited group
+    could keep the stamp after losing the condition.
 
     All-groups (not any-group) so that adding or editing an unstamped group reads as the
     restriction being lifted; an empty ``groups`` list is not restricted (there is nothing
