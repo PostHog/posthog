@@ -242,16 +242,13 @@ Double-check the exact CLI syntax for the provider you detected - many commands 
 `vercel env add`) take the target environment as a positional argument and read the value from
 stdin, so passing the value as a positional would silently set the wrong thing.
 
-```markdown
-### Setting environment variables via a local CLI
-
-If you are used to running commands locally to configure your environment variables, then you can
-do it as follows for Vercel (the value is piped in; `production` is the target environment):
+Add a "Setting environment variables via a local CLI" subsection that tells the reader they can run
+commands locally instead of using the dashboard. For Vercel the commands look like this (the value
+is piped in; `production` is the target environment):
 
 ```bash
 echo "phc_abc123def456" | npx vercel env add NEXT_PUBLIC_POSTHOG_TOKEN production
 echo "https://us.i.posthog.com" | npx vercel env add NEXT_PUBLIC_POSTHOG_HOST production
-```
 ```
 
 For any other language (assume a technical reader - be direct, no env-var explainer):
