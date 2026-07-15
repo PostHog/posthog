@@ -4,8 +4,8 @@ import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { extractSessionData } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
@@ -113,9 +113,9 @@ describe('session recording encryption integration', () => {
             retentionPeriod,
             sessionKey,
         }
-        const { accepted, bytesWritten } = recorder.recordSessionData(session, serializeSessionData(message.message))
+        const { accepted, bytesWritten } = recorder.recordSessionData(session, extractSessionData(message.message))
         if (accepted) {
-            await recorder.recordSessionLogs(session, extractConsoleLogs(message))
+            await recorder.recordSessionLogs(session, extractConsoleLogs(message.team, message.message))
             recorder.recordSessionFeatures(session, message.message)
         }
         return bytesWritten

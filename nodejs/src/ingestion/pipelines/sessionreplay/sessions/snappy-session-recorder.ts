@@ -11,7 +11,7 @@ const MAX_URL_LENGTH = 4 * 1024 // 4KB
 const MAX_URLS_COUNT = 25
 
 /**
- * Per-message session data, precomputed by the serialize step (business logic): the serialized
+ * Per-message session data, precomputed by the extract-session-data step (business logic): the serialized
  * JSONL chunks plus everything the session block aggregates per message. Pure data — the recorder
  * folds it into session state without looking at the raw events again.
  */
@@ -115,7 +115,7 @@ export class SnappySessionRecorder {
     ) {}
 
     /**
-     * Aggregates one message's precomputed session data (from the serialize step) into the
+     * Aggregates one message's precomputed session data (from the extract-session-data step) into the
      * session block: appends the serialized chunks and folds the counts, urls, and ranges in.
      * Buffered until end() is called.
      *

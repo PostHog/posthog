@@ -2,15 +2,15 @@ import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ExtractConsoleLogsStepOutput } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { ExtractSessionDataStepOutput } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { SerializeSessionStepOutput } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { ValueMatcher } from '~/types'
 
 export interface RecordSessionEventStepInput
     extends SessionBatchContext,
-        SerializeSessionStepOutput,
+        ExtractSessionDataStepOutput,
         ExtractConsoleLogsStepOutput {
     parsedMessage: ParsedMessageData
 }
@@ -20,11 +20,11 @@ export interface RecordSessionEventStepConfig {
 }
 
 /**
- * Creates a step that aggregates a message's precomputed record data — derived by the serialize
- * and extract-console-logs steps — into the session batch: session data first, then, if the
- * recorder accepted the message, its console logs and features. The parsed message still feeds
- * feature extraction, which is a sequential state machine across a session's messages and can't
- * be precomputed.
+ * Creates a step that aggregates a message's precomputed record data — derived by the
+ * extract-session-data and extract-console-logs steps — into the session batch: session data
+ * first, then, if the recorder accepted the message, its console logs and features. The parsed
+ * message still feeds feature extraction, which is a sequential state machine across a session's
+ * messages and can't be precomputed.
  *
  * Metrics (tracked via TopHog wrapper in the pipeline):
  * - message_size_by_session_id: Sum of raw message sizes per session

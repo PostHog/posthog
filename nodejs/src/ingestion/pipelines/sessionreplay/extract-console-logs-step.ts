@@ -7,7 +7,7 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ExtractedConsoleLogs } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-recorder'
-import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
+import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { TimestampFormat } from '~/types'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {
@@ -46,7 +46,7 @@ function payloadToSafeString(payload: unknown[]): string {
  * store. Respects the team's console log ingestion setting and handles the native anonymizer's
  * pre-serialized fast path, which carries level counts in its metadata and no entries.
  */
-export function extractConsoleLogs(message: MessageWithTeam): ExtractedConsoleLogs {
+export function extractConsoleLogs(team: TeamForReplay, message: ParsedMessageData): ExtractedConsoleLogs {
     const extracted: ExtractedConsoleLogs = {
         consoleLogCount: 0,
         consoleWarnCount: 0,
@@ -54,19 +54,19 @@ export function extractConsoleLogs(message: MessageWithTeam): ExtractedConsoleLo
         entries: [],
     }
 
-    if (!message.team.consoleLogIngestionEnabled) {
+    if (!team.consoleLogIngestionEnabled) {
         return extracted
     }
 
-    if (message.message.preSerialized) {
-        const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.message.preSerialized
+    if (message.preSerialized) {
+        const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.preSerialized
         extracted.consoleLogCount = consoleLogCount
         extracted.consoleWarnCount = consoleWarnCount
         extracted.consoleErrorCount = consoleErrorCount
         return extracted
     }
 
-    for (const events of Object.values(message.message.eventsByWindowId)) {
+    for (const events of Object.values(message.eventsByWindowId)) {
         for (const event of events) {
             const eventData = event.data as
                 | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
@@ -120,7 +120,7 @@ export function createExtractConsoleLogsStep<T extends ExtractConsoleLogsStepInp
         return Promise.resolve(
             ok({
                 ...input,
-                logs: extractConsoleLogs({ team, message: parsedMessage }),
+                logs: extractConsoleLogs(team, parsedMessage),
             })
         )
     }

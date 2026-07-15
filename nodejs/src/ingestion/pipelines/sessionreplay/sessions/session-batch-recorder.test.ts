@@ -3,9 +3,9 @@ import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { extractSessionData } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -215,9 +215,9 @@ describe('SessionBatchRecorder', () => {
             retentionPeriod,
             sessionKey,
         }
-        const { accepted, bytesWritten } = recorder.recordSessionData(session, serializeSessionData(message.message))
+        const { accepted, bytesWritten } = recorder.recordSessionData(session, extractSessionData(message.message))
         if (accepted) {
-            await recorder.recordSessionLogs(session, extractConsoleLogs(message))
+            await recorder.recordSessionLogs(session, extractConsoleLogs(message.team, message.message))
             recorder.recordSessionFeatures(session, message.message)
         }
         return bytesWritten
@@ -656,7 +656,7 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordSessionLogs).toHaveBeenCalledWith(
-                extractConsoleLogs(message)
+                extractConsoleLogs(message.team, message.message)
             )
         })
 
@@ -692,8 +692,14 @@ describe('SessionBatchRecorder', () => {
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordSessionLogs).toHaveBeenCalledTimes(2)
-            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
-            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[1]))
+            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                1,
+                extractConsoleLogs(messages[0].team, messages[0].message)
+            )
+            expect(mockRecorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                2,
+                extractConsoleLogs(messages[1].team, messages[1].message)
+            )
         })
 
         it('should create separate console log recorders for different sessions', async () => {
@@ -732,10 +738,10 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordSessionLogs).toHaveBeenCalledWith(
-                extractConsoleLogs(messages[0])
+                extractConsoleLogs(messages[0].team, messages[0].message)
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordSessionLogs).toHaveBeenCalledWith(
-                extractConsoleLogs(messages[1])
+                extractConsoleLogs(messages[1].team, messages[1].message)
             )
         })
 
@@ -844,17 +850,31 @@ describe('SessionBatchRecorder', () => {
 
             // Verify session1 recorder calls
             expect(session1Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
-            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[2]))
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                1,
+                extractConsoleLogs(messages[0].team, messages[0].message)
+            )
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                2,
+                extractConsoleLogs(messages[2].team, messages[2].message)
+            )
 
             // Verify session2 recorder calls
             expect(session2Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[1]))
-            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[4]))
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                1,
+                extractConsoleLogs(messages[1].team, messages[1].message)
+            )
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                2,
+                extractConsoleLogs(messages[4].team, messages[4].message)
+            )
 
             // Verify session3 recorder calls
             expect(session3Recorder.recordSessionLogs).toHaveBeenCalledTimes(1)
-            expect(session3Recorder.recordSessionLogs).toHaveBeenCalledWith(extractConsoleLogs(messages[3]))
+            expect(session3Recorder.recordSessionLogs).toHaveBeenCalledWith(
+                extractConsoleLogs(messages[3].team, messages[3].message)
+            )
         })
 
         it('should handle messages with different team IDs', async () => {
@@ -892,12 +912,24 @@ describe('SessionBatchRecorder', () => {
 
             // Verify correct message recording for each team
             expect(session1Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[0]))
-            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[1]))
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                1,
+                extractConsoleLogs(messages[0].team, messages[0].message)
+            )
+            expect(session1Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                2,
+                extractConsoleLogs(messages[1].team, messages[1].message)
+            )
 
             expect(session2Recorder.recordSessionLogs).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(1, extractConsoleLogs(messages[2]))
-            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(2, extractConsoleLogs(messages[3]))
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                1,
+                extractConsoleLogs(messages[2].team, messages[2].message)
+            )
+            expect(session2Recorder.recordSessionLogs).toHaveBeenNthCalledWith(
+                2,
+                extractConsoleLogs(messages[3].team, messages[3].message)
+            )
         })
     })
 

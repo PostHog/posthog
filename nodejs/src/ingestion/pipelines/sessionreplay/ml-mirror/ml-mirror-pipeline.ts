@@ -13,10 +13,10 @@ import {
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
 import { createExtractConsoleLogsStep } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
+import { createExtractSessionDataStep } from '~/ingestion/pipelines/sessionreplay/extract-session-data-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
-import { createSerializeSessionStep } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -128,7 +128,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                 // block chunks and the console logs — here, so the
                                                 // record step only aggregates.
                                                 return parsed
-                                                    .pipe(createSerializeSessionStep())
+                                                    .pipe(createExtractSessionDataStep())
                                                     .pipe(createExtractConsoleLogsStep())
                                                     .pipe(
                                                         topHogWrapper(

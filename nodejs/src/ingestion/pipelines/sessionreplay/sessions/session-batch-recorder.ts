@@ -112,7 +112,7 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Aggregates one message's precomputed session data (from the serialize step) into the
+     * Aggregates one message's precomputed session data (from the extract-session-data step) into the
      * appropriate session block, enforcing the per-session rate limit and consistency checks.
      *
      * @returns Whether the message was accepted — when false the caller must not record the

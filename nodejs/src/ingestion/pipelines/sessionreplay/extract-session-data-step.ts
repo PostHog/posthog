@@ -18,11 +18,11 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 
 /**
- * Serializes one parsed message into the per-message session data the recorder aggregates:
- * the JSONL block chunks plus the counts, urls, and segmentation events derived from the events.
- * Handles both parsed events and the native anonymizer's pre-serialized fast path.
+ * Extracts one parsed message's session data the recorder aggregates: the serialized JSONL block
+ * chunks plus the counts, urls, and segmentation events derived from the events. Handles both
+ * parsed events and the native anonymizer's pre-serialized fast path.
  */
-export function serializeSessionData(message: ParsedMessageData): SerializedSessionData {
+export function extractSessionData(message: ParsedMessageData): SerializedSessionData {
     const base = {
         eventsRange: { start: message.eventsRange.start, end: message.eventsRange.end },
         distinctId: message.distinct_id,
@@ -116,14 +116,14 @@ export function serializeSessionData(message: ParsedMessageData): SerializedSess
     }
 }
 
-export interface SerializeSessionStepInput {
+export interface ExtractSessionDataStepInput {
     team: TeamForReplay
     parsedMessage: ParsedMessageData
     retentionPeriod: RetentionPeriod
     sessionKey: SessionKey
 }
 
-export interface SerializeSessionStepOutput {
+export interface ExtractSessionDataStepOutput {
     session: SessionRef
     data: SerializedSessionData
 }
@@ -134,11 +134,11 @@ export interface SerializeSessionStepOutput {
  * their counts. Pure business logic — the record step aggregates the result into the session
  * batch without looking at the raw events again.
  */
-export function createSerializeSessionStep<T extends SerializeSessionStepInput>(): ProcessingStep<
+export function createExtractSessionDataStep<T extends ExtractSessionDataStepInput>(): ProcessingStep<
     T,
-    T & SerializeSessionStepOutput
+    T & ExtractSessionDataStepOutput
 > {
-    return function serializeSessionStep(input) {
+    return function extractSessionDataStep(input) {
         const { team, parsedMessage, retentionPeriod, sessionKey } = input
         const session: SessionRef = {
             teamId: team.teamId,
@@ -151,7 +151,7 @@ export function createSerializeSessionStep<T extends SerializeSessionStepInput>(
             ok({
                 ...input,
                 session,
-                data: serializeSessionData(parsedMessage),
+                data: extractSessionData(parsedMessage),
             })
         )
     }

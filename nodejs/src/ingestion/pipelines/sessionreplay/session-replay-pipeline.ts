@@ -23,11 +23,11 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
 import { createExtractConsoleLogsStep } from './extract-console-logs-step'
+import { createExtractSessionDataStep } from './extract-session-data-step'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
-import { createSerializeSessionStep } from './serialize-session-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
@@ -91,9 +91,9 @@ export interface SessionReplayPipelineConfig {
  * 2. Team Filter - Validate team ownership and enrich with team context
  * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
  * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Serialize - Derive the per-message session block data (chunks, counts, session ref)
+ * 5. Extract session data - Derive the per-message session block data (chunks, counts, session ref)
  * 6. Extract console logs - Derive the per-message console log data
- * 7. Record - Aggregate the derived data into the batch's recorder
+ * 7. Record - Aggregate the extracted data into the batch's recorder
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
     const {
@@ -211,7 +211,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     // Derive the per-message record data — the
                                                     // session block chunks and the console logs —
                                                     // here, so the record step only aggregates.
-                                                    .pipe(createSerializeSessionStep())
+                                                    .pipe(createExtractSessionDataStep())
                                                     .pipe(createExtractConsoleLogsStep())
                                                     .pipe(
                                                         topHogWrapper(
