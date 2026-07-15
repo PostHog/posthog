@@ -262,6 +262,17 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadSessions: () => false,
             },
         ],
+        // True when the first-page load failed, so the list panel shows a "couldn't load"
+        // state (with a retry) instead of the misleading "No MCP sessions yet" empty state.
+        // A load-more failure keeps the already-loaded list, so it only surfaces a toast.
+        loadError: [
+            false,
+            {
+                loadSessions: () => false,
+                loadSessionsSuccess: () => false,
+                loadSessionsFailure: () => true,
+            },
+        ],
         intentOverrides: [
             {} as Record<string, string>,
             {
@@ -349,6 +360,15 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // knows the request failed (e.g. a 503 when intent generation is unavailable).
         generateIntentFailure: () => {
             lemonToast.error('Could not generate the session intent. Please try again.')
+        },
+        // Without these, a failed fetch (e.g. a 500 from the sessions aggregation) leaves the
+        // list silently empty with no feedback. Toast on both; the first-page failure also
+        // drives the loadError empty-state so the user gets an explicit retry.
+        loadSessionsFailure: () => {
+            lemonToast.error('Could not load MCP sessions. Please try again.')
+        },
+        loadMoreSessionsFailure: () => {
+            lemonToast.error('Could not load more sessions. Please try again.')
         },
         // Only fires on a reset load (not on loadMore), so appending more pages doesn't
         // steal the user's selection. Auto-selects the first row when the set changes.
