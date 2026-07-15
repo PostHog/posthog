@@ -20,7 +20,6 @@ from products.growth.backend.constants import (
     SDK_TYPES,
     SdkVersionEntry,
     github_sdk_versions_key,
-    team_sdk_versions_key,
     team_sdk_versions_v2_key,
 )
 from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
@@ -279,21 +278,18 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
     redis_client = get_client()
 
     if not force_refresh:
-        cache_keys = (team_sdk_versions_v2_key(team_id), team_sdk_versions_key(team_id))
-        for cache_key in cache_keys:
-            cached_data = redis_client.get(cache_key)
-            if cached_data:
-                try:
-                    sdk_versions = json.loads(
-                        cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
-                    )
-                    logger.info("sdk_health_team_cache_hit", team_id=team_id, cache_key=cache_key)
-                    return sdk_versions
-                except (json.JSONDecodeError, AttributeError) as e:
-                    logger.warning(
-                        "sdk_health_team_cache_corrupted", team_id=team_id, cache_key=cache_key, error=str(e)
-                    )
-                    capture_exception(e)
+        cache_key = team_sdk_versions_v2_key(team_id)
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            try:
+                sdk_versions = json.loads(
+                    cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
+                )
+                logger.info("sdk_health_team_cache_hit", team_id=team_id, cache_key=cache_key)
+                return sdk_versions
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning("sdk_health_team_cache_corrupted", team_id=team_id, cache_key=cache_key, error=str(e))
+                capture_exception(e)
     else:
         logger.info("sdk_health_team_force_refresh", team_id=team_id)
 

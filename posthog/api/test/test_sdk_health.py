@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -10,7 +10,7 @@ from posthog.api.sdk_health import get_team_data
 
 class TestGetTeamData(SimpleTestCase):
     @patch("posthog.api.sdk_health.get_client")
-    def test_prefers_v2_team_cache(self, mock_get_client: MagicMock) -> None:
+    def test_reads_v2_team_cache(self, mock_get_client: MagicMock) -> None:
         redis_client = MagicMock()
         redis_client.get.return_value = b'{"posthog-java": []}'
         mock_get_client.return_value = redis_client
@@ -20,19 +20,19 @@ class TestGetTeamData(SimpleTestCase):
         assert result == {"posthog-java": []}
         redis_client.get.assert_called_once_with("sdk_versions:team:v2:7")
 
+    @patch("products.growth.backend.team_sdk_versions.get_and_cache_team_sdk_versions")
     @patch("posthog.api.sdk_health.get_client")
-    def test_falls_back_to_legacy_team_cache(self, mock_get_client: MagicMock) -> None:
+    def test_v2_cache_miss_fetches_fresh_data(self, mock_get_client: MagicMock, mock_get_and_cache: MagicMock) -> None:
         redis_client = MagicMock()
-        redis_client.get.side_effect = [None, b'{"web": []}']
+        redis_client.get.return_value = None
         mock_get_client.return_value = redis_client
+        mock_get_and_cache.return_value = {"web": []}
 
         result = get_team_data(7, force_refresh=False)
 
         assert result == {"web": []}
-        assert redis_client.get.call_args_list == [
-            call("sdk_versions:team:v2:7"),
-            call("sdk_versions:team:7"),
-        ]
+        redis_client.get.assert_called_once_with("sdk_versions:team:v2:7")
+        mock_get_and_cache.assert_called_once_with(7, redis_client)
 
 
 class TestSdkHealthViewSet(APIBaseTest):
