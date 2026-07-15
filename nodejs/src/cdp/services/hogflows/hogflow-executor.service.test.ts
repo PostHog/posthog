@@ -634,7 +634,9 @@ describe('Hogflow Executor', () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow)
                 invocation.state.currentAction = {
                     id: actionId,
-                    startedAtTimestamp: DateTime.now().minus(agoMs).toMillis(),
+
+                    startedAtTimestamp: DateTime.now().minus({ milliseconds: agoMs }).toMillis(),
+
                 }
                 return invocation
             }
