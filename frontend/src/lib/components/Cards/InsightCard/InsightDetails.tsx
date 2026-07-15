@@ -103,7 +103,7 @@ type OverrideSource = 'dashboard' | 'tile'
 // A tile override replaces the dashboard override wholesale (matches backend `apply_dashboard_filters`) —
 // never both at once.
 function getEffectiveFilterOverride(
-    filtersOverride: DashboardFilter | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): { override: DashboardFilter | TileFilters; source: OverrideSource } | null {
     if (tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0) {
@@ -604,7 +604,7 @@ interface InsightDetailsProps {
         last_refresh: string | null
     }
     variablesOverride?: Record<string, HogQLVariable>
-    filtersOverride?: DashboardFilter | null
+    filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
     hasDataWarehouseSeries?: boolean
 }
