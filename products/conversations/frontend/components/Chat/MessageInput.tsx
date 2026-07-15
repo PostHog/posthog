@@ -58,6 +58,7 @@ export function MessageInput({
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const confirmOpenRef = useRef(false)
 
     useEffect(() => {
         setIsEmpty(!draftContent)
@@ -68,8 +69,11 @@ export function MessageInput({
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
     const handleSubmit = (): void => {
-        // Guards the Cmd+Enter path too, not just the (disabled) button
+        // These guard the Cmd+Enter path, which bypasses the (disabled) button.
         if (replyDisabledReason && !isPrivate) {
+            return
+        }
+        if (messageSending || isUploading) {
             return
         }
         if (editorRef.current && !isEmpty) {
@@ -89,11 +93,20 @@ export function MessageInput({
             }
             // Private notes are never sent externally, so they skip the draft-mode confirmation.
             if (draftMode && !isPrivate && sendConfirmationMessage) {
+                // A rapid second Cmd+Enter would otherwise stack a duplicate dialog, since
+                // messageSending only flips once Send is confirmed inside doSend.
+                if (confirmOpenRef.current) {
+                    return
+                }
+                confirmOpenRef.current = true
                 LemonDialog.open({
                     title: 'Ready to send?',
                     description: sendConfirmationMessage,
                     primaryButton: { children: 'Send', type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
+                    onClose: () => {
+                        confirmOpenRef.current = false
+                    },
                 })
             } else {
                 doSend()
