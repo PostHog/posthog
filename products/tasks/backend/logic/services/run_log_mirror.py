@@ -25,6 +25,11 @@ logger = structlog.get_logger(__name__)
 # below that so run identity attributes and JSON overhead never push a line over.
 MAX_BODY_CHARS = 8_000
 
+# Defensive budget per append: origin_product is user-settable on task creation, so a
+# hostile append_log request must not be able to flood stdout/the collector with an
+# arbitrarily long entry list. Real scout appends are small batches, far below this.
+MAX_ENTRIES_PER_CALL = 200
+
 _LOG_METHOD_NAMES = {"info": "info", "warn": "warning", "error": "error"}
 
 
@@ -41,6 +46,13 @@ def mirror_entries(
     origin_product: str,
 ) -> None:
     """Emit one structured stdout log line per persisted entry."""
+    if len(entries) > MAX_ENTRIES_PER_CALL:
+        logger.warning(
+            "task_run_log_mirror_truncated",
+            task_run_id=run_id,
+            dropped=len(entries) - MAX_ENTRIES_PER_CALL,
+        )
+        entries = entries[:MAX_ENTRIES_PER_CALL]
     for entry in entries:
         if not isinstance(entry, dict):
             continue

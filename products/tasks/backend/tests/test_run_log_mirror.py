@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
-from products.tasks.backend.logic.services.run_log_mirror import MAX_BODY_CHARS, mirror_entries
+from products.tasks.backend.logic.services.run_log_mirror import MAX_BODY_CHARS, MAX_ENTRIES_PER_CALL, mirror_entries
 from products.tasks.backend.models import Task, TaskRun
 
 RUN_ID = "0b166f65-9e52-4d1b-b3c4-1a9e3f6d3c21"
@@ -106,6 +106,16 @@ class TestMirrorEntries(SimpleTestCase):
         entry = _session_update_entry("agent_message", content={"type": "text", "text": "x" * (MAX_BODY_CHARS * 2)})
         mock_logger = _mirror([entry])
         self.assertEqual(len(mock_logger.info.call_args.kwargs["body"]), MAX_BODY_CHARS)
+
+    def test_oversized_batch_is_capped(self):
+        entries = [
+            _session_update_entry("agent_message", content={"type": "text", "text": f"line {i}"})
+            for i in range(MAX_ENTRIES_PER_CALL + 50)
+        ]
+        mock_logger = _mirror(entries)
+        self.assertEqual(mock_logger.info.call_count, MAX_ENTRIES_PER_CALL)
+        mock_logger.warning.assert_called_once()
+        self.assertEqual(mock_logger.warning.call_args.kwargs["dropped"], 50)
 
     @parameterized.expand([("empty", []), ("non_dict_entries", ["not-a-dict", 42])])
     def test_no_usable_entries_emits_nothing(self, _name, entries):
