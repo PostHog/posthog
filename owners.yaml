@@ -14,6 +14,10 @@ rules:
           - AGENTS.md
           - bin/
           - greptile.json
+          # Every owners.yaml routes to devex (unanchored: matches at any depth)
+          # unless a nearer file or rule claims it — ownership-policy edits must
+          # never go out for review unassigned.
+          - owners.yaml
       owners: team-devex
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-analytics-platform
