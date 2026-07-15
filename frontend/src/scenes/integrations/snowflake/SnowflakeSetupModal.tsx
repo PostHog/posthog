@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -53,6 +53,13 @@ export const SnowflakeSetupModal = (props: SnowflakeSetupModalLogicProps): JSX.E
                 </LemonField>
                 {snowflakeIntegration.authentication_type === 'keypair' ? (
                     <>
+                        <LemonField
+                            name="private_key_file"
+                            label="Private key file"
+                            help="Upload the key file you generated, or paste its contents below."
+                        >
+                            <LemonFileInput accept=".p8,.pem,.key" multiple={false} />
+                        </LemonField>
                         <LemonField name="private_key" label="Private key">
                             <LemonTextArea className="ph-ignore-input" placeholder="my-private-key" minRows={8} />
                         </LemonField>

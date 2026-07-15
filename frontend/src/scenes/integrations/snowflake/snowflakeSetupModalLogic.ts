@@ -1,4 +1,4 @@
-import { connect, kea, path, props } from 'kea'
+import { connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
@@ -31,6 +31,8 @@ export const snowflakeSetupModalLogic = kea<snowflakeSetupModalLogicType>([
                 password: '',
                 private_key: '',
                 private_key_passphrase: '',
+                // Bound to the file input only — its contents are read into `private_key`, it isn't sent.
+                private_key_file: null as File[] | null,
             },
             errors: ({ name, account, user, authentication_type, password, private_key }) => ({
                 name: name.trim() ? undefined : 'Name is required',
@@ -63,6 +65,26 @@ export const snowflakeSetupModalLogic = kea<snowflakeSetupModalLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ actions }) => ({
+        setSnowflakeIntegrationValue: async ({ name, value }) => {
+            // When a key file is uploaded, read its contents into the private_key field so users
+            // following Snowflake's key-pair workflow can upload the generated file instead of pasting.
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'private_key_file' && value?.[0]) {
+                try {
+                    const contents: string = await new Promise((resolve, reject) => {
+                        const reader = new FileReader()
+                        reader.onload = (e) => resolve(e.target?.result as string)
+                        reader.onerror = (e) => reject(e)
+                        reader.readAsText(value[0])
+                    })
+                    actions.setSnowflakeIntegrationValue('private_key', contents)
+                } catch {
+                    actions.setSnowflakeIntegrationManualErrors({ private_key_file: 'Could not read the key file' })
+                }
+            }
         },
     })),
 ])
