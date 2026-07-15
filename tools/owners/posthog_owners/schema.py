@@ -82,8 +82,10 @@ def _validate_owners_value(value: object, where: str, errors: list[str]) -> list
         return None
     if isinstance(value, str) and value:
         value = [value]
-    if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
-        errors.append(f"{where}: 'owners' must be a string, a list of strings, or null")
+    # Empty-string entries are rejected, not filtered: `owners: ['']` would count
+    # as covered while the assigner drops the falsy owner and requests nobody.
+    if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
+        errors.append(f"{where}: 'owners' must be a non-empty string, a list of non-empty strings, or null")
         return UNSET
     return normalize_product_owners([str(x) for x in value])
 
@@ -257,7 +259,7 @@ def parse_product_yaml_as_owners(text: str, *, path: Path, directory: str) -> Ow
     if not isinstance(data, dict) or "owners" not in data:
         return None
     raw = data["owners"]
-    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x for x in raw):
         return None
     owners = normalize_product_owners(raw)
     return OwnersFile(path=path, directory=directory, owners=owners, is_alias=True)
