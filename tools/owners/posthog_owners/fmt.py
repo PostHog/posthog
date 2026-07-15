@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersFile, OwnersResolver, ParsedOwnershipFile
-from .schema import OwnersRule, is_simple_owners_file, match_is_glob
+from .schema import OwnersRule, _Unset, is_simple_owners_file, match_is_glob
 
 # Cost model. "Canonical" is optimal only relative to these; tune to taste.
 ALPHA = 8  # cost of a dedicated simple owners.yaml existing
@@ -52,6 +52,24 @@ _BLOCKED = 10**6
 
 # An owner set is an ordered tuple of slugs, or None for unowned/no-contribution.
 OwnerSet = tuple[str, ...] | None
+
+# Explicit `owners: null` (unowned-by-design, coverage-exempt) is a distinct
+# resolution outcome from plain unowned. It flows through labeling, placement,
+# and the proof as this sentinel owner set, so a plan can never trade the
+# exemption away for bare unownedness without the proof noticing.
+UNOWNED_BY_DESIGN: tuple[str, ...] = ("<unowned-by-design>",)
+
+
+def _resolution_owner_set(owners: list[str] | None, unowned_by_design: bool) -> OwnerSet:
+    if unowned_by_design:
+        return UNOWNED_BY_DESIGN
+    return tuple(owners) if owners else None
+
+
+def _statement_owners_value(owners: OwnerSet) -> list[str] | None:
+    """The `owners:` value a statement writes into a file or rule — the sentinel
+    materializes as an explicit `owners: null`."""
+    return None if owners is None or owners == UNOWNED_BY_DESIGN else list(owners)
 
 
 def _is_simple_file(f: OwnersFile | None) -> bool:
@@ -213,7 +231,7 @@ class CanonicalPlacer:
             if any(match_is_glob(r.match) for r in parsed.rules):
                 frozen.add(entry.rel_dir)
             elif not _is_simple_file(parsed):
-                pinned[entry.rel_dir] = tuple(parsed.owners) if parsed.owners else None
+                pinned[entry.rel_dir] = _resolution_owner_set(parsed.owners, parsed.owners is None)
         return pinned, frozen, alias
 
     def _apply_classification(
@@ -362,7 +380,7 @@ class CanonicalPlacer:
         label_owners: dict[str, OwnerSet] = {}  # excludes glob-painted files, which stay frozen
         for p in code_files:
             r = self.resolver.resolve(p)
-            owners = tuple(r.owners) if r.owners else None
+            owners = _resolution_owner_set(r.owners, r.unowned_by_design)
             all_owners[p] = owners
             # A file whose owners come from a glob in a frozen file stays frozen — keep
             # it out of labeling. Unowned files (no source) are never glob-served.
@@ -445,9 +463,9 @@ class CanonicalPlacer:
             rel = p.statement.target[len(carrier) + 1 :] if carrier else p.statement.target
             match = f"/{rel}/" if p.statement.is_dir and rel else ("/" if not rel else f"/{rel}")
             if p.statement.is_dir and not rel:
-                f.owners = list(p.statement.owners) if p.statement.owners else None
+                f.owners = _statement_owners_value(p.statement.owners)
                 continue
-            f.rules.append(OwnersRule(match=match, owners=list(p.statement.owners) if p.statement.owners else None))
+            f.rules.append(OwnersRule(match=match, owners=_statement_owners_value(p.statement.owners)))
         return files
 
     def _diff(
@@ -458,12 +476,14 @@ class CanonicalPlacer:
         pinned_dirs: set[str],
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
         current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
-        current_rules: dict[str, set[str]] = {}  # dir -> rule matches already present
+        # dir -> {match: owners as written} — last occurrence wins, mirroring the
+        # resolver's last-match-wins so the diff compares against what decides.
+        current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
         current_owners: dict[str, list[str] | None] = {}  # dir -> top-level owners as written
         for entry in entries:
             if entry.name != OWNERS_FILENAME or entry.parsed is None:
                 continue
-            current_rules[entry.rel_dir] = {r.match for r in entry.parsed.rules}
+            current_rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
             current_owners[entry.rel_dir] = entry.parsed.owners
             if _is_simple_file(entry.parsed):
                 current_simple_dirs.add(entry.rel_dir)
@@ -474,7 +494,7 @@ class CanonicalPlacer:
         for carrier in sorted(open_dirs):
             proposed_file = proposed[carrier]
             proposed_rules = {r.match: r.owners for r in proposed_file.rules}
-            cur_rules = current_rules.get(carrier, set())
+            cur_rules = current_rules.get(carrier, {})
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
             file_exists = carrier in current_rules or carrier in pinned_dirs
             # A new file matters if it carries rules OR contributes owners itself
@@ -483,12 +503,20 @@ class CanonicalPlacer:
             if not file_exists and has_content:
                 creations.append(path)
             edits: list[str] = []
-            # A changed top-level `owners:` on an existing file is as much a part of
-            # the plan as a new rule — omitting it would print a plan that, applied
-            # literally, resolves differently from the proved proposal.
+            # Changed top-level `owners:` and reused-match rules with different
+            # owners are as much a part of the plan as new rules — omitting either
+            # would print a plan that, applied literally, resolves differently
+            # from the proved proposal.
             if carrier in current_owners and proposed_file.owners != current_owners[carrier]:
                 edits.append(f"owners: {_fmt_owners(current_owners[carrier])} -> {_fmt_owners(proposed_file.owners)}")
-            edits += sorted(f"{m} -> {_fmt_owners(o)}" for m, o in proposed_rules.items() if m not in cur_rules)
+            changed: list[str] = []
+            added: list[str] = []
+            for m, o in proposed_rules.items():
+                if m not in cur_rules:
+                    added.append(f"{m} -> {_fmt_owners(o)}")
+                elif o != cur_rules[m]:
+                    changed.append(f"{m}: {_fmt_owners(cur_rules[m])} -> {_fmt_owners(o)}")
+            edits += sorted(changed) + sorted(added)
             if edits:
                 additions[path] = edits
 
@@ -506,7 +534,7 @@ class CanonicalPlacer:
         sim = _InMemoryResolver(self.repo_root, proposed)
         for path, owners in file_owners.items():
             got = sim.resolve(path)
-            got_owners = tuple(got.owners) if got.owners else None
+            got_owners = _resolution_owner_set(got.owners, got.unowned_by_design)
             if got_owners != owners:
                 raise AssertionError(f"fmt bug: canonical layout resolves {path} to {got_owners}, expected {owners}")
 
@@ -535,7 +563,9 @@ def _index(node: _Node, out: dict[str, _Node]) -> None:
         _index(c, out)
 
 
-def _fmt_owners(owners: list[str] | None) -> str:
+def _fmt_owners(owners: list[str] | None | _Unset) -> str:
+    if isinstance(owners, _Unset):
+        return "(inherit)"
     if owners is None:
         return "(unowned)"
     return "[" + ", ".join(owners) + "]"

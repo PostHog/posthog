@@ -121,6 +121,8 @@ def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None
         ("owners: team-a", ["team-a"]),
         ("owners: '@someone'", ["@someone"]),
         ("owners: ''", None),  # empty string is a schema error, not a bogus [''] owner
+        ("owners: ['']", None),  # a [''] list would count as covered while the assigner pings nobody
+        ("owners: [team-a, '']", None),
     ],
 )
 def test_bare_string_owners_normalizes_to_single_element_list(
@@ -451,6 +453,41 @@ def test_fmt_reports_top_level_owner_edits(tmp_path: Path) -> None:
     assert not plan.is_canonical
     assert sorted(plan.deletions) == ["a/owners.yaml", "b/owners.yaml"]
     assert any("owners: [] -> [team-a]" in line for line in plan.additions.get("owners.yaml", []))
+
+
+def test_fmt_reports_rule_owner_changes(tmp_path: Path) -> None:
+    # The carrier already holds a `/a/` rule with stale owners; canonical placement
+    # keeps the match but flips the owners. A diff that only checks for new match
+    # strings would print nothing but the deletion, and applying that literally
+    # would route a/** to the stale team.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: []\nrules:\n  - match: '/a/'\n    owners: [team-old]\n",
+            "a/owners.yaml": "version: 1\nowners: [team-new]\n",
+            "a/f.py": "x",
+            "r1.py": "x",
+        },
+    )
+    assert "a/owners.yaml" in plan.deletions
+    assert "/a/: [team-old] -> [team-new]" in plan.additions.get("owners.yaml", [])
+
+
+def test_fmt_preserves_unowned_by_design_exemptions(tmp_path: Path) -> None:
+    # An `owners: null` child under a no-contribution parent must survive as an
+    # explicit statement — collapsing it into plain unowned would delete the file
+    # with no replacement and silently drop the coverage exemption.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: []\n",
+            "a/owners.yaml": "version: 1\nowners: null\n",
+            "a/f.py": "x",
+            "r1.py": "x",
+        },
+    )
+    if "a/owners.yaml" in plan.deletions:
+        assert "/a/ -> (unowned)" in plan.additions.get("owners.yaml", [])
 
 
 def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
