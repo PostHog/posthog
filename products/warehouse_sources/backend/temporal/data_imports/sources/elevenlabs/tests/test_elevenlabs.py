@@ -120,7 +120,7 @@ class TestFetchPageRetries:
         # 401 is a credential problem; retrying wastes the whole retry budget on a doomed request.
         resp = MagicMock(status_code=401, ok=False, text="unauthorized")
         resp.raise_for_status.side_effect = requests.HTTPError(
-            "401 Client Error: Unauthorized for url: https://api.elevenlabs.io/v1/history"
+            "401 Client Error: Unauthorized for url: https://api.elevenlabs.io/v1/history", response=resp
         )
         session = MagicMock()
         session.get.return_value = resp
@@ -181,6 +181,9 @@ class TestValidateCredentials:
             ("bad_key", 401, None, False),
             ("missing_scope_at_create", 403, None, True),
             ("missing_scope_at_schema", 403, "history", False),
+            # An unverified key (transient 429/5xx) must not be saved as valid at create time.
+            ("rate_limited_at_create", 429, None, False),
+            ("server_error_at_create", 500, None, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:

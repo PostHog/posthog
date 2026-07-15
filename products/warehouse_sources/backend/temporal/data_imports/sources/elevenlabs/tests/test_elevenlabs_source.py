@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs import (
     ElevenLabsResumeConfig,
@@ -18,8 +20,10 @@ class TestElevenLabsSourceConfig:
         config = ElevenLabsSource().get_source_config
         fields = {f.name: f for f in config.fields}
         assert "api_key" in fields
-        assert fields["api_key"].type == "password"
-        assert fields["api_key"].required is True
+        api_key_field = fields["api_key"]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.type == "password"
+        assert api_key_field.required is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/elevenlabs"
 
 

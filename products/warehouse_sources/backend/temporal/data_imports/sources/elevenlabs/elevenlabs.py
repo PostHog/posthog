@@ -88,6 +88,9 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     endpoints they want, so a missing scope must not block connecting. When probing a specific schema
     a 403 is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately by
     `get_non_retryable_errors`.
+
+    Any other status (429, 5xx, or an unexpected code) means the key was never actually verified, so
+    validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
     """
     config = ELEVENLABS_ENDPOINTS.get(schema_name) if schema_name else None
     probe_path = config.path if config else "/v1/user"
@@ -95,7 +98,9 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     params: dict[str, Any] = {"page_size": 1} if config else {}
 
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), params=params, timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers=_get_headers(api_key), params=params, timeout=10
+        )
     except Exception:
         return False, "Could not reach the ElevenLabs API. Please try again."
 
@@ -107,10 +112,9 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
         if schema_name is None:
             return True, None
         return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
-    # Any other status at create shouldn't block a genuine key; surface it when probing a schema.
-    if schema_name is None:
-        return True, None
-    return False, f"Unexpected response from ElevenLabs API (status {response.status_code})."
+    # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
+    # can retry, rather than saving a source that only fails on its first sync.
+    return False, f"Could not verify the ElevenLabs API key (status {response.status_code}). Please try again."
 
 
 @retry(
@@ -159,7 +163,8 @@ def get_rows(
     config = ELEVENLABS_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across pages so urllib3 keeps the connection alive instead of re-handshaking.
-    session = make_tracked_session()
+    # Redact the key so it can't leak into captured HTTP samples or logged URLs.
+    session = make_tracked_session(redact_values=(api_key,))
     url = f"{ELEVENLABS_BASE_URL}{config.path}"
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
