@@ -15,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -846,6 +846,13 @@ export function SourceFormComponent({
                 ) : (
                     availableSources[sourceConfig.name].fields
                         .filter((field) => !(isDirectQuerySource && field.type === 'ssh-tunnel'))
+                        // Hide feature-flag-gated fields until the user is in the rollout (a declared
+                        // but absent flag reads as off, since featureFlagLogic only exposes truthy flags).
+                        .filter(
+                            (field) =>
+                                !('featureFlag' in field && field.featureFlag) ||
+                                !!featureFlags[field.featureFlag as FeatureFlagKey]
+                        )
                         .map((field) =>
                             sourceFieldToElement(
                                 field,

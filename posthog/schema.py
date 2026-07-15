@@ -29136,6 +29136,10 @@ class SourceFieldSelectConfig(BaseModel):
     )
     converter: SourceFieldSelectConfigConverter | None = None
     defaultValue: str
+    featureFlag: str | None = Field(
+        default=None,
+        description=("When set, the field is only rendered for users for whom this feature flag is enabled."),
+    )
     label: str
     name: str
     options: list[SourceFieldSelectConfigOption]

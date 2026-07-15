@@ -57,6 +57,14 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class GoogleSheetsAuthMethodConfig(config.Config):
+    google_sheets_integration_id: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )
+    selection: Literal["oauth", "service_account"] = "oauth"
+
+
+@config.config
 class HubspotCustomPropertiesConfig(config.Config):
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
     contacts_properties: str | None = None
@@ -1587,6 +1595,7 @@ class GoogleSearchConsoleSourceConfig(config.Config):
 @config.config
 class GoogleSheetsSourceConfig(config.Config):
     spreadsheet_url: str
+    auth_method: GoogleSheetsAuthMethodConfig | None = None
 
 
 @config.config

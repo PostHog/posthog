@@ -8374,7 +8374,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
             "customer_id",
             "google_ads_integration_id",
             "is_mcc_account",
-            "spreadsheet_url",
             "linkedin_ads_integration_id",
             "meta_ads_integration_id",
             "sync_lookback_days",

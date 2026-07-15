@@ -4,12 +4,16 @@ from collections.abc import Callable
 from typing import Any, Optional, TypeVar
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import gspread
 import requests
 from cachetools import Cache, TTLCache, cached
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials as OAuthCredentials
+
+from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -28,8 +32,21 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
 
 
-def google_sheets_client() -> gspread.Client:
-    credentials = service_account.Credentials.from_service_account_info(
+_SERVICE_ACCOUNT_NOT_CONFIGURED_MESSAGE = (
+    "PostHog's Google Sheets service account is not configured on this instance. "
+    "Connect a Google account instead, or ask your administrator to configure it."
+)
+
+
+def _service_account_credentials() -> service_account.Credentials:
+    if (
+        not settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY
+        or not settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL
+    ):
+        # Without the private key, google-auth surfaces a cryptic "None could not be converted to
+        # bytes" from the crypto layer. Fail with an actionable message instead.
+        raise ValueError(_SERVICE_ACCOUNT_NOT_CONFIGURED_MESSAGE)
+    return service_account.Credentials.from_service_account_info(
         {
             "private_key": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY,
             "private_key_id": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID,
@@ -38,6 +55,34 @@ def google_sheets_client() -> gspread.Client:
         },
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
     )
+
+
+def _oauth_credentials(integration_id: int, team_id: int) -> OAuthCredentials:
+    # Temporal sync activities run in a thread pool where idle Django DB connections go stale;
+    # drop any before the lookup (mirrors google_search_console).
+    close_old_connections()
+    integration = Integration.objects.get(id=integration_id, team_id=team_id)
+    return OAuthCredentials(
+        token=None,
+        refresh_token=integration.refresh_token,
+        client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+        client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+        token_uri="https://oauth2.googleapis.com/token",
+        # No `scopes=` on purpose: a refresh-token grant must request a subset of the originally
+        # consented scopes or Google returns `invalid_scope`. Omitting it refreshes with the
+        # granted scopes (matches google_search_console).
+    )
+
+
+def google_sheets_client(integration_id: int | None, team_id: int) -> gspread.Client:
+    """Build a gspread client for one source.
+
+    When `integration_id` is set, authenticate as the team's own connected Google account (OAuth);
+    otherwise fall back to PostHog's shared service account. Reading as the team's own identity is
+    what isolates tenants: the team can only open a sheet its connected account already has access
+    to, rather than any sheet shared with the global service account.
+    """
+    credentials = _oauth_credentials(integration_id, team_id) if integration_id else _service_account_credentials()
     # gspread skips wrapping any session you pass in with `AuthorizedSession`, so a plain
     # `requests.Session` would send unauthenticated requests and Google returns 403. Build the
     # `AuthorizedSession` ourselves and mount the tracked adapter to keep request metering.
@@ -48,6 +93,12 @@ def google_sheets_client() -> gspread.Client:
     client = gspread.authorize(credentials, session=session)
     client.set_timeout(_REQUEST_TIMEOUT_SECONDS)
     return client
+
+
+def _integration_id(config: GoogleSheetsSourceConfig) -> int | None:
+    # `auth_method` is optional at the config level so legacy configs (which predate it) hydrate; a
+    # null one means no connected account, i.e. the shared service account.
+    return config.auth_method.google_sheets_integration_id if config.auth_method else None
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
@@ -67,6 +118,15 @@ _RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
 # matcher (substring match over `str(e)`) has nothing to match on. Re-raise with a
 # stable, descriptive message so downstream matching can identify it.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
+# OAuth path: the connected account itself can't open the sheet, so sharing with the service account
+# wouldn't help. Distinct phrasing (no "Spreadsheet access denied" substring) so it maps to its own
+# non-retryable message instead of the service-account one.
+_OAUTH_PERMISSION_DENIED_MESSAGE = "The connected Google account can't access this spreadsheet."
+
+
+def _permission_denied_message(integration_id: int | None) -> str:
+    return _OAUTH_PERMISSION_DENIED_MESSAGE if integration_id else _PERMISSION_DENIED_MESSAGE
+
 
 # gspread converts the Sheets API 404 into `SpreadsheetNotFound` — see gspread/client.py
 # `open_by_key`: `raise SpreadsheetNotFound(ex.response) from ex`. Its `str()` is just the bare
@@ -148,14 +208,19 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
             attempts = attempts + 1
 
 
+# The cache key includes the auth identity (`integration_id`, `team_id`), not just the URL: under
+# OAuth the cached worksheet carries the requesting team's authorized session, so a worksheet
+# fetched for one team must never be returned to another. Keying on identity keeps tenants isolated.
 @cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+def _get_worksheet(
+    spreadsheet_url: str, worksheet_id: int, integration_id: int | None, team_id: int
+) -> gspread.Worksheet:
     def execute() -> gspread.Worksheet:
-        client = google_sheets_client()
+        client = google_sheets_client(integration_id, team_id)
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
         except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+            raise PermissionError(_permission_denied_message(integration_id)) from e
         except gspread.exceptions.SpreadsheetNotFound as e:
             raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
@@ -163,18 +228,18 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
     return _retry_on_transient_api_error(execute)
 
 
-def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
+def get_schemas(config: GoogleSheetsSourceConfig, team_id: int) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
     # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
     # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
     # rather than letting a transient blip fail the whole sync during schema discovery.
     def execute():
-        client = google_sheets_client()
+        client = google_sheets_client(_integration_id(config), team_id)
         try:
             spreadsheet = client.open_by_url(config.spreadsheet_url)
         except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+            raise PermissionError(_permission_denied_message(_integration_id(config))) from e
         except gspread.exceptions.SpreadsheetNotFound as e:
             raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.worksheets()
@@ -184,15 +249,17 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
-def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_name: str) -> list[IncrementalField]:
-    worksheets = get_schemas(config)
+def get_schema_incremental_fields(
+    config: GoogleSheetsSourceConfig, team_id: int, worksheet_name: str
+) -> list[IncrementalField]:
+    worksheets = get_schemas(config, team_id)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
         raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, _integration_id(config), team_id)
 
     try:
         rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
@@ -226,18 +293,19 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
 def google_sheets_source(
     config: GoogleSheetsSourceConfig,
+    team_id: int,
     worksheet_name: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
-    worksheets = get_schemas(config)
+    worksheets = get_schemas(config, team_id)
     selected_worksheet = [id for name, id in worksheets if name == worksheet_name]
     if len(selected_worksheet) == 0:
         raise Exception(f'Worksheet titled "{worksheet_name}" can\'t be found')
 
     worksheet_id = selected_worksheet[0]
 
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, _integration_id(config), team_id)
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     primary_keys = None
@@ -255,7 +323,7 @@ def google_sheets_source(
     # range-based batching (e.g. A2:Z1001, A1002:Z2001, ...), which is a behavior change to
     # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
-        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
+        worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, _integration_id(config), team_id)
 
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
         # columns that legitimately have gaps. None lets blank cells import as null instead.
