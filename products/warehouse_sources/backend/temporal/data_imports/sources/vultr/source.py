@@ -110,7 +110,6 @@ class VultrSource(SimpleSource[VultrSourceConfig]):
             iconPath="/static/services/vultr.svg",
             keywords=["cloud", "infrastructure", "billing", "compute"],
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
