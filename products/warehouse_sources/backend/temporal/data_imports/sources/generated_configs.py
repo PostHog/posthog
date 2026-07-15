@@ -3325,7 +3325,9 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QualysVmdrSourceConfig(config.Config):
-    pass
+    api_server: str
+    username: str
+    password: str
 
 
 @config.config

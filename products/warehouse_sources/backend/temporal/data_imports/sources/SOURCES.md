@@ -342,6 +342,7 @@ the row lists both.
 | pylon                     | HTTP                        | requests                                                        | ✅                          |
 | pypi                      | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                  | HTTP                        | requests                                                        | ✅                          |
+| qualys_vmdr               | HTTP (XML responses)        | requests                                                        | ✅                          |
 | recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                      | HTTP                        | requests                                                        | ✅                          |
 | recharge                  | HTTP                        | requests                                                        | ✅                          |
@@ -803,7 +804,6 @@ doesn't conflict with concurrent PRs.
 - qdrant
 - qonto
 - qualtrics
-- qualys_vmdr
 - quickbooks
 - railway
 - railz
