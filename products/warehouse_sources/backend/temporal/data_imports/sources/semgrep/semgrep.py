@@ -45,7 +45,10 @@ def _get_headers(api_token: str) -> dict[str, str]:
 def _make_session(api_token: str) -> requests.Session:
     # `redact_values` masks the bearer token in logged URLs and captured HTTP samples so a failed
     # or sampled request can never persist the raw Semgrep credential in PostHog's HTTP telemetry.
-    return make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+    # `capture=False` keeps response bodies out of sample capture entirely: findings and secrets
+    # payloads carry security-sensitive detail (secret finding locations, free-form triage
+    # comments) the name-based scrubbers can't recognise.
+    return make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,), capture=False)
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
