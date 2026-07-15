@@ -302,7 +302,7 @@ class TestGetRows:
         watermark = datetime(2026, 6, 10, tzinfo=UTC)
         session = mock.MagicMock()
         page1_rows = [{"id": 3, "created_at": "2026-06-20T00:00:00Z"}]
-        page2_rows = [
+        page2_rows: list[dict[str, Any]] = [
             {"id": 2, "created_at": "2026-06-11T00:00:00Z"},
             # Within the 24h lookback window below the watermark: re-pulled so late status
             # changes land; merge dedupes it on the primary key.
