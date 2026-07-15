@@ -1,6 +1,7 @@
 import api, { ApiMethodOptions } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
+import { isAbortedRequest } from 'lib/utils/requests'
 
 import {
     DashboardFilter,
@@ -273,12 +274,22 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        posthog.capture('query failed', {
+        const eventProps = {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
             ...logParams,
-        })
+        }
+        if (isAbortedRequest(e)) {
+            // A superseded or cancelled query — e.g. the user changed a filter while a load was
+            // still in flight, or a concurrency-gated query was aborted before it ran — is not a
+            // genuine failure, and the UI never surfaces an error for it. Capturing it as
+            // `query failed` decouples the analytics signal from what the user actually
+            // experiences (and inflates the failure count), so emit a distinct event instead.
+            posthog.captureRaw('query cancelled', eventProps)
+        } else {
+            posthog.capture('query failed', eventProps)
+        }
         throw e
     }
 }

@@ -155,6 +155,28 @@ describe('query', () => {
         expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
     })
 
+    it('emits a cancelled event, not a failed event, when a query is aborted', async () => {
+        // Superseded/aborted queries (e.g. rapid filter edits) must not inflate the `query failed`
+        // signal, which the UI treats as a real error. They should be tagged distinctly instead.
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+        const abortController = new AbortController()
+        abortController.abort()
+        captureSpy.mockClear()
+        await expect(async () => {
+            await performQuery(q, { signal: abortController.signal })
+        }).rejects.toThrow(/abort/i)
+
+        expect(captureSpy.mock.calls.filter((call) => call[0] === 'query failed')).toHaveLength(0)
+        const queryCancelledCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query cancelled')
+        expect(queryCancelledCalls).toHaveLength(1)
+        expect(queryCancelledCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+    })
+
     describe('waitForPageVisible', () => {
         const originalVisibilityState = document.visibilityState
 
