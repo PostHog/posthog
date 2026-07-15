@@ -1736,3 +1736,58 @@ async fn phase_timeout_advances_to_next_phase() {
         "phase 1 was never signalled after phase 0 timed out"
     );
 }
+
+/// A later-phase component's graceful window is measured from when its
+/// phase begins, not from the start of shutdown — so windows do not need
+/// to be successively reduced to survive being enqueued behind earlier
+/// phases. If the deadline were computed from the shutdown clock, phase
+/// 0's 300ms drain would exhaust the phase-1 component's 200ms window
+/// before it was ever signalled, and shutdown would finish without it.
+#[tokio::test]
+async fn later_phase_graceful_window_starts_at_its_phase() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let early = manager.register("early", ComponentOptions::new());
+    let late = manager.register(
+        "late",
+        ComponentOptions::new()
+            .with_shutdown_phase(1)
+            .with_graceful_shutdown(Duration::from_millis(200)),
+    );
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let _guard = early.process_scope();
+        early.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    });
+
+    let late_finished = Arc::new(AtomicBool::new(false));
+    let late_finished_writer = late_finished.clone();
+    tokio::spawn(async move {
+        let _guard = late.process_scope();
+        late.shutdown_recv().await;
+        // Well inside the 200ms window relative to the phase-1 signal,
+        // far outside it relative to shutdown start.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        late_finished_writer.store(true, Ordering::SeqCst);
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(
+        late_finished.load(Ordering::SeqCst),
+        "phase-1 component was timed out against a window measured from shutdown start"
+    );
+}
