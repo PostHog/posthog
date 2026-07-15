@@ -150,7 +150,7 @@ function HeroImageCycler(): JSX.Element {
         <Tooltip title="Click for another hog" delayMs={0}>
             <button
                 type="button"
-                className="w-56 lg:w-72 aspect-[4/3] shrink-0 hidden md:block p-0 border-0 cursor-pointer rounded-lg overflow-hidden shadow-sm"
+                className="w-56 @5xl/main-content:w-72 aspect-[4/3] shrink-0 hidden @3xl/main-content:block p-0 border-0 cursor-pointer rounded-lg overflow-hidden shadow-sm"
                 onClick={() => {
                     setImageIndex((imageIndex + 1) % HERO_IMAGES.length)
                     captureQuickstartAction('cycle_hero_image')
@@ -178,7 +178,7 @@ function ProjectToken(): JSX.Element | null {
             data-attr="quickstart-copy-project-token"
         >
             <LemonLabel>Project token</LemonLabel>
-            <CodeSnippet compact thing="project token">
+            <CodeSnippet compact wrap thing="project token">
                 {currentTeam.api_token}
             </CodeSnippet>
             <p className="text-muted text-xs mb-0">
@@ -210,7 +210,7 @@ function InstallHeroCard(): JSX.Element {
                 />
                 <WaitingForEventsIndicator />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 @3xl/main-content:grid-cols-2 gap-6">
                 {isCloudOrDev && (
                     <div className="flex flex-col gap-2">
                         <h3 className="text-sm font-semibold mb-0">Fastest: the AI setup wizard</h3>
@@ -788,7 +788,7 @@ export function Quickstart(): JSX.Element {
             <section className="flex items-start justify-between gap-8">
                 <div className="flex flex-col gap-4 min-w-0 flex-1">
                     <div>
-                        <h1 className="text-3xl font-bold mb-1">
+                        <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
                             Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
                         </h1>
                         <p className="text-secondary mb-0 max-w-200">
@@ -857,7 +857,7 @@ export function Quickstart(): JSX.Element {
                     title="Turn on your tools"
                     subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
                 />
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
                         <ProductCard key={product.key} product={product} />
                     ))}
@@ -869,7 +869,7 @@ export function Quickstart(): JSX.Element {
                     title="Explore the rest of the platform"
                     subtitle="More tools that work on the same data, whenever you're ready for them."
                 />
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4 gap-4">
                     {moreProducts.map((product) => (
                         <ProductCard key={product.key} product={product} />
                     ))}
@@ -878,7 +878,7 @@ export function Quickstart(): JSX.Element {
 
             <section>
                 <SectionHeader title="Learn the ropes" />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                     <LearnCard
                         icon={<IconSparkles />}
                         title="Ask PostHog AI anything"
@@ -913,7 +913,7 @@ export function Quickstart(): JSX.Element {
                     title="PostHog, wherever you work"
                     subtitle="Bring your data into the tools you already use."
                 />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                     <LearnCard
                         icon={<IconLogomark />}
                         title="PostHog Code"
