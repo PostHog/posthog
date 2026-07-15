@@ -7,6 +7,8 @@ import {
     IconApps,
     IconArrowLeft,
     IconBook,
+    IconBuilding,
+    IconFolder,
     IconGear,
     IconGraduationCap,
     IconLogomark,
@@ -763,6 +765,7 @@ export function Quickstart(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featuredProducts, moreProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -798,6 +801,10 @@ export function Quickstart(): JSX.Element {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {currentOrganization?.name ? (
+                            <HeaderStat icon={<IconBuilding />}>{currentOrganization.name}</HeaderStat>
+                        ) : null}
+                        {currentTeam?.name ? <HeaderStat icon={<IconFolder />}>{currentTeam.name}</HeaderStat> : null}
                         <HeaderStat icon={<IconApps />}>
                             {activeProductCount} of {totalProductCount} tools active
                         </HeaderStat>
