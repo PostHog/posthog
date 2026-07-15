@@ -165,6 +165,30 @@ class TestGetRows:
 
         assert session.get.call_args.kwargs["headers"]["unstructured-api-key"] == "secret-key"
 
+    @parameterized.expand(["sources", "destinations"])
+    def test_connector_config_is_stripped(self, endpoint: str) -> None:
+        # The connector `config` object holds raw secrets (DB passwords, OAuth tokens, cloud keys); it
+        # must never be persisted. Non-secret inventory fields are kept.
+        manager = self._manager()
+        session = MagicMock()
+        session.get.return_value = _response(
+            200, [{"id": "c1", "name": "prod", "type": "s3", "config": {"key": "AKIA...", "secret": "shh"}}]
+        )
+        with patch.object(unstructured, "make_tracked_session", return_value=session):
+            batches = list(get_rows(DEFAULT_BASE_URL, "key", endpoint, MagicMock(), manager, team_id=1))
+
+        assert batches == [[{"id": "c1", "name": "prod", "type": "s3"}]]
+
+    def test_config_field_kept_when_not_sensitive(self) -> None:
+        # Endpoints without a drop list (e.g. jobs) pass rows through untouched.
+        manager = self._manager()
+        session = MagicMock()
+        session.get.return_value = _response(200, [{"id": "j1", "config": {"harmless": True}}])
+        with patch.object(unstructured, "make_tracked_session", return_value=session):
+            batches = list(get_rows(DEFAULT_BASE_URL, "key", "jobs", MagicMock(), manager, team_id=1))
+
+        assert batches == [[{"id": "j1", "config": {"harmless": True}}]]
+
     def test_session_pins_redirects_off_and_redacts_key(self) -> None:
         # Locks in the SSRF hardening: the credentialed session must never follow redirects and must
         # register the key for value-based redaction so it can't leak off-origin or into a sample.

@@ -18,13 +18,21 @@ class UnstructuredEndpointConfig:
     # single response, so pagination (and resume) only applies to workflows.
     paginated: bool = False
     should_sync_default: bool = True
+    # Top-level fields dropped from every row before it is yielded. The /sources/ and /destinations/
+    # connector `config` object embeds raw secrets (DB passwords, OAuth refresh tokens, cloud access
+    # keys), so it must never be persisted to a warehouse table where any project member with query
+    # access could read it back. We drop the whole object rather than allowlisting because the fields
+    # vary per connector type and a new type could introduce a secret we don't yet know to strip.
+    drop_fields: tuple[str, ...] = ()
 
 
 UNSTRUCTURED_ENDPOINTS: dict[str, UnstructuredEndpointConfig] = {
     "workflows": UnstructuredEndpointConfig(name="workflows", path="/api/v1/workflows/", paginated=True),
     "jobs": UnstructuredEndpointConfig(name="jobs", path="/api/v1/jobs/"),
-    "sources": UnstructuredEndpointConfig(name="sources", path="/api/v1/sources/"),
-    "destinations": UnstructuredEndpointConfig(name="destinations", path="/api/v1/destinations/"),
+    "sources": UnstructuredEndpointConfig(name="sources", path="/api/v1/sources/", drop_fields=("config",)),
+    "destinations": UnstructuredEndpointConfig(
+        name="destinations", path="/api/v1/destinations/", drop_fields=("config",)
+    ),
 }
 
 ENDPOINTS = tuple(UNSTRUCTURED_ENDPOINTS.keys())

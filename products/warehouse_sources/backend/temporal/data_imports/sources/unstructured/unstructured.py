@@ -77,6 +77,14 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"unstructured-api-key": api_key, "Accept": "application/json"}
 
 
+def _drop_sensitive_fields(rows: list[dict[str, Any]], drop_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    # Strip credential-bearing fields (e.g. the connector `config` object) before rows are persisted,
+    # so secrets never land in a warehouse table readable by anyone with query access.
+    if not drop_fields:
+        return rows
+    return [{k: v for k, v in row.items() if k not in drop_fields} for row in rows]
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -149,7 +157,7 @@ def get_rows(
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if not config.paginated:
-        rows = _fetch(session, url, headers, None, logger)
+        rows = _drop_sensitive_fields(_fetch(session, url, headers, None, logger), config.drop_fields)
         if rows:
             yield rows
         return
@@ -172,7 +180,7 @@ def get_rows(
         if not rows:
             break
 
-        yield rows
+        yield _drop_sensitive_fields(rows, config.drop_fields)
 
         # A short page is the last page — the API has no explicit "has more" flag, so there is
         # nothing left to resume to and we skip the checkpoint.
