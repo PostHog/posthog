@@ -4,11 +4,13 @@ import { Message } from 'node-rdkafka'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
+import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -45,6 +47,8 @@ function createMockTopHog(): TopHogRegistry {
 let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
 try {
     rustAddon = require('@posthog/replay-anonymizer')
+    // The addon scrubs nothing until it gets its allow-lists — the server does this at startup.
+    rustAddon!.initAnonymizer(defaultAllowLists().entries())
 } catch (e) {
     if (process.env.CI) {
         throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
@@ -240,6 +244,16 @@ describe('ml-mirror-pipeline', () => {
         } as unknown as Message
     }
 
+    // The fused step emits pre-serialized JSONL lines of [windowId, event].
+    function recordedEvents(): [string, any][] {
+        const lines: Buffer = recordMock.mock.calls[0][0].message.preSerialized.lines
+        return lines
+            .toString()
+            .split('\n')
+            .filter((l) => l.length > 0)
+            .map((l) => parseJSON(l))
+    }
+
     itAddon('anonymizes events before recording for an opted-in team', async () => {
         mockTeamService = {
             getTeamByToken: jest.fn().mockResolvedValue(team(true)),
@@ -249,9 +263,10 @@ describe('ml-mirror-pipeline', () => {
         await runPipeline(buildPipeline(), [message('sess-1')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
-        const recorded = recordMock.mock.calls[0][0]
+        const [windowId, event] = recordedEvents()[0]
+        expect(windowId).toBe('window-1')
         // The Input event's text was scrubbed before it reached the recorder.
-        expect(recorded.message.eventsByWindowId['window-1'][0].data.text).toBe('Hello **********')
+        expect(event.data.text).toBe('Hello **********')
     })
 
     it('drops sessions for a team that did not opt into AI training', async () => {
@@ -274,7 +289,7 @@ describe('ml-mirror-pipeline', () => {
         await runPipeline(buildPipeline(), [fullSnapshotMessage('sess-3')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
-        const node = recordMock.mock.calls[0][0].message.eventsByWindowId['window-1'][0].data.node.childNodes[0]
+        const node = recordedEvents()[0][1].data.node.childNodes[0]
         expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
         expect(node.attributes.href).toContain('https://example.com/') // authority kept...
         expect(node.attributes.href).not.toContain('abc') // ...path segments redacted
