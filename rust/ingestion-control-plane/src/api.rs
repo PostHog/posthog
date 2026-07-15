@@ -65,10 +65,11 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Targets are discovered from the cluster, so the API only accepts groups
-/// and topics inside the configured prefixes — the tool must not become a
-/// generic Kafka browser.
-fn validated_target(
+/// The API only accepts exact group/topic pairs present in the (cached)
+/// discovered targets — prefix checks alone would let a fabricated group
+/// read any prefixed topic, and the tool must not become a generic Kafka
+/// browser. Prefix mismatches fail fast with a clearer message.
+async fn validated_target(
     state: &AppState,
     group: &str,
     topic: &str,
@@ -85,10 +86,24 @@ fn validated_target(
             state.config.topic_prefix
         )));
     }
-    Ok(ConsumerTarget {
+
+    let targets = state
+        .discovery
+        .get_or_refresh(|| lag::discover_targets(&state.config))
+        .await
+        .map_err(|e| ApiError::upstream(format!("target discovery failed: {e:#}")))?;
+    let target = ConsumerTarget {
         group: group.to_string(),
         topic: topic.to_string(),
-    })
+    };
+    if !targets.contains(&target) {
+        return Err(ApiError::bad_request(format!(
+            "'{group}' / '{topic}' is not a discovered consumer target \
+             (discovery refreshes every {}s)",
+            state.config.discovery_cache_ttl_secs
+        )));
+    }
+    Ok(target)
 }
 
 async fn get_lag_overview(State(state): State<AppState>) -> Result<Json<LagOverview>, ApiError> {
@@ -116,7 +131,7 @@ async fn get_lag(
     State(state): State<AppState>,
     Query(query): Query<LagQuery>,
 ) -> Result<Json<GroupLag>, ApiError> {
-    let target = validated_target(&state, &query.group, &query.topic)?;
+    let target = validated_target(&state, &query.group, &query.topic).await?;
 
     let group_lag = lag::scan_group_lag(&state.config, &target)
         .await
@@ -129,7 +144,7 @@ async fn create_analysis(
     State(state): State<AppState>,
     Json(request): Json<AnalysisRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let target = validated_target(&state, &request.group, &request.topic)?;
+    let target = validated_target(&state, &request.group, &request.topic).await?;
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
     }
