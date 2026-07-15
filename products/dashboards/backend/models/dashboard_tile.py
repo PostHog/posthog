@@ -1,5 +1,7 @@
+from typing import Any
+
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import connection, models
 from django.db.models import Q, QuerySet, UniqueConstraint
 from django.utils import timezone
 
@@ -169,6 +171,18 @@ class DashboardTile(models.Model):
                     update_fields.append("filters_hash")
 
         super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        # The InsightCachingState model was removed from Django state in #70453, but its
+        # posthog_insightcachingstate table and FK constraint are intentionally kept alive
+        # for the rolling deploy (dropped in a later migration). Django used to cascade-delete
+        # those rows at the ORM level; now it doesn't know about them, so a hard delete hits
+        # the still-present FK constraint (which defaults to NO ACTION at the DB level) and
+        # raises IntegrityError at commit. Clear the orphaned rows first.
+        # Remove this once posthog_insightcachingstate is dropped.
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_insightcachingstate WHERE dashboard_tile_id = %s", [self.pk])
+        return super().delete(*args, **kwargs)
 
     def clean(self):
         super().clean()

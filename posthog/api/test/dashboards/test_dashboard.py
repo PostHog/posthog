@@ -1,4 +1,5 @@
 import json
+import uuid
 import datetime
 
 from freezegun import freeze_time
@@ -7,6 +8,7 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -2417,6 +2419,43 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
         assert len(dashboard_b["tiles"]) == 1
         assert dashboard_b["tiles"][0]["text"]["id"] == text.id
+
+    def test_move_insight_tile_succeeds_when_destination_shadow_tile_has_orphaned_caching_state(self) -> None:
+        # The InsightCachingState model was removed from Django state but its
+        # posthog_insightcachingstate table and FK constraint survive the rolling deploy.
+        # A leftover caching-state row on the stale destination tile used to make the
+        # hard delete in prepare_move_to_dashboard fail at commit with IntegrityError.
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "b"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}]}, "dashboards": [dashboard_a_id]}
+        )
+        tile_a = DashboardTile.objects.get(dashboard_id=dashboard_a_id, insight_id=insight_id)
+        shadow_tile = DashboardTile.objects_including_soft_deleted.create(
+            dashboard_id=dashboard_b_id,
+            insight_id=insight_id,
+            deleted=True,
+            layouts={},
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_insightcachingstate
+                    (id, team_id, insight_id, dashboard_tile_id, cache_key, refresh_attempt, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, 0, now(), now())
+                """,
+                [str(uuid.uuid4()), self.team.id, insight_id, shadow_tile.id, "some_cache_key"],
+            )
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}/move_tile",
+            {"tile": {"id": tile_a.id}, "to_dashboard": dashboard_b_id},
+        )
+
+        assert patch_response.status_code == status.HTTP_200_OK
+        dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
+        assert len(dashboard_b["tiles"]) == 1
+        assert dashboard_b["tiles"][0]["insight"]["id"] == insight_id
 
     def test_move_tile_between_dashboards_is_project_scoped(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
