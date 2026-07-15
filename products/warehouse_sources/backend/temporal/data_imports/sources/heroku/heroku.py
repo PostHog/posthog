@@ -207,8 +207,12 @@ def get_rows(
     config = HEROKU_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page (and, for fan-out, every app) so urllib3 keeps
-    # the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # the connection alive instead of re-handshaking per request. Capture is disabled because
+    # several endpoints return capability URLs carrying secrets (builds' `source_blob.url`,
+    # dynos' `rendezvous://.../secret` `attach_url`) that the name-based sample scrubbers
+    # can't recognise — `_redact_sensitive_fields` only scrubs the yielded rows, not the raw
+    # response the transport would otherwise capture.
+    session = make_tracked_session(capture=False)
 
     if config.fan_out_over_apps:
         yield from _get_fan_out_rows(session, headers, logger, resumable_source_manager, config)
