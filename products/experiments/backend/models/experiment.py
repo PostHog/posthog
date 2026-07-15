@@ -206,8 +206,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return "already_frozen"
         # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
         # self.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
-        # returning None.
-        if self.feature_flag_id is None:
+        # returning None. Widened to Optional because django-stubs types the id as int, but an
+        # unsaved in-memory instance can still carry None.
+        feature_flag_id: int | None = self.feature_flag_id
+        if feature_flag_id is None:
             return "no_flag"
         if self.feature_flag.deleted:
             return "flag_deleted"
