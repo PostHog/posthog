@@ -362,32 +362,42 @@ class StamphogGitHubClient:
         return self._json(response, path)
 
     def get_pr_reactions(self, repo: str, number: int) -> list[dict]:
-        """Reactions on the PR itself, as ``[{user, content, created_at}]``.
+        """Reactions on the PR itself, as ``[{user, content, created_at}]``, fully paginated.
 
         Feeds the in-flight reviewer-bot wait (a trusted bot's fresh 👀 means its review is still
-        running). One page is plenty — reactions on a PR are a handful, and the consumer only cares
-        about a small bot allowlist.
+        running). Pagination matters for safety, not volume: anyone can react on a public PR, so an
+        author could push the bot's 👀 past the first page with junk reactions and make the wait
+        treat the bot as absent. If even the page cap is exceeded, fail closed (raise) rather than
+        silently approve over a possibly in-flight review.
         """
-        path = f"/repos/{repo}/issues/{number}/reactions"
-        response = self._request(
-            "GET",
-            path,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
-            params={"per_page": _PER_PAGE},
-        )
-        if response.status_code != 200:
-            raise StamphogGitHubError(
-                f"Failed to fetch reactions for {repo}#{number}: {response.text[:300]}",
-                status_code=response.status_code,
+        reactions: list[dict] = []
+        for page in range(1, _MAX_PAGES + 1):
+            path = f"/repos/{repo}/issues/{number}/reactions"
+            response = self._request(
+                "GET",
+                path,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+                params={"per_page": _PER_PAGE, "page": page},
             )
-        return [
-            {
-                "user": (item.get("user") or {}).get("login") or "",
-                "content": item.get("content") or "",
-                "created_at": item.get("created_at") or "",
-            }
-            for item in self._json(response, path)
-        ]
+            if response.status_code != 200:
+                raise StamphogGitHubError(
+                    f"Failed to fetch reactions for {repo}#{number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            items = self._json(response, path)
+            reactions.extend(
+                {
+                    "user": (item.get("user") or {}).get("login") or "",
+                    "content": item.get("content") or "",
+                    "created_at": item.get("created_at") or "",
+                }
+                for item in items
+            )
+            if len(items) < _PER_PAGE:
+                return reactions
+        raise StamphogGitHubError(
+            f"Reactions on {repo}#{number} exceed {_MAX_PAGES * _PER_PAGE}; refusing to evaluate a truncated list"
+        )
 
     def get_collaborator_permission(self, repo: str, username: str) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read``, or ``none``.

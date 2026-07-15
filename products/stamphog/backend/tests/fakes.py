@@ -171,7 +171,10 @@ class GitHubRecorder:
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})
         if method == "GET" and (m := _PR_REACTIONS_RE.match(path)):
-            return FakeResponse(200, json_data=self.pr_reactions.get((m.group("repo"), int(m.group("number"))), []))
+            page = int(params.get("page", 1))
+            per_page = int(params.get("per_page", 30))
+            items = self.pr_reactions.get((m.group("repo"), int(m.group("number"))), [])
+            return FakeResponse(200, json_data=items[per_page * (page - 1) : per_page * page])
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":

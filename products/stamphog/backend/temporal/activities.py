@@ -617,8 +617,8 @@ def _llm_env_secrets() -> list[str]:
     ]
 
 
-# Markdown image embeds and raw <img> tags in text GitHub renders. Images are the one construct
-# GitHub fetches automatically (through its camo proxy) the moment the page renders — no click needed.
+# Inline markdown images and raw <img> tags in text GitHub renders — both are removed outright,
+# URL included. Reference-style image forms are handled by the ``![`` demotion below.
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>", re.IGNORECASE)
 
 
@@ -627,11 +627,17 @@ def _neutralize_active_markdown(text: str) -> str:
 
     The reviewer LLM reads untrusted PR content, so its output can be prompt-injected. Credential
     scrubbing is exact-string only — a token re-encoded (base64, split) into an image URL slips
-    through, and GitHub fetching the image on render would exfiltrate it OUTSIDE the sandbox egress
-    allowlist. Plain links stay: they are not fetched without a click, and stripping them would
-    mangle legitimate references to code and PRs.
+    through, and GitHub fetching the image on render (through its camo proxy, no click needed) would
+    exfiltrate it OUTSIDE the sandbox egress allowlist.
+
+    Inline images and <img> tags are removed URL-and-all. Every OTHER markdown image form —
+    reference ``![a][ref]``, collapsed, shortcut — starts with ``![``, so the trailing demotion to
+    ``[`` turns anything left into a plain link, which GitHub never fetches without a click.
+    Deliberately a syntax demotion rather than an enumeration of forms: an image form this function's
+    author didn't think of still gets demoted. Plain links stay clickable, so legitimate references
+    to code and PRs survive.
     """
-    return _MARKDOWN_IMAGE_RE.sub("[image removed]", text)
+    return _MARKDOWN_IMAGE_RE.sub("[image removed]", text).replace("![", "[")
 
 
 def _scrub_credentials(text: str, *secrets: str) -> str:
