@@ -3304,20 +3304,29 @@ class DashboardsViewSet(
         if not safe_cache_add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
             return Response({"created": False}, status=status.HTTP_200_OK)
 
-        event = create_notification(
-            NotificationData(
-                team_id=self.team_id,
-                notification_type=NotificationType.SUBSCRIPTION_NUDGE,
-                priority=Priority.NORMAL,
-                title=f"You keep coming back to {dashboard.name or 'this dashboard'}",
-                body="Get it delivered to your inbox every Monday instead of checking back.",
-                target_type=TargetType.USER,
-                target_id=str(user.pk),
-                resource_type="dashboard",
-                resource_id=str(dashboard.pk),
-                source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
+        try:
+            event = create_notification(
+                NotificationData(
+                    team_id=self.team_id,
+                    notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+                    priority=Priority.NORMAL,
+                    title=f"You keep coming back to {dashboard.name or 'this dashboard'}",
+                    body="Get it delivered to your inbox every Monday instead of checking back.",
+                    target_type=TargetType.USER,
+                    target_id=str(user.pk),
+                    resource_type="dashboard",
+                    resource_id=str(dashboard.pk),
+                    # Query params mirror SUBSCRIPTION_PREFILL_PARAMS in
+                    # products/subscriptions/frontend/components/Subscriptions/utils.tsx, which
+                    # consumes them to prefill the new-subscription form.
+                    source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
+                )
             )
-        )
+        except Exception:
+            # Release the sentinel so a transient create_notification failure doesn't burn the
+            # nudge for the full dedupe window; then let the error propagate.
+            safe_cache_delete(dedupe_key)
+            raise
         if event is None:
             # Notifications disabled or no recipients resolved — report honestly so the caller
             # doesn't treat this as a delivered nudge, and release the sentinel so the nudge isn't

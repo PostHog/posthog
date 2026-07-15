@@ -10,13 +10,16 @@ from rest_framework import status
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
-from posthog.models.organization import Organization
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
+
+from ee.models.rbac.access_control import AccessControl
 
 
 @patch("products.dashboards.backend.api.dashboard.create_notification")
@@ -84,6 +87,39 @@ class TestDashboardSubscribeNudge(APIBaseTest):
         retry = self._post_nudge(self.dashboard.id)
         assert retry.status_code == status.HTTP_201_CREATED
         assert retry.json() == {"created": True}
+
+    def test_releases_the_dedupe_sentinel_when_create_notification_raises(
+        self, mock_create_notification: MagicMock
+    ) -> None:
+        mock_create_notification.side_effect = RuntimeError("notifications backend down")
+
+        response = self._post_nudge(self.dashboard.id)
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+        # The sentinel must be released on failure, not left to burn the nudge for 30 days:
+        # once the backend recovers, the next call creates.
+        mock_create_notification.side_effect = None
+        mock_create_notification.return_value = MagicMock()
+        retry = self._post_nudge(self.dashboard.id)
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert retry.json() == {"created": True}
+
+    def test_rejects_viewer_only_access_control(self, mock_create_notification: MagicMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=str(self.dashboard.id), team=self.team, access_level="viewer"
+        )
+
+        self.client.force_login(viewer)
+        response = self._post_nudge(self.dashboard.id)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_create_notification.assert_not_called()
 
     def test_rejects_read_scoped_api_key(self, mock_create_notification: MagicMock) -> None:
         token = generate_random_token_personal()

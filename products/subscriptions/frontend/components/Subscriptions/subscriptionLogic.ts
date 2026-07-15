@@ -20,7 +20,7 @@ import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generate
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, SUBSCRIPTION_PREFILL_PARAMS, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -481,11 +481,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
             // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
             // fresh session days later — the prefill is built here from URL + context, not kea state.
-            if (searchParams.prefill === 'nudge' && props.dashboardId) {
+            if (
+                searchParams[SUBSCRIPTION_PREFILL_PARAMS.param] === SUBSCRIPTION_PREFILL_PARAMS.nudge &&
+                props.dashboardId
+            ) {
                 // Consume the params before applying: the replace synchronously re-enters this
                 // handler (resetting the form to plain defaults), and it also makes a later refresh
                 // of the URL neither re-capture the click nor re-apply a stale prefill.
-                const { prefill: _prefill, via: _via, ...restSearchParams } = router.values.searchParams
+                const {
+                    [SUBSCRIPTION_PREFILL_PARAMS.param]: _prefill,
+                    [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: _via,
+                    ...restSearchParams
+                } = router.values.searchParams
                 router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
                 const prefill: Partial<SubscriptionType> = {
                     title: `${props.dashboardName || 'Dashboard'} weekly digest`,
@@ -499,7 +506,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 posthog.capture('dashboard subscribe nudge clicked', {
                     dashboard_id: props.dashboardId,
                     prefilled: !!values.user?.email,
-                    via: searchParams.via === 'toast' ? 'toast' : 'notification',
+                    via:
+                        searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                            ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                            : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
                 })
             }
             if (searchParams.target_type) {
