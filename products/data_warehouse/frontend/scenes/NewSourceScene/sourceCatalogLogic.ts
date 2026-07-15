@@ -67,6 +67,8 @@ export interface CatalogItem {
     url: string
     disabledReason?: string | null
     existingSource?: boolean
+    /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
+    selfManaged?: boolean
 }
 
 export interface CatalogCategory {
@@ -177,6 +179,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         keywords: MANUAL_SOURCE_KEYWORDS[source.type] ?? [],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
+                        selfManaged: true,
                     })
                 )
 
