@@ -2,18 +2,19 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
-import { getMetricsViewerDisabledReason } from './metricsAccess'
 import { metricsIngestionLogic } from './metricsIngestionLogic'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
@@ -42,7 +43,10 @@ const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
     const { teamHasMetricsCheckFailed } = useValues(metricsIngestionLogic)
-    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)

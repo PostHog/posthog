@@ -11,7 +11,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
-import { getMetricsViewerDisabledReason } from 'products/metrics/frontend/metricsAccess'
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
@@ -170,7 +169,10 @@ function AggregatesTab(): JSX.Element {
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
     const { setActiveTab } = useActions(metricsSamplesLogic)
-    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <div className="border rounded p-2 overflow-y-auto">

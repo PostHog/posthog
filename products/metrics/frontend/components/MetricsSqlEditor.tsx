@@ -3,15 +3,15 @@ import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { METRICS_SQL_EDITOR_TAB_ID, metricsSceneLogic } from '../metricsSceneLogic'
-import { getMetricsViewerDisabledReason } from '../metricsAccess'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 
 // `metrics` is only registered under the `posthog.` HogQL namespace
@@ -25,7 +25,10 @@ export const MetricsSqlEditor = (): JSX.Element => {
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
     const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
-    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
     useMountedLogic(metricsSqlEditorTrackingLogic({ sqlEditorTabId }))
 
     useEffect(() => {

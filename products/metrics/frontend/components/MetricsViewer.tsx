@@ -23,11 +23,19 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
-import { DateMappingOption, FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DateMappingOption,
+    FilterLogicalOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
-import { getMetricsInsightEditorDisabledReason, getMetricsViewerDisabledReason } from '../metricsAccess'
+import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
@@ -152,7 +160,10 @@ export const MetricsViewer = (): JSX.Element => {
         closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
-    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
     const insightEditorDisabledReason = getMetricsInsightEditorDisabledReason()
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
