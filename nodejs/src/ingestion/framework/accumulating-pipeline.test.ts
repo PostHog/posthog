@@ -10,7 +10,7 @@ import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } fr
 import { BatchResult, FeedResult } from './batching-pipeline'
 import { createOkContext } from './helpers'
 import { Pipeline } from './pipeline.interface'
-import { isOkResult, ok } from './results'
+import { dlq, isOkResult, ok } from './results'
 
 type RecordIn = { id: number }
 // The batch context carries its own accumulator array, like SessionBatchRecorder.
@@ -112,16 +112,13 @@ describe('AccumulatingPipeline', () => {
         maxBatchAgeMs?: number
         recordSideEffect?: () => Promise<unknown>
     }) {
-        beforeBatch = jest.fn(
-            (
-                input: OkResultWithContext<BeforeAccumulationInput, Record<string, never>>
-            ): Promise<{ result: any; context: any }> =>
-                Promise.resolve(
-                    createOkContext<BeforeAccumulationOutput<Batch>>(
-                        { batchContext: { records: [], batchId: input.result.value.batchId } },
-                        {}
-                    )
+        beforeBatch = jest.fn((input: OkResultWithContext<BeforeAccumulationInput, Record<string, never>>) =>
+            Promise.resolve(
+                createOkContext<BeforeAccumulationOutput<Batch>>(
+                    { batchContext: { records: [], batchId: input.result.value.batchId } },
+                    {}
                 )
+            )
         )
         const beforePipeline = { process: beforeBatch } as unknown as Pipeline<
             BeforeAccumulationInput,
@@ -359,7 +356,12 @@ describe('AccumulatingPipeline', () => {
     })
 
     it('throws when beforeBatch returns a non-ok result', async () => {
-        beforeBatch = jest.fn(() => Promise.resolve({ result: { type: 99 }, context: {} }))
+        beforeBatch = jest.fn(() =>
+            Promise.resolve({
+                result: dlq<BeforeAccumulationOutput<Batch>>('boom', new Error('boom')),
+                context: { sideEffects: [], warnings: [] },
+            })
+        )
         const beforePipeline = { process: beforeBatch } as unknown as Pipeline<
             BeforeAccumulationInput,
             BeforeAccumulationOutput<Batch>,
