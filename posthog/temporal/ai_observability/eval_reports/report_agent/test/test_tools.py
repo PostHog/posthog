@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -18,8 +19,10 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    _CH_MAX_RETRIES,
     _UUID_RE,
     _ch_ts,
+    _run_with_ch_retry,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -516,3 +519,39 @@ class TestToolsCoordinate(SimpleTestCase):
         self.assertEqual(len(report.sections), 2)
         self.assertIsInstance(report.sections[0], ReportSection)
         self.assertEqual(len(report.citations), 1)
+
+
+class TestRunWithChRetry(SimpleTestCase):
+    """Transient ClickHouse capacity errors are retried instead of failing the query."""
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_recovers_after_transient_capacity_errors(self, mock_sleep):
+        calls = {"n": 0}
+
+        def run():
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise ClickHouseAtCapacity()
+            return "ok"
+
+        self.assertEqual(_run_with_ch_retry("Test", run), "ok")
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_reraises_after_exhausting_retries(self, mock_sleep):
+        def run():
+            raise ClickHouseAtCapacity()
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            _run_with_ch_retry("Test", run)
+        self.assertEqual(mock_sleep.call_count, _CH_MAX_RETRIES)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_non_retriable_error_is_not_retried(self, mock_sleep):
+        def run():
+            raise ValueError("bad query")
+
+        with self.assertRaises(ValueError):
+            _run_with_ch_retry("Test", run)
+        mock_sleep.assert_not_called()

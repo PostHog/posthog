@@ -2,7 +2,26 @@
 
 from typing import Any
 
+from posthog.temporal.ai_observability.sentiment.constants import SENTIMENT_NEUTRAL_MARGIN
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification
+
+
+def resolve_label(scores: dict[str, float]) -> str:
+    """Pick the winning sentiment label, applying the neutral calibration band.
+
+    When the top label is non-neutral but doesn't beat the neutral score by at
+    least SENTIMENT_NEUTRAL_MARGIN, treat the text as neutral. This corrects the
+    tweet-trained model's tendency to read blunt product/admin commands as
+    negative when neutral is a close contender.
+    """
+    if not scores:
+        return "neutral"
+    top_label = max(scores, key=lambda label: scores[label])
+    if top_label == "neutral":
+        return top_label
+    if scores[top_label] - scores.get("neutral", 0.0) < SENTIMENT_NEUTRAL_MARGIN:
+        return "neutral"
+    return top_label
 
 
 def average_score_dicts(score_dicts: list[dict[str, float]]) -> dict[str, float]:
@@ -49,7 +68,7 @@ def build_generation_result(
         all_scores.append(result.scores)
 
     gen_scores = average_score_dicts(all_scores)
-    gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
+    gen_label = resolve_label(gen_scores)
 
     return {
         "label": gen_label,

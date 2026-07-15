@@ -66,6 +66,21 @@ POSTHOG_SENTIMENT_ONNX_INTRA_OP_NUM_THREADS=2
 POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS=1
 ```
 
+### Neutral calibration band
+
+The `cardiffnlp` model is trained on tweets and over-labels terse, non-conversational
+product/admin requests (e.g. "remove website domain authorized URLs project settings")
+as negative. To correct for this, `resolve_label` treats a generation as neutral when
+the winning non-neutral label doesn't beat the neutral score by at least a fixed margin.
+The default margin is `0.15`; tune it per worker with:
+
+```bash
+POSTHOG_SENTIMENT_NEUTRAL_MARGIN=0.15
+```
+
+Set it to `0` to disable the band. The band is applied both per message and to the
+averaged generation-level score, so the stored `$ai_sentiment_label` reflects it.
+
 ## Running tests
 
 ```bash

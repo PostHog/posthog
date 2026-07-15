@@ -9,14 +9,20 @@ InjectedState, but whole-key replacement does not.
 
 import re
 import json
+import time
+import random
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, TypeVar
 
+import structlog
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -33,6 +39,48 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+logger = structlog.get_logger(__name__)
+
+_T = TypeVar("_T")
+
+# Transient ClickHouse errors worth retrying — capacity/scheduling blips that a
+# short backoff usually clears.
+_CH_RETRIABLE_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+_CH_MAX_RETRIES = 3
+_CH_BASE_DELAY_SECONDS = 1.5
+
+
+def _run_with_ch_retry(query_type: str, run: Callable[[], _T]) -> _T:
+    """Run a ClickHouse-executing callable, retrying transient capacity errors.
+
+    The report agent fires many live HogQL queries; a transient ClickHouseAtCapacity
+    on one deep-dive query would otherwise surface as a tool error and erode
+    confidence in the report's numbers. Retry with exponential backoff plus full
+    jitter so short load spikes recover instead of failing the query. The enclosing
+    activity heartbeats in the background (see run_eval_report_agent_activity), so
+    sleeping in this worker thread is safe.
+    """
+    for attempt in range(_CH_MAX_RETRIES + 1):
+        try:
+            return run()
+        except _CH_RETRIABLE_ERRORS as e:
+            if attempt >= _CH_MAX_RETRIES:
+                raise
+            max_delay = _CH_BASE_DELAY_SECONDS * (2**attempt)
+            delay = random.uniform(max_delay / 2, max_delay)
+            logger.warning(
+                "eval_report_agent_ch_retry",
+                error=str(e),
+                query_type=query_type,
+                attempt=attempt + 1,
+                max_retries=_CH_MAX_RETRIES,
+                delay=round(delay, 1),
+            )
+            time.sleep(delay)
+    # Unreachable: the loop either returns a result or re-raises on the last attempt.
+    raise AssertionError("unreachable")
+
 
 # Strict UUID match for validating IDs before string-interpolating into HogQL
 # and before storing in Citation. Generation IDs reach this code from the LLM,
@@ -139,14 +187,16 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     team = Team.objects.get(id=team_id)
     query = parse_select(query_str)
 
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
-        result = execute_hogql_query(
-            query_type="EvalReportAgent",
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
-        )
+    def run():
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
+            return execute_hogql_query(
+                query_type="EvalReportAgent",
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+            )
 
+    result = _run_with_ch_retry("EvalReportAgent", run)
     return result.results or []
 
 
@@ -165,18 +215,20 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
 
     query = parse_select(query_str)
 
-    # `query_ai_events` sets `product=Product.LLM_ANALYTICS`
-    # internally but not `feature`, so supply it here to keep these eval-report
-    # agent reads attributed to background enrichment.
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = query_ai_events(
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
-            query_type="EvalReportAgent",
-            fall_back_to_events=True,
-        )
+    def run():
+        # `query_ai_events` sets `product=Product.LLM_ANALYTICS`
+        # internally but not `feature`, so supply it here to keep these eval-report
+        # agent reads attributed to background enrichment.
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
+            return query_ai_events(
+                query=query,
+                placeholders=placeholders or {},
+                team=team,
+                query_type="EvalReportAgent",
+                fall_back_to_events=True,
+            )
 
+    result = _run_with_ch_retry("EvalReportAgent", run)
     return result.results or []
 
 
