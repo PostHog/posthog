@@ -1,7 +1,8 @@
 import re
 import socket
+from collections.abc import Mapping
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Any, Protocol, Union
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
 from urllib.parse import urlparse
 
 from posthog.hogql.database.models import (
@@ -148,6 +149,35 @@ def clean_type(column_type: str) -> str:
     column_type = re.sub(r"\(.+\)+", "", column_type)
 
     return column_type
+
+
+_ColumnT = TypeVar("_ColumnT")
+
+
+def reconstruct_ordered_columns(
+    columns: Mapping[str, _ColumnT], column_order: list[str] | None
+) -> list[tuple[str, _ColumnT]]:
+    """Return ``(name, value)`` column pairs in the recorded SELECT order.
+
+    Column metadata originates as an ordered list (SELECT / DESCRIBE order) but is stored in a
+    Postgres ``jsonb`` object, which does not preserve key insertion order. ``column_order``
+    carries the order captured at write time. Apply it first (skipping names that no longer
+    exist), then append any columns discovered since that were never recorded. Rows written
+    before ``column_order`` existed have ``None`` and fall back to the stored jsonb key order.
+    """
+    if not column_order:
+        return list(columns.items())
+
+    ordered: list[tuple[str, _ColumnT]] = []
+    seen: set[str] = set()
+    for name in column_order:
+        if name in columns and name not in seen:
+            ordered.append((name, columns[name]))
+            seen.add(name)
+    for name, value in columns.items():
+        if name not in seen:
+            ordered.append((name, value))
+    return ordered
 
 
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {

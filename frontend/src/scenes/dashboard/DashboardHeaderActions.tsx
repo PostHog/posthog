@@ -19,6 +19,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
     dashboardId,
@@ -214,6 +215,7 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
+            <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
             <DashboardAddTileButton />
         </>
@@ -247,6 +249,7 @@ export function ViewModeActions(): JSX.Element {
 
     return (
         <>
+            <DashboardSubscribeButton />
             <LemonButton
                 type="secondary"
                 data-attr="dashboard-share-button"

@@ -90,3 +90,8 @@ KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX
 # concern — no Node-side mirror needed.
 KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
 KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"
+
+# Producer: customer_analytics person-property sync activity (warehouse -> person props).
+# Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
+KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
+KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"

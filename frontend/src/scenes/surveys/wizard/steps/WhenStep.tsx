@@ -59,12 +59,25 @@ export function WhenStep(): JSX.Element {
     const delaySeconds = appearance.surveyPopupDelaySeconds ?? 0
     const excludedObjectProperties = useExcludedObjectProperties()
     // Derive frequency strictly from the iteration model — the universal wait-period is a separate
-    // across-surveys gate and must not influence which cadence is highlighted. Default to 'once' so
-    // an unconfigured survey doesn't silently imply a recurring cadence.
+    // across-surveys gate and must not influence which cadence is highlighted.
+    const presetFrequency = FREQUENCY_OPTIONS.find((opt) => opt.days === survey.iteration_frequency_days)?.value
+    // A recurring survey with a non-preset cadence (set in the full editor) must not render as
+    // 'Once ever' — surface it as a custom option instead.
     const frequency =
-        survey.schedule === SurveySchedule.Once
+        survey.schedule === SurveySchedule.Once || !survey.iteration_frequency_days
             ? 'once'
-            : (FREQUENCY_OPTIONS.find((opt) => opt.days === survey.iteration_frequency_days)?.value ?? 'once')
+            : (presetFrequency ?? 'custom')
+    const frequencyOptions =
+        frequency === 'custom'
+            ? [
+                  ...FREQUENCY_OPTIONS,
+                  {
+                      value: 'custom',
+                      days: survey.iteration_frequency_days ?? undefined,
+                      label: `Every ${survey.iteration_frequency_days} days`,
+                  },
+              ]
+            : FREQUENCY_OPTIONS
     const iterationCount = survey.iteration_count ?? DEFAULT_ITERATION_COUNT
     const seenSurveyWaitPeriodInDays = conditions.seenSurveyWaitPeriodInDays ?? null
 
@@ -82,6 +95,10 @@ export function WhenStep(): JSX.Element {
     }
 
     const setFrequency = (value: string): void => {
+        if (value === 'custom') {
+            // Already the active cadence — nothing to change.
+            return
+        }
         const option = FREQUENCY_OPTIONS.find((opt) => opt.value === value)
         if (value === 'once') {
             setSurveyValue('schedule', SurveySchedule.Once)
@@ -281,7 +298,7 @@ export function WhenStep(): JSX.Element {
 
             <WizardSection
                 title="How often should this survey show?"
-                description="How many times the same user can see this survey, and how often."
+                description="How many times this survey repeats, and how often. Repeats count from the launch date, so all users become eligible again at the same time."
                 descriptionClassName="text-sm"
             >
                 {repeatsOnEveryEvent ? (
@@ -297,7 +314,7 @@ export function WhenStep(): JSX.Element {
                         <LemonSegmentedButton
                             value={frequency}
                             onChange={setFrequency}
-                            options={FREQUENCY_OPTIONS.map((opt) => ({
+                            options={frequencyOptions.map((opt) => ({
                                 ...opt,
                                 tooltip:
                                     opt.value === recommendedFrequency.value

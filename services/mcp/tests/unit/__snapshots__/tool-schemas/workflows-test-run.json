@@ -21,6 +21,11 @@
             "default": true,
             "description": "True (default) mocks HTTP/email/SMS. False fires real side effects.",
             "type": "boolean"
+        },
+        "use_draft": {
+            "default": false,
+            "description": "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

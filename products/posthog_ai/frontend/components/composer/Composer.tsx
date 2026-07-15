@@ -206,6 +206,18 @@ const ComposerBanner = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>
     )
 })
 
+/** The in-frame top row for context chips / attachments, above the textarea. */
+const ComposerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerHeader(
+    { className, children, ...rest },
+    ref
+): JSX.Element {
+    return (
+        <div data-slot="composer-header" ref={ref} className={cn('pt-2 px-2', className)} {...rest}>
+            {children}
+        </div>
+    )
+})
+
 export interface ComposerFrameProps extends HTMLAttributes<HTMLLabelElement> {
     /** Toggles the AI focus-ring color (off while the agent is streaming, per QuestionInput). */
     ringActive?: boolean
@@ -277,24 +289,18 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
-    /** `'enter'` submits on Enter (PostHog AI), `'cmd-enter'` on Cmd/Ctrl+Enter (tasks composer). */
-    submitShortcut?: 'enter' | 'cmd-enter'
     'data-attr'?: string
 }
 
-/** The textarea itself, wired to the context value/submit. */
+/** The textarea itself, wired to the context value/submit. Submits on Enter, Shift+Enter for a newline. */
 function ComposerTextarea({
     className,
     autoFocus,
     minRows = 1,
     maxRows = 10,
-    submitShortcut = 'enter',
     ...rest
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
-    // onPressEnter / onPressCmdEnter are mutually exclusive in LemonTextArea's type — pick one.
-    const submitProps =
-        submitShortcut === 'cmd-enter' ? { onPressCmdEnter: () => submit() } : { onPressEnter: () => submit() }
     return (
         <LemonTextArea
             id={id}
@@ -308,13 +314,13 @@ function ComposerTextarea({
             autoFocus={autoFocus}
             className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
-            {...submitProps}
+            onPressEnter={() => submit()}
             {...rest}
         />
     )
 }
 
-/** The in-frame bottom row for context chips / actions. */
+/** The in-frame bottom row for pickers / actions. */
 const ComposerFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerFooter(
     { className, children, ...rest },
     ref
@@ -378,6 +384,7 @@ export const Composer = Object.assign(ComposerRoot, {
     Root: ComposerRoot,
     Banner: ComposerBanner,
     Frame: ComposerFrame,
+    Header: ComposerHeader,
     Field: ComposerField,
     Placeholder: ComposerPlaceholder,
     Textarea: ComposerTextarea,

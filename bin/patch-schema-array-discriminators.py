@@ -99,16 +99,18 @@ def _patch_schema_py(sites: list[tuple[str, str, str, str]]) -> int:
     replacements = 0
 
     for class_name, field_name, union_text, prop in sites:
-        # Match the class body and within it the single line declaring the field as a list
-        # of the inlined union. `re.DOTALL` lets `.*?` span newlines until the field line.
+        # Match the class body and within it the field declared as a list of the inlined
+        # union. `re.DOTALL` lets `.*?` span newlines until the field line. Codegen wraps
+        # long unions across lines, so members are matched with flexible whitespace.
+        union_pattern = r"\s*\|\s*".join(re.escape(member) for member in union_text.split(" | "))
         class_re = re.compile(
             r"(class "
             + re.escape(class_name)
             + r"\b[^\n]*:\n.*?\n    "
             + re.escape(field_name)
-            + r": )list\["
-            + re.escape(union_text)
-            + r"\](?P<tail>[^\n]*)\n",
+            + r": )list\[\s*"
+            + union_pattern
+            + r"\s*\](?P<tail>[^\n]*)\n",
             re.DOTALL,
         )
 
@@ -125,9 +127,9 @@ def _patch_schema_py(sites: list[tuple[str, str, str, str]]) -> int:
                 + re.escape(class_name)
                 + r"\b[^\n]*:\n.*?\n    "
                 + re.escape(field_name)
-                + r": list\[Annotated\["
-                + re.escape(union_text)
-                + r", Field\(discriminator=",
+                + r": list\[\s*Annotated\[\s*"
+                + union_pattern
+                + r"\s*,\s*Field\(\s*discriminator=",
                 re.DOTALL,
             )
             if not already_patched_re.search(source):

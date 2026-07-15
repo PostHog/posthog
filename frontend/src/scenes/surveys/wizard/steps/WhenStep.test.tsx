@@ -96,4 +96,20 @@ describe('WhenStep', () => {
         expect(screen.getByText('Once ever')).toBeInTheDocument()
         expect(screen.queryByText(/the schedule options don't apply/)).not.toBeInTheDocument()
     })
+
+    it('surfaces a non-preset recurring cadence as a custom option instead of falling back to once', async () => {
+        useMocks(
+            surveyMocks({
+                ...createEventTriggeredSurvey(false),
+                conditions: { actions: null, events: null },
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 5,
+                iteration_frequency_days: 45,
+            })
+        )
+        renderWhenStep()
+
+        expect(await screen.findByText('Every 45 days')).toBeInTheDocument()
+        expect(screen.getByText(/times in total/)).toBeInTheDocument()
+    })
 })

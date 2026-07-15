@@ -21,10 +21,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -51,12 +52,9 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
+# Report priority scale (P0–P4). Aliased to the shared signal taxonomy enum so the product has a
+# single P0–P4 source; kept under the `Priority` name for existing callers.
+Priority = ReportPriority
 
 
 class SignalFinding(BaseModel):
@@ -286,6 +284,9 @@ class Commit(BaseModel):
     artefact per commit), so the report log shows exactly what landed, when, and from which task.
     A `commit` artefact only ever records a commit that has already been pushed to a remote branch;
     recording an unpushed or local-only commit is always a mistake.
+
+    `diff` is an optional point-in-time snapshot of the reviewed code, set only by consumers that
+    snapshot what they reviewed (e.g. ReviewHog's per-turn diff); the Signals pipeline never sets it.
     """
 
     repository: str = Field(description="GitHub repository the commit was pushed to, as `owner/repo`.")
@@ -293,6 +294,11 @@ class Commit(BaseModel):
     commit_sha: str = Field(description="Full or abbreviated SHA of the pushed commit.")
     message: str = Field(description="The commit message headline.")
     note: str | None = Field(default=None, description="Optional short note on what this commit does.")
+    diff: str | None = Field(
+        default=None,
+        description="Optional point-in-time unified diff of the reviewed code, set only by "
+        "snapshotting consumers (e.g. ReviewHog); the Signals pipeline never populates it.",
+    )
 
     @field_validator("repository", "branch", "commit_sha", "message")
     @classmethod
@@ -354,6 +360,8 @@ SIGNALS_PRODUCT = "signals"
 TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+# A discuss-the-report task started by a user from the Inbox (not the automated research run).
+TASK_RUN_TYPE_DISCUSSION = "discussion"
 
 # Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
 # unlabelled link from the brief link-only window before associations carried identifiers.
@@ -361,7 +369,12 @@ _LEGACY_TASK_RUN_PRODUCT = "tasks"
 _LEGACY_TASK_RUN_TYPE = "agent_run"
 
 _SIGNALS_TASK_RUN_TYPES = frozenset(
-    {TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION}
+    {
+        TASK_RUN_TYPE_REPO_SELECTION,
+        TASK_RUN_TYPE_RESEARCH,
+        TASK_RUN_TYPE_IMPLEMENTATION,
+        TASK_RUN_TYPE_DISCUSSION,
+    }
 )
 
 
@@ -434,6 +447,44 @@ class SummaryChange(BaseModel):
         return v
 
 
+class CodeReviewCounts(BaseModel):
+    """One review turn's valid findings by effective priority (threshold-independent)."""
+
+    must_fix: int = Field(default=0, description="Validator-confirmed findings at must_fix priority.")
+    should_fix: int = Field(default=0, description="Validator-confirmed findings at should_fix priority.")
+    consider: int = Field(default=0, description="Validator-confirmed findings at consider priority.")
+
+
+class CodeReview(BaseModel):
+    """Content schema for a `code_review` artefact: one ReviewHog review turn over the report's
+    implementation output.
+
+    Pointer-first: counts + links + the `review_report_id` drill-down handle (the SQL join key into
+    the review_hog tables). The full rendered body lives on `ReviewReport.report_markdown` — even for
+    stored-only turns — and is never duplicated here. System-generated: the ReviewHog workflow is the
+    only writer, so the type is read-only through the generic artefact API.
+    """
+
+    review_report_id: str = Field(description="ReviewHog ReviewReport UUID — the drill-down handle (SQL join key).")
+    repository: str = Field(description="GitHub repository the reviewed code lives in, as 'owner/repo'.")
+    head_sha: str = Field(description="The reviewed head commit SHA.")
+    head_branch: str = Field(description="The reviewed head branch.")
+    base_branch: str = Field(description="The branch the reviewed diff was computed against.")
+    pr_number: int | None = Field(default=None, description="PR number; absent for branch-only targets.")
+    pr_url: str | None = Field(default=None, description="PR URL; absent for branch-only targets.")
+    review_url: str | None = Field(default=None, description="GitHub review permalink, when published.")
+    outcome: Literal["published", "stored", "failed"] = Field(
+        description=(
+            "What the turn did: 'published' (comments posted to the PR), 'stored' (findings persisted "
+            "only — no PR, nothing publishable, or publishing off), or 'failed' (the turn errored)."
+        )
+    )
+    counts: CodeReviewCounts = Field(
+        default_factory=CodeReviewCounts,
+        description="Valid (is_valid=True) findings by effective priority, independent of the publish threshold.",
+    )
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -442,7 +493,7 @@ class SummaryChange(BaseModel):
 StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
-LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange
+LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -462,6 +513,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "note": NoteArtefact,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
+    "code_review": CodeReview,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -474,7 +526,11 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # is their only writer, so accepting them through the generic API would let a caller fabricate edits
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
-NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset({"video_segment", "title_change", "summary_change"})
+# `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
+# it through the API would let a caller fabricate review receipts for reviews that never ran.
+NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
+    {"video_segment", "title_change", "summary_change", "code_review"}
+)
 
 
 def artefact_type_for(content: BaseModel) -> str:

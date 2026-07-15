@@ -6,24 +6,25 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 
 import time
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
-from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -38,6 +39,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
@@ -263,38 +265,39 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         )
         primary_metrics_count = len(experiment.metrics or [])
         secondary_metrics_count = len(experiment.metrics_secondary or [])
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=distinct_id,
-                event="experiment results refresh completed",
-                properties={
-                    "experiment_id": experiment.id,
-                    "team_id": team.id,
-                    "recalculation_id": str(recalc.id),
-                    "status": recalc.status,
-                    "total_metrics": recalc.total_metrics,
-                    "succeeded_metrics": update.succeeded_metrics,
-                    "failed_metrics": update.failed_metrics,
-                    "total_duration_ms": total_duration_ms,
-                    "execution_duration_ms": execution_duration_ms,
-                    "queue_duration_ms": queue_duration_ms,
-                    "trigger": recalc.trigger,
-                    "execution_mode": "recalculation",
-                    # Legacy-named aliases + missing properties for parity with the frontend
-                    # 'experiment results refresh completed' event, so the original experiments
-                    # dashboards work against workflow runs with the same property names.
-                    "triggered_by": recalc.trigger,
-                    "successful_count": update.succeeded_metrics,
-                    "errored_count": update.failed_metrics,
-                    "cached_count": 0,
-                    "total_metrics_count": recalc.total_metrics,
-                    "primary_metrics_count": primary_metrics_count,
-                    "secondary_metrics_count": secondary_metrics_count,
-                    "experiment_status": experiment.status or experiment.computed_status,
-                    "experiment_duration_hours": experiment_duration_hours,
-                },
-                groups=groups(organization=team.organization, team=team),
-            )
+        # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
+        # runs fine, and a scoped client's synchronous shutdown stalls the activity (~2x flush_interval).
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="experiment results refresh completed",
+            properties={
+                "experiment_id": experiment.id,
+                "team_id": team.id,
+                "recalculation_id": str(recalc.id),
+                "status": recalc.status,
+                "total_metrics": recalc.total_metrics,
+                "succeeded_metrics": update.succeeded_metrics,
+                "failed_metrics": update.failed_metrics,
+                "total_duration_ms": total_duration_ms,
+                "execution_duration_ms": execution_duration_ms,
+                "queue_duration_ms": queue_duration_ms,
+                "trigger": recalc.trigger,
+                "execution_mode": "recalculation",
+                # Legacy-named aliases + missing properties for parity with the frontend
+                # 'experiment results refresh completed' event, so the original experiments
+                # dashboards work against workflow runs with the same property names.
+                "triggered_by": recalc.trigger,
+                "successful_count": update.succeeded_metrics,
+                "errored_count": update.failed_metrics,
+                "cached_count": 0,
+                "total_metrics_count": recalc.total_metrics,
+                "primary_metrics_count": primary_metrics_count,
+                "secondary_metrics_count": secondary_metrics_count,
+                "experiment_status": experiment.status or experiment.computed_status,
+                "experiment_duration_hours": experiment_duration_hours,
+            },
+            groups=groups(organization=team.organization, team=team),
+        )
     except Exception:
         logger.warning(
             "experiment_results_refresh_completed_capture_failed",
@@ -397,24 +400,23 @@ def _capture_experiment_metric_event(
             if experiment.created_by and experiment.created_by.distinct_id
             else f"team_{team.id}"
         )
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties={
-                    "experiment_id": experiment.id,
-                    "team_id": team.id,
-                    "metric_uuid": metric_uuid,
-                    "metric_kind": (metric_dict or {}).get("metric_type"),
-                    "is_primary": metric_type == "primary",
-                    "execution_mode": "recalculation",
-                    "context": "ui",
-                    "mechanism": "orchestrated",
-                    "trigger": trigger,
-                    **extra_properties,
-                },
-                groups=groups(organization=team.organization, team=team),
-            )
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event=event,
+            properties={
+                "experiment_id": experiment.id,
+                "team_id": team.id,
+                "metric_uuid": metric_uuid,
+                "metric_kind": (metric_dict or {}).get("metric_type"),
+                "is_primary": metric_type == "primary",
+                "execution_mode": "recalculation",
+                "context": "ui",
+                "mechanism": "orchestrated",
+                "trigger": trigger,
+                **extra_properties,
+            },
+            groups=groups(organization=team.organization, team=team),
+        )
     except Exception:
         logger.warning(
             "experiment_metric_event_capture_failed",
@@ -610,6 +612,50 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 trigger=state.trigger,
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
+
+        except ConcurrencyLimitExceeded as e:
+            # The org's ClickHouse app-query quota is saturated: backpressure, not a fault. No exception
+            # capture, and the exponential retry schedule is overridden with a flat delay long enough for the
+            # org's earlier runs to release query slots. Persisted only on the final attempt, so the metric
+            # stays in its loading state while it waits for quota.
+            message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            if is_final_attempt:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": classify_experiment_query_error(e),
+                        "error_message": message,
+                    },
+                    trigger=state.trigger,
+                )
+            logger.warning(
+                "Experiment metric recalculation deferred by org concurrency limit",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
+            )
+            raise ApplicationError(
+                message,
+                type="ConcurrencyLimitExceeded",
+                next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
+            ) from e
 
         except Exception as e:
             # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).

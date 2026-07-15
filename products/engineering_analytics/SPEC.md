@@ -11,7 +11,7 @@ The **goal** is to surface these as **Signals** for PostHog Code: valuable CI co
 
 ## 2. Non-goals
 
-- Per-developer surveillance metrics or rankings. Analytics aggregate at team/repo level only; author is display metadata on a PR (attribution), never a unit of analysis. No author-level pages, tabs, leaderboards, rankings, or per-author cost, ever.
+- Per-developer surveillance _rankings_. No author leaderboards, cross-author rankings, or per-developer performance/cycle-time scores (no author-scoped "median open→merge", no flaky-rate scoreboard), ever — those exist only to compare people. The author-scoped _page_ is allowed: the author-filtered PR list plus that author's own CI **cost** (transparent spend, not a performance judgement), reachable only from the author links on PR rows. Author is never surfaced as a ranked, cross-author aggregation.
 - Real-time alerting on individual PRs. That's notification surface, not analytics.
 - Replacing GitHub's own UI. We surface signal, not the raw PR thread.
 - Code-quality static analysis. Different product space.
@@ -141,13 +141,111 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 - `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
 - `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
-- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`).
+- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`) or PR-attributed runs excluding the default branch (`run_scope=pull_request`; master/main, same-repo PRs only). p50/p95 are over successful runs only — there is no knob, because cancelled (superseded) and failed runs end early and would bias any duration percentile low — and additionally exclude no-op gate runs (benign conclusion, settled in under 10 seconds), falling back to all successful runs for workflows that are legitimately all-fast. Job percentiles keep the plain successful-only population: a seconds-long job (the gate job itself) is a legitimate sample.
+- `current_branch_health` — complete current default-branch verdict over a fixed 24-hour window: the detected branch, settled-workflow count, complete failing-workflow count, and a bounded name preview. This is a separate aggregate because `workflow_health` intentionally caps its per-workflow rows and cannot safely prove the fleet is green.
 - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
 - `ci_failure_logs` — the thinned failure log lines for a PR's CI, grouped by job. Resolves the PR to its run_ids via the same `pull_requests` attribution as `pr_runs`, then reads the Logs product (`service.name = github-ci-logs`) joined on `run_id`. Reads from Logs, not the warehouse.
+- `flaky_tests` — the flaky-test leaderboard: per-test CI spans from the Traces product (`trace_spans`, emitted by Backend CI's report-test-timings job) grouped by pytest nodeid over a window (default `-7d`, max 30 days), scoped to the selected GitHub source via the emitted `ci.repository`, and ranked by flakiness signal. A test qualifies by passing on retry (`rerun_passed`) at least `min_rerun_passes` times (default 1) OR failing on at least `min_failed_prs` distinct PRs (default 3). Absolute counts only, never rates — sub-threshold passing runs aren't emitted, so denominators are biased. Reads from Traces, not the warehouse.
 
 **UI:** a read-only scene on the same endpoints via the generated API client — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).
 
 All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-30d` or ISO8601).
+
+### Exposed warehouse views
+
+Three warehouse views are exposed so insights, subscriptions, other products, and agents (via
+`execute-sql`) can query the curated CI substrate directly — the only surface where the read layer
+is reachable as data rather than through the named endpoints.
+All three share one gate: a team gets them only when it has a GitHub source with **both** the
+`workflow_runs` and `workflow_jobs` endpoints synced (`resolve_job_cost_source_pairs`), so they
+appear together or not at all, and `get_expected_warehouse_views` stays coherent.
+
+#### `engineering_analytics_job_costs`
+
+- **Name:** `engineering_analytics_job_costs`, provisioned per-team as a `DataWarehouseSavedQuery`
+  (the revenue-analytics managed-viewset mechanism, kind `engineering_analytics`).
+- **Grain:** one row per job attempt (a retry appears once per attempt — correct for cost). Every
+  job is kept, including non-billable ones: `provider` / `os` / `vcpu` / `multiplier` describe any
+  classifiable runner (github-hosted included) and are NULL only when the labels name no recognized
+  runner; `billable_seconds` / `estimated_cost_usd` are NULL when the job isn't billable
+  (github-hosted, non-Linux, or unclassifiable) or unsettled (no elapsed yet). NULL cost is
+  disambiguated by `provider` (non-billable) vs `completed_at` (unsettled) — a queued job is never
+  shown as `$0.00`.
+  Jobs whose run row is missing (the LEFT JOIN to `workflow_runs`) keep NULL attribution
+  (`repo_owner` / `repo_name` / `pr_number`) rather than being dropped.
+- **Non-materialized:** results are computed at query time — there is no stored table to rebuild.
+  The rendered SQL itself is persisted per team, so a cost-model change in `cost.py` reaches a
+  team's view on its next re-render (the post-load hook re-syncs on every GitHub runs/jobs load,
+  bounding staleness to one sync cycle for active teams); a fleet-wide resync is a one-line loop
+  over the `engineering_analytics` viewsets.
+- **Single source of truth:** the cost columns are generated from `logic/cost.py`'s constants (the
+  same rate ladder + label→tier parser the Python model uses), rendered as HogQL. A ClickHouse-backed
+  parity test asserts the view's output equals the Python model's across the classification matrix,
+  so the SQL can only drift from the model if that test fails.
+- **One cost path for the view and the endpoints.** The product's endpoint cost queries (`pr_cost`,
+  the workflow/author/runner-tier cost splits, the cost-per-merge series) read this same rendered
+  per-job cost SELECT — via `_curated.job_cost_source()`, which adds only endpoint-private run
+  pass-through columns for windowing/branch filters — and aggregate `billable_seconds` /
+  `estimated_cost_usd` in ClickHouse. Cost is therefore computed exactly once, in one place; there is
+  no separate Python cost rollup for the endpoints to drift from the view.
+
+#### `engineering_analytics_ci_job_history`
+
+The per-job-attempt history with commit attribution — the stable substrate for green/red boundary
+analysis ("master went red at SHA X, authored by Y, via PR Z"). Composes the same
+`workflow_jobs` LEFT JOIN `workflow_runs` shape as `job_costs`, unioned across qualifying sources.
+
+- **Grain:** one row per job attempt (a retry appears once per attempt). Jobs whose run row is
+  missing (the LEFT JOIN) are kept, not dropped; ClickHouse fills the unmatched run side with type
+  defaults (empty repo/sha, `pr_number` 0) rather than NULL, so a missing run reads as empty
+  attribution.
+- **Columns:** `repo_owner`, `repo_name`, `workflow_name`, `job_name`, `run_id`, `run_attempt`,
+  `head_branch`, `head_sha` (the run's), `status`, `conclusion`, `created_at`, `started_at`,
+  `completed_at`, `duration_seconds`, `pr_number`, `commit_author_name`, `commit_author_email`,
+  `commit_message`, `commit_pr_number`. Column order is the locked contract (it fixes the UNION ALL
+  order and the saved-query schema).
+- **Two PR keys, by design (SPEC §7):** `pr_number` is the runs builder's association-derived
+  number — kept as `0` when the run has no `pull_requests` association (master pushes, fork PRs),
+  not nulled. `commit_pr_number` is parsed from the head commit's squash-merge suffix via
+  `accurateCastOrNull(regexpExtract(commit_message, '(?m)[(]#([0-9]+)[)]$'), 'Int64')` — anchored to a
+  line end so a revert's quoted inner `(#N)` never wins over the reverting PR's own suffix. This is
+  how a **master push run** gets PR attribution at all, since its `pull_requests` association is
+  empty. On an unjoined run, `pr_number` reads 0 (type default) and `commit_pr_number` NULL.
+- **Commit attribution rule:** `commit_author_name` / `commit_author_email` / `commit_message` come
+  from the run's `head_commit` Nullable-JSON column (`ifNull(head_commit, '{}')`, then
+  `JSONExtractString(…, 'author', 'name')` / `('author', 'email')` / `('message')`). The shared
+  `workflow_runs` builder deliberately does **not** surface commit fields (other embedders don't
+  need them); this view reads them through its own minimal projection over the raw runs table,
+  LEFT-JOINed on `run_id` alone, rather than widening the shared builder. Joining on `run_attempt`
+  too would blank attribution for earlier-attempt jobs after a re-run: the runs snapshot upserts by
+  `id`, so only the newest attempt's row exists, and attribution is attempt-invariant anyway (a
+  re-run is the same commit). `head_commit` is a new Nullable(String) column on
+  `WORKFLOW_RUNS_COLUMNS`.
+
+#### `engineering_analytics_ci_failures`
+
+Row-level fingerprinted CI failure lines from the **Logs** product (`logs` table, not the
+warehouse), for a failure index over the green/red boundary. Team-global (logs aren't
+source-scoped), so no per-source resolution — one view, still gated on the qualifying GitHub source
+above so it appears with `ci_job_history`.
+
+- **Grain:** one row per pytest `FAILED <nodeid>` line —
+  `FROM logs WHERE service_name = 'github-ci-logs' AND regexpExtract(body, 'FAILED ([^[:space:]]+::[^[:space:]]+)') != ''`.
+  The `::` requirement is the pytest discriminator: real CI logs contain `FAILED` in other contexts
+  (env dumps, stage markers) that would otherwise produce junk fingerprints. (HogQL string literals
+  reject `\s`/`\d` escapes, so the regexes use POSIX/char classes instead.)
+- **Columns:** `timestamp`, `test_id` (the `FAILED` node id), `error_signature`, `fingerprint`,
+  `branch`, `head_sha`, `repo`, `workflow_name`, `job_name`, `run_id`, `job_id`, `run_attempt`,
+  `conclusion`. The attribute-map fields ride the emitted log record; `run_id` / `job_id` are
+  `accurateCastOrNull(…, 'Int64')`-cast so they join `ci_job_history` and the raw `github_*` tables.
+- **Fingerprint recipe:** `error_signature` is the trailing `" - <detail>"` with volatile bits
+  normalized — `replaceRegexpAll(…, '[0-9a-fA-F-]{8,}|[0-9]+', 'N')`, truncated to 200 — so two runs of
+  the same failure share it (NULL when there's no trailing detail). `fingerprint` is
+  `concat(test_id, ' | ', <normalized signature>)`, the group key.
+- **pytest-only v1 caveat:** the recipe only matches pytest `FAILED` lines; jest / playwright /
+  cargo failure lines are **not** fingerprinted yet. The recipe lives in code (not a stored
+  materialization) on purpose, so it can evolve by PR as more runners are covered and re-render into
+  a team's view on the next sync.
 
 ## 6. Delivery shape
 
@@ -171,6 +269,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **Signals emission for PostHog Code is the goal; the substrate is shaped for it.** Valuable CI conditions are surfaced as Signals via the Signals product's `emit_signal()` for PostHog Code to act on. Detection of what counts as a valuable Signal is defined once in `logic/` over the read layer, so the emitter and the MCP/SQL surface share one definition — never re-derived in the UI. The emission contract (source taxonomy, thresholds, autonomy priority) is owned by the Signals product; nothing in the read substrate or surfaces may foreclose it.
 - **Curated read layer, run privately; MCP is the official surface via named typed endpoints.** _(Changed — reason:)_ registering the curated views in the global HogQL catalog (`Database.create_for`, the `revenue_analytics` precedent) inverts the dependency — core imports the product — and runs on the per-query hot path for **every** team. Running the curated `build_query()` as subqueries from the product's own DRF endpoints keeps domain rules defined once while leaving the product isolated and off the hot path: core imports only the viewset, exactly like `visual_review`. The endpoints back both the MCP tools and the UI, so there is no parallel read path. (This restructure is the written reason for changing the prior "registered substrate + generic SQL surface" decision.)
 - **`metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in field names + docs.** _(Changed — reason:)_ the aggregate endpoints return typed lists, so the coarse/staleness caveats ride in honest field names (`open_to_merge_seconds`) and serializer/tool descriptions — structurally hard to misread. `pr_lifecycle` keeps the typed `metric_quality` field (`partial`) where the assembly's incompleteness is load-bearing.
+- **The `engineering_analytics_job_costs` warehouse view does not reopen "no global HogQL view registration".** The locked-out thing is `Database.create_for` _code_ registration that inverts the dependency (core imports the product) and runs on every team's per-query hot path. This view is the opposite: team-scoped managed _data_ (a `DataWarehouseSavedQuery` synced only for teams with a GitHub source), created by the same managed-viewset mechanism revenue analytics uses. Core never imports the product to serve it, and teams without a synced GitHub source have no view at all. The cost model stays defined once in `logic/cost.py` (rendered to HogQL, guarded by a parity test); the view exists so cost is queryable by insights / subscriptions / other products / `execute-sql`, which the named endpoints alone don't cover. See §5 → Exposed warehouse view.
 - **No new ingestion to support v1 UI.** Repo identity, labels, and `is_bot` are mapped from the warehouse JSON already landed; the PR↔CI status is a head-SHA join. All in the read layer.
 - **HogQL only for analytics data.** No raw ClickHouse.
 - **No product Postgres DB.** Tool calls are stateless; saved/stateful state is a later, separate decision. No `db_routing.yaml` entry — analytics data lives in the warehouse / ClickHouse. If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.
@@ -184,7 +283,9 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
   - Cardinality: a run ↔ PR is **0..N** (push-only runs and fork PRs have no association; one commit can head several PRs). Treat pr_number attribution as a possibly-empty, possibly-multi set, never a guaranteed single value. v1 credits a run to the **first** PR in its association (see `pr_runs`).
   - **The Logs surface inherits this.** Emitted CI failure logs carry `attributes['run_id']` (plus `job_id` / `branch` / `conclusion`); `ci_failure_logs` resolves a PR to its run_ids through the same `pull_requests` attribution (reusing `pr_runs`), then filters the Logs product by `run_id` — no head-SHA join, no merge SHA, all pushes captured. Fork PRs (no association) degrade to a run_id / branch lookup.
 - **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** The real GitHub source lands timestamps as strings and the nested objects (`user`/`head`/`base`/`labels`/`repository`/`pull_requests`) as Nullable. Curated builders therefore parse every timestamp with HogQL `parseDateTimeBestEffort` (which maps to ClickHouse `parseDateTime64BestEffortOrNull` — that raw CH name is not exposed in HogQL) and `ifNull`-unwrap any Nullable column before an array function (`JSONExtractArrayRaw` / `splitByChar`), because ClickHouse rejects an Array nested inside a Nullable. `source_schema.py` mirrors these exact types so the seed and tests exercise the real path — violating this contract 500'd every endpoint on real data while idealized-fixture tests stayed green.
-- **Analytics aggregate at team/repo level only — no author-level surface, ever.** _(Changed — reason:)_ the v1 UI grew an authors tab, author list/detail pages, hub leaderboards, and an `author_workflow_costs` endpoint; all were removed. Per-author aggregation is per-developer surveillance (§2), and every such surface invites ranking people. Author stays on the `PullRequest` contract as display metadata (attribution on a PR row) and as a list _filter_ for finding work — never as an aggregation level, a page, or a cost rollup. Don't re-add an author-scoped aggregate endpoint or UI surface.
+- **No author leaderboards or per-developer performance rankings — but the author page and its cost breakdown are allowed.** _(Changed — reason:)_ the v1 UI first grew an authors tab, hub leaderboards, per-author _performance_ tiles (median open→merge, re-run cycles), and an `author_workflow_costs` endpoint; a follow-up removed **all** of it, including the author page and its cost breakdown, and locked "no author surface, ever". That over-corrected: the surveillance risk is in _ranking people against each other_ (leaderboards, cross-author cycle-time/flaky scores), not in an engineer opening their own page to see their PRs and what their CI runs cost. So the line is drawn at rankings, not at the author page:
+  - **Removed and kept out:** the authors tab/list, hub author leaderboards, and per-developer _performance_ metrics (median open→merge, flaky/re-run scores) as author-scoped surfaces. Don't re-add a ranked, cross-author aggregate.
+  - **Restored:** the author page — the shared PR table filtered to one author, plus that author's own CI **cost** (windowed spend tiles + the `author_workflow_costs` split-by-workflow breakdown). Cost is transparent spend, not a performance judgement, and the page is reachable only from the author links on PR rows (no list, no ranking of one author against another). The `author_workflow_costs` endpoint stays a UI-only read (its MCP tool is `enabled: false`); attribution is by PR number (SPEC §7), same as every other cost surface.
 - **Bot detection** defined once in the read layer: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time recipes (an explicit column flag + a default filter the skill applies). First-class in any future bot-impact analysis — don't strip them at the substrate.
 - **Time to merge v1** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (combines draft + ready-for-review time). The precise companion lands with state-transition data.
@@ -200,7 +301,9 @@ Use the current default; revisit when the relevant data lands (§9).
 - Commits-till-merged — same; comes with the lifecycle-event data.
 - Provider Protocol — wait for a second provider. The read-layer boundary is already drawn to make extraction mechanical.
 - Stateful / persisted UI (saved views, persisted filters) — a separate decision once the read-only scene proves out.
-- Cost attribution (agent-token and CI-minute cost per PR) — deferred. Token cost is an LLM analytics join: the `$ai_*_cost_usd` properties on generation events, resolved to a PR by **branch** (head ref → `github_pull_requests.head.ref`), not `head_sha` — the PR snapshot is current-state-only, so a SHA join matches only the latest push and drops every earlier one (undercount). The agent can stamp the branch at capture time even though the PR doesn't exist yet. The grouping is LLM analytics' own; this product owns the branch→PR join plus outcome/lifecycle enrichment. The lever is _cost per outcome_, which needs the lifecycle + git history data above (revert/fixup graph, changed files). See README → "What pays for the destination".
+- Cost attribution (agent-token and CI-minute cost per PR). Token cost is an LLM analytics join: the `$ai_*_cost_usd` properties on generation events, resolved to a PR by **branch** (head ref → `github_pull_requests.head.ref`), not `head_sha` — the PR snapshot is current-state-only, so a SHA join matches only the latest push and drops every earlier one (undercount). The agent can stamp the branch at capture time even though the PR doesn't exist yet. _(Changed — reason: the cost lens on the PR page needs the PR lifetime window + head_ref, both owned here, so this product now owns the branch→PR token-spend rollup on `pr_cost` — the `llm_spend` component. LLM analytics keeps the trace-level cost surfaces.)_ The lever is _cost per outcome_, which needs the lifecycle + git history data above (revert/fixup graph, changed files). See README → "What pays for the destination".
+  `llm_spend` attribution propagates within an AI session (`$ai_session_id`, falling back to `$ai_trace_id`), not just per-event: when a session's first non-base-branch stamp is the PR's head ref, the pre-branch lead-in (unstamped or base-ref-stamped events) counts too, and later unstamped events follow the most recently stamped branch. The full rule — and why base-ref stamps are neutral — is stated once in `logic/queries/llm_spend.py`; the PR-lifetime window + repo guard stay the outer filter on every counted event.
+  The branch → PR resolution this join relies on exists as the `resolve_branch` endpoint: a cross-product caller (LLM analytics) passes a git branch and gets back the PR(s) it belongs to, resolving against `head.ref` — the one place that attribution is defined, so callers don't re-derive it. It is the read seam for linking a git branch to a PR.
 
 ## 9. Data sources
 

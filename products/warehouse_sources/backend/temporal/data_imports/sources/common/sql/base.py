@@ -60,6 +60,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     """
 
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
 
     @property
     @abstractmethod
@@ -99,11 +100,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.
 
-        Mirrors what every SQL source has always done just before building
-        a `SourceSchema`.
+        Mirrors what every SQL source has always done just before building a `SourceSchema`.
+        Matched case-insensitively (Snowflake uppercases unquoted identifiers) but the column's
+        actual stored casing is returned, because the merge indexes batches by the real name.
         """
-        if any(col[0] == "id" for col in columns):
-            return ["id"]
+        id_column = next((col[0] for col in columns if col[0].lower() == "id"), None)
+        if id_column is not None:
+            return [id_column]
         return None
 
     def get_schemas(

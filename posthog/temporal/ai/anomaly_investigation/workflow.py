@@ -6,11 +6,12 @@ Triggered from posthog/temporal/alerts/workflows.py when an alert transitions to
 
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -26,6 +27,7 @@ from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
+from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
@@ -34,8 +36,17 @@ from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
+from products.signals.backend.facade import api as signals
+
+if TYPE_CHECKING:
+    from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
+
+# (source_product, source_type) identifiers for the emitted signal. The signals taxonomy, payload
+# contract, and inbox support for this pair are added in a separate PR; this module only emits.
+SIGNAL_SOURCE_PRODUCT = "analytics"
+SIGNAL_SOURCE_TYPE = "anomaly_investigation"
 
 
 ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 20 * 60  # 20 minutes
@@ -43,6 +54,15 @@ ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
 MAX_SUMMARY_CHARS = 500
+
+# Cap for the embedded signal description. Kept well under the signals facade's ~8000-token limit
+# (a conservative margin even for token-dense text) so a long agent report can't get the signal
+# rejected and silently dropped.
+_MAX_DESCRIPTION_CHARS = 3000
+
+# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
+# used to clip the summary teaser on a sentence boundary instead of mid-word.
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 
 @dataclass
@@ -153,6 +173,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         text_content=result.report.summary,
         created_by_id=user.id,
         last_modified_by_id=user.id,
+        creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,
     )
 
     summary_for_list = _truncate_summary(result.report.summary)
@@ -179,6 +200,128 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         summary=summary_for_list or "",
         notebook_short_id=notebook.short_id,
     )
+
+    # Surface the completed investigation to the Signals inbox. Best-effort: the investigation
+    # itself has already succeeded and been persisted, so a failure to emit must not fail the
+    # activity (and trigger a re-run of the whole agent).
+    try:
+        await _emit_investigation_signal(
+            team=team,
+            alert=alert,
+            alert_check=alert_check,
+            insight=insight,
+            detector_type=detector_type,
+            report=result.report,
+            notebook_short_id=notebook.short_id,
+        )
+    except Exception:
+        logger.exception(
+            "anomaly_investigation.signal_emission_failed",
+            alert_id=str(alert.id),
+            alert_check_id=str(alert_check.id),
+        )
+
+
+def _build_investigation_signal_extra(
+    *,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    insight: Insight,
+    detector_type: str,
+    report: InvestigationReport,
+    notebook_short_id: str | None,
+) -> dict:
+    """The `extra` payload for an anomaly-investigation signal — a plain dict validated against
+    `AnomalyInvestigationSignalExtra` inside `emit_signal`."""
+    notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}") if notebook_short_id else absolute_uri("/alerts")
+    extra: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name or "Unnamed alert",
+        "alert_check_id": str(alert_check.id),
+        "insight_id": str(insight.id),
+        "detector_type": detector_type,
+        "verdict": report.verdict,
+        "url": notebook_url,
+    }
+    # Optional fields — omit when absent so the schema's None defaults apply.
+    if insight.name:
+        extra["insight_name"] = insight.name
+    insight_short_id = getattr(insight, "short_id", None)
+    if insight_short_id:
+        extra["insight_short_id"] = insight_short_id
+    if alert_check.triggered_dates:
+        extra["triggered_dates"] = list(alert_check.triggered_dates)
+    if notebook_short_id:
+        extra["notebook_short_id"] = notebook_short_id
+    return extra
+
+
+async def _emit_investigation_signal(
+    *,
+    team: Team,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    insight: Insight,
+    detector_type: str,
+    report: InvestigationReport,
+    notebook_short_id: str | None,
+) -> None:
+    """Emit an `alerts/anomaly_investigation` signal carrying the agent's verdict and findings."""
+    await signals.emit_signal(
+        team=team,
+        source_product=SIGNAL_SOURCE_PRODUCT,
+        source_type=SIGNAL_SOURCE_TYPE,
+        source_id=str(alert_check.id),
+        description=_build_signal_description(
+            alert_name=alert.name or "Unnamed alert",
+            insight_name=insight.name or None,
+            insight_id=str(insight.id),
+            insight_short_id=getattr(insight, "short_id", None),
+            report=report,
+        ),
+        weight=1,
+        extra=_build_investigation_signal_extra(
+            alert=alert,
+            alert_check=alert_check,
+            insight=insight,
+            detector_type=detector_type,
+            report=report,
+            notebook_short_id=notebook_short_id,
+        ),
+    )
+
+
+def _build_signal_description(
+    *,
+    alert_name: str,
+    insight_name: str | None,
+    insight_id: str,
+    insight_short_id: str | None,
+    report: InvestigationReport,
+) -> str:
+    """Human-readable description embedded for grouping. Leads with the verdict, names the insight
+    (with its id, handy for lookups), then the agent's summary, hypotheses, and recommendations."""
+    verdict_label = report.verdict.replace("_", " ")
+    metric = f" on {insight_name}" if insight_name else ""
+    insight_ref = f"{insight_short_id} / id {insight_id}" if insight_short_id else f"id {insight_id}"
+    lines: list[str] = [
+        f"Anomaly investigation for alert '{alert_name}'{metric} (verdict: {verdict_label}).",
+        f"Insight: {insight_ref}.",
+        report.summary,
+    ]
+    if report.hypotheses:
+        lines.append("Hypotheses:")
+        lines.extend(f"- {h.title}: {h.rationale}" for h in report.hypotheses)
+    if report.recommendations:
+        lines.append("Recommendations:")
+        lines.extend(f"- {rec}" for rec in report.recommendations)
+    description = "\n".join(line for line in lines if line)
+    # Bound the agent-generated text so it can't blow the facade's description token limit — past it
+    # emit_signal raises and the best-effort caller would silently drop the signal. The full write-up
+    # lives in the linked notebook, so truncating the embedded description is safe.
+    if len(description) > _MAX_DESCRIPTION_CHARS:
+        description = description[: _MAX_DESCRIPTION_CHARS - 1].rstrip() + "…"
+    return description
 
 
 def _dispatch_gated_notification(
@@ -222,8 +365,16 @@ def _dispatch_gated_notification(
         breaches = _build_breach_descriptions(
             alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
         )
+        # Surface the notebook URL as an event property so the Slack destination can render a
+        # "View Investigation" button. Absent when the investigation produced no notebook, in
+        # which case the button falls back to "View Alert".
+        extra_properties = (
+            {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")}
+            if notebook_short_id
+            else None
+        )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches)
+            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
             if targets is not None:
                 record_alert_delivery(alert, check, targets)
         except Exception:
@@ -287,6 +438,20 @@ def _truncate_summary(summary: str | None) -> str | None:
         return None
     if len(trimmed) <= MAX_SUMMARY_CHARS:
         return trimmed
+
+    window = trimmed[:MAX_SUMMARY_CHARS]
+    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
+    # teaser — otherwise a short lead sentence would drop most of the summary.
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
+    if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
+        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
+        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
+        return window[: sentence_ends[-1]].rstrip() + " …"
+
+    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
+    word_end = window.rstrip().rfind(" ")
+    if word_end != -1:
+        return window[:word_end].rstrip() + "…"
     return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 

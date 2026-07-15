@@ -4,8 +4,10 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
-from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.integrations import refresh_integration, refresh_integrations
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -36,3 +38,56 @@ class TestIntegrationsTasks(APIBaseTest):
             refresh_integrations()
             # Both 3 and 4 should be refreshed
             assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
+
+    def test_refresh_integrations_skips_backed_off_and_terminal(self) -> None:
+        expired = {"refreshed_at": time.time() - 3600}
+        eligible = self.create_integration("slack", config=expired)
+        backoff_elapsed = self.create_integration(
+            "slack",
+            config={**expired, "refresh_failure_count": 2, "refresh_next_attempt_at": int(time.time()) - 10},
+        )
+        _backed_off = self.create_integration(
+            "slack",
+            config={**expired, "refresh_failure_count": 2, "refresh_next_attempt_at": int(time.time()) + 300},
+        )
+        _terminal = self.create_integration(
+            "slack", config={**expired, "refresh_failure_count": 5, "refresh_terminal": True}
+        )
+
+        with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
+            refresh_integrations()
+
+        assert refresh_integration_mock.call_args_list == [((eligible.id,),), ((backoff_elapsed.id,),)]
+
+    def test_refresh_integration_skips_when_backed_off(self) -> None:
+        integration = self.create_integration(
+            "slack",
+            config={
+                "refreshed_at": time.time() - 3600,
+                "refresh_failure_count": 1,
+                "refresh_next_attempt_at": int(time.time()) + 300,
+            },
+        )
+
+        with patch("posthog.models.integration.OauthIntegration.refresh_access_token") as refresh_mock:
+            refresh_integration(integration.id)
+
+        assert refresh_mock.called is False
+
+    @parameterized.expand(
+        [
+            ("expired", int(time.time()) - 3600, True),
+            ("fresh", int(time.time()), False),
+        ]
+    )
+    def test_refresh_integration_mints_only_when_still_expired(
+        self, _name: str, refreshed_at: float, expected_refreshed: bool
+    ) -> None:
+        # Duplicate tasks can queue up for one row under backlog; refresh_integration must re-check the
+        # just-loaded row so a task that finds it already fresh skips the mint instead of re-minting.
+        integration = self.create_integration("github", config={"refreshed_at": refreshed_at, "expires_in": 3600})
+
+        with patch("posthog.models.integration.GitHubIntegration.refresh_access_token") as refresh_mock:
+            refresh_integration(integration.id)
+
+        assert refresh_mock.called is expected_refreshed

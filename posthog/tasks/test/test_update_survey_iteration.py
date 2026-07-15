@@ -53,6 +53,23 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
+    def test_survey_ends_after_final_iteration(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
+        self.recurring_survey.save()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNotNone(self.recurring_survey.end_date)
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+
+    def test_huge_iteration_frequency_does_not_crash_task(self) -> None:
+        self.recurring_survey.iteration_count = 1
+        self.recurring_survey.iteration_frequency_days = 2_147_483_647
+        self.recurring_survey.save()
+        update_survey_iteration()
+        self.recurring_survey.refresh_from_db()
+        self.assertIsNone(self.recurring_survey.end_date)
+
     def test_can_guard_for_current_survey_iteration_overflow(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
         self.recurring_survey.save()

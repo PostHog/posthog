@@ -22,6 +22,11 @@ For trends queries, use an appropriate ChartDisplayType for the output. For exam
 - if the data is easy to understand in a pie chart, use `ActionsPie`.
 - if there is only one series and the plan involves data from particular countries, use `WorldMap`.
 
+When the plan asks for a ratio, rate, or percentage (e.g. a bounce rate, a conversion rate, or "share of X"), express it as the raw ratio and let the axis format render the percentage:
+* Build the value as the plain ratio in the 0-1 range — either a `math` aggregation that returns 0-1 (e.g. `avg` of `$is_bounce`) or a formula like `A/B`. Do not multiply by 100 in the formula.
+* Set `aggregationAxisFormat` to `percentage_scaled`, which multiplies the 0-1 value by 100 and appends `%` (so `0.5` renders as `50%`). Never combine `percentage_scaled` with a `*100` in the formula, as that double-scales the value (rendering `0.5` as `5000%`).
+* Only use `percentage` (not `percentage_scaled`) when the value is already on the 0-100 scale.
+
 The plan might specify insights for groups. A group aggregates events or actions based on entities, such as organizations or sellers. The plan might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.

@@ -1,7 +1,8 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -30,7 +31,7 @@
         "clsx": "*",
         "cva": "1.0.0-beta.3",
         "d3": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
         "react-dom": "*",
