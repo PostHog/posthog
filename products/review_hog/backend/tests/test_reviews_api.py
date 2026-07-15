@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
@@ -66,9 +66,18 @@ class TestRecentReviewsAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
-    def _report(self, *, pr_number: int, acting_user: User | None, completed: bool = True, **kwargs) -> ReviewReport:
-        return ReviewReport.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
+    def _report(
+        self,
+        *,
+        pr_number: int,
+        acting_user: User | None,
+        completed: bool = True,
+        team_id: int | None = None,
+        **kwargs,
+    ) -> ReviewReport:
+        team_id = team_id if team_id is not None else self.team.id
+        return ReviewReport.objects.for_team(team_id).create(
+            team_id=team_id,
             repository="PostHog/posthog",
             pr_number=pr_number,
             pr_url=kwargs.pop("pr_url", f"https://github.com/PostHog/posthog/pull/{pr_number}"),
@@ -120,9 +129,9 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
 
     def test_lists_only_my_completed_reviews(self) -> None:
-        # The block is "your recent reviews": a teammate's report and an abandoned (stale, never
-        # completed) run must not appear — a filter regression would leak other users' review
-        # activity or show a dead run as forever in progress.
+        # The default (mine) scope is "your recent reviews": a teammate's report and an abandoned
+        # (stale, never completed) run must not appear — a filter regression would leak other users'
+        # review activity or show a dead run as forever in progress.
         mine = self._report(pr_number=1, acting_user=self.user)
         with freeze_time(timezone.now() - timedelta(hours=2)):
             self._report(pr_number=2, acting_user=self.user, completed=False)
@@ -137,6 +146,22 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
+
+    def test_list_scope_everyone_covers_the_whole_project(self) -> None:
+        # The "Entire project" switch: everyone-scope must include teammates' reviews but never
+        # another team's (tenant isolation), and a bad scope value must 400 — proving the params
+        # serializer is actually wired into the view.
+        self._report(pr_number=1, acting_user=self.user)
+        other = User.objects.create_and_join(self.organization, "other-everyone@posthog.com", None)
+        self._report(pr_number=2, acting_user=other)
+        cold_team = Team.objects.create(organization=self.organization, name="cold")
+        self._report(pr_number=3, acting_user=other, team_id=cold_team.id)
+
+        res = self.client.get(self.url, {"scope": "everyone"})
+
+        assert res.status_code == 200
+        assert {r["pr_number"] for r in res.json()} == {1, 2}
+        assert self.client.get(self.url, {"scope": "nonsense"}).status_code == 400
 
     def test_counts_scope_to_the_latest_run_and_fall_back_to_the_branch_url(self) -> None:
         # Counts must reflect only the latest turn's VALID findings at their EFFECTIVE priority —
@@ -481,10 +506,14 @@ class TestRecentReviewsAPI(APIBaseTest):
             {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
         ]
 
-    def test_retrieve_scopes_to_the_acting_user(self) -> None:
-        # A teammate's report id must 404, not leak their PR's findings; garbage ids must not 500.
+    def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
+        # Opening a teammate's review from the everyone-scope list must work, but another team's
+        # report id must still 404 (tenant isolation), and garbage ids must not 500.
         other = User.objects.create_and_join(self.organization, "other-reviews-detail@posthog.com", None)
         theirs = self._report(pr_number=9, acting_user=other)
+        cold_team = Team.objects.create(organization=self.organization, name="cold")
+        foreign = self._report(pr_number=10, acting_user=other, team_id=cold_team.id)
 
-        assert self.client.get(f"{self.url}{theirs.id}/").status_code == 404
+        assert self.client.get(f"{self.url}{theirs.id}/").status_code == 200
+        assert self.client.get(f"{self.url}{foreign.id}/").status_code == 404
         assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404

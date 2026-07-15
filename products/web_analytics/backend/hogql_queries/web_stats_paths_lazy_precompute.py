@@ -334,6 +334,7 @@ FROM (
     WHERE and(
         {events_session_id} IS NOT NULL,
         events.$session_id_uuid IS NOT NULL,
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
         {event_type_filter},
         timestamp >= {time_window_min},
         timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
@@ -356,6 +357,7 @@ LEFT JOIN (
     WHERE and(
         sessions.$start_timestamp >= {time_window_min},
         sessions.$start_timestamp < {time_window_max},
+        equals(bitAnd(bitShiftRight(sessions.session_id_v7, 76), 15), 7),
         or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
     )
     GROUP BY time_window_start, breakdown_value

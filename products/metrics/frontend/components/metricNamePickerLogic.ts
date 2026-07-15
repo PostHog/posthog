@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
+import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import type { metricNamePickerLogicType } from './metricNamePickerLogicType'
 
@@ -26,6 +27,9 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
             [] as MetricNameItem[],
             {
                 loadItems: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     // Debounce — match the 300ms cadence used in the viewer logic so
                     // both fetches feel cohesive.
                     await breakpoint(300)
@@ -47,6 +51,8 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
     afterMount(({ actions }) => {
         // Prime the list so the dropdown isn't empty on first open. Mirrors
         // serviceFilterLogic's afterMount in logs.
-        actions.loadItems({})
+        if (canViewMetrics()) {
+            actions.loadItems({})
+        }
     }),
 ])
