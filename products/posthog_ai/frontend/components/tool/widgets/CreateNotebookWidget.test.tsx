@@ -1,10 +1,10 @@
-// Side-effect: Max registers its product tool renderers (incl. the notebook keys) into the shared
-// registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
-import './registerMaxToolRenderers'
+// Side-effect: registers the surface's product data-tool renderers (incl. the notebook keys) into the
+// shared registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
+import './registerDataToolRenderers'
 
 import { lookupToolRenderer, toolRegistry } from 'products/posthog_ai/frontend/api/tools'
+import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import type { ToolCallMessage } from '../../maxTypes'
 import { extractNotebook } from './CreateNotebookWidget'
 
 function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): ToolCallMessage {
@@ -26,12 +26,13 @@ describe('CreateNotebookWidget', () => {
         'resolves %s to the notebook widget',
         (key) => {
             expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
-            expect(lookupToolRenderer(key).displayName).toBe('Notebook')
+            // The notebook widget is gated on a trusted PostHog-exec origin, so pass `fromPostHogExec`.
+            expect(lookupToolRenderer(key, true).displayName).toBe('Notebook')
         }
     )
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
-        expect(lookupToolRenderer('some-unwired-tool').displayName).not.toBe('Notebook')
+        expect(lookupToolRenderer('some-unwired-tool', true).displayName).not.toBe('Notebook')
     })
 
     describe('extractNotebook', () => {
