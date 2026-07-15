@@ -47,6 +47,7 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    code_usage_subscribed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -78,13 +79,6 @@ async def get_usage(
         product=product,
     )
     now = datetime.now(tz=UTC)
-    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
-    # always unlimited for unbilled products), reported under the legacy `ai_credits`
-    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
-    # through the same credit_bucket_scope check as the request-path throttle: clients
-    # gate on this response, so reporting the raw bucket state would disable the product
-    # for seat-covered users the gateway itself would allow.
-    credits_exhausted = bucket_block_applies(product, plan_info.plan_key, quota_status.limited)
 
     context = ThrottleContext(
         user=user,
@@ -93,9 +87,16 @@ async def get_usage(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )
+    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # always unlimited for unbilled products), reported under the legacy `ai_credits`
+    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
+    # through the same decision as the request-path throttle: clients gate on this
+    # response, so it must never disagree with what enforcement would do.
+    credits_exhausted = bucket_block_applies(context)
 
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
@@ -141,6 +142,7 @@ async def get_usage(
         ai_credits=AiCreditsStatus(exhausted=credits_exhausted),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 

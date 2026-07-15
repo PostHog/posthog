@@ -25,7 +25,13 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema, RowFilter } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataSchemaSourceSummary,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    RowFilter,
+} from '~/types'
 
 import {
     SyncMethodForm,
@@ -44,6 +50,7 @@ import {
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
+import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
@@ -67,10 +74,13 @@ function sameColumns(a: string[] | null, b: string[] | null, available: { name: 
     return setA.size === setB.size && [...setA].every((c) => setB.has(c))
 }
 
+/** The schema page's source is the retrieve-endpoint summary widened to the full type (see schemaSceneLogic). */
+export type SchemaSceneSource = ExternalDataSource & Partial<ExternalDataSchemaSourceSummary>
+
 export interface ConfigurationTabProps {
     sourceId: string
     schema: ExternalDataSourceSchema
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     section: SchemaConfigurationSection
     onConfigureSyncMethod: () => void
     onViewSyncHistory: () => void
@@ -104,7 +114,12 @@ export function ConfigurationTab({
                 />
             )
         case 'sync-method':
-            return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+            return (
+                <div className="flex flex-col gap-6">
+                    <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+                    <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
+                </div>
+            )
         case 'columns':
             return (
                 <ColumnsAndRowFiltersSection
@@ -489,6 +504,143 @@ function SyncMethodSection({
                     </LemonButton>
                 </div>
             )}
+        </div>
+    )
+}
+
+function ApiVersionSection({
+    sourceId,
+    source,
+    schema,
+}: {
+    sourceId: string
+    source: SchemaSceneSource | null
+    schema: ExternalDataSourceSchema
+}): JSX.Element | null {
+    const { loadSchema, resyncSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
+    const { disabledReason: accessDisabledReason } = useSourceEditorAccess(source)
+
+    const supportedVersions = source?.supported_api_versions ?? []
+    const sourceVersion = source?.api_version
+
+    const [draftVersion, setDraftVersion] = useState<string | null>(schema.api_version ?? null)
+    const [saving, setSaving] = useState(false)
+
+    // Reset the draft when navigating to another schema or after a save reloads the server value.
+    useEffect(() => {
+        setDraftVersion(schema.api_version ?? null)
+    }, [schema.id, schema.api_version])
+
+    // A single supported version means an unversioned vendor (the framework's "v1" default) or
+    // nothing to choose between — hide the picker unless an override is already stored (so it can
+    // still be seen and cleared).
+    if (supportedVersions.length <= 1 && !schema.api_version) {
+        return null
+    }
+
+    const isWebhook = schema.sync_type === 'webhook'
+    const isDirty = (draftVersion ?? null) !== (schema.api_version ?? null)
+    const deprecation = schema.api_version_deprecation
+
+    const options: LemonSelectOption<string | null>[] = [
+        { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
+        ...supportedVersions.map((version) => ({ value: version, label: version })),
+    ]
+
+    const persist = async (resyncAfter: boolean): Promise<void> => {
+        setSaving(true)
+        try {
+            await api.externalDataSchemas.update(schema.id, { api_version: draftVersion })
+            if (resyncAfter) {
+                resyncSchema(schema)
+                lemonToast.success('API version saved — full resync queued')
+            } else {
+                lemonToast.success('API version saved')
+            }
+            loadSchema()
+        } catch (e: any) {
+            lemonToast.error(e?.detail || e?.message || "Can't save API version at this time")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleSave = (): void => {
+        // Only warn when there is synced data that could mix shapes with the new version.
+        if (!schema.last_synced_at) {
+            void persist(false)
+            return
+        }
+        const isRunning = schema.status === 'Running'
+        LemonDialog.open({
+            title: 'Change API version for already-synced data?',
+            content: (
+                <div className="text-sm text-secondary space-y-2">
+                    <p>
+                        <strong>{schema.table?.name ?? schema.name}</strong> already contains data synced with the
+                        previous API version. Vendors can rename or remove fields between versions, so future syncs may
+                        not line up with the existing rows. A full resync is recommended.
+                    </p>
+                    {isRunning && <p>The sync currently running will be canceled when you save.</p>}
+                </div>
+            ),
+            primaryButton: { children: 'Save and resync', onClick: () => void persist(true) },
+            secondaryButton: { children: 'Save only', onClick: () => void persist(false) },
+            tertiaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
+    return (
+        <div>
+            <SectionHeader
+                title="Vendor API version"
+                description={`Which version of the ${
+                    source?.source_type ?? 'vendor'
+                } API this schema syncs with. Overriding pins this schema only — other schemas keep following the source's version, and version migrations never change an override.`}
+            />
+            {deprecation && (
+                <div className="mb-4">
+                    <ApiVersionDeprecationBanner
+                        sourceType={source?.source_type ?? 'vendor'}
+                        deprecation={deprecation}
+                        subject="This schema"
+                        cta={`Switch to version ${deprecation.default_version} before syncs stop working.`}
+                    />
+                </div>
+            )}
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-1">
+                <span>API version override</span>
+                <span className="text-xs text-muted max-w-md">
+                    Only override this if the schema needs a specific vendor API version — for example to verify a new
+                    version on one table before moving the whole source.
+                </span>
+                <LemonSelect
+                    fullWidth
+                    disabledReason={
+                        accessDisabledReason ?? (isWebhook ? 'Not available for webhook-synced schemas' : undefined)
+                    }
+                    value={draftVersion}
+                    onChange={(value) => setDraftVersion(value)}
+                    options={options}
+                />
+            </div>
+            <div className="mt-4 flex justify-end">
+                <LemonButton
+                    type="primary"
+                    loading={saving}
+                    disabledReason={
+                        accessDisabledReason ??
+                        (isWebhook
+                            ? 'Not available for webhook-synced schemas'
+                            : !isDirty
+                              ? 'No changes to save'
+                              : undefined)
+                    }
+                    onClick={handleSave}
+                >
+                    Save
+                </LemonButton>
+            </div>
         </div>
     )
 }

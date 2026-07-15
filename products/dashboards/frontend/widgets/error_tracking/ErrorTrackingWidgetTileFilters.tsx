@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -54,26 +54,26 @@ export function ErrorTrackingWidgetTileFilters({
         [projectFilterDefinitions, isAllowed]
     )
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(
+        onUpdateConfig,
+        config
+    )
 
     const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
 
     const applyPatch = async (patch: Parameters<typeof patchErrorTrackingWidgetFilterFields>[1]): Promise<void> => {
-        const nextConfig = patchErrorTrackingWidgetFilterFields(configRef.current, patch)
-        configRef.current = nextConfig
+        const nextConfig = patchErrorTrackingWidgetFilterFields(getLatestConfig(), patch)
         await persistConfigNow(nextConfig)
     }
 
     const applyWidgetFilters = (nextWidgetFilters: typeof widgetFilters): void => {
-        const nextConfig = patchErrorTrackingWidgetFilterFields(configRef.current, { widgetFilters: nextWidgetFilters })
-        const current = parseErrorTrackingWidgetConfig(configRef.current)
+        const latestConfig = getLatestConfig()
+        const nextConfig = patchErrorTrackingWidgetFilterFields(latestConfig, { widgetFilters: nextWidgetFilters })
+        const current = parseErrorTrackingWidgetConfig(latestConfig)
         if (equal(current.widgetFilters ?? {}, nextWidgetFilters)) {
             return
         }
-        configRef.current = nextConfig
         persistConfigDebounced(nextConfig)
     }
 

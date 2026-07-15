@@ -14,11 +14,12 @@ import {
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -30,7 +31,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, ExternalDataSource } from '~/types'
+import { ActivityScope, Breadcrumb, ExternalDataSource, ExternalDataSourceApiVersionDeprecation } from '~/types'
 
 import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
@@ -275,5 +276,36 @@ function ManagedSourceTabs({
         content: <ActivityLog id={sourceId} scope={ActivityScope.EXTERNAL_DATA_SOURCE} />,
     })
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+    return (
+        <>
+            {source?.api_version_deprecation && (
+                <ApiVersionDeprecationBanner
+                    sourceType={source.source_type}
+                    deprecation={source.api_version_deprecation}
+                />
+            )}
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+        </>
+    )
+}
+
+export function ApiVersionDeprecationBanner({
+    sourceType,
+    deprecation,
+    subject = 'This source',
+    cta,
+}: {
+    sourceType: string
+    deprecation: ExternalDataSourceApiVersionDeprecation
+    subject?: string
+    cta?: string
+}): JSX.Element {
+    return (
+        <LemonBanner type="warning">
+            {subject} syncs using {sourceType} API version {deprecation.version}, which the vendor has deprecated
+            {deprecation.sunset_at ? ` and will stop serving on ${dayjs(deprecation.sunset_at).format('LL')}` : ''}.{' '}
+            {cta ??
+                `Contact PostHog support to migrate this source to version ${deprecation.default_version} before syncs stop working.`}
+        </LemonBanner>
+    )
 }
