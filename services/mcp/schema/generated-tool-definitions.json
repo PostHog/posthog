@@ -7360,6 +7360,272 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed. Call scout-config-create directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout config (deprecated)",
+        "title": "Create a scout config (deprecated)",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-config-delete": {
+        "description": "DEPRECATED: renamed to scout-config-delete. This alias forwards to the same endpoint and will be removed. Call scout-config-delete directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a scout config (deprecated)",
+        "title": "Delete a scout config (deprecated)",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-config-list": {
+        "description": "DEPRECATED: renamed to scout-config-list. This alias forwards to the same endpoint and will be removed. Call scout-config-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List scout configs (deprecated)",
+        "title": "List scout configs (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-config-sync": {
+        "description": "DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed. Call scout-config-sync directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Sync scout configs (deprecated)",
+        "title": "Sync scout configs (deprecated)",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-config-update": {
+        "description": "DEPRECATED: renamed to scout-config-update. This alias forwards to the same endpoint and will be removed. Call scout-config-update directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a scout config (deprecated)",
+        "title": "Update a scout config (deprecated)",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-edit-report": {
+        "description": "DEPRECATED: renamed to scout-edit-report. This alias forwards to the same endpoint and will be removed. Call scout-edit-report directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run (deprecated)",
+        "title": "Edit an existing report for a run (deprecated)",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-report": {
+        "description": "DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed. Call scout-emit-report directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run (deprecated)",
+        "title": "Author a full report for a run (deprecated)",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-signal": {
+        "description": "DEPRECATED: renamed to scout-emit-signal. This alias forwards to the same endpoint and will be removed. Call scout-emit-signal directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Emit a finding for a run (deprecated)",
+        "title": "Emit a finding for a run (deprecated)",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-members-list": {
+        "description": "DEPRECATED: renamed to scout-members-list. This alias forwards to the same endpoint and will be removed. Call scout-members-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing (deprecated)",
+        "title": "List project members for reviewer routing (deprecated)",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-project-profile-get": {
+        "description": "DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be removed. Call scout-project-profile-get directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get the project profile (deprecated)",
+        "title": "Get the project profile (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-run-now": {
+        "description": "DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call scout-run-now directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a scout now (deprecated)",
+        "title": "Run a scout now (deprecated)",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-runs-emission-reports": {
+        "description": "DEPRECATED: renamed to scout-runs-emission-reports. This alias forwards to the same endpoint and will be removed. Call scout-runs-emission-reports directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List the inbox reports a scout run's findings linked to (deprecated)",
+        "title": "List the inbox reports a scout run's findings linked to (deprecated)",
+        "required_scopes": ["signal_scout:read", "task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-emissions-list": {
+        "description": "DEPRECATED: renamed to scout-runs-emissions-list. This alias forwards to the same endpoint and will be removed. Call scout-runs-emissions-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a scout run's emitted findings (deprecated)",
+        "title": "List a scout run's emitted findings (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-list": {
+        "description": "DEPRECATED: renamed to scout-runs-list. This alias forwards to the same endpoint and will be removed. Call scout-runs-list directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent scout runs (deprecated)",
+        "title": "List recent scout runs (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-recent-emissions": {
+        "description": "DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be removed. Call scout-runs-recent-emissions directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent emitted findings across all scout runs (deprecated)",
+        "title": "List recent emitted findings across all scout runs (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-retrieve": {
+        "description": "DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed. Call scout-runs-retrieve directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a scout run by ID (deprecated)",
+        "title": "Get a scout run by ID (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-scratchpad-forget": {
+        "description": "DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-forget directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Forget a scratchpad entry by key (deprecated)",
+        "title": "Forget a scratchpad entry by key (deprecated)",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-remember": {
+        "description": "DEPRECATED: renamed to scout-scratchpad-remember. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-remember directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Remember a scratchpad entry (deprecated)",
+        "title": "Remember a scratchpad entry (deprecated)",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-search": {
+        "description": "DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-search directly with the same arguments.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search the scout scratchpad (deprecated)",
+        "title": "Search the scout scratchpad (deprecated)",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "skill-archive": {
         "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
         "category": "Skills",

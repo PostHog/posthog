@@ -707,6 +707,263 @@ tools:
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve
         enabled: false
+    signals-scout-config-create:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed. Call scout-config-create
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_config_create
+        scopes:
+            - signal_scout:write
+        title: Create a scout config (deprecated)
+    signals-scout-config-delete:
+        annotations:
+            destructive: true
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-config-delete. This alias forwards to the same endpoint and will be removed. Call scout-config-delete
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_config_destroy
+        scopes:
+            - signal_scout:write
+        title: Delete a scout config (deprecated)
+    signals-scout-config-list:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-config-list. This alias forwards to the same endpoint and will be removed. Call scout-config-list
+            directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_config_list
+        scopes:
+            - signal_scout:read
+        title: List scout configs (deprecated)
+    signals-scout-config-sync:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed. Call scout-config-sync
+            directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_config_sync
+        scopes:
+            - signal_scout:write
+        title: Sync scout configs (deprecated)
+    signals-scout-config-update:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-config-update. This alias forwards to the same endpoint and will be removed. Call scout-config-update
+            directly with the same arguments.
+        enabled: true
+        enrich_url: '{id}'
+        operation: signals_scout_config_update
+        scopes:
+            - signal_scout:write
+        title: Update a scout config (deprecated)
+    signals-scout-edit-report:
+        annotations:
+            destructive: false
+            idempotent: false
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-edit-report. This alias forwards to the same endpoint and will be removed. Call scout-edit-report
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_edit_report
+        scopes:
+            - signal_scout_report:write
+        title: Edit an existing report for a run (deprecated)
+    signals-scout-emit-report:
+        annotations:
+            destructive: false
+            idempotent: false
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-emit-report. This alias forwards to the same endpoint and will be removed. Call scout-emit-report
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_emit_report
+        scopes:
+            - signal_scout_report:write
+        title: Author a full report for a run (deprecated)
+    signals-scout-emit-signal:
+        annotations:
+            destructive: false
+            idempotent: false
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-emit-signal. This alias forwards to the same endpoint and will be removed. Call scout-emit-signal
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_emit_signal
+        scopes:
+            - signal_scout_internal:write
+        title: Emit a finding for a run (deprecated)
+    signals-scout-members-list:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-members-list. This alias forwards to the same endpoint and will be removed. Call scout-members-list
+            directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_members_list
+        scopes:
+            - signal_scout_internal:read
+        title: List project members for reviewer routing (deprecated)
+    signals-scout-project-profile-get:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be removed.
+            Call scout-project-profile-get directly with the same arguments.
+        enabled: true
+        operation: signals_scout_project_profile_get
+        scopes:
+            - signal_scout:read
+        title: Get the project profile (deprecated)
+    signals-scout-run-now:
+        annotations:
+            destructive: false
+            idempotent: false
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call scout-run-now
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_config_run
+        scopes:
+            - signal_scout:write
+        title: Run a scout now (deprecated)
+    signals-scout-runs-emission-reports:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-runs-emission-reports. This alias forwards to the same endpoint and will be removed.
+            Call scout-runs-emission-reports directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_runs_emission_reports
+        scopes:
+            - signal_scout:read
+            - task:read
+        title: List the inbox reports a scout run's findings linked to (deprecated)
+    signals-scout-runs-emissions-list:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-runs-emissions-list. This alias forwards to the same endpoint and will be removed.
+            Call scout-runs-emissions-list directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_runs_emissions
+        scopes:
+            - signal_scout:read
+        title: List a scout run's emitted findings (deprecated)
+    signals-scout-runs-list:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-runs-list. This alias forwards to the same endpoint and will be removed. Call scout-runs-list
+            directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_runs_list
+        scopes:
+            - signal_scout:read
+        title: List recent scout runs (deprecated)
+    signals-scout-runs-recent-emissions:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be removed.
+            Call scout-runs-recent-emissions directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_runs_recent_emissions
+        scopes:
+            - signal_scout:read
+        title: List recent emitted findings across all scout runs (deprecated)
+    signals-scout-runs-retrieve:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed. Call scout-runs-retrieve
+            directly with the same arguments.
+        enabled: true
+        operation: signals_scout_runs_retrieve
+        scopes:
+            - signal_scout:read
+        title: Get a scout run by ID (deprecated)
+    signals-scout-scratchpad-forget:
+        annotations:
+            destructive: true
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be removed. Call
+            scout-scratchpad-forget directly with the same arguments.
+        enabled: true
+        operation: signals_scout_scratchpad_forget
+        scopes:
+            - signal_scout_internal:write
+        title: Forget a scratchpad entry by key (deprecated)
+    signals-scout-scratchpad-remember:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: false
+        description: >-
+            DEPRECATED: renamed to scout-scratchpad-remember. This alias forwards to the same endpoint and will be removed.
+            Call scout-scratchpad-remember directly with the same arguments.
+        enabled: true
+        operation: signals_scout_scratchpad_remember
+        scopes:
+            - signal_scout_internal:write
+        title: Remember a scratchpad entry (deprecated)
+    signals-scout-scratchpad-search:
+        annotations:
+            destructive: false
+            idempotent: true
+            readOnly: true
+        description: >-
+            DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be removed. Call
+            scout-scratchpad-search directly with the same arguments.
+        enabled: true
+        list: true
+        operation: signals_scout_scratchpad_search
+        scopes:
+            - signal_scout:read
+        title: Search the scout scratchpad (deprecated)
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
