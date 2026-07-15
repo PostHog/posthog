@@ -88,6 +88,7 @@ export interface NotebookNodeSQLV2LogicProps {
 export interface notebookNodeSQLV2LogicValues {
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
+    isInterrupting: boolean
     isRunning: boolean
     operationBlockReason: string | null
     page: number
@@ -108,6 +109,9 @@ export interface notebookNodeSQLV2LogicActions {
     startOperation: (operation: NotebookOperation) => {
         operation: NotebookOperation
     } // notebookOperationsLogic
+    interruptRun: () => {
+        value: true
+    }
     pollResult: (runId: string) => {
         runId: string
     }
@@ -122,6 +126,9 @@ export interface notebookNodeSQLV2LogicActions {
         code: string
         opts: RunQueryOptions
         refs: Record<string, SqlV2RunRef>
+    }
+    setIsInterrupting: (isInterrupting: boolean) => {
+        isInterrupting: boolean
     }
     setIsRunning: (isRunning: boolean) => {
         isRunning: boolean
