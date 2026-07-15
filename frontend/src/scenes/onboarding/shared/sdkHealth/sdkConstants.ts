@@ -4,6 +4,8 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',
     'posthog-ios': 'iOS',
     'posthog-android': 'Android',
+    'posthog-java': 'Java (legacy)',
+    'posthog-server': 'Java',
     'posthog-node': 'Node.js',
     'posthog-python': 'Python',
     'posthog-php': 'PHP',
@@ -27,6 +29,14 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-android': {
         releases: 'https://github.com/PostHog/posthog-android/releases',
         docs: 'https://posthog.com/docs/libraries/android',
+    },
+    'posthog-java': {
+        releases: 'https://github.com/PostHog/posthog-java/releases',
+        docs: 'https://posthog.com/docs/libraries/java',
+    },
+    'posthog-server': {
+        releases: 'https://github.com/PostHog/posthog-android/releases?q=server-v',
+        docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-node': {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/node/CHANGELOG.md',
