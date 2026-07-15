@@ -58,8 +58,9 @@ class TestFetchPage:
             response.json.side_effect = ValueError("not json")
         else:
             response.json.return_value = json_value
+        response.headers = {}
         response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} Client Error") if status_code >= 400 else None
+            requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
         )
         return response
 
@@ -89,6 +90,29 @@ class TestFetchPage:
         session.get.return_value = self._response(403)
         with pytest.raises(requests.HTTPError):
             _fetch_page(session, "https://www.zenduty.com/api/account/teams/", {}, MagicMock())
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/api/incidents/"),
+            ("plain_http", "http://www.zenduty.com/api/incidents/"),
+            ("host_suffix_trick", "https://www.zenduty.com.evil.example.com/api/incidents/"),
+        ]
+    )
+    def test_non_zenduty_url_is_refused_without_a_request(self, _name: str, url: str) -> None:
+        # Requests carry the account API key, so a tampered `next` URL or poisoned resume
+        # checkpoint must never be fetched.
+        session = MagicMock()
+        with pytest.raises(ValueError):
+            _fetch_page(session, url, {}, MagicMock())
+        session.get.assert_not_called()
+
+    def test_redirect_is_refused(self) -> None:
+        # A redirect off the validated origin would re-send the API key wherever it points.
+        session = MagicMock()
+        session.get.return_value = self._response(302)
+        with pytest.raises(ValueError):
+            _fetch_page(session, "https://www.zenduty.com/api/incidents/", {}, MagicMock())
+        assert session.get.call_args.kwargs["allow_redirects"] is False
 
 
 class _FakeResumableManager:
@@ -147,6 +171,14 @@ class TestGetRowsTopLevel:
         manager = _FakeResumableManager(ZendutyResumeConfig(next_url=resume_url))
         rows = _collect(manager, monkeypatch, pages, "incidents")
         assert rows == [{"unique_id": "9"}]
+
+    def test_poisoned_next_url_is_never_persisted(self, monkeypatch: Any) -> None:
+        first = "https://www.zenduty.com/api/incidents/?page_size=100"
+        pages = {first: {"results": [{"unique_id": "1"}], "next": "https://evil.example.com/steal"}}
+        manager = _FakeResumableManager()
+        with pytest.raises(ValueError):
+            _collect(manager, monkeypatch, pages, "incidents")
+        assert manager.saved == []
 
 
 class TestGetRowsFanOut:

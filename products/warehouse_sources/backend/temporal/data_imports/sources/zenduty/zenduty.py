@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -46,6 +46,16 @@ def _initial_url(path: str, page_size: int) -> str:
     return f"{ZENDUTY_BASE_URL}{path}?{urlencode({'page_size': page_size})}"
 
 
+def _ensure_zenduty_url(url: str) -> str:
+    """Require an HTTPS www.zenduty.com URL. Every request carries the account API key, so a
+    pagination `next` URL (or a poisoned resume checkpoint) pointing anywhere else would leak the
+    key and let the worker be steered at arbitrary/internal hosts."""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != "www.zenduty.com":
+        raise ValueError(f"Refusing non-Zenduty pagination URL: {url}")
+    return url
+
+
 def _extract_items_and_next(data: Any) -> tuple[list[dict[str, Any]], str | None]:
     """Normalize a Zenduty list response into (rows, next_url).
 
@@ -73,7 +83,17 @@ def _extract_items_and_next(data: Any) -> tuple[list[dict[str, Any]], str | None
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Redirects are refused: following one off the validated origin would re-send the API key
+    # to wherever the response points.
+    response = session.get(
+        _ensure_zenduty_url(url), headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+    )
+
+    if 300 <= response.status_code < 400:
+        raise ValueError(
+            f"Zenduty returned an unexpected redirect: status={response.status_code}, "
+            f"location={response.headers.get('Location')}, url={url}"
+        )
 
     # 429 (rate limited) and 5xx are transient; retry them.
     if response.status_code == 429 or response.status_code >= 500:
@@ -108,7 +128,7 @@ def _list_team_ids(
             unique_id = row.get("unique_id")
             if isinstance(unique_id, str) and unique_id:
                 team_ids.append(unique_id)
-        url = next_url
+        url = _ensure_zenduty_url(next_url) if next_url else None
     return team_ids
 
 
@@ -131,7 +151,8 @@ def _paginate_top_level(
             break
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
         # dedupes on the primary key. Advance the URL before the next fetch to avoid re-looping it.
-        resumable_source_manager.save_state(ZendutyResumeConfig(next_url=next_url))
+        # Validate before saving so an off-origin URL never lands in the resume checkpoint.
+        resumable_source_manager.save_state(ZendutyResumeConfig(next_url=_ensure_zenduty_url(next_url)))
         url = next_url
 
 
@@ -167,7 +188,9 @@ def _paginate_fan_out(
             if rows:
                 yield [_with_team_id(row, team_id) for row in rows]
             if next_url:
-                resumable_source_manager.save_state(ZendutyResumeConfig(next_url=next_url, team_id=team_id))
+                resumable_source_manager.save_state(
+                    ZendutyResumeConfig(next_url=_ensure_zenduty_url(next_url), team_id=team_id)
+                )
                 url = next_url
                 continue
             # Team done — checkpoint at the next team's start so a resume skips completed teams
