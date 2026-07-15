@@ -71,6 +71,13 @@ USE_GLOBAL_JOINS = False
 
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# A self-referencing or cyclic saved query/view re-parses and re-visits its own body on every
+# level, so without a cap the resolver recurses until the Python stack overflows with a
+# `RecursionError`. Legitimate view nesting is only ever a handful of levels deep; this bound is
+# generous while still tripping cleanly (as a `QueryError`) long before the stack does. See the
+# parser's own `MAX_RECURSION_DEPTH` in rust/hogql/parser — the resolver needs a matching guard.
+MAX_VIEW_EXPANSION_DEPTH = 50
+
 EMPTY_SCOPE = ast.SelectQueryType()
 
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
@@ -199,7 +206,13 @@ def resolve_types(
         resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
     else:
         resolver = resolver_factory(context, dialect, scopes)
-    return resolver.visit(node)
+    try:
+        return resolver.visit(node)
+    except RecursionError:
+        # A validly-parsed but very deeply nested query can exhaust the Python stack as the
+        # resolver walks it. Surface a clean error instead of letting the `RecursionError`
+        # crash query execution (and flood error tracking) on this core code path.
+        raise QueryError("Query is too deeply nested to resolve. Simplify it and try again.") from None
 
 
 def _select_type_columns(
@@ -1172,6 +1185,12 @@ class Resolver(CloningVisitor):
                 database_table = opaque_table
 
             if isinstance(database_table, SavedQuery):
+                if self.current_view_depth >= MAX_VIEW_EXPANSION_DEPTH:
+                    raise QueryError(
+                        f'Too many nested views while resolving "{database_table.name}" '
+                        f"(limit is {MAX_VIEW_EXPANSION_DEPTH}). This usually means a view references "
+                        f"itself directly or through a cycle."
+                    )
                 self.current_view_depth += 1
 
                 node.table = parse_select(str(database_table.query))
