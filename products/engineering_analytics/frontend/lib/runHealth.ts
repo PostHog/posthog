@@ -1,4 +1,4 @@
-import { isDecisiveFailure } from './lifecycle'
+import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
 export interface HealthRun {
@@ -90,6 +90,25 @@ export interface FleetSummary {
     estimatedCostUsd: number | null
 }
 
+// A completed run that settled in under this many seconds did no real CI work. The common shape is a
+// gate job deciding the rest of the workflow should be skipped (path filters, eligibility checks): the
+// run "succeeds" in seconds with every other job skipped. Those runs are noise on duration surfaces —
+// they pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
+export const NO_OP_RUN_MAX_SECONDS = 10
+
+/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}): completed fast with a benign conclusion —
+ *  the same set `verdictTag` paints as non-warning (passing or cancelled). Everything else is kept
+ *  regardless of speed: decisive failures (broken config fails in seconds) and attention-needing
+ *  conclusions like action_required or startup_failure are signal, not noise. */
+export function isNoOpRun(run: Pick<HealthRun, 'conclusion' | 'durationSeconds'>): boolean {
+    return (
+        run.conclusion != null &&
+        (isPassingConclusion(run.conclusion) || run.conclusion === 'cancelled') &&
+        run.durationSeconds != null &&
+        run.durationSeconds < NO_OP_RUN_MAX_SECONDS
+    )
+}
+
 /** Nearest-rank percentile over an ascending-sorted sample. */
 export function percentileSorted(sortedAsc: number[], q: number): number | null {
     if (sortedAsc.length === 0) {
@@ -111,10 +130,16 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const reruns = runs.filter((run) => (run.runAttempt ?? 1) > 1).length
     const passRate = completed.length ? passed / completed.length : null
 
-    const durations = completed
+    // No-op runs stay in the counts and pass rate (they are real runs) but not in the duration
+    // percentiles, so the median/p95 tiles agree with the activity chart, which hides them too. The
+    // all-duration fallback is reserved for ZERO real samples (an intentionally fast workflow, where
+    // "—" would be wrong): even a lone real execution is a more honest median than gate-run noise.
+    const allDurations = completed.map((run) => run.durationSeconds).filter((d): d is number => d != null)
+    const realDurations = completed
+        .filter((run) => !isNoOpRun(run))
         .map((run) => run.durationSeconds)
         .filter((d): d is number => d != null)
-        .sort((a, b) => a - b)
+    const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
     const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     const latestConclusion = byStartDesc[0]?.conclusion ?? null

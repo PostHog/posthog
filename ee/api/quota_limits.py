@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import AvailableFeature
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -31,9 +32,14 @@ class QuotaResourceLimitSerializer(serializers.Serializer):
 class QuotaLimitsResponseSerializer(serializers.Serializer):
     limited = serializers.DictField(
         child=QuotaResourceLimitSerializer(),
+        help_text="Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.",
+    )
+    code_usage_billing_active = serializers.BooleanField(
         help_text=(
-            "Per-resource limit state keyed by `QuotaResource` value. "
-            "Currently only `ai_credits` is reported; additional resources may be added."
+            "Whether the team's organization pays for PostHog Code usage: billing grants the "
+            "`posthog_code_usage` product feature only on the Code usage product's paid plan, "
+            "synced into the organization's available features. Consumers gate paid-tier Code "
+            "behavior on this; an org unknown to billing reads as not paying."
         ),
     )
 
@@ -66,4 +72,13 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             }
             for resource in QuotaResource
         }
-        return Response(QuotaLimitsResponseSerializer({"limited": limited}).data)
+        return Response(
+            QuotaLimitsResponseSerializer(
+                {
+                    "limited": limited,
+                    "code_usage_billing_active": self.team.organization.is_feature_available(
+                        AvailableFeature.POSTHOG_CODE_USAGE
+                    ),
+                }
+            ).data
+        )

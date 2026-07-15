@@ -7,13 +7,19 @@ table names), then returns canonical contract types. The curated query builders
 only in canonical types.
 """
 
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+import structlog
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
+    BROKEN_TEST_SPARKLINE_HOURS,
+    BranchPRMatch,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
     CurrentBranchHealth,
@@ -43,6 +49,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     request_quarantine as request_quarantine,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.broken_tests import query_broken_tests
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import (
     query_ci_failure_logs,
@@ -51,6 +58,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
 from products.engineering_analytics.backend.logic.queries.current_branch_health import query_current_branch_health
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
@@ -60,8 +68,14 @@ from products.engineering_analytics.backend.logic.queries.pr_cost import (
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
-from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
+from products.engineering_analytics.backend.logic.queries.repo_overview import (
+    empty_repo_series,
+    query_default_branch,
+    query_repo_overview,
+    query_repo_series,
+)
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
+from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -71,6 +85,8 @@ from products.engineering_analytics.backend.logic.sources import list_github_sou
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
@@ -93,6 +109,12 @@ _DEFAULT_FLAKY_MIN_FAILED_PRS = 3
 _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
 
+# Broken-tests panel: a fixed short window (not caller-tunable in v1, like current_branch_health).
+# Two days keeps the logs-cluster scan light while still spanning the classifier's boundaries — a
+# flaky failure needs a >24h span and a novel one needs first-seen <24h, both fitting inside 48h.
+_BROKEN_TESTS_WINDOW_DAYS = 2
+_BROKEN_TESTS_LIMIT = 200
+
 
 # Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
 # warehouse access control happen once at the facade, which hands these builders the authorized
@@ -111,6 +133,20 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
+def build_resolve_branch(
+    *, curated: CuratedGitHubSource, branch: str | None, repo: str | None, timestamp: datetime | None = None
+) -> list[BranchPRMatch]:
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        raise ValueError("provide a branch to resolve")
+    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
+    owner, name = _split_repo(repo)
+    # timestamp (the trace's capture time) only reorders results toward the PR active then; never filters.
+    return query_resolve_branch(
+        curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name, timestamp=timestamp
+    )
+
+
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -122,7 +158,19 @@ def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # LLM token spend is an additive component joined by branch from the events table, merged onto the
+    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
+    # request's DB connection, which worker threads don't share.
+    summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # The spend join scans the events table across the PR's whole lifetime, so a long-lived PR on an
+    # AI-heavy team can time out; the enrichment is optional, so it degrades to null instead of
+    # taking the whole cost summary down with it.
+    try:
+        llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    except Exception:
+        logger.warning("engineering_analytics.pr_llm_spend_failed", pr_number=pr_number, exc_info=True)
+        llm_spend = None
+    return replace(summary, llm_spend=llm_spend)
 
 
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
@@ -286,6 +334,19 @@ def build_flaky_tests(
     )
 
 
+def build_broken_tests(*, curated: CuratedGitHubSource) -> BrokenTestsResult:
+    # Fixed windows resolved through the module's relative-date entry point (like current_branch_health):
+    # the 2-day analysis window and the 24h sparkline window. The SQL uses now() for the age/span/offset
+    # math, so these bounds only floor the scans.
+    return query_broken_tests(
+        curated=curated,
+        date_from=_parse_date(curated.team, f"-{_BROKEN_TESTS_WINDOW_DAYS}d"),
+        hourly_from=_parse_date(curated.team, f"-{BROKEN_TEST_SPARKLINE_HOURS}h"),
+        window_days=_BROKEN_TESTS_WINDOW_DAYS,
+        limit=_BROKEN_TESTS_LIMIT,
+    )
+
+
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
 
@@ -333,9 +394,17 @@ def build_repo_overview(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
+    include_series: bool = True,
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    # The one place the endpoint's include_series toggle decides anything: headline-only consumers
+    # (the weekly digest) compose the empty series instead of paying the four chart scans.
+    series = (
+        query_repo_series(curated=curated, date_from=parsed_from, date_to=parsed_to)
+        if include_series
+        else empty_repo_series(date_from=parsed_from, date_to=parsed_to)
+    )
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to, series=series)
 
 
 def build_current_branch_health(*, curated: CuratedGitHubSource) -> CurrentBranchHealth:

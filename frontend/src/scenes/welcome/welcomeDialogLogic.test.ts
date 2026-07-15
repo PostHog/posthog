@@ -20,6 +20,14 @@ const ORG_CREATOR_USER: UserType = {
     is_organization_first_user: true,
 }
 
+// A partner-provisioned account: no inviter (so first org user), but onboarding was skipped as
+// 'provisioned'. Should still get the welcome dialog even though it isn't an invitee.
+const PROVISIONED_USER: UserType = {
+    ...MOCK_DEFAULT_USER,
+    is_organization_first_user: true,
+    onboarding_skipped_reason: 'provisioned',
+}
+
 const mockPayload = {
     organization_name: 'Acme Inc',
     inviter: { name: 'Alex', email: 'alex@acme.com' },
@@ -83,6 +91,15 @@ describe('welcomeDialogLogic', () => {
 
         expect(logic.values.shouldShowDialog).toBe(false)
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
+    })
+
+    it('opens for a partner-provisioned user even though they are the first org user', async () => {
+        userLogic.actions.loadUserSuccess(PROVISIONED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'loadWelcomeDataSuccess'])
+        expect(logic.values.shouldShowDialog).toBe(true)
     })
 
     it('does not reopen for a user who has already dismissed', async () => {

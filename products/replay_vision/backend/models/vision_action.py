@@ -22,7 +22,20 @@ class TriggerType(models.TextChoices):
 
 class ActionMode(models.TextChoices):
     GROUP_SUMMARY = "group_summary", "Group summary"  # one summary synthesized from a group of observations
+    ALERT = "alert", "Alert"  # deliver only when the alert condition holds over the window
     PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
+
+
+class AlertFrequency(models.TextChoices):
+    # Notify about every new match since the previous check (tiled windows, batched per check).
+    EVERY_MATCH = "every_match", "Every new match"
+    # Notify when the metric crosses the threshold over a rolling window; re-arms after it clears.
+    ON_BREACH = "on_breach", "When a threshold is crossed"
+
+
+class AlertMetric(models.TextChoices):
+    COUNT = "count", "Count of matching observations"
+    AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
 
 
 class VisionAction(TeamScopedRootMixin, UUIDModel):
@@ -58,7 +71,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         max_length=20,
         choices=ActionMode.choices,
         default=ActionMode.GROUP_SUMMARY,
-        help_text="What the action produces. MVP supports 'group_summary' only.",
+        help_text="What the action produces: a scheduled group summary, or an alert that only delivers when its condition holds.",
     )
 
     next_run_at = models.DateTimeField(
@@ -81,6 +94,15 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    alert_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, threshold, "
+            "window_days}. every_match notifies about each new match since the previous check; on_breach "
+            "fires when the metric reaches the threshold over a rolling window, after `selection` targeting."
+        ),
+    )
     # How many observations may feed one group summary. When the window holds more, they're sampled
     # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
     max_observations = models.PositiveIntegerField(

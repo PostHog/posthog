@@ -11,6 +11,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
@@ -79,6 +80,9 @@ class GithubSource(
     OAuthMixin,
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2022-11-28",)
+    default_version = "2022-11-28"
+    api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -149,13 +153,13 @@ class GithubSource(
                             ),
                         ],
                     ),
-                    SourceFieldInputConfig(
+                    SourceFieldOauthAccountSelectConfig(
                         name="repository",
                         label="Repository",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
+                        integrationField="github_integration_id",
+                        integrationKind="github",
                         placeholder="owner/repo",
-                        secret=False,
+                        required=True,
                     ),
                 ],
             ),

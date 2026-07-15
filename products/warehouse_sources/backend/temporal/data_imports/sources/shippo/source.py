@@ -56,7 +56,6 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
 """,
             iconPath="/static/services/shippo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shippo",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

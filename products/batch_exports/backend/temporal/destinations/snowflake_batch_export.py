@@ -326,7 +326,7 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
 
     elif pa.types.is_list(data_type):
         repeated = True
-        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name  # type: ignore[attr-defined]
+        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name
 
     else:
         raise TypeError(f"Unsupported type: '{data_type}'")

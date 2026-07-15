@@ -67,7 +67,6 @@ You'll need:
             iconPath="/static/services/writesonic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/writesonic",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["seo", "geo", "ai visibility", "content marketing"],
             fields=cast(
                 list[FieldType],

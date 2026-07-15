@@ -82,7 +82,6 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

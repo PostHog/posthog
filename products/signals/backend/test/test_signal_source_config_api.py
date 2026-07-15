@@ -288,8 +288,9 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["config"] == {"recording_filters": {"duration_min": 30}}
 
-    def test_update_reanchors_created_by_to_the_editor(self):
-        # Emitters authorize reads via created_by; an editor's write must not ride the creator's access.
+    def test_update_config_reanchors_created_by_to_the_editor(self):
+        # Emitters authorize reads via created_by; an editor who changes config must not ride the
+        # creator's access, so a config change reanchors created_by to the editor.
         config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product="engineering_analytics",
@@ -307,6 +308,24 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.created_by == editor
+
+    def test_update_without_config_change_keeps_created_by(self):
+        # A non-config edit (here, toggling enabled) touches no access-sensitive contents, so the
+        # config's authorizer — and thus its autonomous-run identity — must not drift to the editor.
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="engineering_analytics",
+            source_type="ci_flaky_check",
+            config={"github_source_ids": []},
+            enabled=True,
+            created_by=self.user,
+        )
+        editor = self._create_user("enabled-toggler@posthog.com")
+        self.client.force_login(editor)
+        response = self.client.patch(self._url(str(config.id)), data={"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.created_by == self.user
 
     def test_update_config_recording_filters_not_dict_rejected(self):
         config = SignalSourceConfig.objects.create(

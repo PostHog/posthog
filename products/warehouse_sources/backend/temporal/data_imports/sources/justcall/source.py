@@ -59,7 +59,6 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
             iconPath="/static/services/justcall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/justcall",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

@@ -136,6 +136,24 @@ export const extractDuckSqlTables = (sql: string): string[] => {
     return Array.from(tableNames.values())
 }
 
+// Rough by design, like the SQL extraction above: identifiers a Python cell's code mentions,
+// with string literals, comments, and attribute tails stripped. Only ever intersected with
+// sibling exports (matchesUsage), so a false positive just marks an extra cell stale.
+export const extractPythonIdentifiers = (code: string): string[] => {
+    const cleaned = (code || '')
+        .replace(/('''[\s\S]*?'''|"""[\s\S]*?""")/g, ' ')
+        .replace(/('(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*")/g, ' ')
+        .replace(/#.*$/gm, ' ')
+    const identifiers = new Set<string>()
+    const identifierPattern = /(?<![\w.])[A-Za-z_]\w*/g
+    let match = identifierPattern.exec(cleaned)
+    while (match) {
+        identifiers.add(match[0])
+        match = identifierPattern.exec(cleaned)
+    }
+    return Array.from(identifiers)
+}
+
 export const normalizeDuckSqlIdentifier = (identifier: string): string => {
     return normalizeSqlIdentifier(identifier)
 }
@@ -519,6 +537,48 @@ const matchesUsage = (exportName: string, usageName: string, usageNodeType: Note
     return exportName === usageName
 }
 
+export type NotebookDependencyDirection = 'upstream' | 'downstream'
+
+/** Transitive closure of a node's dependencies (or dependents), including the start node. */
+export const collectDependencyNodeIds = (
+    dependencyGraph: NotebookDependencyGraph,
+    startNodeId: string,
+    direction: NotebookDependencyDirection
+): Set<string> => {
+    const visited = new Set<string>()
+    if (!startNodeId || !dependencyGraph.nodesById[startNodeId]) {
+        return visited
+    }
+
+    const stack = [startNodeId]
+
+    while (stack.length > 0) {
+        const currentId = stack.pop()
+        if (!currentId || visited.has(currentId)) {
+            continue
+        }
+        visited.add(currentId)
+
+        if (direction === 'upstream') {
+            const sources = Object.values(dependencyGraph.upstreamSourcesByNode[currentId] ?? {})
+            sources.forEach((source) => {
+                if (source.nodeId && !visited.has(source.nodeId)) {
+                    stack.push(source.nodeId)
+                }
+            })
+        } else {
+            const downstreamGroups = Object.values(dependencyGraph.downstreamUsageByNode[currentId] ?? {})
+            downstreamGroups.flat().forEach((usage) => {
+                if (usage.nodeId && !visited.has(usage.nodeId)) {
+                    stack.push(usage.nodeId)
+                }
+            })
+        }
+    }
+
+    return visited
+}
+
 export const buildNotebookDependencyGraph = (content?: JSONContent | null): NotebookDependencyGraph => {
     if (!content || typeof content !== 'object') {
         return {
@@ -531,6 +591,7 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
 
     const nodes: NotebookDependencyNode[] = []
     let pythonIndex = 0
+    let pythonV2Index = 0
     let duckSqlIndex = 0
     let hogqlSqlIndex = 0
     let sqlV2Index = 0
@@ -623,8 +684,33 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             })
         }
 
+        if (node.type === NotebookNodeType.PythonV2) {
+            const attrs = node.attrs ?? {}
+            pythonV2Index += 1
+            // The returnVariable IS the kernel variable, never disambiguated — the same
+            // last-write-wins semantics as collectPythonKernelNodes.
+            const returnVariable =
+                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
+                    ? attrs.returnVariable.trim()
+                    : 'df'
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.PythonV2,
+                nodeIndex: pythonV2Index,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: returnVariable ? [returnVariable] : [],
+                uses: extractPythonIdentifiers(code),
+                code,
+                returnVariable,
+            })
+        }
+
         if (node.type === NotebookNodeType.MarkdownNotebook) {
+            // Markdown notebooks (the only V2 surface) store cells as component tags, so both
+            // V2 cell types must be expanded or the graph misses every markdown-held cell.
             expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

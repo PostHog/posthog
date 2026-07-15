@@ -12,8 +12,10 @@
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: artifact uploads, PR comment posters, snapshot
-#   auto-commit (handle-snapshots), posthog-github-action telemetry,
+# - Stripped side effects: artifact uploads, CI report section posters, snapshot
+#   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
+#   capture-test-selection job — select-tests still emits its telemetry outputs to
+#   stay apples-to-apples, they just have no consumer here),
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
@@ -21,6 +23,10 @@
 #   Trunk posting from a non-blocking timing trial — and so also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
 #   exit code be the verdict directly)
+# - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
+#   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
+#   strips artifact uploads (above), so it has nothing to download and keeps the plain
+#   dependency-result table — depot-exempt for the same reason as the other uploads.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -246,6 +252,10 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
+                        # turbo-discover reads the module graph for the dependent
+                        # cascade, and `tach check` validates it — a graph-only PR
+                        # must still dispatch both.
+                        - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -356,6 +366,9 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -541,6 +554,13 @@ jobs:
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
+            # Kept apples-to-apples with canonical, though the shadow strips the
+            # capture job that consumes them (posthog-github-action telemetry).
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
+            full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -598,6 +618,24 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  # Selection telemetry, kept apples-to-apples with canonical (the shadow
+                  # strips the capture job that consumes these, per the header).
+                  emit_metrics() {
+                      local changed="" selected="" reasons=""
+                      if [[ -s /tmp/selection.json ]]; then
+                          changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
+                          selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
+                          reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "changed_file_count=$changed"
+                          echo "selected_test_count=$selected"
+                          echo "full_run_reasons_count=$reasons"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   # Untrusted selection on a draft skips the heavy matrices (the
                   # pre-selection draft behavior); the ready-for-review run is full.
                   fall_back_to_skip() {
@@ -607,16 +645,17 @@ jobs:
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip
+                      fall_back_to_skip untrusted
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
                       echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
@@ -624,7 +663,7 @@ jobs:
                   if [[ "$full_run_reasons" -gt 0 ]]; then
                       echo "Selector requested a full run; draft defers it to ready for review:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip
+                      fall_back_to_skip full_run_requested
                       exit 0
                   fi
 
@@ -665,6 +704,7 @@ jobs:
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
 
@@ -672,7 +712,7 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
         if: >-
             always() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
@@ -701,7 +741,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   # nohup detaches the launch so it survives Depot's step-shell teardown
@@ -729,7 +769,7 @@ jobs:
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
-              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
@@ -750,7 +790,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
                   bin/ci-wait-for-docker wait objectstorage \
@@ -817,7 +857,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -840,6 +881,12 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
@@ -905,6 +952,10 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners "${existing[@]}"
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -955,6 +1006,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
@@ -1403,7 +1455,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -1737,6 +1789,8 @@ jobs:
         outputs:
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
+            # Local dev / hobby image, mirrored from clickhouse-versions.json `local`
+            local_image: ${{ steps.read-versions.outputs.local_image }}
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
@@ -1758,6 +1812,15 @@ jobs:
                   fi
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
+
+                  # Local dev / hobby image — the version product (turbo) tests run against.
+                  local_image=$(jq -r '.local' .github/clickhouse-versions.json)
+                  if [ -z "$local_image" ] || [ "$local_image" = "null" ]; then
+                    echo "::error::No local version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "local_image=$local_image" >> $GITHUB_OUTPUT
+                  echo "Local dev/hobby image for product tests: $local_image"
 
                   # Read all unique versions so we can derive compat coverage.
                   all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)

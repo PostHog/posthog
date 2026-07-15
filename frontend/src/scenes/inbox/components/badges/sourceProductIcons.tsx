@@ -6,6 +6,7 @@ import {
     IconDatabase,
     IconGear,
     IconGithub,
+    IconGraph,
     IconHeartPlus,
     IconList,
     IconRewindPlay,
@@ -97,6 +98,11 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
         Icon: IconGear,
         color: 'var(--warning)',
         label: 'Engineering analytics',
+    },
+    [SignalSourceProduct.Analytics]: {
+        Icon: IconGraph,
+        color: 'var(--blue)',
+        label: 'Product analytics',
     },
 }
 

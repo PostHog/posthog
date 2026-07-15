@@ -65,7 +65,6 @@ class SolarwindsServiceDeskSource(
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden for now: the implementation follows the public API docs but its
             # end-to-end sync behavior hasn't been exercised against a live account yet.
-            unreleasedSource=True,
             caption="""Enter your SolarWinds Service Desk JSON web token to pull your service desk data into the PostHog Data warehouse.
 
 You can generate a token in SolarWinds Service Desk under **Setup → Users & Access → Users** — open the user and use **Actions → Generate JSON Web Token**. The token inherits that user's role, so it needs read access to the records you want to sync, and requests stop working if that user is ever disabled.

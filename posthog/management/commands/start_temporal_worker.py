@@ -149,6 +149,10 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.signup_enrichment import (
+    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
+)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -235,6 +239,8 @@ from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
     METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    PERSON_PROPERTY_SYNC_ACTIVITIES,
+    PERSON_PROPERTY_SYNC_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
@@ -268,8 +274,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS + PERSON_PROPERTY_SYNC_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES + PERSON_PROPERTY_SYNC_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -295,7 +301,8 @@ _task_queue_specs = [
         + SYNC_EVENTS_RETENTION_WORKFLOWS
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
-        + NOTEBOOKS_WORKFLOWS,
+        + NOTEBOOKS_WORKFLOWS
+        + SIGNUP_ENRICHMENT_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -314,7 +321,16 @@ _task_queue_specs = [
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
-        + NOTEBOOKS_ACTIVITIES,
+        + NOTEBOOKS_ACTIVITIES
+        + SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
+    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    (
+        settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+        SIGNUP_ENRICHMENT_WORKFLOWS,
+        SIGNUP_ENRICHMENT_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,

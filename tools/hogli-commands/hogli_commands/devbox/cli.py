@@ -1310,7 +1310,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["60", "80", "100"]),
+    type=click.Choice(["100", "200"]),
     default="100",
     help="Disk size in GiB (default: 100)",
 )

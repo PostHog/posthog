@@ -1,19 +1,21 @@
 # ReviewHog label trigger.
 #
-# When a maintainer adds the `reviewhog` label to a non-fork PR (or pushes to an already-labeled one),
-# this makes ONE authenticated call to the PostHog `review_hog` trigger endpoint, which starts the
-# review Temporal workflow server-side and publishes the review back to the PR. Unlike Stamphog, the
-# agent does NOT run in CI: there is no checkout, no app token, no Anthropic key here — the only secret
-# is the shared trigger token. Publishing happens server-side via the PostHog GitHub App installation
-# token.
+# When a maintainer adds the `reviewhog` label to a non-fork PR (any author, drafts included), this
+# makes ONE authenticated call to the PostHog `review_hog` trigger endpoint, which starts the review
+# Temporal workflow server-side and publishes the review back to the PR. One label add = one review:
+# pushes and ready-for-review deliberately do NOT re-trigger — re-reviewing is an explicit gesture
+# (remove and re-add the label), so a labeled PR can keep evolving without burning a review per event.
+# Unlike Stamphog, the agent does NOT run in CI: there is no checkout, no app token, no Anthropic key
+# here — the only secret is the shared trigger token. Publishing happens server-side via the PostHog
+# GitHub App installation token.
 #
 # Safety: `pull_request` (not `pull_request_target`) means fork PRs receive no secrets, so they cannot
-# trigger; the `if:` also hard-gates forks, drafts, and bots; and applying the label needs write access.
+# trigger; the `if:` also hard-gates forks; and applying the label needs write access.
 name: ReviewHog
 
 on:
     pull_request:
-        types: [labeled, ready_for_review, synchronize]
+        types: [labeled]
 
 # No GitHub permissions needed — the job only makes an outbound authenticated request; the review is
 # fetched and published server-side via the PostHog GitHub App installation token.
@@ -28,18 +30,12 @@ jobs:
         name: Trigger ReviewHog review
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run only for the `reviewhog` label on a non-fork, non-draft, human-authored PR. On `labeled`
-        # the label name is on the event; on `synchronize`/`ready_for_review` it must already be present.
+        # Run only when a human applies the `reviewhog` label to a non-fork PR — any author (drafts
+        # and bots included), but the labeler must be a person: the label is the explicit human request.
         if: >-
-            !github.event.pull_request.draft
-            && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-            && github.event.pull_request.user.type != 'Bot'
-            && !contains(github.event.pull_request.user.login, '[bot]')
-            && github.event.pull_request.user.login != 'posthog-bot'
-            && (
-                github.event.label.name == 'reviewhog'
-                || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'reviewhog'))
-            )
+            github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type != 'Bot'
+            && github.event.label.name == 'reviewhog'
         steps:
             - name: Trigger ReviewHog review
               env:

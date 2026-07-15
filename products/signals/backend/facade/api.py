@@ -343,7 +343,8 @@ async def emit_signal(
             investigating from scratch. Not required by any existing source.
         idempotency_key: Stable key for one immutable observation, scoped per (source_product,
             source_type). Repeated calls with the same key within Temporal retention enqueue it
-            once, including activity retries.
+            once (including activity retries), but a first run that failed or timed out before
+            reaching the buffer is retried on the next call. An empty string means no dedup.
 
     Example:
         await emit_signal(
@@ -449,8 +450,16 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
+    # An empty key means "no dedup" — normalize it to None so distinct observations can't collapse
+    # onto one workflow id via a truthy `"<product>:<type>:"` prefix.
+    idempotency_key = idempotency_key or None
+    # Dedupe an already-succeeded (or still-running) emission, but let a transiently-failed first run
+    # be retried: FAILED_ONLY only rejects id reuse when the prior run closed successfully, so a
+    # failed or timed-out emitter doesn't permanently drop the observation.
     id_reuse_policy = (
-        WorkflowIDReusePolicy.REJECT_DUPLICATE if idempotency_key is not None else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        if idempotency_key is not None
+        else WorkflowIDReusePolicy.ALLOW_DUPLICATE
     )
     # Namespace the key per signal kind so two emitters reusing a natural key can't dedupe each other.
     dedupe_key = f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
@@ -463,13 +472,18 @@ async def emit_signal(
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             run_timeout=timedelta(minutes=10),
         )
+        deduplicated = False
     except temporalio.exceptions.WorkflowAlreadyStartedError:
-        if idempotency_key is not None:
-            return
-        raise
+        if idempotency_key is None:
+            raise
+        # Idempotent re-emit: an earlier call already queued this observation, so it is emitted, not
+        # failed. Fall through to the same signal_emitted event (flagged deduplicated) rather than
+        # returning early — that keeps the started->emitted gap a clean signal of dispatch failures.
+        deduplicated = True
 
-    # Fire the analytics event only after the signal is definitively queued so
-    # Temporal/connection failures don't inflate the "signals emitted" metric.
+    # Fire the analytics event only once the signal is definitively queued (freshly above, or by an
+    # earlier idempotent call) so Temporal/connection failures don't inflate the "signals emitted"
+    # metric — a genuine failure re-raises above and never reaches here.
     try:
         posthoganalytics.capture(
             event="signal_emitted",
@@ -479,6 +493,7 @@ async def emit_signal(
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
+                "deduplicated": deduplicated,
             },
             groups=groups(organization, team),
         )

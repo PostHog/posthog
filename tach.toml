@@ -6,6 +6,11 @@ exclude = [
     "**/*egg-info",
     "docs",
     "tests",
+    # Eval trees are dev/CI-only tooling (same class as `tests`): the harness orchestrates
+    # many products by design, and product-owned suites under products/*/evals import the
+    # harness contracts, so neither fits the production dependency graph.
+    "products/posthog_ai/eval_harness",
+    "products/*/evals",
 ]
 source_roots = [
     ".",
@@ -146,6 +151,7 @@ layer = "modules"
 path = "products.agent_platform"
 depends_on = [
     "posthog",
+    "products.mcp_store",
     "products.skills",
 ]
 layer = "modules"
@@ -241,7 +247,6 @@ depends_on = [
     "posthog",
     "products.data_tools",
     "products.data_warehouse",
-    "products.engineering_analytics",
     "products.revenue_analytics",
     "products.warehouse_sources",
 ]
@@ -276,6 +281,7 @@ depends_on = [
     "products.cdp",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+    "products.warehouse_sources_queue",
 ]
 layer = "modules"
 
@@ -420,6 +426,7 @@ layer = "modules"
 path = "products.logs"
 depends_on = [
     "posthog",
+    "products.alerts",
     "products.cdp",
     "products.exports",
     "products.signals",

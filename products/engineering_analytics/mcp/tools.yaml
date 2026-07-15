@@ -12,6 +12,31 @@ tools:
     engineering-analytics-author-workflow-costs:
         operation: engineering_analytics_author_workflow_costs
         enabled: false
+    engineering-analytics-broken-tests:
+        operation: engineering_analytics_broken_tests
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Broken tests triage
+        description: >
+            Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized
+            error signature) and classified by how each is behaving right now, most urgent first. Reach for this to
+            answer "what CI failures should I care about right now" — it is the triage counterpart to the flaky-test
+            leaderboard (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
+            on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
+            within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but
+            that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only
+            (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs
+            whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            breaking/resolved distinction needs the job-level source synced — without it those failures fall through to
+            flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
+            data).
+        feature_flag: engineering-analytics
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
@@ -106,9 +131,28 @@ tools:
     engineering-analytics-repo-run-activity:
         operation: engineering_analytics_repo_run_activity
         enabled: false
+    engineering-analytics-resolve-branch:
+        operation: engineering_analytics_resolve_branch
+        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
-        enabled: false
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: CI failure logs for a run
+        description: >
+            The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of
+            ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests
+            panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus
+            surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
+            original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
+            or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
+            want all its runs' failures.
+        feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true

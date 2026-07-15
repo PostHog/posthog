@@ -7,6 +7,7 @@ use rand::Rng;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
 /// RAII guard that tracks the number of batches currently in flight to a
@@ -61,6 +62,8 @@ pub struct HttpTransport {
     /// Process-unique sender id stamped on every request, so the worker-side
     /// feed-order sentinel can rebaseline when the consumer restarts.
     consumer_id: String,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl HttpTransport {
@@ -99,7 +102,13 @@ impl HttpTransport {
             worker_semaphores,
             worker_concurrent_batches,
             consumer_id: make_consumer_id(),
+            debug_recorder: None,
         }
+    }
+
+    /// Inject the debug UI recorder. Call before the transport is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
     }
 
     /// Get the worker's concurrency semaphore, creating it on first use so the
@@ -231,6 +240,12 @@ impl HttpTransport {
                     "reason" => if last_was_busy { "busy" } else { "error" },
                 )
                 .increment(1);
+                record_if(&self.debug_recorder, || DebugEventKind::SendRetry {
+                    worker: worker_url.to_string(),
+                    batch_id: batch_id.to_string(),
+                    attempt,
+                    reason: if last_was_busy { "busy" } else { "error" },
+                });
             }
 
             let start = std::time::Instant::now();
@@ -295,6 +310,12 @@ impl HttpTransport {
         );
         counter!("ingestion_consumer_transport_exhausted_total", "worker" => worker_url.to_string())
             .increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::SendExhausted {
+            worker: worker_url.to_string(),
+            batch_id: batch_id.to_string(),
+            messages: message_count,
+            error: err.to_string(),
+        });
         Err(SendError {
             error: err,
             messages: request.messages,

@@ -49,7 +49,6 @@ class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Persona",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Persona API key to automatically pull your Persona data into the PostHog Data warehouse.
 
 Create an API key in your Persona dashboard under **Settings → API Keys**. The key needs read access to the resources you want to sync (inquiries, accounts, cases, transactions, events).

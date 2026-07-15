@@ -15,6 +15,11 @@ import {
     visionActionsRetrieve,
     visionScannersRetrieve,
 } from '../generated/api'
+import {
+    AlertConfigFrequencyEnumApi,
+    VisionActionModeEnumApi,
+    VisionAlertMetricEnumApi,
+} from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import type { actionEditorSceneLogicType } from './actionEditorSceneLogicType'
 import { parseRruleToCadence } from './cadence'
@@ -27,6 +32,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
         setScannerName: (scannerName: string) => ({ scannerName }),
+        setScannerType: (scannerType: string) => ({ scannerType }),
         setActionId: (actionId: string) => ({ actionId }),
         setTargetingMode: (mode: 'all' | 'filtered') => ({ mode }),
         loadAction: (actionId: string) => ({ actionId }),
@@ -48,6 +54,15 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             {
                 setScannerId: () => '',
                 setScannerName: (_, { scannerName }) => scannerName,
+            },
+        ],
+        // The bound scanner's type — drives which alert condition shapes make sense (summarizers
+        // have no verdict/tags/score, so their alerts collapse to "every new summary").
+        scannerType: [
+            '',
+            {
+                setScannerId: () => '',
+                setScannerType: (_, { scannerType }) => scannerType,
             },
         ],
         actionId: [
@@ -115,7 +130,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                             path: `${urls.replayVision(effectiveScannerId)}?tab=actions`,
                         })
                     }
-                    crumbs.push({ key: 'new-action', name: 'New summary' })
+                    crumbs.push({ key: 'new-action', name: 'New' })
                     return crumbs
                 }
                 crumbs.push(
@@ -134,14 +149,32 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     forms(({ values }) => ({
         actionForm: {
             defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, min_score, max_score }: VisionActionForm) => ({
+            errors: ({
+                name,
+                cadence,
+                min_score,
+                max_score,
+                mode,
+                alert_frequency,
+                alert_threshold,
+            }: VisionActionForm) => ({
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
-                cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
+                // Alerts have no schedule UI (checked continuously on every sweep), so weekdays don't apply.
+                cadence:
+                    mode !== VisionActionModeEnumApi.Alert && cadence.weekdays.length === 0
+                        ? { hour: 'Pick at least one day' }
+                        : undefined,
                 min_score:
                     min_score != null && max_score != null && min_score > max_score
                         ? "Min score can't exceed max score"
+                        : undefined,
+                alert_threshold:
+                    mode === VisionActionModeEnumApi.Alert &&
+                    alert_frequency === AlertConfigFrequencyEnumApi.OnBreach &&
+                    alert_threshold == null
+                        ? 'Set a threshold'
                         : undefined,
             }),
             submit: async (form: VisionActionForm) => {
@@ -156,13 +189,17 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const body = buildActionBody(form, scannerId)
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
-                    lemonToast.success('Summary created')
+                    lemonToast.success(
+                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Group summary created'
+                    )
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success('Summary updated')
+                lemonToast.success(
+                    form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Group summary updated'
+                )
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -181,10 +218,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
 
         setScannerId: async ({ scannerId }, breakpoint) => {
-            // Only fetch the scanner name on the new-action route — the edit title uses the action name instead.
-            if (!values.isNew) {
-                return
-            }
+            // Fetched on both routes: the new-action title needs the name, and alert-condition
+            // normalization needs the scanner type (see setScannerType below).
             const teamId = teamLogic.values.currentTeamId
             if (!scannerId || !teamId) {
                 return
@@ -193,8 +228,32 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const scanner = await visionScannersRetrieve(String(teamId), scannerId)
                 breakpoint()
                 actions.setScannerName(scanner.name)
+                actions.setScannerType(scanner.scanner_type)
             } catch {
                 // Display-only — the title falls back to "New summary".
+            }
+        },
+
+        setScannerType: ({ scannerType }) => {
+            // Summarizer observations carry no verdict/tags/score, so threshold alerts don't apply:
+            // their alerts are always "every new summary". Normalizing the form (not just the UI)
+            // keeps validation and the submitted alert_config consistent with what the editor shows.
+            if (scannerType === 'summarizer' && values.actionForm.mode === VisionActionModeEnumApi.Alert) {
+                actions.setActionFormValues({
+                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+                    alert_metric: VisionAlertMetricEnumApi.Count,
+                })
+            }
+        },
+
+        setActionFormValue: ({ name, value }) => {
+            // Switching an existing action to alert mode on a summarizer scanner gets the same
+            // normalization as loading one.
+            if (name === 'mode' && value === VisionActionModeEnumApi.Alert && values.scannerType === 'summarizer') {
+                actions.setActionFormValues({
+                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+                    alert_metric: VisionAlertMetricEnumApi.Count,
+                })
             }
         },
 
@@ -234,6 +293,17 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
+                mode: action.mode ?? VisionActionModeEnumApi.GroupSummary,
+                // Stored alerts without a frequency predate the field and behaved as on_breach; anything
+                // else gets the fresh-form default so flipping a summary to an alert starts at every_match.
+                alert_frequency:
+                    action.alert_config?.frequency ??
+                    (action.mode === VisionActionModeEnumApi.Alert
+                        ? AlertConfigFrequencyEnumApi.OnBreach
+                        : AlertConfigFrequencyEnumApi.EveryMatch),
+                alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
+                alert_threshold: action.alert_config?.threshold ?? 1,
+                alert_window_days: action.alert_config?.window_days ?? 1,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
                 min_score: action.selection?.min_score ?? null,

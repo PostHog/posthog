@@ -70,7 +70,6 @@ You can create an API token under **Settings → API Integration** in [Tempo](ht
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

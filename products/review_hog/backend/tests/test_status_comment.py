@@ -32,7 +32,7 @@ _INTEGRATION = f"{_MODULE}.GitHubIntegration"
 _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     (None, "Step 1/6 · Preparing the diff"),
     ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
-    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Reviewing chunks · 7/18"),
+    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Running review passes · 7/18"),
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 

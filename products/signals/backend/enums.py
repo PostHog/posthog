@@ -31,6 +31,7 @@ class SignalSourceProduct(StrEnum):
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
+    ANALYTICS = "analytics"
     ENGINEERING_ANALYTICS = "engineering_analytics"
 
 
@@ -50,6 +51,7 @@ class SignalSourceType(StrEnum):
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
+    ANOMALY_INVESTIGATION = "anomaly_investigation"
     CI_FLAKY_CHECK = "ci_flaky_check"
     CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
@@ -77,6 +79,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
+    SignalSourceProduct.ANALYTICS: "Product analytics",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
 }
 

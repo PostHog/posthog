@@ -82,6 +82,21 @@ def clickhouse_error_type(e: Exception) -> str:
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
+STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+
+
+def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
+    match = STORAGE_FILE_URI_PATTERN.search(err.message)
+    file_uri = match.group(1) if match else "unknown file"
+    return CHQueryErrorS3FileChangedDuringRead(
+        f"A file backing a data warehouse table changed while the query was reading it ({file_uri}). "
+        "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+        "upload new files and delete old ones instead.",
+        code=err.code,
+        code_name="s3_file_changed_during_read",
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
@@ -115,7 +130,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             detail=f"{detail} Try reducing its scope by changing the time range."
         )
     elif name == "S3_ERROR":
+        if "The requested range is not satisfiable" in err.message:
+            return _wrap_storage_file_changed_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
+    elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
+        return _wrap_storage_file_changed_error(err)
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -140,6 +159,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
     elif name == "CANNOT_PARSE_UUID":
         return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+    elif name == "CANNOT_PARSE_BOOL":
+        return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
@@ -201,6 +222,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
+    """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
 # User query errors - these are errors caused by user input/queries
 class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
     pass
@@ -226,7 +253,7 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+class CHQueryErrorNumberOfArgumentsDoesntMatch(ExposedCHQueryError):
     pass
 
 
@@ -239,6 +266,10 @@ class CHQueryErrorTooManyBytes(ExposedCHQueryError):
 
 
 class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorCannotParseBool(ExposedCHQueryError):
     pass
 
 
@@ -319,15 +350,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
-    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
-    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
+    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", user_safe=True),
+    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", user_safe=True),
     36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=QueryErrorCategory.USER_ERROR),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN", category=QueryErrorCategory.USER_ERROR
@@ -969,4 +1000,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
-CH_TRANSIENT_ERRORS = (CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error)
+CH_TRANSIENT_ERRORS = (
+    CHQueryErrorTooManySimultaneousQueries,
+    CHQueryErrorCannotScheduleTask,
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+)

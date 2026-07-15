@@ -101,6 +101,7 @@ export type CyclotronV2ManagerConfig = {
  */
 export interface CyclotronV2JobProducer {
     createJob(input: CyclotronV2JobInit): Promise<string>
+    countInFlightJobs(teamId: number, functionId: string): Promise<number>
     disconnect(): Promise<void>
 }
 

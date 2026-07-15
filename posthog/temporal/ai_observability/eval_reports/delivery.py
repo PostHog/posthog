@@ -34,6 +34,11 @@ _EMAIL_TH_STYLE = (
 )
 _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
 
+_OUTCOME_LABELS = {
+    "boolean": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
+    "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
+}
+
 
 def _inline_email_styles(html: str) -> str:
     """Add inline styles to HTML elements for email client compatibility."""
@@ -123,65 +128,59 @@ def _format_pass_rate(rate: float | None) -> str:
     return f"{rate:.2f}%"
 
 
+def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
+    count = metrics.result_counts[outcome]
+    if metrics.output_type == "boolean":
+        return str(count)
+
+    rate = metrics.result_rates.get(outcome)
+    value = str(count) if rate is None else f"{count} ({_format_pass_rate(rate)})"
+
+    previous_rate = (metrics.previous_result_rates or {}).get(outcome)
+    if rate is None or previous_rate is None:
+        return value
+
+    diff = rate - previous_rate
+    arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "•")
+    return f"{value} {arrow} {abs(diff):.2f}pp"
+
+
+def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
+    value = _format_pass_rate(metrics.pass_rate)
+    if metrics.previous_pass_rate is None:
+        return value
+
+    diff = metrics.pass_rate - metrics.previous_pass_rate
+    arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "•")
+    return f"{value} ({arrow} {abs(diff):.2f}pp vs previous)"
+
+
 def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
-    """Render the metrics block as HTML (table + period-over-period row).
+    """Render trusted outcome counts and rates as an HTML table.
 
     Lives at the top of the email body so the reader sees the trusted numbers
     before reading the agent's analysis.
     """
     period = f"{_format_period_for_display(metrics.period_start)} → {_format_period_for_display(metrics.period_end)}"
-    delta = ""
-    if metrics.previous_pass_rate is not None:
-        diff = metrics.pass_rate - metrics.previous_pass_rate
-        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
-        delta = f" ({arrow} {abs(diff):.2f}pp vs previous)"
-
-    table = (
-        "<table>"
-        "<tr><th>Total runs</th><th>Pass</th><th>Fail</th><th>N/A</th><th>Pass rate</th></tr>"
-        f"<tr>"
-        f"<td>{metrics.total_runs}</td>"
-        f"<td>{metrics.pass_count}</td>"
-        f"<td>{metrics.fail_count}</td>"
-        f"<td>{metrics.na_count}</td>"
-        f"<td><strong>{_format_pass_rate(metrics.pass_rate)}</strong>{delta}</td>"
-        f"</tr>"
-        "</table>"
-    )
+    outcome_labels = _OUTCOME_LABELS[metrics.output_type]
+    headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
+    values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
+    if metrics.output_type == "boolean":
+        headers += "<th>Pass rate</th>"
+        values += f"<td><strong>{_format_boolean_pass_rate_value(metrics)}</strong></td>"
+    table = f"<table><tr><th>Total runs</th>{headers}</tr><tr><td>{metrics.total_runs}</td>{values}</tr></table>"
     table = _inline_email_styles(table)
     return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{table}\n'
 
 
-def _build_pass_rate_bar(pass_rate: float, width: int = 30) -> str:
-    """Build an ASCII bar representing the pass rate percentage."""
-    filled = round(pass_rate / 100 * width)
-    return "█" * filled + "·" * (width - filled)
-
-
 def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
-    """Render the metrics block as a Slack code block with ASCII dashboard style."""
-    W = 36  # inner width between │ pipes
-
-    delta = ""
-    if metrics.previous_pass_rate is not None:
-        diff = metrics.pass_rate - metrics.previous_pass_rate
-        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
-        delta = f"  {arrow} {abs(diff):.2f}pp"
-
-    bar = _build_pass_rate_bar(metrics.pass_rate)
-    rate = _format_pass_rate(metrics.pass_rate)
-    runs_label = f"{metrics.total_runs} runs"
-
-    # Line with rate left-aligned and runs right-aligned
-    rate_str = f"  {rate}{delta}"
-    rate_line = f"{rate_str}{runs_label:>{W - len(rate_str)}}"
-
-    counts = f"  pass {metrics.pass_count} · fail {metrics.fail_count} · n/a {metrics.na_count}"
-
-    top = f"┌─ pass rate {'─' * (W - 12)}┐"
-    bot = f"└{'─' * W}┘"
-
-    code_block = f"{top}\n│{f'  {bar}':<{W}}│\n│{rate_line:<{W}}│\n│{counts:<{W}}│\n{bot}"
+    """Render the metrics block as a compact, output-type-neutral Slack dashboard."""
+    outcome_lines = [
+        f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
+    ]
+    if metrics.output_type == "boolean":
+        outcome_lines.append(f"Pass rate: {_format_boolean_pass_rate_value(metrics)}")
+    code_block = "\n".join([f"Total runs: {metrics.total_runs}", *outcome_lines])
 
     blocks: list[dict] = [
         {
@@ -431,7 +430,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         increment_delivery("slack", "failed")
 
     if not had_any_target:
-        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
+        # Report generated successfully, but no delivery target is configured, so there is nothing to send.
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.GENERATED
     elif all_failed:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.FAILED
     elif all_errors:

@@ -89,20 +89,22 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     while total_processed < inputs.total_per_run:
         remaining = inputs.total_per_run - total_processed
         chunk_size = min(inputs.batch_size, remaining)
-        symbol_sets = list(
-            ErrorTrackingSymbolSet.objects.filter(query_filter)
-            .exclude(id__in=failed_ids)
-            .order_by("id")
-            .values_list("id", "storage_ptr")[:chunk_size]
-        )
+        with transaction.atomic():
+            symbol_sets = list(
+                ErrorTrackingSymbolSet.objects.select_for_update(skip_locked=True)
+                .filter(query_filter)
+                .exclude(id__in=failed_ids)
+                .order_by("last_used", "created_at")
+                .values_list("id", "storage_ptr")[:chunk_size]
+            )
 
-        if not symbol_sets:
-            break
+            if not symbol_sets:
+                break
 
-        symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _ in symbol_sets]
-        storage_ptrs_by_id = {str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr in symbol_sets}
+            symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _ in symbol_sets]
+            storage_ptrs_by_id = {str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr in symbol_sets}
+            deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
 
-        deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
         total_deleted += deleted_count
         total_db_failed += len(batch_failed_ids)
         failed_ids.update(batch_failed_ids)

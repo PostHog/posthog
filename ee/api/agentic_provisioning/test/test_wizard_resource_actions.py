@@ -177,9 +177,12 @@ class TestWizardResourceActions(ProvisioningTestBase):
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
     def test_wizard_runs_happy_path(self):
         created = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
-        with patch(
-            "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
-        ) as mock_create:
+        with (
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
+            patch(
+                "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
+            ) as mock_create,
+        ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world", "branch": "main"})
 
         assert response.status_code == 200, response.json()
@@ -206,7 +209,10 @@ class TestWizardResourceActions(ProvisioningTestBase):
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
     def test_wizard_runs_per_user_burst_limit(self):
         created = MagicMock(task_id="task-uuid", latest_run=None)
-        with patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created):
+        with (
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
+            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created),
+        ):
             first = self._post_wizard_runs(self.team.id, {"repository": "octocat/one"})
             second = self._post_wizard_runs(self.team.id, {"repository": "octocat/two"})
             third = self._post_wizard_runs(self.team.id, {"repository": "octocat/three"})
@@ -216,11 +222,14 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert third["Retry-After"]
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
-    def test_wizard_runs_without_github_integration_returns_400(self):
-        with patch(
-            "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run",
-            side_effect=ValueError("Team has no GitHub integration"),
+    def test_wizard_runs_rejects_repository_the_installation_cannot_access(self):
+        # No team integration can reach the repo -> fail fast without ever creating a run,
+        # so a grant for one installation can't report success for an unrelated owner/repo.
+        with (
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=None),
+            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run") as mock_create,
         ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "github_integration_required"
+        mock_create.assert_not_called()

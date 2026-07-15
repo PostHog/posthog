@@ -48,6 +48,7 @@ the row lists both.
 | agilecrm                  | HTTP                        | requests                                                        | ✅                          |
 | aha                       | HTTP                        | requests                                                        | ✅                          |
 | aircall                   | HTTP                        | requests                                                        | ✅                          |
+| airops                    | HTTP                        | requests                                                        | ✅                          |
 | airtable                  | HTTP                        | requests                                                        | ✅                          |
 | algolia                   | HTTP                        | requests                                                        | ✅                          |
 | alguna                    | HTTP                        | requests                                                        | ✅                          |
@@ -70,6 +71,7 @@ the row lists both.
 | awin                      | HTTP                        | requests                                                        | ✅                          |
 | azure_devops              | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                  | HTTP                        | requests                                                        | ✅                          |
+| baseten                   | HTTP                        | requests                                                        | ✅                          |
 | beamer                    | HTTP                        | requests                                                        | ✅                          |
 | bigmailer                 | HTTP                        | requests                                                        | ✅                          |
 | bigquery                  | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
@@ -83,6 +85,8 @@ the row lists both.
 | breezometer               | HTTP                        | requests                                                        | ✅                          |
 | brevo                     | HTTP                        | requests                                                        | ✅                          |
 | brex                      | HTTP                        | requests                                                        | ✅                          |
+| browser_use               | HTTP                        | requests                                                        | ✅                          |
+| browserbase               | HTTP                        | requests                                                        | ✅                          |
 | bugsnag                   | HTTP                        | requests                                                        | ✅                          |
 | buildbetter               | HTTP                        | requests                                                        | ✅                          |
 | buildkite                 | HTTP                        | requests                                                        | ✅                          |
@@ -106,6 +110,7 @@ the row lists both.
 | coassemble                | HTTP                        | requests                                                        | ✅                          |
 | coda                      | HTTP                        | requests                                                        | ✅                          |
 | codefresh                 | HTTP                        | requests                                                        | ✅                          |
+| cohere                    | HTTP                        | requests                                                        | ✅                          |
 | coin_api                  | HTTP                        | requests                                                        | ✅                          |
 | coingecko                 | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -141,6 +146,7 @@ the row lists both.
 | deno_deploy               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                  | HTTP                        | requests                                                        | ✅                          |
 | ding_connect              | HTTP                        | requests                                                        | ✅                          |
+| digitalocean              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dixa                      | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                 | HTTP                        | requests                                                        | ✅                          |
 | docuseal                  | HTTP                        | requests                                                        | ✅                          |
@@ -176,6 +182,9 @@ the row lists both.
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
+| flowlu                    | HTTP                        | requests                                                        | ✅                          |
+| fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -198,6 +207,7 @@ the row lists both.
 | gorgias                   | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                | HTTP                        | requests                                                        | ✅                          |
 | gridly                    | HTTP                        | requests                                                        | ✅                          |
+| groq                      | HTTP                        | requests                                                        | ✅                          |
 | guardian                  | HTTP                        | requests                                                        | ✅                          |
 | guru                      | HTTP                        | requests                                                        | ✅                          |
 | harvey                    | HTTP                        | requests                                                        | ✅                          |
@@ -211,6 +221,7 @@ the row lists both.
 | hubspot                   | HTTP                        | requests                                                        | ✅                          |
 | hugging_face              | HTTP                        | requests                                                        | ✅                          |
 | huntr                     | HTTP                        | requests                                                        | ✅                          |
+| hyperspell                | HTTP                        | requests                                                        | ✅                          |
 | imagga                    | HTTP                        | requests                                                        | ✅                          |
 | incident_io               | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory           | HTTP                        | requests                                                        | ✅                          |
@@ -230,8 +241,11 @@ the row lists both.
 | justsift                  | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                  | HTTP                        | requests                                                        | ✅                          |
 | katana                    | HTTP                        | requests                                                        | ✅                          |
+| kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
+| lambda_labs               | HTTP                        | requests                                                        | ✅                          |
+| langfuse                  | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly              | HTTP                        | requests                                                        | ✅                          |
 | kustomer                  | HTTP                        | requests                                                        | ✅                          |
 | lattice                   | HTTP                        | requests                                                        | ✅                          |
@@ -272,6 +286,7 @@ the row lists both.
 | my_hours                  | HTTP                        | requests                                                        | ✅                          |
 | mysql                     | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                       | HTTP                        | requests                                                        | ✅                          |
+| nebius_ai                 | HTTP                        | requests                                                        | ✅                          |
 | netlify                   | HTTP                        | requests                                                        | ✅                          |
 | new_york_times            | HTTP                        | requests                                                        | ✅                          |
 | news_api                  | HTTP                        | requests                                                        | ✅                          |
@@ -289,6 +304,7 @@ the row lists both.
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
+| openrouter                | HTTP                        | requests                                                        | ✅                          |
 | openweather               | HTTP                        | requests                                                        | ✅                          |
 | ortto                     | HTTP                        | requests                                                        | ✅                          |
 | oura                      | HTTP                        | requests                                                        | ✅                          |
@@ -325,6 +341,7 @@ the row lists both.
 | printify                  | HTTP                        | requests                                                        | ✅                          |
 | productboard              | HTTP                        | requests                                                        | ✅                          |
 | pylon                     | HTTP                        | requests                                                        | ✅                          |
+| pypi                      | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                  | HTTP                        | requests                                                        | ✅                          |
 | recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                      | HTTP                        | requests                                                        | ✅                          |
@@ -345,6 +362,7 @@ the row lists both.
 | rss                       | HTTP                        | requests                                                        | ✅                          |
 | ruddr                     | HTTP                        | requests                                                        | ✅                          |
 | safetyculture             | HTTP                        | requests                                                        | ✅                          |
+| sage_hr                   | HTTP                        | requests                                                        | ✅                          |
 | salesforce                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare                | HTTP                        | requests                                                        | ✅                          |
 | salesloft                 | HTTP                        | requests                                                        | ✅                          |
@@ -406,11 +424,14 @@ the row lists both.
 | typeform                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                   | HTTP                        | requests                                                        | ✅                          |
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
+| unstructured              | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vultr                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                   | HTTP                        | requests                                                        | ✅                          |
 | windmill                  | HTTP                        | requests                                                        | ✅                          |
 | woocommerce               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -459,6 +480,12 @@ sync logic yet — picking up any of them means following the [implementing-ware
 One source per line (kept alphabetical) so adding or removing a source only touches its own line and
 doesn't conflict with concurrent PRs.
 
+- \*\*Add
+- \*\*Implement
+- \*\*Migrate
+- \*\*Switch
+- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml)
+- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml)
 - active_campaign
 - acuity_scheduling
 - adapty
@@ -469,8 +496,8 @@ doesn't conflict with concurrent PRs.
 - adyen
 - ahrefs
 - aikido_security
+- airbrake
 - airbyte
-- airops
 - aiven
 - akeneo
 - alpaca_broker_api
@@ -483,82 +510,108 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
+- appdynamics
 - apple_search_ads
+- appsignal
 - appstack
 - apptivo
 - appwrite
+- argocd
+- asknicely
 - auth0
+- automox
+- autumn
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
 - babelforce
 - backblaze
 - basecamp
-- baseten
+- better_stack
+- bettermode
 - bigcommerce
+- bitbucket
 - bitly
+- bitrise
 - box
 - braintrust
 - branch
 - breezy_hr
 - browse_ai
-- browser_use
-- browserbase
 - cal_com
 - campaign_manager_360
 - captain_data
 - cart_com
 - castor_edc
 - chatwoot
+- checkmarx
 - chift
 - chorus
 - cin7
+- circleci_insights
+- cisco_duo
 - cisco_meraki
 - clarifai
 - clazar
+- clickhouse_cloud
 - cloudbeds
 - coassemble
 - cockroachdb
+- codacy
+- codecov
 - cody
-- cohere
+- confluent_cloud
 - constant_contact
 - copper
+- coralogix
 - cosmosdb
 - couchbase
+- coveralls
+- crates_io
 - criteo
+- cronitor
 - curve
 - customerly
+- dagster_cloud
 - databricks
+- datahub
 - datascope
 - datorama
 - db2
 - dbt
+- deepsource
 - deno_deploy
 - deputy
-- digitalocean
 - display_video_360
 - docusign
+- dodopayments
 - dolibarr
+- doppler
+- drata
 - dremio
 - dropbox
 - dub
 - dwolla
 - dynamics365
 - dynamodb
+- dynatrace
 - e2b
 - ebay
 - eloqua
 - employment_hero
 - encharge
+- env0
 - expensify
 - facebook_pages
 - fastbill
 - fauna
+- featurebase
 - feishu
 - fintoc
 - firebase
 - firebolt
 - fireworks_ai
+- flagsmith
 - flexmail
 - flexport
 - flowlu
@@ -569,7 +622,12 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshchat
 - freshservice
+- frill
 - fulcrum
+- gerrit
+- getstream
+- gitea
+- gitguardian
 - glassfrog
 - gmail
 - gnews
@@ -589,7 +647,6 @@ doesn't conflict with concurrent PRs.
 - google_workspace_admin_reports
 - grafana
 - greythr
-- groq
 - growthbook
 - gumloop
 - gusto
@@ -605,10 +662,11 @@ doesn't conflict with concurrent PRs.
 - hibob
 - high_level
 - hightouch
+- honeybadger
+- honeycomb
 - hoorayhr
 - hubplanner
 - humanitix
-- hyperspell
 - ikas
 - illumina_basespace
 - impact
@@ -617,36 +675,45 @@ doesn't conflict with concurrent PRs.
 - inngest
 - insightful
 - instagram
+- instana
 - instantly
 - interzoid
 - jamf_pro
+- jellyfish
+- jenkins
+- jfrog_artifactory
 - jobber
 - judgeme_reviews
+- jumpcloud
 - justsift
 - kafka
+- kandji
 - kapa_ai
 - keka
-- kernel
 - kickscale
 - kisi
 - kissmetrics
 - klarna
 - klaus
 - knock
+- kong_konnect
 - koyeb
+- kubecost
 - kyve
+- lacework
 - lambda_labs
-- langfuse
 - langsmith
 - leexi
 - lemon_squeezy
 - lever
 - liana
 - lightfield
+- linearb
 - lingo_dev
 - linkedin_pages
 - linnworks
 - llama_cloud
+- logz_io
 - lokalise
 - looker
 - loops
@@ -659,6 +726,7 @@ doesn't conflict with concurrent PRs.
 - mercado_ads
 - mercury
 - merge
+- metaplane
 - metricool
 - metriport
 - metronome
@@ -671,9 +739,9 @@ doesn't conflict with concurrent PRs.
 - missive
 - mode
 - mono
+- monte_carlo
 - nasa
 - navan
-- nebius_ai
 - neon
 - netsuite
 - new_relic
@@ -683,24 +751,29 @@ doesn't conflict with concurrent PRs.
 - nocrm
 - northflank
 - northpass_lms
+- nuget
 - nutshell
 - nylas
+- octolens
+- octopus_deploy
 - onedrive
 - onehundredms
+- onepassword
 - onesignal
 - open_data_dc
 - openai
-- openrouter
 - opsgenie
 - opuswatch
 - oracle
 - oracle_ebs
 - oracle_fusion
 - orbit
+- orca_security
 - outlook
 - outreach
 - oveit
 - pabbly_subscriptions_billing
+- packagist
 - pagerduty
 - pardot
 - paylocity
@@ -723,16 +796,21 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
+- prefect_cloud
 - prestashop
 - primetric
 - productive
 - prompting_company
-- pypi
+- pulumi_cloud
 - qdrant
 - qonto
 - qualtrics
+- qualys_vmdr
 - quickbooks
+- railway
 - railz
+- rapid7_insightvm
+- raygun
 - razorpay
 - rb2b
 - rd_station_marketing
@@ -756,10 +834,10 @@ doesn't conflict with concurrent PRs.
 - rudderstack
 - runpod
 - safetyculture
-- sage_hr
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
+- salestrics
 - sanity
 - sap_concur
 - sap_erp
@@ -770,8 +848,12 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - search_ads_360
+- secureframe
+- semaphore
+- semgrep
 - sendpulse
 - senseforce
+- sentinelone
 - serpstat
 - sevenshifts
 - sftp
@@ -794,28 +876,44 @@ doesn't conflict with concurrent PRs.
 - smaily
 - smartengage
 - smartwaiver
+- snowplow
+- snyk
 - solarwinds_service_desk
 - sonar_cloud
+- sonarqube
+- sonatype_nexus
+- sourcegraph
+- spacelift
+- splunk_observability_cloud
 - spotify_ads
 - spotlercrm
+- squadcast
 - statsig
+- statuscake
 - stockdata
 - strava
 - streamelements
 - streamlabs
+- stytch
+- sumo_logic
 - sumsub
 - superwall
 - surveymonkey
 - survicate
 - svix
+- swarmia
 - swonkie
 - synthesia
 - systeme
+- tailscale
 - tawk_to
 - teachable
+- teamcity
 - telli
 - tempo
+- tenable_vulnerability_management
 - terra_api
+- terraform_cloud
 - thinkific_courses
 - thrive_learning
 - ticketmaster
@@ -825,6 +923,7 @@ doesn't conflict with concurrent PRs.
 - tinyemail
 - toggl
 - track_pms
+- travis_ci
 - tremendous
 - trustpilot
 - turso
@@ -834,20 +933,21 @@ doesn't conflict with concurrent PRs.
 - twitter
 - twitter_ads
 - tyntec_sms
-- unstructured
 - uppromote
 - uptick
+- uptimerobot
 - us_census
+- usersnap
 - uservoice
-- vapi
 - veeqo
+- veracode
 - vespa
 - visma_economic
-- vultr
 - vwo
 - waiteraid
 - wasabi
 - watchmode
+- weights_and_biases
 - when_i_work
 - wikipedia_pageviews
 - workday
@@ -855,6 +955,7 @@ doesn't conflict with concurrent PRs.
 - workramp
 - wufoo
 - xero
+- xmatters
 - xsolla
 - yahoo_finance
 - yandex_metrica
@@ -867,6 +968,7 @@ doesn't conflict with concurrent PRs.
 - zapsign
 - zellify
 - zendesk_sunshine
+- zenduty
 - zenefits
 - zenloop
 - zep
@@ -881,30 +983,3 @@ doesn't conflict with concurrent PRs.
 - zoho_inventory
 - zoho_invoice
 - zoominfo
-
----
-
-## When to update this file
-
-Update SOURCES.md whenever you:
-
-- **Add a new source** (move it from the scaffolded list into the implemented table once it actually syncs).
-- **Implement an existing scaffolded source** (move it into the implemented table; record the comm method
-  and tracked-transport state).
-- **Migrate a vendor SDK** to use `make_tracked_session()` (flip the source from ⚠️ to ✅).
-- **Switch a source's protocol** (e.g. swap a REST client for a gRPC SDK, or add webhook support
-  alongside the pull API).
-
-Two semgrep rules enforce the tracked transports inside `sources/`:
-
-- [`data-imports-http-transport`](/.semgrep/rules/security/data-imports-http-transport.yaml) bans direct
-  `requests.<verb>` / `requests.Session()` / `httpx.*` — route through `make_tracked_session()`.
-- [`data-imports-grpc-transport`](/.semgrep/rules/security/data-imports-grpc-transport.yaml) bans raw
-  `grpc.*_channel(...)` and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction —
-  route through `make_tracked_channel(...)` (for `channel=`/`transport=` SDKs) or
-  `tracked_interceptors(host)` (for `interceptors=` SDKs).
-
-Vendor SDKs that genuinely cannot be intercepted should both:
-
-1. Carry a `# nosemgrep: data-imports-...-transport-...` pragma at the call site, with a one-line reason.
-2. Be listed here under "Notes on partially-tracked sources" with the `⚠️ Vendor SDK` row state.

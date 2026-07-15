@@ -31,7 +31,6 @@ class TestHealthchecksSource:
         assert config.name.value == "Healthchecks"
         assert config.label == "Healthchecks.io"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/healthchecks"
 
         field_names = [f.name for f in config.fields]

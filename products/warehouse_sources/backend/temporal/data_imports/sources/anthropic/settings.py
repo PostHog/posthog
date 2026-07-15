@@ -127,7 +127,10 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
         incremental_fields=[_datetime_incremental_field("starting_at")],
         bucket_width="1d",
         group_by=_USAGE_GROUP_BY,
-        limit=31,  # API max for the 1d bucket width
+        # Grouping by every dimension multiplies the result rows per bucket, so requesting the
+        # 31-bucket max overflows the report's per-response result cap and the API 400s. The API
+        # default keeps each page small; pagination still walks all history via `next_page`.
+        limit=7,
         default_incremental_lookback_seconds=_REPORT_LOOKBACK_SECONDS,
     ),
     "cost_report": AnthropicEndpointConfig(

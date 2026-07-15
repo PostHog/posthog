@@ -49,7 +49,6 @@ class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Vantage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Vantage API access token to pull your Vantage FinOps data into the PostHog Data warehouse.
 
 Create a read-scoped access token or a service token from your [Vantage settings](https://console.vantage.sh/settings/access_tokens). Only the `read` scope is required for imports.""",
