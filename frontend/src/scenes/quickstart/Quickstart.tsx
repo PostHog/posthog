@@ -13,6 +13,7 @@ import {
     IconGraduationCap,
     IconLogomark,
     IconPeople,
+    IconReceipt,
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
@@ -30,7 +31,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
@@ -52,6 +54,7 @@ import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-a
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,7 +64,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, SDK, SDKInstructionsMap, SDKKey, SDKTagOverrides } from '~/types'
+import { BillingProductV2Type, OnboardingStepKey, SDK, SDKInstructionsMap, SDKKey, SDKTagOverrides } from '~/types'
 
 import {
     PublicationFeedKey,
@@ -186,6 +189,45 @@ function ProjectToken(): JSX.Element | null {
                 {currentTeam.api_token}
             </CodeSnippet>
         </div>
+    )
+}
+
+function UsageThisPeriod(): JSX.Element | null {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const { billing, canAccessBilling } = useValues(billingLogic)
+
+    if (!isCloudOrDev || !canAccessBilling || !billing) {
+        return null
+    }
+
+    const interval = billing.billing_period?.interval === 'year' ? 'year' : 'month'
+    const eventsUsage = billing.products?.find(
+        (product: BillingProductV2Type) => product.type === ProductKey.PRODUCT_ANALYTICS
+    )?.current_usage
+
+    let label: string | null = null
+    if (billing.has_active_subscription && billing.current_total_amount_usd !== undefined) {
+        label = `${humanFriendlyCurrency(billing.current_total_amount_usd)} this ${interval}`
+    } else if (eventsUsage !== undefined) {
+        // Free plans have no spend to show, but usage against the free tier is still meaningful
+        label = `${humanFriendlyLargeNumber(eventsUsage)} events this ${interval}`
+    }
+    if (!label) {
+        return null
+    }
+
+    return (
+        <Link
+            to={urls.organizationBilling()}
+            onClick={() => captureQuickstartAction('view_billing_usage')}
+            className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary"
+            data-attr="quickstart-billing-usage"
+        >
+            <span className="text-base leading-none">
+                <IconReceipt />
+            </span>
+            <span>{label}</span>
+        </Link>
     )
 }
 
@@ -815,6 +857,7 @@ export function Quickstart(): JSX.Element {
                                     : `${currentOrganization.member_count} teammates`}
                             </HeaderStat>
                         ) : null}
+                        <UsageThisPeriod />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonButton
