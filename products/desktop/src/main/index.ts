@@ -7,6 +7,7 @@
  */
 
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 
 import { registerIpcHandlers } from './ipc.ts'
@@ -35,6 +36,28 @@ function resolveFrontendDistDir(): string {
     }
     // products/desktop/dist/main.js -> repo root -> frontend/dist
     return path.resolve(__dirname, '../../../frontend/dist')
+}
+
+/**
+ * Headless capture hook for docs and visual checks: with
+ * POSTHOG_DESKTOP_SCREENSHOT=/path/out.png the app captures the window after
+ * it settles and quits. Delay is tunable via POSTHOG_DESKTOP_SCREENSHOT_DELAY_MS.
+ */
+function scheduleScreenshot(win: BrowserWindow): void {
+    const outFile = process.env.POSTHOG_DESKTOP_SCREENSHOT
+    if (!outFile) {
+        return
+    }
+    const delayMs = Number(process.env.POSTHOG_DESKTOP_SCREENSHOT_DELAY_MS) || 3000
+    win.webContents.on('did-finish-load', () => {
+        setTimeout(() => {
+            void win.webContents.capturePage().then((image) => {
+                fs.writeFileSync(outFile, image.toPNG())
+                console.info(`Saved screenshot to ${outFile}`)
+                app.quit()
+            })
+        }, delayMs)
+    })
 }
 
 async function main(): Promise<void> {
@@ -88,6 +111,7 @@ async function main(): Promise<void> {
             return existing
         }
         const win = createMainWindow(store)
+        scheduleScreenshot(win)
         // A fresh window (e.g. macOS dock activate after closing) needs content again
         if (state.getAuth() && state.snapshot().frontendBuilt) {
             void win.loadURL(`${backend.origin}/`)
