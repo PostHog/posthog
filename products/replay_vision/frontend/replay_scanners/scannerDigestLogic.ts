@@ -29,7 +29,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
         values: [visionActionsLogic({ scannerId: props.scannerId }), ['visionActions', 'visionActionsLoading']],
         actions: [
             visionActionsLogic({ scannerId: props.scannerId }),
-            ['loadActions', 'loadActionsSuccess', 'toggleActionEnabled'],
+            ['loadActions', 'loadActionsSuccess', 'toggleActionEnabled', 'addAction'],
         ],
     })),
 
@@ -125,7 +125,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                 return
             }
             try {
-                await visionActionsCreate(String(teamId), {
+                const created = await visionActionsCreate(String(teamId), {
                     // Mirrors the backend provisioning defaults (digest.py) for scanners created before
                     // digests existed, or after the digest was deleted.
                     name: `Daily digest: ${props.scannerName}`.slice(0, 255),
@@ -139,7 +139,12 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                 })
                 actions.createDigestSuccess()
                 lemonToast.success('Daily digest turned on')
-                actions.loadActions()
+                // Insert the created digest optimistically instead of refetching the list — a refetch
+                // would blank the card (visionActionsLoading true, digest still absent) and flash it.
+                actions.addAction(created)
+                // A brand-new digest has no runs yet, so resolve the run state locally rather than
+                // fetching; this keeps the card from flashing through its latestRunLoading gap.
+                actions.loadLatestRunSuccess(null)
             } catch (error: any) {
                 actions.createDigestFailure()
                 lemonToast.error(`Couldn't turn on the daily digest${error?.detail ? `: ${error.detail}` : ''}`)
