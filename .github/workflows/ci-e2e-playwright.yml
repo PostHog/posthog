@@ -148,6 +148,11 @@ jobs:
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - Dockerfile
+                        # Spec-selection selector + map: changes must run the suite (they're
+                        # force-full anyway) so the map validation step actually executes.
+                        - tools/playwright_spec_selection.py
+                        - tools/playwright_area_map.json
+                        - tools/test_playwright_spec_selection.py
                         # Docs-only changes match the broad globs above but exercise no
                         # code the E2E suite runs — exclude them so a docs-only PR doesn't
                         # boot the whole stack.
@@ -470,6 +475,26 @@ jobs:
                   # GITHUB_TOKEN in .git/config where that code could read it — the report step
                   # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
+            # Fail fast (seconds, before the ~10-min stack boot) when the spec-selection
+            # map has drifted: a target pointing at a renamed/deleted spec, or a new spec
+            # no map entry reaches. Without this gate the selector silently falls open to
+            # permanent full runs and the selection savings evaporate unnoticed. The
+            # runtime selector stays fail-open; this is the merge-blocking counterpart
+            # that forces the map fix onto the PR that caused the drift. Skipped on
+            # unrebased branches that predate the selector (workflow edits hit every
+            # open PR immediately; the tools files only arrive on rebase).
+            - name: Validate spec-selection map
+              shell: bash
+              run: |
+                  if [ ! -f tools/test_playwright_spec_selection.py ]; then
+                      echo "spec-selection tools absent on this checkout (unrebased branch) — skipping"
+                      exit 0
+                  fi
+                  python3 tools/test_playwright_spec_selection.py || {
+                      echo "::error file=tools/playwright_area_map.json::Spec-selection map is stale. Renamed/deleted a spec? Update the matching target in tools/playwright_area_map.json. Added a spec? Map it (products/scenes/explicit) or list it under full_suite_only. Run tools/test_playwright_spec_selection.py locally."
+                      exit 1
+                  }
+
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers

@@ -134,6 +134,41 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
 
+    def test_every_spec_is_mapped_or_explicitly_full_suite_only(self) -> None:
+        # Forces a conscious decision on every new spec: reachable by a map target
+        # (it runs on selective runs for its area) or listed in full_suite_only (it
+        # only runs on full suites and when directly edited). Without this, a new
+        # spec next to file-level map entries silently never runs selectively.
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+
+        reachable: set[str] = set()
+        for section in ("products", "scenes", "explicit"):
+            for targets in area_map.get(section, {}).values():
+                for target in targets:
+                    reachable |= selection.expand_target(target, all_specs)
+        full_suite_only = set(area_map.get("full_suite_only", []))
+
+        self.assertEqual(
+            full_suite_only - all_specs,
+            set(),
+            msg="full_suite_only lists specs that no longer exist — remove them from tools/playwright_area_map.json",
+        )
+        self.assertEqual(
+            full_suite_only & reachable,
+            set(),
+            msg="full_suite_only lists specs already reachable by a map target — remove the redundant entries",
+        )
+        self.assertEqual(
+            all_specs - reachable - full_suite_only,
+            set(),
+            msg=(
+                "new spec(s) not reachable by any map target: add a mapping in "
+                "tools/playwright_area_map.json (products/scenes/explicit) or list them "
+                "under full_suite_only to accept they only run in full suites"
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

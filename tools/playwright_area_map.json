@@ -7,7 +7,10 @@
         "widen `scenes`/`explicit` as recall data comes in. Every target must resolve to >=1 real spec",
         "(enforced by tools/test_playwright_spec_selection.py) and point only into the two spec roots.",
         "Glob syntax: `*` matches within a path segment, `**` matches across segments (only at pattern end).",
-        "A target ending in `/` is a directory prefix (all specs beneath it); otherwise it's an exact file."
+        "A target ending in `/` is a directory prefix (all specs beneath it); otherwise it's an exact file.",
+        "Every spec must be reachable by some target OR listed in `full_suite_only` — the test enforces",
+        "this, so adding a spec forces a conscious choice: map it, or accept it only runs in full suites",
+        "(and when directly edited)."
     ],
     "force_full": [
         "playwright/utils/**",
@@ -83,7 +86,9 @@
             "playwright/e2e/events.spec.ts",
             "playwright/e2e/annotations.spec.ts"
         ],
-        "annotations": ["playwright/e2e/annotations.spec.ts"]
+        "annotations": ["playwright/e2e/annotations.spec.ts"],
+        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"],
+        "project-homepage": ["playwright/e2e/project-home-page.spec.ts"]
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
@@ -101,15 +106,16 @@
         "products/early_access_features/frontend/**": ["playwright/e2e/early-access-management.spec.ts"],
         "products/event_definitions/frontend/**": ["playwright/e2e/event-definitions.spec.ts"],
         "products/annotations/frontend/**": ["playwright/e2e/annotations.spec.ts"],
-        "products/data_warehouse/frontend/**": [
-            "playwright/e2e/sql-editor.spec.ts",
-            "playwright/e2e/sql-editor-axis-labels.spec.ts",
-            "playwright/e2e/sql-editor-direct-postgres.spec.ts",
-            "playwright/e2e/sql-editor-history.spec.ts"
-        ],
+        "products/data_warehouse/frontend/**": ["playwright/e2e/sql-editor*.spec.ts"],
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts"
-        ]
-    }
+        ],
+        "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
+    },
+    "full_suite_only": [
+        "playwright/e2e/oauth-mcp-consent.spec.ts",
+        "playwright/e2e/preflight.spec.ts",
+        "playwright/e2e/system-status.spec.ts"
+    ]
 }
