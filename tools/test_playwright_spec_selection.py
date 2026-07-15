@@ -45,8 +45,8 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         return selection.select(changed, FAKE_MAP, FAKE_SPECS)
 
     def test_select_behavior_matrix(self) -> None:
-        # (name, changed files, expected mode, expected selected specs when mode == "selected")
-        cases: list[tuple[str, list[str], str, set[str]]] = [
+        # (name, changed files, expected mode, expected specs (selected) or reason category (full))
+        cases: list[tuple[str, list[str], str, set[str] | str]] = [
             (
                 "mapped product frontend narrows to that product's specs",
                 ["products/surveys/frontend/logic.ts"],
@@ -74,16 +74,17 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 "selected",
                 {"playwright/e2e/auth.spec.ts"},
             ),
-            # Fail-closed: the core safety property. Any of these dropping to "selected" is a coverage hole.
-            ("unmapped scene forces full", ["frontend/src/scenes/settings/x.ts"], "full", set()),
-            ("unmapped product forces full", ["products/messaging/frontend/x.ts"], "full", set()),
-            ("unrecognized path forces full", ["some/random/file.ts"], "full", set()),
+            # Fail-closed: the core safety property. Any of these dropping to "selected" is a
+            # coverage hole. The category is the analytics grouping key, so lock it too.
+            ("unmapped scene forces full", ["frontend/src/scenes/settings/x.ts"], "full", "unmapped_scene"),
+            ("unmapped product forces full", ["products/messaging/frontend/x.ts"], "full", "unmapped_product"),
+            ("unrecognized path forces full", ["some/random/file.ts"], "full", "unmapped_path"),
             # force_full wins even when another changed file would have narrowed.
             (
                 "force-full pattern forces full alongside a mappable file",
                 ["products/surveys/frontend/logic.ts", "posthog/models/team.py"],
                 "full",
-                set(),
+                "force_full",
             ),
             # `*` must not cross `/`: a nested spec dir change must not be swallowed by `playwright/*.ts`.
             (
@@ -92,16 +93,17 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 "selected",
                 {"playwright/e2e/billing/billing.spec.ts"},
             ),
-            ("empty diff defaults to full", [], "full", set()),
+            ("empty diff defaults to full", [], "full", "empty_diff"),
         ]
-        for name, changed, mode, specs in cases:
+        for name, changed, mode, expected in cases:
             with self.subTest(name):
                 result = self._select(changed)
                 self.assertEqual(result["mode"], mode, msg=name)
                 if mode == "selected":
-                    self.assertEqual(set(result["spec_files"]), specs, msg=name)
+                    self.assertEqual(set(result["spec_files"]), expected, msg=name)
                 else:
                     self.assertTrue(result["full_run_reasons"], msg=f"{name}: expected a reason")
+                    self.assertEqual(result["full_run_reason_category"], expected, msg=name)
 
     def test_over_ceiling_forces_full(self) -> None:
         changed = [f"products/surveys/frontend/f{i}.ts" for i in range(selection.MAX_CHANGED_FILES + 1)]

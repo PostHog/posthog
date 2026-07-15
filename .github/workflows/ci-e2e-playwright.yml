@@ -324,6 +324,12 @@ jobs:
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             spec_files: ${{ steps.classify.outputs.spec_files }}
+            # Telemetry (see the capture-run-time job): empty when the selector errored.
+            selected_count: ${{ steps.classify.outputs.selected_count }}
+            total_spec_count: ${{ steps.classify.outputs.total_spec_count }}
+            skipped_count: ${{ steps.classify.outputs.skipped_count }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
         steps:
             # Full checkout at PR head so the selector can glob specs on disk and read
             # the map/script from the branch under test. Bounded depth + blob:none keeps
@@ -366,31 +372,54 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  fall_open_to_full() {
-                      echo "mode=full" >> "$GITHUB_OUTPUT"
-                      echo "spec_files=" >> "$GITHUB_OUTPUT"
-                  }
+                  # Metric outputs are emitted in every path (see the capture-run-time
+                  # telemetry step). They stay empty only when the selector itself errored.
+                  SPECS=""
+                  SELECTED_COUNT=""
+                  TOTAL_COUNT=""
+                  SKIPPED_COUNT=""
+                  CHANGED_COUNT=""
+                  REASON_CATEGORY=""
+
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
                       echo "::warning::spec selector produced no output — running the FULL suite"
-                      fall_open_to_full
-                      exit 0
+                      MODE=full
+                      REASON_CATEGORY=selector_error
+                  else
+                      MODE=$(jq -r '.mode' /tmp/spec-selection.json)
+                      SELECTED_COUNT=$(jq -r '.selected_count' /tmp/spec-selection.json)
+                      TOTAL_COUNT=$(jq -r '.total_spec_count' /tmp/spec-selection.json)
+                      CHANGED_COUNT=$(jq -r '.changed_file_count' /tmp/spec-selection.json)
+                      REASON_CATEGORY=$(jq -r '.full_run_reason_category' /tmp/spec-selection.json)
+                      SKIPPED_COUNT=$((TOTAL_COUNT - SELECTED_COUNT))
+                      if [[ "$MODE" == "selected" ]]; then
+                          SPECS=$(jq -r '.spec_files | join(" ")' /tmp/spec-selection.json)
+                          if [[ -z "$SPECS" ]]; then
+                              echo "::warning::selected mode but empty spec list — full run"
+                              MODE=full
+                              REASON_CATEGORY=no_specs
+                          fi
+                      else
+                          echo "Selector requested a full run:"
+                          jq -r '.full_run_reasons[]?' /tmp/spec-selection.json
+                      fi
                   fi
-                  MODE=$(jq -r '.mode' /tmp/spec-selection.json)
+
+                  # On a full run nothing is passed downstream — the playwright job runs everything.
                   if [[ "$MODE" != "selected" ]]; then
-                      echo "Selector requested a full run:"
-                      jq -r '.full_run_reasons[]?' /tmp/spec-selection.json
-                      fall_open_to_full
-                      exit 0
+                      SPECS=""
                   fi
-                  SPECS=$(jq -r '.spec_files | join(" ")' /tmp/spec-selection.json)
-                  if [[ -z "$SPECS" ]]; then
-                      echo "::warning::selected mode but empty spec list — full run"
-                      fall_open_to_full
-                      exit 0
-                  fi
-                  echo "mode=selected" >> "$GITHUB_OUTPUT"
-                  echo "spec_files=$SPECS" >> "$GITHUB_OUTPUT"
-                  echo "Selected $(jq -r '.selected_count' /tmp/spec-selection.json) of $(jq -r '.total_spec_count' /tmp/spec-selection.json) specs"
+
+                  {
+                      echo "mode=$MODE"
+                      echo "spec_files=$SPECS"
+                      echo "selected_count=$SELECTED_COUNT"
+                      echo "total_spec_count=$TOTAL_COUNT"
+                      echo "skipped_count=$SKIPPED_COUNT"
+                      echo "changed_file_count=$CHANGED_COUNT"
+                      echo "full_run_reason_category=$REASON_CATEGORY"
+                  } >> "$GITHUB_OUTPUT"
+                  echo "mode=$MODE category=${REASON_CATEGORY:-none} selected=${SELECTED_COUNT:-?}/${TOTAL_COUNT:-?}"
 
             - name: Upload selection artifact
               if: always() && steps.select.outcome == 'success'
@@ -420,6 +449,8 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+            # Wall-clock of the test step, for the CI-minutes-saved telemetry.
+            test_seconds: ${{ steps.playwright-tests.outputs.test_seconds }}
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -780,6 +811,11 @@ jobs:
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
+                  # Time the test step so the telemetry can turn "specs skipped" into
+                  # minutes. set +e around the run so a test failure still records the
+                  # duration; the original exit code is preserved for the quarantine gate.
+                  start=$(date +%s)
+                  set +e
                   if [[ "$SELECT_MODE" == "selected" && -n "$SELECT_SPECS" ]]; then
                       echo "Selective run: $SELECT_SPECS"
                       # Word-splitting is intentional: SELECT_SPECS is a space-separated list
@@ -790,6 +826,9 @@ jobs:
                       echo "Full run (mode='${SELECT_MODE:-<skipped>}')"
                       pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
                   fi
+                  rc=$?
+                  echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+                  exit "$rc"
 
             - name: Verify changed Playwright tests are stable
               if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
@@ -966,7 +1005,7 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, playwright, playwright_tests]
+        needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
@@ -1003,6 +1042,38 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
+
+            # Spec-selection telemetry -> DevEx project (347861), where the CI-savings and
+            # fallback-rate insights live. Emitted whenever the heavy job actually ran, so
+            # full runs (this event's `mode=full`, `selection_eligible=false`) provide the
+            # test-time baseline that selective runs are measured against. `selection_eligible`
+            # is true only on synchronize pushes where select-specs ran — the fallback-rate
+            # denominator. Telemetry never reds CI (continue-on-error).
+            - name: Capture spec selection to DevEx PostHog
+              if: github.run_attempt == '1' && (needs.playwright.result == 'success' || needs.playwright.result == 'failure')
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-e2e-spec-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(needs.select-specs.outputs.mode || 'full') }},
+                        "selection_eligible": ${{ needs.select-specs.result == 'success' }},
+                        "selected_count": ${{ needs.select-specs.outputs.selected_count || 'null' }},
+                        "total_spec_count": ${{ needs.select-specs.outputs.total_spec_count || 'null' }},
+                        "skipped_count": ${{ needs.select-specs.outputs.skipped_count || 'null' }},
+                        "changed_file_count": ${{ needs.select-specs.outputs.changed_file_count || 'null' }},
+                        "full_run_reason_category": ${{ toJSON(needs.select-specs.outputs.full_run_reason_category || '') }},
+                        "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
+                        "playwright_result": ${{ toJSON(needs.playwright.result) }},
+                        "runner_billing_multiplier": 4,
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     vr-complete:
         name: Complete Visual Review run

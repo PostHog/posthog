@@ -111,11 +111,14 @@ def _result(
     reasons: list[str],
     changed_files: list[str],
     total_spec_count: int,
+    reason_category: str = "",
 ) -> dict:
     return {
         "mode": mode,
         "spec_files": spec_files,
         "full_run_reasons": reasons,
+        # Low-cardinality label for analytics grouping (the reasons carry file paths).
+        "full_run_reason_category": reason_category,
         "changed_files": changed_files,
         "changed_file_count": len(changed_files),
         "selected_count": len(spec_files),
@@ -127,13 +130,13 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     """Pure selection: changed files + map + on-disk specs -> a full/selected decision."""
     total = len(all_specs)
 
-    def full(reason: str) -> dict:
-        return _result("full", [], [reason], changed_files, total)
+    def full(reason: str, category: str) -> dict:
+        return _result("full", [], [reason], changed_files, total, category)
 
     if not changed_files:
-        return full("empty diff (defensive full run)")
+        return full("empty diff (defensive full run)", "empty_diff")
     if len(changed_files) > MAX_CHANGED_FILES:
-        return full(f"{len(changed_files)} changed files exceed the {MAX_CHANGED_FILES} ceiling")
+        return full(f"{len(changed_files)} changed files exceed the {MAX_CHANGED_FILES} ceiling", "over_ceiling")
 
     force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
     products = area_map.get("products", {})
@@ -153,7 +156,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
         # 1. Shared infra / backend / unattributable code -> full (highest priority).
         for pat, rx in force_full:
             if rx.match(f):
-                return full(f"{f} matches force-full pattern '{pat}'")
+                return full(f"{f} matches force-full pattern '{pat}'", "force_full")
 
         # 2. Product-owned frontend -> that product's specs (or an explicit rule for
         #    products whose behavior is exercised by top-level specs).
@@ -166,7 +169,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 continue
             if explicit_match(f, selected):
                 continue
-            return full(f"{f}: product '{name}' has no spec mapping")
+            return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product")
 
         # 3. Frontend scene -> mapped specs.
         sm = _SCENE_RE.match(f)
@@ -176,7 +179,7 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
                 for t in scenes[area]:
                     selected |= expand_target(t, all_specs)
                 continue
-            return full(f"{f}: scene '{area}' has no spec mapping")
+            return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene")
 
         # 4. Explicit path rules.
         if explicit_match(f, selected):
@@ -188,13 +191,13 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
             continue
 
         # 6. Anything unrecognized -> full (fail closed).
-        return full(f"{f}: unmapped path")
+        return full(f"{f}: unmapped path", "unmapped_path")
 
     # Belt-and-suspenders: a directly-edited spec always runs even if its area also mapped.
     selected |= {f for f in changed_files if f in all_specs}
 
     if not selected:
-        return full("no specs selected (defensive full run)")
+        return full("no specs selected (defensive full run)", "no_specs")
     return _result("selected", sorted(selected), [], changed_files, total)
 
 
