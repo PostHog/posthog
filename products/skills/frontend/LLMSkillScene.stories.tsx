@@ -67,6 +67,8 @@ const SKILL: LLMSkillApi = {
     allowed_tools: ['read', 'shell'],
     metadata: {},
     category: '',
+    is_global: false,
+    team_id: 1,
     files: [
         { path: 'scripts/extract.sh', content_type: 'text/x-shellscript' },
         { path: 'references/pdf-spec.md', content_type: 'text/markdown' },
@@ -103,6 +105,8 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     allowed_tools: SKILL.allowed_tools,
     metadata: {},
     category: SKILL.category,
+    is_global: SKILL.is_global,
+    team_id: SKILL.team_id,
     outline: SKILL.outline,
     version: SKILL.version,
     created_by: SKILL.created_by,

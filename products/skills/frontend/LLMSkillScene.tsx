@@ -8,6 +8,7 @@ import {
     IconColumns,
     IconDocument,
     IconDownload,
+    IconGlobe,
     IconPencil,
     IconPlus,
     IconTrash,
@@ -27,7 +28,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -42,7 +45,7 @@ import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openSkillVisibilityDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
@@ -73,11 +76,26 @@ export function LLMSkillScene(): JSX.Element {
         canLoadMoreVersions,
         fileContentsLoading,
         downloadingZip,
+        settingVisibility,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
+    const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
-    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
-        useActions(llmSkillLogic)
+    const {
+        submitSkillForm,
+        deleteSkill,
+        setMode,
+        setSkillFormValues,
+        loadMoreVersions,
+        downloadSkill,
+        setGlobalVisibility,
+    } = useActions(llmSkillLogic)
+
+    // A global skill surfaced from another team is read-only here — only its owning project can
+    // edit it, and only staff can change its visibility (and only from the owning project).
+    const isOwnedByCurrentTeam = isSkill(skill) && skill.team_id === currentTeamId
+    const canManageVisibility = !!user?.is_staff && isOwnedByCurrentTeam
 
     if (isSkillMissing) {
         return <NotFound object="skill" />
@@ -99,49 +117,57 @@ export function LLMSkillScene(): JSX.Element {
                 name={skill && 'name' in skill ? skill.name : 'Skill'}
                 resourceType={{ type: 'llm_analytics' }}
                 isLoading={skillLoading}
+                nameSuffix={
+                    isSkill(skill) && skill.is_global ? (
+                        <LemonTag type="highlight" icon={<IconGlobe />} size="medium">
+                            Global
+                        </LemonTag>
+                    ) : undefined
+                }
                 actions={
                     <>
-                        {isSkill(skill) && skill.is_latest ? (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPencil />}
-                                    onClick={() => setMode(SkillMode.Edit)}
-                                    size="small"
-                                    data-attr="llma-skill-edit-button"
+                        {isOwnedByCurrentTeam &&
+                            (isSkill(skill) && skill.is_latest ? (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Edit latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        ) : (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => {
-                                        if (isSkill(skill)) {
-                                            setSkillFormValues({
-                                                name: skill.name,
-                                                description: skill.description,
-                                                body: skill.body,
-                                                license: skill.license || '',
-                                                compatibility: skill.compatibility || '',
-                                            })
-                                            setMode(SkillMode.Edit)
-                                        }
-                                    }}
-                                    size="small"
-                                    data-attr="llma-skill-use-as-latest-button"
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPencil />}
+                                        onClick={() => setMode(SkillMode.Edit)}
+                                        size="small"
+                                        data-attr="llma-skill-edit-button"
+                                    >
+                                        Edit latest
+                                    </LemonButton>
+                                </AccessControlAction>
+                            ) : (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Use as latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => {
+                                            if (isSkill(skill)) {
+                                                setSkillFormValues({
+                                                    name: skill.name,
+                                                    description: skill.description,
+                                                    body: skill.body,
+                                                    license: skill.license || '',
+                                                    compatibility: skill.compatibility || '',
+                                                })
+                                                setMode(SkillMode.Edit)
+                                            }
+                                        }}
+                                        size="small"
+                                        data-attr="llma-skill-use-as-latest-button"
+                                    >
+                                        Use as latest
+                                    </LemonButton>
+                                </AccessControlAction>
+                            ))}
 
                         {isSkill(skill) && (
                             <LemonButton
@@ -157,21 +183,45 @@ export function LLMSkillScene(): JSX.Element {
                             </LemonButton>
                         )}
 
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
+                        {canManageVisibility && isSkill(skill) && (
                             <LemonButton
                                 type="secondary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                icon={<IconGlobe />}
+                                onClick={() =>
+                                    openSkillVisibilityDialog(!skill.is_global, () =>
+                                        setGlobalVisibility(!skill.is_global)
+                                    )
+                                }
+                                loading={settingVisibility}
                                 size="small"
-                                data-attr="llma-skill-delete-button"
+                                tooltip={
+                                    skill.is_global
+                                        ? 'Restrict this skill to this project'
+                                        : 'Make this skill visible to every PostHog customer'
+                                }
+                                data-attr="llma-skill-visibility-button"
                             >
-                                Archive
+                                {skill.is_global ? 'Make private' : 'Make visible to everyone'}
                             </LemonButton>
-                        </AccessControlAction>
+                        )}
+
+                        {isOwnedByCurrentTeam && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                    size="small"
+                                    data-attr="llma-skill-delete-button"
+                                >
+                                    Archive
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                     </>
                 }
             />
