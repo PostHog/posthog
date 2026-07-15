@@ -39,6 +39,14 @@ const ERROR_FILTER_ALLOW_LIST = [
 ]
 
 /*
+Write actions that show their own friendly message for access-denied 403s
+(code `permission_denied`), so the generic toast would be a duplicate.
+Unlike ERROR_FILTER_ALLOW_LIST, this only suppresses access-denied errors;
+other failures on these actions still toast.
+*/
+const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
 Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
 reach the backend), not application bugs, so we still toast the user a retryable failure but
 don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
@@ -115,11 +123,13 @@ export function initKea({
                 // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
-                // Access-denied 403s (code `permission_denied`) are surfaced by the owning UI
-                // (AccessDenied scene gates on load, friendly messaging on write), so the generic
-                // toast is suppressed for them regardless of action. Read-only mode uses distinct
-                // codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
-                const isAccessDenied = isAccessDeniedError(error)
+                // Access-denied 403s (code `permission_denied`) are suppressed only where the
+                // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
+                // self-handled write actions above. Other writes keep the generic toast, since
+                // most write flows have no failure handling of their own. Read-only mode uses
+                // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                const isAccessDenied =
+                    isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&

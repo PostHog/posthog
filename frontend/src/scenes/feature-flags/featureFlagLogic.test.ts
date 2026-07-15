@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -242,107 +243,152 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('setMultivariateEnabled functionality', () => {
-        it('adds default variants when enabling multivariate', async () => {
-            await expectLogic(logic).toMatchValues({
-                featureFlag: partial({
-                    filters: partial({
-                        groups: [
-                            partial({
-                                properties: [],
-                                variant: null,
-                            }),
-                        ],
-                    }),
-                }),
-                variants: [],
-            })
-            await expectLogic(logic, () => {
-                logic.actions.setMultivariateEnabled(true)
-            })
-                .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
-                .toMatchValues({
-                    variants: [
-                        {
-                            key: 'control',
-                            name: '',
-                            rollout_percentage: 50,
-                        },
-                        {
-                            key: 'test',
-                            name: '',
-                            rollout_percentage: 50,
-                        },
+    describe('saveFeatureFlag error handling', () => {
+        it('shows the friendly permission toast on a save-time 403', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Nope' },
                     ],
-                })
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
         })
 
-        it('resets the variants and group variant keys when disabling multivariate', async () => {
-            const MOCK_MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
-                ...logic.values.featureFlag,
-                filters: {
-                    groups: [
-                        {
-                            variant: 'control1',
-                            properties: [
-                                {
-                                    key: '$browser',
-                                    type: PropertyFilterType.Person,
-                                    value: 'Chrome',
-                                    operator: PropertyOperator.Regex,
-                                },
-                            ],
-                            rollout_percentage: 100,
-                        },
+        it('does not show the permission toast for other save errors', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        500,
+                        { type: 'server_error', detail: 'boom' },
                     ],
-                    payloads: {
-                        control1: '{"key": "value"}',
-                    },
-                    multivariate: {
-                        variants: [
-                            {
-                                key: 'control1',
-                                name: 'Control 1',
-                                rollout_percentage: 30,
-                            },
-                            {
-                                key: 'control2',
-                                name: 'Control 2',
-                                rollout_percentage: 70,
-                            },
-                        ],
-                    },
                 },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                // The permission-specific branch must not fire; the generic loaders toast owns this case.
+                expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
             }
-
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(MOCK_MULTIVARIATE_FEATURE_FLAG)
-            })
-                .toDispatchActions(['setFeatureFlag'])
-                .toMatchValues({
-                    featureFlag: MOCK_MULTIVARIATE_FEATURE_FLAG,
-                })
-
-            await expectLogic(logic, () => {
-                logic.actions.setMultivariateEnabled(false)
-            })
-                .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
-                .toMatchValues({
-                    featureFlag: partial({
-                        filters: partial({
-                            groups: [
-                                {
-                                    ...MOCK_MULTIVARIATE_FEATURE_FLAG.filters.groups[0],
-                                    variant: null,
-                                },
-                            ],
-                            payloads: {},
-                        }),
-                    }),
-                    variants: [],
-                })
         })
     })
+
+    describe('setMultivariateEnabled functionality', () => {
+it('adds default variants when enabling multivariate', async () => {
+    await expectLogic(logic).toMatchValues({
+        featureFlag: partial({
+            filters: partial({
+                groups: [
+                    partial({
+                        properties: [],
+                        variant: null,
+                    }),
+                ],
+            }),
+        }),
+        variants: [],
+    })
+    await expectLogic(logic, () => {
+        logic.actions.setMultivariateEnabled(true)
+    })
+        .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
+        .toMatchValues({
+            variants: [
+                {
+                    key: 'control',
+                    name: '',
+                    rollout_percentage: 50,
+                },
+                {
+                    key: 'test',
+                    name: '',
+                    rollout_percentage: 50,
+                },
+            ],
+        })
+})
+
+it('resets the variants and group variant keys when disabling multivariate', async () => {
+    const MOCK_MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
+        ...logic.values.featureFlag,
+        filters: {
+            groups: [
+                {
+                    variant: 'control1',
+                    properties: [
+                        {
+                            key: '$browser',
+                            type: PropertyFilterType.Person,
+                            value: 'Chrome',
+                            operator: PropertyOperator.Regex,
+                        },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+            payloads: {
+                control1: '{"key": "value"}',
+            },
+            multivariate: {
+                variants: [
+                    {
+                        key: 'control1',
+                        name: 'Control 1',
+                        rollout_percentage: 30,
+                    },
+                    {
+                        key: 'control2',
+                        name: 'Control 2',
+                        rollout_percentage: 70,
+                    },
+                ],
+            },
+        },
+    }
+
+    await expectLogic(logic, () => {
+        logic.actions.setFeatureFlag(MOCK_MULTIVARIATE_FEATURE_FLAG)
+    })
+        .toDispatchActions(['setFeatureFlag'])
+        .toMatchValues({
+            featureFlag: MOCK_MULTIVARIATE_FEATURE_FLAG,
+        })
+
+    await expectLogic(logic, () => {
+        logic.actions.setMultivariateEnabled(false)
+    })
+        .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
+        .toMatchValues({
+            featureFlag: partial({
+                filters: partial({
+                    groups: [
+                        {
+                            ...MOCK_MULTIVARIATE_FEATURE_FLAG.filters.groups[0],
+                            variant: null,
+                        },
+                    ],
+                    payloads: {},
+                }),
+            }),
+            variants: [],
+        })
+})
+})
 
     describe('applyTemplate', () => {
         const EXPECTED_VARIANTS = partial({

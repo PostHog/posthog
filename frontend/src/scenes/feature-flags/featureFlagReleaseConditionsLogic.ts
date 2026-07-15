@@ -383,7 +383,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ...state,
                     [sortKey]: true,
                 }),
-                // Any count write (reset or result) means the condition is no longer in error.
+                // Cleared when setAffectedCount fires (reset or result); the two counts are always
+                // written together, so listening to setAffectedCount alone is sufficient.
                 setAffectedCount: (state, { sortKey }) => {
                     if (!state[sortKey]) {
                         return state

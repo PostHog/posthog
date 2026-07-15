@@ -121,6 +121,36 @@ describe('the feature flag release conditions logic', () => {
                 // path can't tell apart from the still-loading (undefined) state.
                 expect(logic.values.blastRadiusErrors.X).toBe(true)
                 expect(logic.values.affectedCounts.X).toBeUndefined()
+                expect(logic.values.totalCounts.X).toBeUndefined()
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
+        it('clears the error state once a recalculation succeeds', async () => {
+            logic.actions.setBlastRadiusError('X')
+            expect(logic.values.blastRadiusErrors.X).toBe(true)
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ affected: 10, total: 100 })
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.calculateBlastRadiusForCondition(
+                        'X',
+                        [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        null
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.blastRadiusErrors.X).toBeUndefined()
+                expect(logic.values.affectedCounts.X).toBe(10)
+                expect(logic.values.totalCounts.X).toBe(100)
             } finally {
                 createSpy.mockRestore()
             }

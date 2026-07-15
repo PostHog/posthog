@@ -1310,7 +1310,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e: any) {
-                        if (e.status === 403 && e.code === 'permission_denied') {
+                        if (isAccessDeniedError(e)) {
                             actions.setAccessDeniedToFeatureFlag()
                         } else {
                             actions.setFeatureFlagMissing()

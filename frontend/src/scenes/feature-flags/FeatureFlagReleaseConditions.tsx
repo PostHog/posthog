@@ -457,7 +457,10 @@ export function FeatureFlagReleaseConditions({
                                     const total = sortKey ? totalCounts[sortKey] : undefined
                                     if (sortKey && blastRadiusErrors[sortKey]) {
                                         return (
-                                            <div className="basis-full flex items-center gap-2 mt-1 text-secondary">
+                                            <div
+                                                role="status"
+                                                className="basis-full flex items-center gap-2 mt-1 text-secondary"
+                                            >
                                                 <IconErrorOutline className="text-danger text-base shrink-0" />
                                                 <span>Couldn't estimate how many {pluralName} match.</span>
                                                 <LemonButton
