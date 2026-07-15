@@ -260,6 +260,30 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert SignalReport.objects.filter(team=self.team).count() == 0
 
+    def test_noop_edit_records_and_fires_nothing(self) -> None:
+        # A same-value rewrite mutates nothing, so it must leave no trace anywhere: no edited tally,
+        # no action rows, and crucially no `$scout_report_edited` fan-out — that event drives
+        # downstream automations, so a phantom edit would trigger them and corrupt edit counts.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        self.capture_internal_mock.reset_mock()
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={"report_id": created["report_id"], "title": self._payload()["title"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated_fields"] == []
+        run.refresh_from_db()
+        assert run.edited_report_ids in (None, [])
+        assert not (
+            SignalScoutReportAction.objects.filter(team=self.team)
+            .exclude(action=SignalScoutReportAction.Action.CREATED)
+            .exists()
+        )
+        self.capture_internal_mock.assert_not_called()
+
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")

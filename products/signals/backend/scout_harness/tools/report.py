@@ -144,6 +144,13 @@ class EditReportResult:
     report_title: str | None = None
 
 
+def _edit_applied(result: EditReportResult) -> bool:
+    """Whether an `edit_report` call actually mutated anything. False for a no-op (a same-value
+    title/summary rewrite) — which must not be recorded anywhere: no tally, no action rows, no
+    edited telemetry, no customer fan-out."""
+    return bool(result.updated_fields or result.note_appended or result.reviewers_set)
+
+
 def _surfaced(status: SignalReport.Status) -> bool:
     return status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 
@@ -1029,7 +1036,7 @@ def _do_edit_report(
     # title rewrite to its current value) must not claim the run touched the report. The per-action
     # bookkeeping rows follow the same condition, one per sub-action applied, each carrying the
     # call's scout-supplied `tags` / `metadata` so every row is self-contained on the warehouse side.
-    if updated_fields or note_appended or reviewers_set:
+    if _edit_applied(result):
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         for action in _edit_actions(updated_fields, note_appended, reviewers_set):
             record_report_action(
@@ -1083,17 +1090,22 @@ async def edit_report(
         tags=tags,
         metadata=metadata,
     )
-    forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
-        team=team,
-        run=run,
-        result=result,
-        title=title,
-        summary=summary,
-        note=append_note,
-        suggested_reviewers=suggested_reviewers,
-        tags=tags,
-    )
-    await _forward_report_event_async(team, forward)
+    # A no-op edit (same-value rewrite only) mutated nothing, so it must not fire the edited
+    # telemetry or the customer-facing `$scout_report_edited` fan-out — that event drives downstream
+    # automations, and a phantom edit would trigger them and corrupt edit counts (mirrors the guard
+    # on the tally / action-row writes in `_do_edit_report`).
+    if _edit_applied(result):
+        forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
+            team=team,
+            run=run,
+            result=result,
+            title=title,
+            summary=summary,
+            note=append_note,
+            suggested_reviewers=suggested_reviewers,
+            tags=tags,
+        )
+        await _forward_report_event_async(team, forward)
     return result
 
 
@@ -1124,15 +1136,17 @@ def edit_report_sync(
         tags=tags,
         metadata=metadata,
     )
-    forward = _capture_report_edited(
-        team=team,
-        run=run,
-        result=result,
-        title=title,
-        summary=summary,
-        note=append_note,
-        suggested_reviewers=suggested_reviewers,
-        tags=tags,
-    )
-    _forward_report_event_to_team(team=team, forward=forward)
+    # No-op edits skip telemetry/fan-out — see the guard rationale in `edit_report`.
+    if _edit_applied(result):
+        forward = _capture_report_edited(
+            team=team,
+            run=run,
+            result=result,
+            title=title,
+            summary=summary,
+            note=append_note,
+            suggested_reviewers=suggested_reviewers,
+            tags=tags,
+        )
+        _forward_report_event_to_team(team=team, forward=forward)
     return result
