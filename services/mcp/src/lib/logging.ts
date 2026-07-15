@@ -1,4 +1,4 @@
-export const SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key']
+const SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key']
 
 // Wide log class for accumulating request data and emitting a single log at the end
 export class RequestLogger {
