@@ -1,6 +1,15 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { FilterGroupFacetSource, facetFilterValues, mergeSelectedIntoOptions, toggleFacetFilter } from './facets'
+import {
+    FacetSource,
+    FilterGroupFacetSource,
+    facetFilterValues,
+    facetSelectedValues,
+    mergeSelectedIntoOptions,
+    toggleFacetFilter,
+} from './facets'
+
+const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
 
 const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
 const POD_SOURCE: FilterGroupFacetSource = { type: 'resourceAttribute', key: 'k8s.pod.name' }
@@ -84,6 +93,14 @@ describe('facets', () => {
         })
     })
 
+    describe('facetSelectedValues', () => {
+        it('drops empty service names from external state so they cannot inject a blank row', () => {
+            // The service facet reads the dedicated serviceNames field, not the filterGroup — a URL or
+            // saved view carrying serviceNames: [''] must not surface a blank selected service row.
+            expect(facetSelectedValues(undefined, ['api', ''], SERVICE_SOURCE)).toEqual(['api'])
+        })
+    })
+
     describe('mergeSelectedIntoOptions', () => {
         it('prepends a selected value absent from the fetched list with a zero count', () => {
             const fetched = [{ value: 'api', label: 'api', count: 5 }]
@@ -104,6 +121,22 @@ describe('facets', () => {
         it('does not re-add a selected value already present in the fetched list', () => {
             const fetched = [{ value: 'api', label: 'api', count: 5 }]
             expect(mergeSelectedIntoOptions(fetched, ['api'])).toEqual(fetched)
+        })
+    })
+
+    describe('mergeSelectedIntoOptions', () => {
+        const fetched = [{ value: 'api', label: 'api', count: 10 }]
+
+        // Injected selected-but-absent rows must honor an active type-ahead search — otherwise a
+        // selected value the server just filtered out reappears pinned at 0, contradicting the list.
+        it.each<[string, string | undefined, string[]]>([
+            ['no search injects every missing selected value', undefined, ['worker-1']],
+            ['a matching search keeps the injected value (case-insensitive)', 'WORK', ['worker-1']],
+            ['a non-matching search drops the injected value', 'kafka', []],
+        ])('%s', (_, search, expectedInjected) => {
+            const options = mergeSelectedIntoOptions(fetched, ['api', 'worker-1'], search)
+            expect(options.filter((o) => o.count === 0).map((o) => o.value)).toEqual(expectedInjected)
+            expect(options).toEqual(expect.arrayContaining(fetched))
         })
     })
 })
