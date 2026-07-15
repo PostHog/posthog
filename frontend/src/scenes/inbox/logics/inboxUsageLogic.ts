@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
@@ -65,9 +66,8 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // contains credited-refunded PRs (the money comes back as an invoice credit, not lower
         // usage), so the widget subtracts these to show the net PR count. Excluded-path refunds
         // never reach billing usage and need no adjustment.
-        // TODO(signals): usage + refund summary are org-wide (billing allocates the free PR tier
-        // per org), but this widget renders on a project-routed page where the number can read as
-        // project usage — label it org-wide, or revisit if billing ever splits usage per project.
+        // Usage + refund summary are org-wide (billing allocates the free PR tier per org); the
+        // widget labels the count accordingly. Revisit if billing ever splits usage per project.
         refundSummary: [
             null as SignalReportRefundSummaryResponseApi | null,
             {
@@ -118,6 +118,13 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         },
     })),
     selectors({
+        // The refunds flag is keyed on the organization group, so posthog-js only resolves it
+        // after the org group is registered and flags are re-fetched — typically after this logic
+        // has mounted. Derived here so a subscription can react to it flipping on.
+        refundsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS],
+        ],
         product: [
             (s) => [s.billing],
             (billing): BillingProductV2Type | null =>
@@ -265,10 +272,19 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // listener — a plain archive just makes this a cheap no-op reload).
         [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.loadRefundSummary(),
     })),
+    // Fires on mount and again when the org-group-keyed flag arrives after mount — a mount-time
+    // load alone silently skips the summary on pageloads where flags resolve late, leaving the
+    // widget on billing's lagging recorded usage until something else re-triggers the loader.
+    subscriptions(({ actions }) => ({
+        refundsFlagEnabled: (enabled: boolean) => {
+            if (enabled) {
+                actions.loadRefundSummary()
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         if (!values.billing) {
             actions.loadBilling()
         }
-        actions.loadRefundSummary()
     }),
 ])

@@ -13,10 +13,10 @@ import { inboxUsageLogic } from './inboxUsageLogic'
 
 const CREDITS_PER_PR = 1500
 
-const mountWithUsage = async (
+const mockUsageEndpoints = (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
-): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
+): void => {
     useMocks({
         get: {
             '/api/billing': () => [
@@ -29,10 +29,21 @@ const mountWithUsage = async (
             ],
         },
     })
-    featureFlagLogic.mount()
+}
+
+const setRefundsFlag = (): void => {
     featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_PR_REFUNDS], {
         [FEATURE_FLAGS.SIGNALS_PR_REFUNDS]: true,
     })
+}
+
+const mountWithUsage = async (
+    currentUsage: number,
+    summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count'>
+): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
+    mockUsageEndpoints(currentUsage, summary)
+    featureFlagLogic.mount()
+    setRefundsFlag()
     const logic = inboxUsageLogic()
     logic.mount()
     await expectLogic(logic).toFinishAllListeners()
@@ -43,6 +54,9 @@ describe('inboxUsageLogic', () => {
     let logic: ReturnType<typeof inboxUsageLogic.build> | undefined
 
     beforeEach(() => {
+        // featureFlagLogic persists to localStorage, which jsdom keeps across tests — without
+        // clearing, a flag set in one test leaks into the next test's mount-time state.
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -67,5 +81,24 @@ describe('inboxUsageLogic', () => {
         })
 
         expect(logic.values.usedPrs).toBe(expectedPrs)
+    })
+
+    // The refunds flag is keyed on the organization group, so on a fresh pageload it resolves
+    // only after mount (once posthog-js registers the group and re-fetches flags). A mount-time
+    // load alone would skip the summary forever, pinning the widget to billing's lagging
+    // recorded usage until an unrelated archive re-triggered the loader.
+    it('loads the refund summary when the flag arrives after mount', async () => {
+        mockUsageEndpoints(1500, { period_billable_credits: 6000, credited_credits: 0 })
+        featureFlagLogic.mount()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.refundSummary).toBeNull()
+        expect(logic.values.usedPrs).toBe(1)
+
+        setRefundsFlag()
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
+
+        expect(logic.values.usedPrs).toBe(4)
     })
 })
