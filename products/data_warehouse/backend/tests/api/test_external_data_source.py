@@ -1195,7 +1195,12 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Prefix already exists"})
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "Another source of this type already uses the prefix 'test_'. Choose a different prefix so this connection's tables don't clash."
+            },
+        )
 
     def _make_external_data_source(
         self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
@@ -1236,7 +1241,7 @@ class TestExternalDataSource(APIBaseTest):
                 [("foo_", False)],
                 "foo_",
                 400,
-                "Prefix already exists",
+                "Another source of this type already uses the prefix 'foo_'. Choose a different prefix so this connection's tables don't clash.",
             ),
             (
                 "no-prefix source (null) blocks another no-prefix",
