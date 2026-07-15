@@ -39,6 +39,11 @@ class TestSourceConfig:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert FireworksAISource.lists_tables_without_credentials is True
 
+    def test_account_id_change_requires_secret_reentry(self) -> None:
+        # Dropping this override would let an editor retarget a preserved API key at another
+        # Fireworks account without re-entering it (the update serializer keys off this list).
+        assert FireworksAISource().connection_host_fields == ["account_id"]
+
 
 class TestGetSchemas:
     def test_returns_all_endpoints_full_refresh_only(self) -> None:
