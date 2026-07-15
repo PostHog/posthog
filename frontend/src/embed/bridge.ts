@@ -6,9 +6,16 @@
  *   host -> iframe  { source: 'posthog-embed-host', type: 'setTheme', theme: 'light' | 'dark' | null }
  *   iframe -> host  { source: 'posthog-embed', type: 'ready', url }
  *   iframe -> host  { source: 'posthog-embed', type: 'routeChanged', url }
+ *   iframe -> host  { source: 'posthog-embed', type: 'openTab', url }
  *
  * Navigation goes through kea-router, which auto-prefixes `/project/<id>` —
  * the host should send bare paths like `/notebooks`.
+ *
+ * New-tab intents (window.open / target="_blank" on same-origin URLs) are
+ * forwarded to the host as `openTab` so it can open another embedded tab
+ * instead of the browser context dropping them. External URLs keep the
+ * native path (Electron's window-open handler opens the system browser).
+ * In-app kea-router pushes are untouched and navigate in place.
  */
 import { getContext } from 'kea'
 import { router } from 'kea-router'
@@ -50,10 +57,58 @@ export function initEmbedBridge(): void {
     }, 50)
 }
 
+function sendOpenTab(resolved: URL): void {
+    postToHost({ type: 'openTab', url: `${resolved.pathname}${resolved.search}${resolved.hash}` })
+}
+
+function interceptNewTabs(): void {
+    // window.open with a same-origin URL becomes a host tab; everything else
+    // (external docs links, OAuth popups) keeps the native path.
+    const originalOpen = window.open.bind(window)
+    window.open = (url?: string | URL, target?: string, features?: string): Window | null => {
+        if (url) {
+            const resolved = new URL(String(url), window.location.href)
+            if (resolved.origin === window.location.origin) {
+                sendOpenTab(resolved)
+                return null
+            }
+        }
+        return originalOpen(url, target, features)
+    }
+
+    // Plain <a target="_blank"> anchors (the webapp's "open in new tab"
+    // affordances) — capture phase so we run before any in-app handlers.
+    document.addEventListener(
+        'click',
+        (event) => {
+            if (event.defaultPrevented || event.button !== 0) {
+                return
+            }
+            const anchor = (event.target as HTMLElement | null)?.closest?.('a[target="_blank"]')
+            if (!anchor) {
+                return
+            }
+            const href = (anchor as HTMLAnchorElement).href
+            if (!href) {
+                return
+            }
+            const resolved = new URL(href, window.location.href)
+            if (resolved.origin === window.location.origin) {
+                event.preventDefault()
+                event.stopPropagation()
+                sendOpenTab(resolved)
+            }
+        },
+        true
+    )
+}
+
 function start(): void {
     // Keep themeLogic mounted for the app's lifetime so the forced theme
     // doesn't unmount away with whatever scene mounted it first.
     themeLogic.mount()
+
+    interceptNewTabs()
 
     if (window.__POSTHOG_EMBED_THEME__) {
         themeLogic.actions.setEmbedForcedTheme(window.__POSTHOG_EMBED_THEME__)
