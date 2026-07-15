@@ -569,7 +569,7 @@ class BrowserUseSourceConfig(config.Config):
 
 @config.config
 class BrowserbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
