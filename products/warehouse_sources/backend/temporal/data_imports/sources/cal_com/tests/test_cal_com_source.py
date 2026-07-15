@@ -75,11 +75,15 @@ class TestCalComSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.cal.com/v2/bookings?limit=250",),
+            # `_fetch_page` scrubs the query string, so the persisted message ends at the path. A 400
+            # (e.g. a page size or filter Cal.com rejects) must surface as an actionable message
+            # rather than a raw stack-traced HTTPError.
+            ("400 Client Error: Bad Request for url: https://api.cal.com/v2/bookings",),
+            ("401 Client Error: Unauthorized for url: https://api.cal.com/v2/bookings",),
             ("403 Client Error: Forbidden for url: https://api.cal.com/v2/me",),
         ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_client_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
