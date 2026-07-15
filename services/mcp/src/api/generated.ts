@@ -13982,19 +13982,16 @@ export namespace Schemas {
       Analytical: 'analytical',
     } as const;
 
-    /**
-     * * `property_only` - property_only
-     * * `behavioral_only` - behavioral_only
-     * * `both` - both
-     */
-    export type ConditionTypeEnum = typeof ConditionTypeEnum[keyof typeof ConditionTypeEnum];
-
-
-    export const ConditionTypeEnum = {
-      PropertyOnly: 'property_only',
-      BehavioralOnly: 'behavioral_only',
-      Both: 'both',
-    } as const;
+    export interface CohortConditionTypeFlags {
+      /** The filters include a person property or person_metadata condition. */
+      person_properties: boolean;
+      /** The filters include a plain behavioral condition (performed_event, performed_event_multiple, or performed_event_sequence). */
+      behavioral: boolean;
+      /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+      lifecycle: boolean;
+      /** The filters include a nested reference to another cohort. */
+      cohorts: boolean;
+    }
 
     export interface Cohort {
       readonly id: number;
@@ -14035,12 +14032,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
-      /** Whether the cohort's filters are property-only, behavioral-only, or contain both. Null when neither is present, e.g. empty filters or a cohort made up only of nested cohort references.
-       *
-       * * `property_only` - property_only
-       * * `behavioral_only` - behavioral_only
-       * * `both` - both */
-      readonly condition_type: ConditionTypeEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type: CohortConditionTypeFlags | null;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -41087,12 +41080,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
-      /** Whether the cohort's filters are property-only, behavioral-only, or contain both. Null when neither is present, e.g. empty filters or a cohort made up only of nested cohort references.
-       *
-       * * `property_only` - property_only
-       * * `behavioral_only` - behavioral_only
-       * * `both` - both */
-      readonly condition_type?: ConditionTypeEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type?: CohortConditionTypeFlags | null;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
