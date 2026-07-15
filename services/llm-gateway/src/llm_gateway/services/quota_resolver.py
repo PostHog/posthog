@@ -118,11 +118,17 @@ class QuotaResolver:
         try:
             status, ttl = await self._fetch_with_retry(resource_key, team_id, auth_header)
             await self._set_last_known_billing(team_id, status.code_usage_billing_active)
+        except _PermanentUpstreamError:
+            # 4xx is about this caller's credentials, not a team fact. Fail open
+            # for the request but don't write the shared per-team cache — else a
+            # caller who can 403 the quota endpoint pins limited=False team-wide.
+            logger.warning("quota_fetch_denied", resource=resource_key, team_id=team_id)
+            return QuotaResourceStatus(
+                limited=False, code_usage_billing_active=await self._get_last_known_billing(team_id)
+            )
         except Exception:
+            # Billing serves last-known, not False, so a blip can't re-cap a paying org.
             logger.warning("quota_fetch_failed", resource=resource_key, team_id=team_id, exc_info=True)
-            # Quota fails open, but the billing bit must not: overwriting it
-            # with False would re-cap a paying org's users for the fail-open
-            # window every time Django blips (or one caller's token 4xxes).
             status, ttl = (
                 QuotaResourceStatus(
                     limited=False,

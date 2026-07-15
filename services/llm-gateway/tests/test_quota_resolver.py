@@ -219,13 +219,15 @@ class TestQuotaResolver:
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=False, code_usage_billing_active=True)
-        # The fail-open entry carries the fallback so the whole team keeps it
-        # for the window instead of re-fetching per request.
-        assert json.loads(redis.store[_redis_key("ai_credits", 42)]) == {
-            "limited": False,
-            "code_usage_billing_active": True,
-        }
-        assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
+        if failure_mode == "retries_exhausted":
+            assert json.loads(redis.store[_redis_key("ai_credits", 42)]) == {
+                "limited": False,
+                "code_usage_billing_active": True,
+            }
+            assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
+        else:
+            # 4xx is caller-specific and must not repopulate the shared entry.
+            assert _redis_key("ai_credits", 42) not in redis.store
 
     @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
@@ -332,16 +334,16 @@ class TestQuotaResolver:
         assert redis.set.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_caches_fail_open_for_full_window_on_4xx(self) -> None:
-        # 4xx responses (e.g. expired token) cache for the fail-open window so
-        # a hot loop with a broken token doesn't hammer Django.
+    async def test_does_not_cache_on_4xx(self) -> None:
+        # Caching a 4xx team-wide would let a caller who can 403 the quota
+        # endpoint pin limited=False for everyone on the team.
         redis = AsyncMock()
         redis.get = AsyncMock(return_value=None)
         redis.set = AsyncMock()
         http_client = _make_http_client(_make_response(401, {"detail": "no auth"}))
         resolver = QuotaResolver(redis=redis, http_client=http_client)
 
-        await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        redis.set.assert_awaited_once()
-        assert redis.set.await_args.kwargs.get("ex") == _FAIL_OPEN_CACHE_TTL_SECONDS
+        assert status == QuotaResourceStatus(limited=False)
+        redis.set.assert_not_awaited()
