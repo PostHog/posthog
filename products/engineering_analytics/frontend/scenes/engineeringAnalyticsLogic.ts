@@ -11,20 +11,24 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
+    engineeringAnalyticsBrokenTests,
     engineeringAnalyticsCiCards,
     engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
+    engineeringAnalyticsRunFailureLogs,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
+    BrokenTestRowApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
+    RunFailureLogsApi,
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
@@ -36,6 +40,9 @@ export const PR_TABLE_LIMIT = 1000
 
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
+
+// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -439,8 +446,8 @@ export interface FlakyTestRow {
     failedCount: number
     /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
     failedPrCount: number
-    /** Distinct branches across the test's flaky-signal spans. */
-    branchCount: number
+    /** Failed/error spans on the default branch (master/main) — the "matters right now" signal. */
+    masterFailedCount: number
     /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
     xfailedCount: number
     lastSeenAt: string
@@ -451,6 +458,62 @@ export interface FlakyTestsData {
     /** True when more tests qualified than the cap; rows are the strongest `limit`. */
     truncated: boolean
     limit: number
+}
+
+// ── Broken-tests panel ─────────────────────────────────────────────────────────────
+// Live CI failures classified by how each is behaving right now — breaking trunk, novel, resolving,
+// flaky, or one PR's problem — ranked most-urgent first. The classifier and the two cluster reads it
+// merges run server-side in the `broken_tests` product endpoint (logic/queries/broken_tests.py); the
+// UI just renders the typed rows, so there is no client-side HogQL or classifier here any more.
+
+export type BrokenTestState = BrokenTestRowApi['state']
+
+/** A classified CI-failure fingerprint, camelCased from the endpoint row. `trend` is the fixed
+ * 24-slot hourly failure count (oldest first) the row sparkline renders. */
+export interface BrokenTestRow {
+    fingerprint: string
+    testId: string
+    errorSignature: string
+    jobName: string
+    repo: string
+    state: BrokenTestState
+    firstSeen: string
+    lastSeen: string
+    occurrences: number
+    branches: number
+    masterHits: number
+    // Most recent failing run for this fingerprint — the anchor the row expansion fetches logs for.
+    latestRunId: number
+    latestBranch: string
+    trend: number[]
+}
+
+export interface BrokenTestsData {
+    rows: BrokenTestRow[]
+    // Default-branch jobs whose latest run is red — drives the panel's summary banner.
+    breakingMasterJobs: string[]
+    windowDays: number
+    truncated: boolean
+    limit: number
+}
+
+function toBrokenTestRow(it: BrokenTestRowApi): BrokenTestRow {
+    return {
+        fingerprint: it.fingerprint,
+        testId: it.test_id,
+        errorSignature: it.error_signature,
+        jobName: it.job_name,
+        repo: it.repo,
+        state: it.state,
+        firstSeen: it.first_seen,
+        lastSeen: it.last_seen,
+        occurrences: it.occurrences,
+        branches: it.branches,
+        masterHits: it.master_hits,
+        latestRunId: it.latest_run_id,
+        latestBranch: it.latest_branch,
+        trend: it.trend_24h ?? [],
+    }
 }
 
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
@@ -572,6 +635,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
             setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
+            setShowPrOnlyBrokenTests: (show: boolean) => ({ show }),
             refresh: true,
         }),
 
@@ -681,6 +745,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: async (): Promise<FlakyTestsData> => {
                         const data = await engineeringAnalyticsFlakyTests(projectId(), {
                             date_from: values.flakyTestWindow,
+                            limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
                         })
                         return {
@@ -691,7 +756,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     rerunPassedCount: it.rerun_passed_count,
                                     failedCount: it.failed_count,
                                     failedPrCount: it.failed_pr_count,
-                                    branchCount: it.branch_count,
+                                    masterFailedCount: it.master_failed_count,
                                     xfailedCount: it.xfailed_count,
                                     lastSeenAt: it.last_seen_at,
                                 })
@@ -699,6 +764,45 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             truncated: data.truncated,
                             limit: data.limit,
                         }
+                    },
+                },
+            ],
+            brokenTestsData: [
+                null as BrokenTestsData | null,
+                {
+                    loadBrokenTests: async (): Promise<BrokenTestsData> => {
+                        const data = await engineeringAnalyticsBrokenTests(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return {
+                            rows: data.rows.map(toBrokenTestRow),
+                            breakingMasterJobs: data.breaking_master_jobs,
+                            windowDays: data.window_days,
+                            truncated: data.truncated,
+                            limit: data.limit,
+                        }
+                    },
+                },
+            ],
+            runFailureLogsByRun: [
+                {} as Record<number, RunFailureLogsApi>,
+                {
+                    loadRunFailureLogs: async ({
+                        runId,
+                    }: {
+                        runId: number
+                    }): Promise<Record<number, RunFailureLogsApi>> => {
+                        // Lazy: fetched when a broken-test row is expanded, cached per run so re-expanding
+                        // is free. Rides the product's own engineering_analytics endpoint (not raw /query/),
+                        // so it authorizes under the same scope the rest of the panel uses.
+                        if (!runId || values.runFailureLogsByRun[runId]) {
+                            return values.runFailureLogsByRun
+                        }
+                        const result = await engineeringAnalyticsRunFailureLogs(projectId(), {
+                            run_id: runId,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return { ...values.runFailureLogsByRun, [runId]: result }
                     },
                 },
             ],
@@ -835,6 +939,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
             ],
+            // Prototype panel hides the low-signal PR-only failures by default.
+            showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
             // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
             flakyTestsStatus: [
@@ -843,6 +949,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadFlakyTests: () => 'ok',
                     loadFlakyTestsSuccess: () => 'ok',
                     loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            // Prototype panel reads two views directly; if either isn't provisioned the query errors,
+            // which the panel surfaces in-place instead of crashing the tab.
+            brokenTestsError: [
+                null as string | null,
+                {
+                    loadBrokenTests: () => null,
+                    loadBrokenTestsSuccess: () => null,
+                    loadBrokenTestsFailure: (_, { error }) => error ?? 'Could not load broken tests.',
                 },
             ],
             quarantineModal: [
@@ -1025,6 +1141,28 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
+            // Classified rows come pre-ranked from the endpoint (severity, then last_seen desc).
+            brokenTests: [
+                (s) => [s.brokenTestsData],
+                (brokenTestsData): BrokenTestRow[] => brokenTestsData?.rows ?? [],
+            ],
+            breakingMasterJobs: [
+                (s) => [s.brokenTestsData],
+                (brokenTestsData): string[] => brokenTestsData?.breakingMasterJobs ?? [],
+            ],
+            brokenTestsWindowDays: [
+                (s) => [s.brokenTestsData],
+                (brokenTestsData): number => brokenTestsData?.windowDays ?? 2,
+            ],
+            hiddenBrokenTestCount: [
+                (s) => [s.brokenTests],
+                (brokenTests: BrokenTestRow[]): number => brokenTests.filter((row) => row.state === 'pr_only').length,
+            ],
+            visibleBrokenTests: [
+                (s) => [s.brokenTests, s.showPrOnlyBrokenTests],
+                (brokenTests: BrokenTestRow[], showPrOnly): BrokenTestRow[] =>
+                    showPrOnly ? brokenTests : brokenTests.filter((row) => row.state !== 'pr_only'),
+            ],
             hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
             activeSource: [
@@ -1049,6 +1187,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
                 actions.loadFlakyTests()
+                actions.loadBrokenTests()
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),

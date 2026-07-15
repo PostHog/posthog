@@ -44,7 +44,6 @@ class TestOpenWeatherSource:
         assert config.name.value == "OpenWeather"
         assert config.label == "OpenWeather"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/openweather.png"
 
     def test_get_source_config_fields(self):

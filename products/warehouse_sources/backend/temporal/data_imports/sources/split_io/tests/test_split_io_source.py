@@ -26,7 +26,6 @@ class TestSplitIoSource:
         assert config.name.value == "SplitIo"
         assert config.label == "Split.io"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/split_io.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

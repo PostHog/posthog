@@ -8,8 +8,10 @@ the rows come back as an Arrow stream. No backend web worker waits on ClickHouse
 only third-party dependency is pyarrow (present in the sandbox image).
 """
 
+import os
 import json
 import time
+import threading
 import urllib.error
 import urllib.request
 from typing import Any
@@ -27,10 +29,55 @@ class DataPlaneError(Exception):
     """A query the data plane rejected or failed to run; message is user-facing."""
 
 
+class DataPlaneInterrupted(DataPlaneError):
+    """The run's cancel event fired while waiting on the data plane."""
+
+
 def fetch_query_page(
-    url: str, token: str, query: str, limit: int, offset: int = 0
+    url: str,
+    token: str,
+    query: str,
+    limit: int,
+    offset: int = 0,
+    cancel_event: "threading.Event | None" = None,
 ) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
     """Run `query` through the data plane; return (columns, rows, types) of the capped page."""
+    return _table_to_rows_and_types(_request_table(url, token, query, limit, offset, cancel_event))
+
+
+def materialize_query_to_file(
+    url: str,
+    token: str,
+    query: str,
+    dest_path: str,
+    limit: int,
+    offset: int = 0,
+    cancel_event: "threading.Event | None" = None,
+) -> int:
+    """Fetch the full result of `query` and write it as a local Arrow IPC file for a Python/DuckDB node.
+
+    Returns the row count. The file is written to a temp name and renamed on success so a torn
+    write (e.g. a mid-stream failure) never leaves a half-frame the kernel could read.
+    """
+    table = _request_table(url, token, query, limit, offset, cancel_event)
+    temp_path = f"{dest_path}.partial"
+    with pa.OSFile(temp_path, "wb") as sink:
+        with pa.ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+    os.replace(temp_path, dest_path)
+    return table.num_rows
+
+
+def _check_cancelled(cancel_event: "threading.Event | None") -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise DataPlaneInterrupted("Run interrupted.")
+
+
+def _request_table(
+    url: str, token: str, query: str, limit: int, offset: int, cancel_event: "threading.Event | None" = None
+) -> "pa.Table":
+    """POST the query and (once the async manager finishes) return the raw Arrow table."""
+    _check_cancelled(cancel_event)
     request = urllib.request.Request(
         url,
         data=json.dumps({"query": query, "limit": limit, "offset": offset}).encode(),
@@ -43,7 +90,7 @@ def fetch_query_page(
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             if _is_arrow(response):
                 # A pre-async-manager backend answers the POST with the rows directly.
-                return decode_arrow_stream(response)
+                return _read_table(response)
             body = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as exc:
         raise DataPlaneError(_error_detail(exc)) from exc
@@ -55,20 +102,21 @@ def fetch_query_page(
     query_id = body.get("query_id")
     if not query_id:
         raise DataPlaneError("Data plane did not accept the query")
-    return _poll_for_result(f"{url.rstrip('/')}/{query_id}/", token)
+    return _poll_for_table(f"{url.rstrip('/')}/{query_id}/", token, cancel_event)
 
 
-def _poll_for_result(status_url: str, token: str) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
+def _poll_for_table(status_url: str, token: str, cancel_event: "threading.Event | None" = None) -> "pa.Table":
     request = urllib.request.Request(status_url, headers={"Authorization": f"Bearer {token}"}, method="GET")
     deadline = time.monotonic() + _POLL_DEADLINE_SECONDS
     interval = _POLL_INITIAL_INTERVAL_SECONDS
     while time.monotonic() < deadline:
+        _check_cancelled(cancel_event)
         try:
             # status_url is the backend's own data-plane endpoint from the signed run payload, not user input.
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 if _is_arrow(response):
-                    return decode_arrow_stream(response)
+                    return _read_table(response)
                 # 202 — still running.
         except urllib.error.HTTPError as exc:
             raise DataPlaneError(_error_detail(exc)) from exc
@@ -76,7 +124,11 @@ def _poll_for_result(status_url: str, token: str) -> tuple[list[str], list[tuple
             raise DataPlaneError(f"Could not reach the data plane: {exc.reason}") from exc
         except pa.ArrowInvalid as exc:
             raise DataPlaneError(f"Invalid Arrow response from the data plane: {exc}") from exc
-        time.sleep(interval)
+        # An Event.wait doubles as an interruptible sleep: a cancel fires mid-interval.
+        if cancel_event is not None:
+            cancel_event.wait(interval)
+        else:
+            time.sleep(interval)
         interval = min(interval * 1.5, _POLL_MAX_INTERVAL_SECONDS)
     raise DataPlaneError("Timed out waiting for the query to finish")
 
@@ -85,14 +137,22 @@ def _is_arrow(response: Any) -> bool:
     return "arrow" in (response.headers.get("Content-Type") or "")
 
 
+def _read_table(source: Any) -> "pa.Table":
+    return pa.ipc.open_stream(source).read_all()
+
+
 def decode_arrow_stream(source: Any) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
-    """Decode an Arrow IPC stream (file-like or bytes-like) into (columns, rows, types).
+    """Decode an Arrow IPC stream (file-like or bytes-like) into (columns, rows, types)."""
+    return _table_to_rows_and_types(_read_table(source))
+
+
+def _table_to_rows_and_types(table: "pa.Table") -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
+    """Turn an Arrow table into (columns, rows, types).
 
     Types come from the `hogql_types` schema metadata the data plane attaches (the
     real ClickHouse type names); when absent they are approximated from the Arrow
     schema so the envelope always carries something usable for axis detection.
     """
-    table = pa.ipc.open_stream(source).read_all()
     columns = table.column_names
     # Columnar → row tuples without to_pylist(), which would collapse duplicate column names.
     column_values = [table.column(i).to_pylist() for i in range(table.num_columns)]

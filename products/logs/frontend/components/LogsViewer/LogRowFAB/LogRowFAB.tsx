@@ -12,6 +12,7 @@ import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { useCellScrollControls } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
+import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 
@@ -35,10 +36,11 @@ export function LogRowFAB({
     showScrollButtons = false,
 }: LogRowFABProps): JSX.Element {
     const { id } = useValues(logsViewerLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
     const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
-    const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes)
+    const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
 
     return (
         <div

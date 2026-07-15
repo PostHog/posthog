@@ -6,6 +6,7 @@ Triggered from posthog/temporal/alerts/workflows.py when an alert transitions to
 
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 from dataclasses import dataclass
@@ -58,6 +59,10 @@ MAX_SUMMARY_CHARS = 500
 # (a conservative margin even for token-dense text) so a long agent report can't get the signal
 # rejected and silently dropped.
 _MAX_DESCRIPTION_CHARS = 3000
+
+# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
+# used to clip the summary teaser on a sentence boundary instead of mid-word.
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 
 @dataclass
@@ -375,8 +380,16 @@ def _dispatch_gated_notification(
         breaches = _build_breach_descriptions(
             alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
         )
+        # Surface the notebook URL as an event property so the Slack destination can render a
+        # "View Investigation" button. Absent when the investigation produced no notebook, in
+        # which case the button falls back to "View Alert".
+        extra_properties = (
+            {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")}
+            if notebook_short_id
+            else None
+        )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches)
+            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
             if targets is not None:
                 record_alert_delivery(alert, check, targets)
         except Exception:
@@ -440,6 +453,20 @@ def _truncate_summary(summary: str | None) -> str | None:
         return None
     if len(trimmed) <= MAX_SUMMARY_CHARS:
         return trimmed
+
+    window = trimmed[:MAX_SUMMARY_CHARS]
+    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
+    # teaser — otherwise a short lead sentence would drop most of the summary.
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
+    if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
+        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
+        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
+        return window[: sentence_ends[-1]].rstrip() + " …"
+
+    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
+    word_end = window.rstrip().rfind(" ")
+    if word_end != -1:
+        return window[:word_end].rstrip() + "…"
     return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 

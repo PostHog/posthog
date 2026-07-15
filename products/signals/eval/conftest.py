@@ -14,6 +14,7 @@ from posthoganalytics.ai.openai import AsyncOpenAI
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 
+# This eval runs via bare pytest (no hogli), so the conftest owns loading repo-root .env.
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works

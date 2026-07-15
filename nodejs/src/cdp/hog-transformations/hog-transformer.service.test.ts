@@ -23,7 +23,6 @@ import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
-    executeBatch: jest.fn(),
     executeSync: jest.fn(),
 }))
 
@@ -1980,19 +1979,17 @@ describe('HogTransformer', () => {
         })
 
         it('executes transformations on the rust vm when the flag is enabled', async () => {
-            mockHogvmNode.executeBatch.mockResolvedValue([
-                {
-                    result: { properties: { from_rust: true } },
-                    durationUs: 100,
-                    logs: [],
-                    logsTruncated: false,
-                },
-            ])
+            mockHogvmNode.executeSync.mockReturnValue({
+                result: { properties: { from_rust: true } },
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
 
             const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
 
-            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
-            expect(mockHogvmNode.executeBatch.mock.calls[0][0]).toEqual(bytecode)
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeSync.mock.calls[0][0]).toEqual(bytecode)
             expect(result.event?.properties).toEqual({
                 from_rust: true,
                 $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
@@ -2000,18 +1997,16 @@ describe('HogTransformer', () => {
         })
 
         it('falls back to the node vm when the rust vm cannot run the program', async () => {
-            mockHogvmNode.executeBatch.mockResolvedValue([
-                {
-                    error: 'Native call failed: unsupported_ext_fn:geoipLookup',
-                    durationUs: 100,
-                    logs: [],
-                    logsTruncated: false,
-                },
-            ])
+            mockHogvmNode.executeSync.mockReturnValue({
+                error: 'Native call failed: unsupported_ext_fn:geoipLookup',
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
 
             const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
 
-            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
             // The node vm ran the real bytecode: the event survives with its original properties.
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
