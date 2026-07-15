@@ -4248,6 +4248,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
+    @staticmethod
+    def _tile_filter_merge_flag_on():
+        return patch(
+            "posthog.hogql_queries.apply_dashboard_filters.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+
     def test_tile_filters_merge_with_dashboard_filters_in_returned_query(self) -> None:
         insight = Insight.objects.create(
             filters={},
@@ -4273,6 +4280,49 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
         dashboard_filters = {"properties": [person_filter]}
 
+        with self._tile_filter_merge_flag_on():
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.pk}",
+                data={
+                    "from_dashboard": str(dashboard.pk),
+                    "filters_override": json.dumps(dashboard_filters),
+                },
+            ).json()
+
+        source = response["query"]["source"]
+        # Tile date wins over the dashboard's, but the dashboard's person filter is merged in — not
+        # discarded. The compute path merges the same way, so the persons modal still matches the chart.
+        assert source["dateRange"]["date_from"] == "-7d"
+        merged_properties = source.get("properties") or []
+        assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
+            f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
+        )
+
+    def test_tile_filters_replace_dashboard_filters_wholesale_when_flag_off(self) -> None:
+        # Same setup as test_tile_filters_merge_with_dashboard_filters_in_returned_query, but with the
+        # DASHBOARD_TILE_FILTER_MERGE flag off: the tile's date override should replace the dashboard's
+        # filters wholesale (pre-merge behavior), dropping the dashboard's person filter entirely.
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-30d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={"date_from": "-7d"},
+        )
+        person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
+        dashboard_filters = {"properties": [person_filter]}
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
             data={
@@ -4282,12 +4332,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         source = response["query"]["source"]
-        # Tile date wins over the dashboard's, but the dashboard's person filter is merged in — not
-        # discarded. The compute path merges the same way, so the persons modal still matches the chart.
         assert source["dateRange"]["date_from"] == "-7d"
         merged_properties = source.get("properties") or []
-        assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
-            f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
+        assert not any(p.get("key") == "$initial_host" for p in merged_properties), (
+            f"Flag off: dashboard person filter should not carry over. Got: {merged_properties}"
         )
 
     def test_tile_property_override_replaces_insight_and_dashboard_on_same_key(self) -> None:
@@ -4317,10 +4365,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome", "Safari"]}]
         }
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{insight.pk}",
-            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
-        ).json()
+        with self._tile_filter_merge_flag_on():
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.pk}",
+                data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+            ).json()
 
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Firefox"]], f"Tile $browser should replace all others. Got: {browser_values}"

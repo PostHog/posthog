@@ -9,6 +9,7 @@ import '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -22,13 +23,15 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
+    const mergeEnabled = useFeatureFlag('DASHBOARD_TILE_FILTER_MERGE')
 
     return (
         <div className="space-y-4 tile-filters-override">
             <div>
                 <p className="text-sm text-muted mb-4">
-                    Set custom filters for this tile. They merge with the dashboard filters, taking precedence where
-                    they overlap.
+                    {mergeEnabled
+                        ? 'Set custom filters for this tile. They merge with the dashboard filters, taking precedence where they overlap.'
+                        : 'Set custom filters for this tile that will override all other filters.'}
                 </p>
             </div>
 

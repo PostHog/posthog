@@ -1,5 +1,7 @@
 from typing import Any
 
+import posthoganalytics
+
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
 from posthog.exceptions_capture import capture_exception
@@ -11,6 +13,20 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 # Fields where a tile override replaces the dashboard value outright when set.
 # Property filters are handled separately (merged per key).
 _TILE_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+
+TILE_FILTER_MERGE_FLAG = "dashboard-tile-filter-merge"
+
+
+def tile_filter_merge_enabled(team: Team) -> bool:
+    """Gates the tile-filters-merge-with-dashboard-filters behavior (`merge_dashboard_and_tile_filters`).
+    Off, tile overrides replace dashboard filters wholesale, matching pre-merge behavior."""
+    return bool(
+        posthoganalytics.feature_enabled(
+            TILE_FILTER_MERGE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+        )
+    )
 
 
 def _property_identity(prop: dict) -> tuple[str, Any]:

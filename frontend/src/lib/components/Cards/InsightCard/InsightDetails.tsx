@@ -19,6 +19,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -122,10 +123,31 @@ function propertyIdentity(property: AnyPropertyFilter): string {
 
 // Tile and dashboard overrides merge per field (matches backend `merge_dashboard_and_tile_filters`).
 // Property filters merge per key: a tile filter replaces the dashboard's on the same key.
+// `mergeEnabled` mirrors the `DASHBOARD_TILE_FILTER_MERGE` flag gating the backend behavior — off, a
+// tile override replaces the dashboard's wholesale (pre-merge behavior), matching what was computed.
 function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | null | undefined
+    tileFiltersOverride: TileFilters | null | undefined,
+    mergeEnabled: boolean
 ): EffectiveFilterOverrides {
+    if (!mergeEnabled) {
+        const override =
+            tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0
+                ? { override: tileFiltersOverride, source: 'tile' as const }
+                : filtersOverride && Object.keys(filtersOverride).length > 0
+                  ? { override: filtersOverride, source: 'dashboard' as const }
+                  : null
+        return {
+            propertyGroups:
+                override && override.override.properties && override.override.properties.length > 0
+                    ? [{ properties: override.override.properties, source: override.source }]
+                    : [],
+            breakdown: override?.override.breakdown_filter
+                ? { breakdownFilter: override.override.breakdown_filter, source: override.source }
+                : null,
+        }
+    }
+
     const tileProperties = tileFiltersOverride?.properties ?? []
     const tileKeys = new Set(tileProperties.map(propertyIdentity))
     const dashboardProperties = (filtersOverride?.properties ?? []).filter((p) => !tileKeys.has(propertyIdentity(p)))
@@ -644,9 +666,11 @@ export const InsightDetails = React.memo(
         { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
         ref
     ): JSX.Element {
+        const mergeEnabled = useFeatureFlag('DASHBOARD_TILE_FILTER_MERGE')
         const { propertyGroups, breakdown: overrideBreakdown } = getEffectiveFilterOverrides(
             filtersOverride,
-            tileFiltersOverride
+            tileFiltersOverride,
+            mergeEnabled
         )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
