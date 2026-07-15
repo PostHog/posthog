@@ -25,13 +25,17 @@ block, advisories never do); the fix loop is ``--fix`` — see the running-ci-pr
 from __future__ import annotations
 
 import os
+import re
 import json
 import time
 import shutil
 import socket
+import tomllib
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 from typing import Any, Literal
 
@@ -61,7 +65,27 @@ class DiffCheck:
     fix: list[str] | None = None  # remediation for --fix
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
+    file_filter: Callable[[str], bool] | None = None
+    file_args_separator: str | None = None
     matched: list[str] = field(default_factory=list)
+
+
+@cache
+def _mypy_exclude_patterns() -> tuple[re.Pattern[str], ...]:
+    with (REPO_ROOT / "pyproject.toml").open("rb") as pyproject_file:
+        config = tomllib.load(pyproject_file)
+
+    tool_config = config.get("tool")
+    mypy_config = tool_config.get("mypy") if isinstance(tool_config, dict) else None
+    raw_exclude = mypy_config.get("exclude", []) if isinstance(mypy_config, dict) else []
+    exclude_values = [raw_exclude] if isinstance(raw_exclude, str) else raw_exclude
+    if not isinstance(exclude_values, list) or not all(isinstance(value, str) for value in exclude_values):
+        raise click.ClickException("[tool.mypy].exclude must be a string or list of strings")
+    return tuple(re.compile(value) for value in exclude_values)
+
+
+def _mypy_includes_path(path: str) -> bool:
+    return not any(pattern.search(path) for pattern in _mypy_exclude_patterns())
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
@@ -110,6 +134,8 @@ DIFF_CHECKS: list[DiffCheck] = [
         # failures without dmypy's stale Django registry risk.
         verify=["mypy"],
         takes_files=True,
+        file_filter=_mypy_includes_path,
+        file_args_separator="--",
     ),
     DiffCheck(
         key="markdown-format",
@@ -205,8 +231,12 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     if chk.takes_files:
         # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
         present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
+        if chk.file_filter is not None:
+            present = [f for f in present if chk.file_filter(f)]
         if not present:
-            return "skipped", "only deleted files"
+            return "skipped", "no eligible files"
+        if chk.file_args_separator is not None:
+            cmd.append(chk.file_args_separator)
         cmd += present
     if shutil.which(cmd[0]) is None:
         return "skipped", f"{cmd[0]} not found"

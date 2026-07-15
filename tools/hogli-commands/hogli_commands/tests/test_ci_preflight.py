@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 
 import pytest
@@ -82,17 +83,20 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch(
+        "hogli_commands.ci_preflight.Path.exists",
+        autospec=True,
+        side_effect=lambda path: path.name == "--config-file=attacker.py" or os.path.exists(path),
+    )
     @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
     @patch("hogli_commands.ci_preflight.subprocess.run")
-    @patch(
-        "hogli_commands.ci_preflight.changed_files",
-        return_value=["tools/hogli-commands/hogli_commands/ci_preflight.py"],
-    )
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["--config-file=attacker.py"])
     def test_python_changes_run_authoritative_type_check(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
         mock_which: MagicMock,
+        mock_exists: MagicMock,
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
         mock_emit: MagicMock,
@@ -107,10 +111,41 @@ class TestStrictAndFixContracts:
             call.args[0]
             == [
                 "mypy",
-                "tools/hogli-commands/hogli_commands/ci_preflight.py",
+                "--",
+                "--config-file=attacker.py",
             ]
             for call in mock_run.call_args_list
         )
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch(
+        "hogli_commands.ci_preflight.Path.exists",
+        autospec=True,
+        side_effect=lambda path: path.name == "ignored.py" or os.path.exists(path),
+    )
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["tools/ignored.py"])
+    def test_mypy_skips_files_excluded_by_ci(
+        self,
+        mock_changed: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_exists: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == 0
+        assert "Python type checking (mypy)" in result.output
+        assert "no eligible files" in result.output
+        assert not any(call.args[0][0] == "mypy" for call in mock_run.call_args_list)
 
 
 class TestStalenessRisks:
