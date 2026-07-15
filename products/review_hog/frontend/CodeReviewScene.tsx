@@ -475,18 +475,23 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
 
 /** Compact proof-of-life block under the hero — hidden entirely until the project has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
-    const { recentReviews, reviewsScope, hasUserChosenReviewsScope } = useValues(reviewHogSettingsLogic)
+    const { recentReviews, recentReviewsLoading, reviewsScope, hasUserChosenReviewsScope } =
+        useValues(reviewHogSettingsLogic)
     const { setReviewsScope } = useActions(reviewHogSettingsLogic)
     const everyone = reviewsScope === ReviewHogReviewsListScope.Everyone
+    const loadedEmpty = recentReviews !== null && recentReviews.length === 0
 
-    // Loaded-and-empty on the Entire project scope means the project has no reviews at all — hide
-    // the section entirely. An empty For-you scope keeps the section (with an empty state) so the
-    // scope switch stays reachable; while the auto-default to Entire project is still pending, the
-    // skeleton keeps holding the space instead of the section flashing out and back in.
-    if (recentReviews !== null && !recentReviews.length && everyone) {
+    // Settled-and-empty on the Entire project scope means the project has no reviews at all — hide
+    // the section entirely. The scope flips before the reload lands, so an in-flight load keeps the
+    // section mounted (skeleton below) instead of yanking the toggle away mid-click. An empty
+    // For-you scope keeps the section (with an empty state) so the scope switch stays reachable.
+    if (loadedEmpty && everyone && !recentReviewsLoading) {
         return null
     }
-    const pendingAutoDefault = recentReviews !== null && !recentReviews.length && !hasUserChosenReviewsScope
+    // A stale EMPTY list must not render an empty state while a reload (scope switch, auto-default)
+    // is in flight — but previous ROWS are kept during refreshes, so the in-progress poll never
+    // flashes skeletons.
+    const emptyAwaitingReload = loadedEmpty && (recentReviewsLoading || !hasUserChosenReviewsScope)
 
     return (
         // The one section without a top hairline — it reads as a continuation of the hero.
@@ -516,7 +521,7 @@ function RecentReviewsSection(): JSX.Element | null {
                 />
             </div>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                {recentReviews === null || pendingAutoDefault ? (
+                {recentReviews === null || emptyAwaitingReload ? (
                     [0, 1, 2].map((i) => (
                         <div key={i} className="flex items-center gap-3 px-4 py-3">
                             <span className="flex w-6 shrink-0 justify-center">
