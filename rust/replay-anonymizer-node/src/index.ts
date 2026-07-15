@@ -58,6 +58,12 @@ export interface AnonymizeKafkaPayloadResult {
      * whole-message parse fallback fired; the label is an A/B / fallback-rate signal.
      */
     route: 'stream' | 'tree' | null
+    /**
+     * Which host-classification regime applied: everything but `stamped_ok` collapses every
+     * hostname, so the consumer must count outcomes — a `$snapshot_host` regression upstream
+     * (SDK rename, capture stripping the property) would otherwise degrade silently.
+     */
+    hostScan: 'no_stamp' | 'stamped_ok' | 'stamp_unusable' | 'scan_bail' | null
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */

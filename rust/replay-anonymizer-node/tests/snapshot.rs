@@ -8,8 +8,8 @@
 use replay_anonymizer_node::allow_lists::AllowLists;
 use replay_anonymizer_node::snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_via_tree,
-    message_first_party_hosts, AnonymizeOpts, AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE,
-    FLAG_CLICK, FLAG_KEYPRESS, FLAG_MOUSE_ACTIVITY,
+    message_first_party_hosts, AnonymizeOpts, AnonymizedMessage, FailKind, Failure,
+    HostScanOutcome, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS, FLAG_MOUSE_ACTIVITY,
 };
 use replay_anonymizer_node::Ctx;
 use serde_json::{json, Value};
@@ -374,7 +374,7 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
         // entry applies, so the differential pins engine mechanics, not the gating.
         let ctx = Ctx::with_first_party_hosts(
             allow,
-            message_first_party_hosts(inner_json.as_bytes(), hosts.clone()),
+            message_first_party_hosts(inner_json.as_bytes(), hosts.clone()).0,
         );
         let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
@@ -743,6 +743,7 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
     let msg =
         anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
             .expect("message should anonymize");
+    assert_eq!(msg.host_scan, HostScanOutcome::StampedOk);
     let lines = parse_lines(&msg.lines);
     assert_eq!(
         lines[0][1]["data"]["href"], "https://example.com/[redacted]",
@@ -783,11 +784,13 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
     // every host collapses. Junk stamps must never fail the message.
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let configured = vec!["partner-vendor.test".to_string()];
-    let stamp_json: [Option<&str>; 5] = [
+    // `"masked"` is the placeholder shape: a single unknown label must not become a trust anchor.
+    let stamp_json: [Option<&str>; 6] = [
         None,
         Some(r#"42"#),
         Some(r#""""#),
         Some(r#""not a host!""#),
+        Some(r#""masked""#),
         Some(r#"{"nested":true}"#),
     ];
     for host_json in stamp_json {
@@ -814,6 +817,11 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
             configured.clone(),
         )
         .expect("an unusable $snapshot_host must not fail the message");
+        assert_ne!(
+            msg.host_scan,
+            HostScanOutcome::StampedOk,
+            "outcome must record that classification did not activate (stamp={host_json:?})"
+        );
         let lines = parse_lines(&msg.lines);
         assert_eq!(
             lines[0][1]["data"]["node"]["childNodes"][0]["attributes"]["href"],

@@ -168,6 +168,9 @@ pub struct AnonymizedMessage {
     pub lines: Vec<u8>,
     pub meta: SnapshotMeta,
     pub route: Route,
+    /// Set by [`anonymize_snapshot_data_opts`]; like `route`, deliberately not part of
+    /// [`SnapshotMeta`] (the differential tests assert meta equality across paths).
+    pub host_scan: HostScanOutcome,
 }
 
 /// Decompressed payloads are capped (shared with the gzip codec's bomb cap) so a forged lz4 size
@@ -378,17 +381,20 @@ pub fn anonymize_snapshot_data_opts(
     opts: AnonymizeOpts,
     configured_first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
-    let first_party_hosts = message_first_party_hosts(inner, configured_first_party_hosts);
+    let (first_party_hosts, host_scan) =
+        message_first_party_hosts(inner, configured_first_party_hosts);
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
     let ctx = Ctx::with_first_party_hosts(allow, first_party_hosts);
-    match stream_message(&ctx, distinct_id, inner, opts)? {
-        Some(msg) => Ok(msg),
+    let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
+        Some(msg) => msg,
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
-        None => anonymize_via_tree_mut(&ctx, distinct_id, inner),
-    }
+        None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
+    };
+    msg.host_scan = host_scan;
+    Ok(msg)
 }
 
 /// Event property the browser SDK stamps on `$snapshot` flushes: the recorded page's hostname
@@ -397,54 +403,107 @@ pub fn anonymize_snapshot_data_opts(
 /// can vouch for which host the events actually came from — configured domains describe where
 /// recording is *allowed*, not where this message was recorded, and upload-time signals
 /// (`Origin`/`Referer`) can be wrong for batched or relayed recordings.
+///
+/// Producer contract: the value must be `location.hostname` after the SDK's URL masking has run
+/// (a `host[:port]` form is tolerated), or the property must be omitted entirely — never a
+/// placeholder. As defense the reduction rejects single-label values other than `localhost`/IPs,
+/// so a masking placeholder (`masked`, `redacted`) cannot activate classification. Residual gap:
+/// when SDK URL masking rewrites the hostname, the stamp and Meta `href`s carry the masked host
+/// while absolute self-references in the DOM (canonical/`og:url` tags) still carry the real one,
+/// which then classifies as external — the enrichment below cannot cover that correlated case.
 pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
 
-/// The scrub context's first-party patterns for one message. `$snapshot_host` gates everything:
-/// absent (pre-stamp SDK, mobile, or client-side masking removed the URL) or unusable means no
-/// patterns — every host collapses. When present, its registrable domain seeds the set, enriched
-/// with the team's configured patterns (recording domains + app URLs, from TS) and the hosts of
-/// the message's own Meta `href`s — in-payload ground truth that keeps a wrong stamp from turning
-/// the recorded page's own self-links into "external" hosts that pass through.
-pub fn message_first_party_hosts(inner: &[u8], configured: Vec<String>) -> Vec<String> {
+// `"` + SNAPSHOT_HOST_PROPERTY + `"`; a test pins the equality (no const string concat).
+const SNAPSHOT_HOST_NEEDLE: &[u8] = b"\"$snapshot_host\"";
+
+/// Which host-classification regime the pre-scan chose for a message. Surfaced through the FFI so
+/// the consumer can count outcomes — every non-`StampedOk` case degrades to collapse-all, which is
+/// also the intended pre-stamp baseline, so without the counter a stamp regression (SDK rename,
+/// capture stripping the property, envelope drift) would zero out classification silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostScanOutcome {
+    /// No `$snapshot_host` in the payload: pre-stamp SDK, mobile, or masking removed the URL.
+    NoStamp,
+    /// Stamp present and usable — classification active for this message.
+    StampedOk,
+    /// Stamp present but not reducible to a first-party pattern (junk, placeholder, bare suffix).
+    StampUnusable,
+    /// The stamp probe hit but the structural pre-scan declined (anomalous envelope).
+    ScanBail,
+}
+
+impl HostScanOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HostScanOutcome::NoStamp => "no_stamp",
+            HostScanOutcome::StampedOk => "stamped_ok",
+            HostScanOutcome::StampUnusable => "stamp_unusable",
+            HostScanOutcome::ScanBail => "scan_bail",
+        }
+    }
+}
+
+/// The scrub context's first-party patterns for one message, plus the outcome that produced them.
+/// `$snapshot_host` gates everything: absent or unusable means no patterns — every host collapses.
+/// When present, its registrable domain seeds the set, enriched with the team's configured
+/// patterns (recording domains + app URLs, from TS) and the host of the message's first Meta
+/// `href` — in-payload ground truth that keeps a wrong stamp from turning the recorded page's own
+/// self-links into "external" hosts that pass through.
+pub fn message_first_party_hosts(
+    inner: &[u8],
+    configured: Vec<String>,
+) -> (Vec<String>, HostScanOutcome) {
+    if memchr::memmem::find(inner, SNAPSHOT_HOST_NEEDLE).is_none() {
+        return (Vec::new(), HostScanOutcome::NoStamp);
+    }
     let Some(scanned) = scan_page_hosts(inner) else {
-        return Vec::new();
+        return (Vec::new(), HostScanOutcome::ScanBail);
     };
-    let Some(stamp_pattern) = scanned.stamp.as_deref().and_then(host_pattern) else {
-        return Vec::new();
+    let Some(stamp) = scanned.stamp else {
+        // The needle only matched inside recorded content, not as an envelope property.
+        return (Vec::new(), HostScanOutcome::NoStamp);
+    };
+    let Some(stamp_pattern) = stamp_host_pattern(&stamp) else {
+        return (Vec::new(), HostScanOutcome::StampUnusable);
     };
     let mut patterns = configured;
-    let mut add = |p: String, patterns: &mut Vec<String>| {
+    if !patterns.contains(&stamp_pattern) {
+        patterns.push(stamp_pattern);
+    }
+    if let Some(p) = scanned
+        .meta_href
+        .as_deref()
+        .and_then(host_of_url)
+        .as_deref()
+        .and_then(host_pattern)
+    {
         if !patterns.contains(&p) {
             patterns.push(p);
         }
-    };
-    add(stamp_pattern, &mut patterns);
-    for href in &scanned.meta_hrefs {
-        if let Some(p) = host_of_url(href).as_deref().and_then(host_pattern) {
-            add(p, &mut patterns);
-        }
     }
-    patterns
+    (patterns, HostScanOutcome::StampedOk)
 }
 
 struct ScannedPageHosts {
     stamp: Option<String>,
-    /// `data.href` of every Meta (type 4) event in the message, raw.
-    meta_hrefs: Vec<String>,
+    /// `data.href` of the message's first Meta (type 4) event, raw. One is enough: multiple Metas
+    /// in one flush buffer are rare and cross-registrable-domain ones rarer, a missed second host
+    /// only over-collapses that page's self-links, and an unbounded collection would let a crafted
+    /// message grow the pattern set (scanned per scrubbed URL) without limit.
+    meta_href: Option<String>,
 }
 
-/// Best-effort read of `properties.$snapshot_host` and the Meta-event `href`s from the intact
-/// buffer, before the walk consumes it (the fused walk streams events out of `$snapshot_items`
-/// inline, so the scrub context must be complete before it starts). Gated on a substring probe:
-/// payloads without the property — every pre-stamp SDK — pay one memmem pass and nothing else.
-/// Any structural anomaly yields `None`, which empties the pattern set and therefore fails closed
-/// (collapse), never open.
+/// Best-effort read of `properties.$snapshot_host` and the first Meta-event `href` from the
+/// intact buffer, before the walk consumes it (the fused walk streams events out of
+/// `$snapshot_items` inline, so the scrub context must be complete before it starts). The caller
+/// gates it on a substring probe: payloads without the property — every pre-stamp SDK — pay one
+/// memmem pass and nothing else. Any structural anomaly — including any escaped key, so the scan
+/// can never partially apply where the walk's parse fallback would see different keys — yields
+/// `None`, which empties the pattern set and therefore fails closed (collapse), never open.
 fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
-    let needle = format!("\"{SNAPSHOT_HOST_PROPERTY}\"");
-    memchr::memmem::find(inner, needle.as_bytes())?;
     let mut found = ScannedPageHosts {
         stamp: None,
-        meta_hrefs: Vec::new(),
+        meta_href: None,
     };
     let mut pos = scan::skip_ws(inner, 0);
     if inner.get(pos) != Some(&b'{') {
@@ -469,6 +528,9 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
         }
         let key_end = scan::skip_string(inner, pos).ok()?;
         let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            return None;
+        }
         pos = scan::skip_ws(inner, key_end);
         if inner.get(pos) != Some(&b':') {
             return None;
@@ -500,6 +562,9 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
             }
             let pkey_end = scan::skip_string(inner, ppos).ok()?;
             let pkey = &inner[ppos + 1..pkey_end - 1];
+            if pkey.contains(&b'\\') {
+                return None;
+            }
             let is_host = pkey == SNAPSHOT_HOST_PROPERTY.as_bytes();
             let is_items = pkey == b"$snapshot_items";
             ppos = scan::skip_ws(inner, pkey_end);
@@ -508,7 +573,7 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
             }
             let pvstart = scan::skip_ws(inner, ppos + 1);
             if is_items && inner.get(pvstart) == Some(&b'[') {
-                ppos = scan_meta_hrefs(inner, pvstart, &mut found.meta_hrefs)?;
+                ppos = scan_first_meta_href(inner, pvstart, &mut found.meta_href)?;
                 continue;
             }
             let vspan = scan::locate_value(inner, pvstart).ok()?;
@@ -527,9 +592,9 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
     }
 }
 
-/// Walk a `$snapshot_items` array collecting `data.href` from Meta (type 4) events; returns the
-/// position just past the array's `]`.
-fn scan_meta_hrefs(inner: &[u8], start: usize, hrefs: &mut Vec<String>) -> Option<usize> {
+/// Walk a `$snapshot_items` array taking `data.href` from the first Meta (type 4) event; returns
+/// the position just past the array's `]`. Later items are span-skipped without shallow scanning.
+fn scan_first_meta_href(inner: &[u8], start: usize, href: &mut Option<String>) -> Option<usize> {
     let mut ipos = start + 1;
     let mut ifirst = true;
     loop {
@@ -544,16 +609,14 @@ fn scan_meta_hrefs(inner: &[u8], start: usize, hrefs: &mut Vec<String>) -> Optio
             ipos = scan::skip_ws(inner, ipos + 1);
         }
         ifirst = false;
-        if inner.get(ipos) != Some(&b'{') {
+        if href.is_some() || inner.get(ipos) != Some(&b'{') {
             ipos = scan::locate_value(inner, ipos).ok()?.1;
             continue;
         }
         let (type_span, data_span, end) = scan_event_shape(inner, ipos)?;
         if let (Some(t), Some(d)) = (type_span, data_span) {
             if &inner[t.0..t.1] == b"4" && inner.get(scan::skip_ws(inner, d.0)) == Some(&b'{') {
-                if let Some(href) = scan_object_string_field(inner, d.0, b"href") {
-                    hrefs.push(href);
-                }
+                *href = scan_object_string_field(inner, d.0, b"href");
             }
         }
         ipos = end;
@@ -583,6 +646,9 @@ fn scan_event_shape(inner: &[u8], start: usize) -> Option<(Option<Span>, Option<
         }
         let key_end = scan::skip_string(inner, pos).ok()?;
         let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            return None;
+        }
         pos = scan::skip_ws(inner, key_end);
         if inner.get(pos) != Some(&b':') {
             return None;
@@ -619,6 +685,9 @@ fn scan_object_string_field(inner: &[u8], start: usize, field: &[u8]) -> Option<
         }
         let key_end = scan::skip_string(inner, pos).ok()?;
         let key = &inner[pos + 1..key_end - 1];
+        if key.contains(&b'\\') {
+            return None;
+        }
         pos = scan::skip_ws(inner, key_end);
         if inner.get(pos) != Some(&b':') {
             return None;
@@ -651,42 +720,44 @@ fn host_of_url(url: &str) -> Option<String> {
     (!host.is_empty()).then_some(host)
 }
 
-/// Reduce a stamped hostname to a first-party pattern, mirroring the TS `firstPartyHostPatterns`
-/// reduction: registrable domain (public-suffix aware, private suffixes included) when there is
-/// one, IPs and single-label machine names (`localhost`) kept whole, anything else rejected — a
-/// bare public suffix as a pattern would match every host under it.
+/// Reduce a page hostname (`host[:port]` tolerated) to a first-party pattern, mirroring the TS
+/// `firstPartyHostPatterns` reduction: registrable domain (public-suffix aware, private suffixes
+/// included) when there is one, IPs and single-label machine names (`localhost`) kept whole,
+/// anything else rejected — a bare public suffix as a pattern would match every host under it.
 fn host_pattern(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > 253 {
         return None;
     }
-    let host = trimmed
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_ascii_lowercase();
+    let (host, _port) = crate::url::normalized_host_port(trimmed);
     if host.parse::<std::net::IpAddr>().is_ok() {
         return Some(host);
     }
-    if !host
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    if host.is_empty()
+        || !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
     {
         return None;
     }
-    let host = host.trim_end_matches('.');
-    if host.is_empty() {
-        return None;
-    }
-    if let Some(domain) = psl::domain_str(host) {
+    if let Some(domain) = psl::domain_str(&host) {
         return Some(domain.to_string());
     }
     let known_suffix = psl::suffix(host.as_bytes())
         .map(|s| s.is_known())
         .unwrap_or(false);
     if !known_suffix && !host.contains('.') {
-        return Some(host.to_string());
+        return Some(host);
     }
     None
+}
+
+/// [`host_pattern`] with the stricter trust-anchor bar: a single-label value other than
+/// `localhost`/an IP is rejected, so a masking placeholder (`masked`, `redacted`) stamped instead
+/// of a hostname cannot activate classification. Meta-href enrichment keeps the plain reduction —
+/// it only ever adds collapse coverage.
+fn stamp_host_pattern(raw: &str) -> Option<String> {
+    host_pattern(raw).filter(|p| p.contains('.') || p.contains(':') || p == "localhost")
 }
 
 const MAX_FAIL_DETAIL: usize = 200;
@@ -1078,6 +1149,7 @@ fn finish(
     Ok(AnonymizedMessage {
         lines,
         route,
+        host_scan: HostScanOutcome::NoStamp,
         meta: SnapshotMeta {
             distinct_id: distinct_id.to_string(),
             session_id: env.session_id,
@@ -1670,33 +1742,64 @@ fn anonymize_via_tree_mut(
 
 #[cfg(test)]
 mod tests {
-    use super::host_pattern;
+    use super::{host_pattern, stamp_host_pattern, SNAPSHOT_HOST_NEEDLE, SNAPSHOT_HOST_PROPERTY};
 
     #[test]
-    fn host_pattern_reduces_like_the_ts_side() {
-        let cases: &[(&str, Option<&str>)] = &[
-            // Registrable-domain reduction: without it, a `www.` self-link would classify as
-            // external once the stamped host makes the pattern set non-empty.
-            ("app.customer-x.com", Some("customer-x.com")),
-            ("APP.Customer-X.COM", Some("customer-x.com")),
-            ("www.acme.co.uk", Some("acme.co.uk")),
-            // Private suffix keeps the tenant label; reducing to `vercel.app` would classify
-            // every Vercel-hosted site as first-party.
-            ("myapp.vercel.app", Some("myapp.vercel.app")),
-            ("localhost", Some("localhost")),
-            ("127.0.0.1", Some("127.0.0.1")),
-            ("[::1]", Some("::1")),
-            // A bare public suffix as a pattern would match every host under it.
-            ("com", None),
-            ("", None),
-            ("not a host!", None),
-        ];
-        for (input, expected) in cases {
+    fn snapshot_host_needle_matches_the_property() {
+        assert_eq!(
+            SNAPSHOT_HOST_NEEDLE,
+            format!("\"{SNAPSHOT_HOST_PROPERTY}\"").as_bytes()
+        );
+    }
+
+    #[test]
+    fn host_pattern_matches_the_shared_fixture() {
+        // The same fixture drives the TS `firstPartyHostPatterns` test, so the two PSL
+        // reductions (tldts vs the psl crate) cannot drift on these cases.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/host-pattern.json");
+        let data = std::fs::read_to_string(&path).unwrap();
+        let cases: Vec<serde_json::Value> = serde_json::from_str(&data).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = case["input"].as_str().unwrap();
+            let expected = case["expected"].as_str();
             assert_eq!(
                 host_pattern(input).as_deref(),
-                *expected,
-                "host_pattern({input:?})"
+                expected,
+                "host-pattern case: {}",
+                case["name"]
             );
         }
+    }
+
+    #[test]
+    fn host_pattern_rust_only_cases() {
+        // IPv6 stays out of the shared fixture (tldts's bracket handling differs); the bracket
+        // strip matches `normalized_host_port`, so a `[::1]` page's own links classify first-party.
+        assert_eq!(host_pattern("[::1]").as_deref(), Some("::1"));
+        assert_eq!(host_pattern("[::1]:8443").as_deref(), Some("::1"));
+        assert_eq!(host_pattern("example.com.").as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn stamp_pattern_rejects_placeholder_labels() {
+        // A masking placeholder must not become the trust anchor that activates classification.
+        for placeholder in ["masked", "redacted", "null", "intranet"] {
+            assert_eq!(stamp_host_pattern(placeholder), None, "{placeholder}");
+        }
+        assert_eq!(
+            stamp_host_pattern("localhost").as_deref(),
+            Some("localhost")
+        );
+        assert_eq!(
+            stamp_host_pattern("127.0.0.1").as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(stamp_host_pattern("[::1]").as_deref(), Some("::1"));
+        assert_eq!(
+            stamp_host_pattern("app.acme.test").as_deref(),
+            Some("acme.test")
+        );
     }
 }

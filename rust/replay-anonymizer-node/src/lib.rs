@@ -106,7 +106,8 @@ fn init_anonymizer(mut cx: FunctionContext) -> JsResult<JsNull> {
 
 /// The off-thread outcome: anonymized output, a classified failure (dlq/drop reason + detail), or an
 /// unclassified error (panic, missing init) that the caller must treat as `anonymize_failed`.
-type TaskOutcome = Result<Result<(Vec<u8>, String, &'static str), (&'static str, String)>, String>;
+type TaskOutcome =
+    Result<Result<(Vec<u8>, String, &'static str, &'static str), (&'static str, String)>, String>;
 
 fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     // One copy on the event loop: the buffer's bytes move into the task (they can't be borrowed
@@ -163,7 +164,12 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;
-                        Ok(Ok((out.lines, meta, out.route.as_str())))
+                        Ok(Ok((
+                            out.lines,
+                            meta,
+                            out.route.as_str(),
+                            out.host_scan.as_str(),
+                        )))
                     }
                     Err(f) => Ok(Err((f.kind.reason(), f.detail))),
                 }
@@ -189,10 +195,12 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 obj.set(cx, "meta", null)?;
                 let null = cx.null();
                 obj.set(cx, "route", null)?;
+                let null = cx.null();
+                obj.set(cx, "hostScan", null)?;
                 Ok(())
             };
             match result {
-                Ok(Ok((lines, meta, route))) => {
+                Ok(Ok((lines, meta, route, host_scan))) => {
                     let failed = cx.boolean(false);
                     obj.set(&mut cx, "failed", failed)?;
                     let null = cx.null();
@@ -207,6 +215,8 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     obj.set(&mut cx, "meta", meta)?;
                     let route = cx.string(route);
                     obj.set(&mut cx, "route", route)?;
+                    let host_scan = cx.string(host_scan);
+                    obj.set(&mut cx, "hostScan", host_scan)?;
                 }
                 Ok(Err((reason, detail))) => set_failure(&mut cx, &obj, reason, detail)?,
                 // Fail closed: an unclassified error still drops the message.

@@ -71,6 +71,12 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['impl'],
     })
 
+    private static readonly mlAnonymizeHostScan = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_anonymize_host_scan',
+        help: 'Host-classification regime per anonymized message; every outcome except stamped_ok collapses all hosts',
+        labelNames: ['outcome'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
     }
@@ -113,5 +119,9 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
         this.mlAnonymizeFailed.labels(impl).inc()
+    }
+
+    public static incrementMlAnonymizeHostScan(outcome: string): void {
+        this.mlAnonymizeHostScan.labels(outcome).inc()
     }
 }

@@ -334,5 +334,44 @@
     "input": "https://acme-corp.github.io/docs/setup",
     "treatHostAsFirstParty": false,
     "expected": "https://[redacted].github.io/[redacted]/[redacted]"
+  },
+  {
+    "name": "ipv6 first-party literal collapses despite brackets and port",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "::1"
+    ],
+    "input": "http://[::1]:3000/admin/panel",
+    "treatHostAsFirstParty": false,
+    "expected": "http://example.com/[redacted]/[redacted]"
+  },
+  {
+    "name": "trailing-dot fqdn matches its first-party pattern",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://app.customer-site.test./settings",
+    "treatHostAsFirstParty": false,
+    "expected": "https://example.com/[redacted]"
+  },
+  {
+    "name": "external saas tenant subdomain masks to the provider suffix",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://acme-corp.zendesk.com/hc/tickets",
+    "treatHostAsFirstParty": false,
+    "expected": "https://[redacted].zendesk.com/[redacted]/[redacted]"
   }
 ]

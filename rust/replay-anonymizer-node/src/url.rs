@@ -26,21 +26,28 @@ use crate::context::Ctx;
 
 pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
 
-fn strip_port(host: &mut String) {
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host.truncate(ci);
+/// Lowercased host and `:port` suffix of an authority's `host[:port]`, with a single trailing dot
+/// (the FQDN form browsers resolve identically) and IPv6 brackets stripped from the host — the
+/// comparable form both the first-party match and the CDN mask work on, matching the
+/// `host_pattern` reduction so `[::1]`- and `example.com.`-style hosts cannot dodge either.
+pub(crate) fn normalized_host_port(host_port: &str) -> (String, &str) {
+    let (host, port) = match host_port.rfind(':') {
+        Some(ci)
+            if ci + 1 < host_port.len()
+                && host_port[ci + 1..].bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            (&host_port[..ci], &host_port[ci..])
         }
-    }
+        _ => (host_port, ""),
+    };
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.');
+    (host.to_ascii_lowercase(), port)
 }
 
-fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
-    if ctx.first_party_hosts.is_empty() {
-        return false;
-    }
-    let mut host = host_port.to_ascii_lowercase();
-    strip_port(&mut host);
+fn is_first_party_host(ctx: &Ctx<'_>, host: &str) -> bool {
     ctx.first_party_hosts.iter().any(|pattern| {
         host == *pattern
             || (host.len() > pattern.len()
@@ -85,20 +92,23 @@ pub fn scrub_url_opts(
             // parse as the authority) must not pass through as if it were a hostname.
             out.push_str("[redacted]");
             changed = true;
-        } else if treat_host_as_first_party
-            || ctx.first_party_hosts.is_empty()
-            || is_first_party_host(ctx, host_port)
-        {
-            let collapsed = collapsed_host(allow, host_port);
-            if collapsed != host_port {
-                changed = true;
-            }
-            out.push_str(&collapsed);
-        } else if let Some(masked) = cdn_masked_host(host_port) {
-            out.push_str(&masked);
-            changed = true;
         } else {
-            out.push_str(host_port);
+            let (host, port) = normalized_host_port(host_port);
+            if treat_host_as_first_party
+                || ctx.first_party_hosts.is_empty()
+                || is_first_party_host(ctx, &host)
+            {
+                let collapsed = collapsed_host(allow, host_port);
+                if collapsed != host_port {
+                    changed = true;
+                }
+                out.push_str(&collapsed);
+            } else if let Some(masked) = cdn_masked_host(&host, port) {
+                out.push_str(&masked);
+                changed = true;
+            } else {
+                out.push_str(host_port);
+            }
         }
     }
 
@@ -194,31 +204,35 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
     out
 }
 
-/// Multi-tenant CDN/storage suffixes the public suffix list's private section lacks (the PSL is
-/// the primary source — every private-section suffix already masks). Matching is case-insensitive
-/// on whole labels (`.{suffix}`); the suffix itself is never masked.
+/// Multi-tenant suffixes the public suffix list's private section lacks (the PSL is the primary
+/// source — every private-section suffix already masks): CDN/storage shapes plus the SaaS
+/// identity/support/collab providers whose subdomain is the customer's tenant name — support
+/// portals and SSO redirects in app chrome routinely carry these. Matching is case-insensitive on
+/// whole labels (`.{suffix}`); the suffix itself is never masked.
 pub const EXTRA_CDN_HOST_SUFFIXES: &[&str] = &[
+    // CDN / storage
     "amazonaws.com", // regional S3/ELB shapes are in the PSL; this catches the rest
     "cloudflarestorage.com",
     "fastly.net",
     "b-cdn.net",
     "imgix.net",
+    // Tenant-subdomain SaaS
+    "zendesk.com",
+    "okta.com",
+    "oktapreview.com",
+    "auth0.com",
+    "sharepoint.com",
+    "onmicrosoft.com",
+    "slack.com",
+    "salesforce.com",
+    "force.com",
+    "atlassian.net",
 ];
 
-// `[redacted].{suffix}` (port preserved) when the host sits under a multi-tenant CDN/hosting
+// `[redacted].{suffix}{port}` when the (normalized) host sits under a multi-tenant CDN/hosting
 // suffix, else None. The labels before the suffix name the customer's bucket/distribution/tenant —
 // identifying even though the host is not the customer's own domain.
-fn cdn_masked_host(host_port: &str) -> Option<String> {
-    let (host, port) = match host_port.rfind(':') {
-        Some(ci)
-            if ci + 1 < host_port.len()
-                && host_port[ci + 1..].bytes().all(|b| b.is_ascii_digit()) =>
-        {
-            (&host_port[..ci], &host_port[ci..])
-        }
-        _ => (host_port, ""),
-    };
-    let host = host.to_ascii_lowercase();
+fn cdn_masked_host(host: &str, port: &str) -> Option<String> {
     if let Some(suffix) = psl::suffix(host.as_bytes()) {
         if suffix.typ() == Some(psl::Type::Private) {
             let suffix = std::str::from_utf8(suffix.as_bytes()).ok()?;

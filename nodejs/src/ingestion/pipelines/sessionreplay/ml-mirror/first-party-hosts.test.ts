@@ -1,6 +1,26 @@
+import fs from 'fs'
+import path from 'path'
+
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { firstPartyHostPatterns } from './first-party-hosts'
 
+// Shared with the Rust `host_pattern` test so the two PSL reductions (tldts vs the psl crate)
+// cannot drift on these cases.
+const HOST_PATTERN_FIXTURE = path.resolve(
+    __dirname,
+    '../../../../../../rust/replay-anonymizer-node/tests/fixtures/host-pattern.json'
+)
+
 describe('firstPartyHostPatterns reduces first-party url entries to registrable domains', () => {
+    const sharedCases: { name: string; input: string; expected: string | null }[] = parseJSON(
+        fs.readFileSync(HOST_PATTERN_FIXTURE, 'utf8')
+    )
+
+    test.each(sharedCases.map((c) => [c.name, c] as const))('shared host-pattern case: %s', (_name, c) => {
+        expect(firstPartyHostPatterns([c.input])).toEqual(c.expected === null ? [] : [c.expected])
+    })
+
     test.each([
         ['subdomain and scheme dropped', ['https://www.example.com'], ['example.com']],
         ['deep subdomain dropped', ['https://app.eu.example.com'], ['example.com']],
