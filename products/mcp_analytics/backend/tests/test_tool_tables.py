@@ -10,6 +10,7 @@ from posthog.schema import (
     IntervalType,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
     MCPToolNeighborsQuery,
     MCPToolSampleIntentsQuery,
@@ -21,6 +22,7 @@ from posthog.schema import (
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolDailyStatsQueryRunner,
     MCPToolDescriptionsQueryRunner,
+    MCPToolFailureOccurrencesQueryRunner,
     MCPToolFailuresQueryRunner,
     MCPToolNeighborsQueryRunner,
     MCPToolSampleIntentsQueryRunner,
@@ -172,16 +174,22 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
     @parameterized.expand(
         [
-            ("type_and_status", "api_5xx", "500", "api_5xx (HTTP 500)"),
-            ("type_only", "validation", None, "validation"),
-            ("neither_falls_back_to_unknown", None, None, "unknown"),
+            ("type_and_status", "api_5xx", "500", "api_5xx (HTTP 500)", "api_5xx", "500"),
+            ("type_only", "validation", None, "validation", "validation", ""),
+            ("neither_falls_back_to_unknown", None, None, "unknown", "unknown", ""),
             # Event-supplied fields are unbounded; the label must be capped so an attacker
             # emitting huge unique values can't inflate the grouping key and response size.
-            ("long_type_truncated_to_200_chars", "x" * 300, None, "x" * 200),
+            ("long_type_truncated_to_200_chars", "x" * 300, None, "x" * 200, "x" * 200, ""),
         ]
     )
     def test_composes_failure_label(
-        self, _name: str, error_type: str | None, error_status: str | None, expected: str
+        self,
+        _name: str,
+        error_type: str | None,
+        error_status: str | None,
+        expected: str,
+        expected_type: str,
+        expected_status: str,
     ) -> None:
         self._emit(error_type=error_type, error_status=error_status, client_name="claude-ai")
         flush_persons_and_events()
@@ -190,6 +198,9 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
         assert len(rows) == 1
         assert rows[0].message == expected
+        # Raw bucket parts ride along so the drill-down can requery the bucket without parsing the label.
+        assert rows[0].error_type == expected_type
+        assert rows[0].error_status == expected_status
 
     def test_only_counts_errored_calls(self) -> None:
         # The fix's core behavior: failures are sourced from $mcp_is_error on $mcp_tool_call,
@@ -233,6 +244,120 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         flush_persons_and_events()
 
         assert {r.message for r in self._run()} == {"validation"}
+
+
+class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _emit(
+        self,
+        *,
+        tool_name: str = "query_run",
+        distinct_id: str = "d1",
+        client_name: str | None = None,
+        source: str | None = NEW_SDK_SOURCE,
+        is_error: bool = True,
+        error_type: str | None = None,
+        error_status: str | None = None,
+        error_message: str | None = None,
+        session_id: str | None = None,
+        intent: str | None = None,
+        exec_tool: str | None = None,
+        timestamp: datetime | None = None,
+    ) -> None:
+        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+        if source is not None:
+            properties["$mcp_source"] = source
+        if client_name is not None:
+            properties["$mcp_client_name"] = client_name
+        if error_type is not None:
+            properties["$mcp_error_type"] = error_type
+        if error_status is not None:
+            properties["$mcp_error_status"] = error_status
+        if error_message is not None:
+            properties["$mcp_error_message"] = error_message
+        if session_id is not None:
+            properties["$mcp_session_id"] = session_id
+        if intent is not None:
+            properties["$mcp_intent"] = intent
+        if exec_tool is not None:
+            properties["$mcp_exec_tool_call_name"] = exec_tool
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id=distinct_id,
+            timestamp=timestamp or datetime.now(tz=UTC),
+            properties=properties,
+        )
+
+    def _run(self, error_type: str, error_status: str | None = None, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolFailureOccurrencesQueryRunner(
+            query=MCPToolFailureOccurrencesQuery(
+                toolName=tool_name,
+                errorType=error_type,
+                errorStatus=error_status,
+                dateRange=DateRange(date_from="-7d"),
+            ),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    @parameterized.expand(
+        [
+            # The no-status branch must not match statused events in the same error type, and vice versa.
+            ("statused_bucket", "api_5xx", "500", {"d500"}),
+            ("no_status_bucket_within_type", "api_5xx", None, {"dnostatus"}),
+            ("typeless_events_form_unknown_bucket", "unknown", None, {"dtypeless"}),
+        ]
+    )
+    def test_filters_to_exactly_one_bucket(
+        self, _name: str, query_type: str, query_status: str | None, expected_ids: set[str]
+    ) -> None:
+        self._emit(distinct_id="d500", error_type="api_5xx", error_status="500")
+        self._emit(distinct_id="d502", error_type="api_5xx", error_status="502")
+        self._emit(distinct_id="dnostatus", error_type="api_5xx")
+        self._emit(distinct_id="dtypeless")
+        self._emit(distinct_id="dother", error_type="internal")
+        flush_persons_and_events()
+
+        rows = self._run(query_type, query_status)
+
+        assert {r.distinct_id for r in rows} == expected_ids
+
+    def test_carries_event_fields_newest_first_with_empty_message_fallback(self) -> None:
+        now = datetime.now(tz=UTC)
+        self._emit(
+            distinct_id="d1",
+            error_type="internal",
+            error_message="boom: table not found",
+            session_id="conv1",
+            intent='{"goal":"x"}',
+            client_name="claude-ai (via mcp-remote 0.1.37)",
+            timestamp=now,
+        )
+        # Pre-capture event: no $mcp_error_message on the event must surface as an empty string.
+        self._emit(distinct_id="d2", error_type="internal", timestamp=now - timedelta(minutes=5))
+        flush_persons_and_events()
+
+        rows = self._run("internal")
+
+        assert [r.distinct_id for r in rows] == ["d1", "d2"]
+        assert rows[0].error_message == "boom: table not found"
+        assert rows[0].session_id == "conv1"
+        assert "goal" in rows[0].intent
+        assert rows[0].harness == "Claude.ai"
+        assert rows[1].error_message == ""
+
+    def test_excludes_non_errored_other_tools_and_old_sdk_events(self) -> None:
+        self._emit(distinct_id="match", error_type="internal")
+        self._emit(distinct_id="ok", error_type="internal", is_error=False)
+        self._emit(distinct_id="othertool", tool_name="other_tool", error_type="internal")
+        self._emit(distinct_id="oldsdk", error_type="internal", source=None)
+        # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name, not $mcp_tool_name.
+        self._emit(distinct_id="viaexec", tool_name="exec", exec_tool="query_run", error_type="internal")
+        flush_persons_and_events()
+
+        rows = self._run("internal")
+
+        assert {r.distinct_id for r in rows} == {"match", "viaexec"}
 
 
 def _emit_tool_call(
