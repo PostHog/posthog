@@ -32,6 +32,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getBaselineVariantKey,
     getEventCountQuery,
     getOrderedMetricsWithResults,
     getViewRecordingFilters,
@@ -601,6 +602,30 @@ describe('checkFeatureFlagEligibility', () => {
     })
     it('returns true for a feature flag with control not as the first variant', () => {
         expect(featureFlagEligibleForExperiment(withVariants(['foobar', 'control']))).toEqual(true)
+    })
+})
+
+describe('getBaselineVariantKey', () => {
+    const experimentWith = (variantKeys: string[], baselineVariantKey?: string): Partial<Experiment> =>
+        ({
+            stats_config: baselineVariantKey ? { baseline_variant_key: baselineVariantKey } : {},
+            feature_flag: {
+                filters: {
+                    multivariate: { variants: variantKeys.map((key) => ({ key, rollout_percentage: 50 })) },
+                },
+            },
+        }) as unknown as Partial<Experiment>
+
+    it.each([
+        ['the configured baseline_variant_key', experimentWith(['variant-a', 'variant-b'], 'variant-b'), 'variant-b'],
+        ['control when present and unconfigured', experimentWith(['variant-a', 'control']), 'control'],
+        [
+            'the first variant when control-less and unconfigured',
+            experimentWith(['variant-a', 'variant-b']),
+            'variant-a',
+        ],
+    ])('resolves %s', (_name, experiment, expected) => {
+        expect(getBaselineVariantKey(experiment)).toEqual(expected)
     })
 })
 
