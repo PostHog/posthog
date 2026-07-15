@@ -35,6 +35,16 @@ class LLMSkill(UUIDModel):
                 name="unique_llm_skill_latest_per_team",
             ),
         ]
+        indexes = [
+            # Serves the cross-team fan-out for globally-visible skills (list, by-name resolution,
+            # marketplace clone, MCP list). The set is small and staff-curated, so a partial index
+            # over just the active latest globals keeps every reader's OR-arm off a full-table scan.
+            models.Index(
+                fields=["name"],
+                condition=Q(is_global=True, is_latest=True, deleted=False),
+                name="llm_skill_global_latest",
+            ),
+        ]
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
@@ -57,6 +67,12 @@ class LLMSkill(UUIDModel):
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
+
+    # Staff-only visibility promotion, the "make visible to everyone" analog of a global dashboard
+    # template. When true, every version of this skill is readable by any team, not just its owning
+    # team — but the owning team (and staff) still own all writes. Carried forward across versions
+    # like `category`, so publishing a new version keeps the skill visible.
+    is_global = models.BooleanField(default=False, db_default=False)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey(
