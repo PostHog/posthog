@@ -1,6 +1,7 @@
-import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
-
-import { ErrorTrackingFiltersWidget } from '../UIPayloadAnswer'
+import { DataToolRow } from '../DataToolRow'
+import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
+import type { ToolRendererProps } from '../toolRegistry'
+import { ErrorTrackingFiltersWidget } from './ErrorTrackingFiltersWidget'
 import { extractErrorTrackingResponse } from './extractors'
 
 /**
@@ -19,7 +20,7 @@ export function ErrorTrackingWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} embedded />
+            <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} />
         </DataToolRow>
     )
 }

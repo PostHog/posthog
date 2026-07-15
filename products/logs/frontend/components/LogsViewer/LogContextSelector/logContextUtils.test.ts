@@ -110,4 +110,14 @@ describe('buildContextFilters', () => {
             expect(filters).toEqual(expect.objectContaining(expected))
         }
     )
+
+    it('session filter uses the matched configured key', () => {
+        const customLog = makeLog({ timestamp, attributes: { 'my.custom.key': 'sess-456' } })
+        const filters = buildContextFilters(customLog, 'session', ['my.custom.key'])
+        expect(filters).toEqual(
+            expect.objectContaining({
+                filterGroup: makeFilterGroup('my.custom.key', 'sess-456', PropertyFilterType.LogAttribute),
+            })
+        )
+    })
 })

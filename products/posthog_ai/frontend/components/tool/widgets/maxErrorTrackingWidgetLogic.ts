@@ -16,7 +16,7 @@ export interface MaxErrorTrackingWidgetLogicProps {
 }
 
 export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>([
-    path(['scenes', 'max', 'messages', 'maxErrorTrackingWidgetLogic']),
+    path(['products', 'posthog_ai', 'frontend', 'components', 'tool', 'widgets', 'maxErrorTrackingWidgetLogic']),
     props({} as MaxErrorTrackingWidgetLogicProps),
     key((props) => props.toolCallId),
 

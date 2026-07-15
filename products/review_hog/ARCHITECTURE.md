@@ -49,8 +49,8 @@ Check these four things before a local `run_review`; don't re-derive them from c
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
-   draft. The PR's additions count picks the chunking path: ≤1000 single chunk (no chunking LLM),
-   ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
+   draft. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
+   chunking LLM), ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
 4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
    re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
 
@@ -264,6 +264,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    ones; don't tune finders against a validator bar that item 4 may later loosen. Acceptance: dismissal
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
+
+### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
+
+Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
+status comment read "Step 3/6 · Reviewing chunks · 2/3" and the author concluded the deterministic
+single-chunk gate had failed and split a tiny PR into 3 chunks. It hadn't — the persisted selection
+artefact showed one chunk (2 selected perspectives + the blind-spot unit = 3 review units, 2 done),
+and no chunking `$ai_generation` ran for the PR. The reviewing-stage counter has always counted
+(pass, chunk) review units, but the PR comment glued it onto a chunk-flavored label; the app UI
+renders a percentage, so only the comment invited the misread. Fix: the stage label is now "Running
+review passes" on both surfaces (`_STAGE_LABELS` + FE `progressLabel` — they must tell the same
+story), so the comment's raw `done/total` counter names its true unit. Grilled with the user
+2026-07-15: chunk count deliberately NOT added to the line ("keep it lean" — it stays visible in the
+drawer's Chunks tab). Same pass fixed the Preflight section's stale chunking-path numbers (still
+said the pre-2026-07-02 ≤1000 gate; the code's `SINGLE_CHUNK_GATE_ADDITIONS` is 400).
 
 ### ✅ BUILT 2026-07-08 — GitHub I/O moved to the gated egress transport (PyGithub removed)
 
@@ -654,7 +669,7 @@ is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills
   (iterate with `skill-update`; never `skill-duplicate` a canonical — seeded metadata rides along and
   the sync may overwrite/prune the copy). Activation stays a human step in the tab (per-user
   enablement; the config API is INTERNAL-scoped, deliberately not agent-writable — the one divergence
-  from scouts' `signals-scout-config-create`).
+  from scouts' `scout-config-create`).
 - **Seeding:** `REVIEW_HOG_AUTHORING_PREFIX`/`_SKILL_NAME` (`skill_loader.py`),
   `discover_canonical_authoring` + `sync_canonical_authoring` (`lazy_seed.py` — same
   prefix-and-category reconcile), synced in two moments: the run path (`_sync_review_skills`,
