@@ -225,6 +225,25 @@ class TestGetRows:
                 list(get_rows("https://169.254.169.254", "key", "jobs", MagicMock(), manager, team_id=1))
         session.get.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("raw_backslash_userinfo", "https://169.254.169.254\\@example.com"),
+            ("userinfo", "https://user@169.254.169.254"),
+            ("encoded_backslash", "https://169.254.169.254%5c@example.com"),
+            ("encoded_at", "https://169.254.169.254%40example.com"),
+        ]
+    )
+    def test_parser_differential_host_is_rejected(self, _name: str, base_url: str) -> None:
+        # urlparse and the HTTP client disagree on the host for these URLs, so `169.254.169.254\@x`
+        # validates as `x` yet the client may connect to the IP. Reject on the character screen before
+        # any request — no `_is_host_safe` patch, so the rejection can only come from the screen itself.
+        manager = self._manager()
+        session = MagicMock()
+        with patch.object(unstructured, "make_tracked_session", return_value=session):
+            with pytest.raises(ValueError):
+                list(get_rows(base_url, "key", "jobs", MagicMock(), manager, team_id=1))
+        session.get.assert_not_called()
+
 
 class TestUnstructuredSource:
     @parameterized.expand(["workflows", "jobs", "sources", "destinations"])
@@ -273,4 +292,20 @@ class TestValidateCredentials:
             ok, msg = validate_credentials("https://169.254.169.254", "key", team_id=1)
         assert ok is False
         assert msg == "blocked"
+        session.get.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("raw_backslash_userinfo", "https://169.254.169.254\\@example.com"),
+            ("userinfo", "https://user@169.254.169.254"),
+            ("encoded_backslash", "https://169.254.169.254%5c@example.com"),
+        ]
+    )
+    def test_parser_differential_host_is_rejected(self, _name: str, base_url: str) -> None:
+        # Validation carries the key to the host, so the same parser-differential bypass must be
+        # rejected here before any request — without patching `_is_host_safe`.
+        session = MagicMock()
+        with patch.object(unstructured, "make_tracked_session", return_value=session):
+            ok, _msg = validate_credentials(base_url, "key", team_id=1)
+        assert ok is False
         session.get.assert_not_called()

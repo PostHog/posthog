@@ -73,6 +73,20 @@ def _host_from_base_url(base_url: str | None) -> str:
     return (urlparse(normalize_base_url(base_url)).hostname or "").lower()
 
 
+# Authority chars that let `urlparse` and the HTTP client disagree on where the host ends. A userinfo
+# separator or a (raw or percent-encoded) backslash in `https://169.254.169.254\@example.com` makes
+# `urlparse` report `example.com` while requests/urllib3 may connect to the internal IP — an SSRF
+# bypass of the host check. No legitimate API origin carries these, so reject them outright.
+_UNSAFE_URL_CHARS = re.compile(r"[\\@]|%5c|%40", re.IGNORECASE)
+
+
+def _check_host(base_url: str | None, team_id: int) -> tuple[bool, str | None]:
+    raw = (base_url or "").strip()
+    if raw and _UNSAFE_URL_CHARS.search(raw):
+        return False, HOST_NOT_ALLOWED_ERROR
+    return _is_host_safe(_host_from_base_url(base_url), team_id)
+
+
 def _headers(api_key: str) -> dict[str, str]:
     return {"unstructured-api-key": api_key, "Accept": "application/json"}
 
@@ -143,7 +157,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     # The API host is customer-controlled, so block hosts resolving to private/internal addresses
     # (SSRF) before sending the key. Only enforced on cloud — see `_is_host_safe`.
-    host_ok, host_err = _is_host_safe(_host_from_base_url(base_url), team_id)
+    host_ok, host_err = _check_host(base_url, team_id)
     if not host_ok:
         raise ValueError(host_err or HOST_NOT_ALLOWED_ERROR)
 
@@ -234,7 +248,7 @@ def validate_credentials(base_url: str | None, api_key: str, team_id: int) -> tu
     Only checks reachability + auth, not per-endpoint scope; the Platform API key is account-wide, so a
     valid key reaches every list endpoint. Blocks internal/private hosts (SSRF) before sending the key.
     """
-    host_ok, host_err = _is_host_safe(_host_from_base_url(base_url), team_id)
+    host_ok, host_err = _check_host(base_url, team_id)
     if not host_ok:
         return False, host_err or HOST_NOT_ALLOWED_ERROR
 
