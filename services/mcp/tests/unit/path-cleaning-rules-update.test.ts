@@ -10,15 +10,16 @@ import updatePathCleaning, {
 } from '@/tools/projects/updatePathCleaning'
 
 describe('normalizePathCleaningFilters', () => {
-    it('sorts by order and drops entries missing alias or regex', () => {
+    it('sorts by order and drops only entries with no regex, keeping valid empty-alias rules', () => {
         const raw = [
             { alias: '/b', regex: '/b/\\d+', order: 2 },
             { alias: '/a', regex: '/a/\\d+', order: 0 },
-            { alias: '', regex: '/x', order: 1 },
-            { alias: '/c', regex: '', order: 3 },
+            { alias: '', regex: '\\?page=\\d+$', order: 1 }, // empty alias = delete matched text; valid
+            { alias: '/c', regex: '', order: 3 }, // no regex = meaningless; dropped
         ]
         expect(normalizePathCleaningFilters(raw)).toEqual([
             { alias: '/a', regex: '/a/\\d+', order: 0 },
+            { alias: '', regex: '\\?page=\\d+$', order: 1 },
             { alias: '/b', regex: '/b/\\d+', order: 2 },
         ])
     })
@@ -106,6 +107,12 @@ describe('applyOperations', () => {
         expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex: '/users/(' }])).toThrow(
             /Invalid regex/
         )
+    })
+
+    it('accepts a valid re2 inline-flag regex that JS RegExp alone would reject', () => {
+        // (?i) is valid re2 and documented for case-insensitive path cleaning, but throws in JS.
+        const { rules } = applyOperations(base, [{ action: 'append', alias: '/ci', regex: '(?i)/ci/[0-9]+' }])
+        expect(rules[rules.length - 1]).toEqual({ alias: '/ci', regex: '(?i)/ci/[0-9]+' })
     })
 
     it('does not mutate the input array', () => {

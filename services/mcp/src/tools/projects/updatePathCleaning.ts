@@ -41,7 +41,10 @@ export function normalizePathCleaningFilters(raw: unknown): StoredPathCleaningRu
                 const order = typeof rule.order === 'number' ? rule.order : index
                 return { alias, regex, order }
             })
-            .filter((rule) => rule.alias !== '' && rule.regex !== '')
+            // An empty `alias` is a valid rule (it deletes the matched text), so only drop
+            // entries with no `regex` to match on — keeping an existing empty-alias rule
+            // instead of silently deleting it on the next confirmed edit.
+            .filter((rule) => rule.regex !== '')
             // Stable sort keeps input order for equal `order`, preserving the index fallback above.
             .sort((a, b) => a.order - b.order)
     )
@@ -53,8 +56,14 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
 }
 
 function assertValidRegex(regex: string): void {
+    // The backend compiles these as re2; JS RegExp is only a best-effort typo check to fail
+    // fast on obviously-broken patterns (e.g. unbalanced parens). Strip a leading re2 inline
+    // flag group like `(?i)` first — it's valid re2 (and documented for path cleaning) but
+    // throws in JS. Patterns valid in re2 but not JS still save fine; the backend is the
+    // authority and rejects genuinely invalid ones on write.
+    const withoutLeadingInlineFlags = regex.replace(/^\(\?[imsUx]+\)/, '')
     try {
-        new RegExp(regex)
+        new RegExp(withoutLeadingInlineFlags)
     } catch (error) {
         throw new Error(`Invalid regex "${regex}": ${(error as Error).message}`)
     }
