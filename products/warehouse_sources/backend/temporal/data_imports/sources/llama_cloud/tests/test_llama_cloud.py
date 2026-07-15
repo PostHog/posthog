@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
 
 TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud"
 
+# tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
+# tested without sitting through the retry backoff.
+_fetch_page_once = _fetch_page.__wrapped__  # type: ignore[attr-defined]
+
 
 class FakeSession:
     """Records each GET's url and a snapshot of its params, returning canned payloads.
@@ -221,17 +225,16 @@ class TestLlamaCloudTransport:
         session.get.return_value = response
 
         with pytest.raises(LlamaCloudRetryableError):
-            # Call the unwrapped function so the test doesn't sit through tenacity backoff.
-            _fetch_page.__wrapped__(session, "https://api.cloud.llamaindex.ai/api/v2/parse", {}, {})
+            _fetch_page_once(session, "https://api.cloud.llamaindex.ai/api/v2/parse", {}, {})
 
     def test_fetch_page_raises_http_error_for_client_errors(self) -> None:
         session = MagicMock()
         response = MagicMock(status_code=401)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session.get.return_value = response
 
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, "https://api.cloud.llamaindex.ai/api/v2/parse", {}, {})
+            _fetch_page_once(session, "https://api.cloud.llamaindex.ai/api/v2/parse", {}, {})
 
     @parameterized.expand(
         [
