@@ -212,6 +212,7 @@ class HogQLDatabaseSources:
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
+    is_data_catalog_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -1218,6 +1219,11 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
+            # Function-local + facade-only: keeps the data_catalog product off the django.setup() path.
+            from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+
+            data_catalog_enabled = is_data_catalog_enabled(team)
+
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
@@ -1438,6 +1444,7 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
+            is_data_catalog_enabled=data_catalog_enabled,
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
@@ -1490,6 +1497,17 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
+            if not sources.is_data_catalog_enabled:
+                # Semantic layer is flag-gated: without it the metrics table must not exist at all —
+                # absent from information_schema listings and "Unknown table" on direct queries.
+                system_node = database.tables.children.get("system")
+                info_schema = (
+                    system_node.children.get("information_schema")
+                    if system_node is not None and hasattr(system_node, "children")
+                    else None
+                )
+                if info_schema is not None and hasattr(info_schema, "children"):
+                    info_schema.children.pop("metrics", None)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():

@@ -1,9 +1,12 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
@@ -19,6 +22,12 @@ _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 
 
 class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
     def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
         if denied_tables:
@@ -42,6 +51,28 @@ class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
         assert rows["mrr"][1] == "Monthly recurring revenue"
         assert rows["mrr"][2] == "proposed"
         assert rows["mrr"][4] == "HogQLQuery"
+
+        listing = execute_hogql_query(
+            "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'system.information_schema.metrics'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert listing.results == [("system.information_schema.metrics",)]
+
+    def test_metrics_table_absent_when_flag_off(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
+            listing = execute_hogql_query(
+                "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'system.information_schema.metrics'",
+                team=self.team,
+                context=self._context(),
+            )
+            assert listing.results == []
+
+            with pytest.raises(QueryError, match="Unknown table"):
+                execute_hogql_query(
+                    "SELECT name FROM system.information_schema.metrics", team=self.team, context=self._context()
+                )
 
     def test_is_drifted_reflects_source_insight(self) -> None:
         insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL)
