@@ -305,9 +305,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         checks = serializer.validated_data["checks"]
         if checks:
-            # Same best-effort contract as the PR-merge webhook dispatch (products/tasks
-            # webhooks.py): a Temporal hiccup must not bubble to the wizard, which treats
-            # this upload as fail-silent anyway. Deduping and consent live in the workflow.
+            # Best-effort like the merge-webhook dispatch: a Temporal hiccup must not bubble up.
             try:
                 signals_facade.start_wizard_setup_review(
                     team_id=self.team_id,

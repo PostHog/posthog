@@ -5,13 +5,10 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionRequest, WizardSessionDTO
 
-# Caps mirror the cloud audit capture (products/tasks run_wizard_audit): the review
-# is a nudge built from a handful of findings, so an oversized ledger is truncated,
-# not rejected — old or over-eager clients still get their review.
+# Mirror the cloud audit capture (products/tasks run_wizard_audit): oversized
+# ledgers are truncated, not rejected, and bookkeeping rows aren't findings.
 SETUP_REVIEW_MAX_CHECKS = 50
 SETUP_REVIEW_MAX_DETAILS_CHARS = 2000
-
-# Ledger bookkeeping rows that aren't setup findings (same set the cloud capture prunes).
 SETUP_REVIEW_NON_FINDING_CHECK_IDS = frozenset({"write-report", "upload-notebook"})
 
 
@@ -39,12 +36,7 @@ class SetupReviewCheckSerializer(serializers.Serializer):
 
 
 class SetupReviewRequestSerializer(serializers.Serializer):
-    """Input: a local wizard audit's check ledger, posted for the signals setup review.
-
-    The cloud counterpart captures the same ledger inside the sandbox
-    (products/tasks run_wizard_audit activity); this shape lets an interactive
-    local `wizard audit` feed the identical review pipeline.
-    """
+    """Input: a local wizard audit's check ledger, posted for the signals setup review."""
 
     repository = serializers.CharField(
         max_length=300,
