@@ -26,9 +26,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
-    const postHogAIButtonLabelVariant = useFeatureFlagVariantKey(
-        FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL
-    )
+    const postHogAIButtonLabelVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL)
 
     if (!dashboard && !dashboardLoading) {
         return null

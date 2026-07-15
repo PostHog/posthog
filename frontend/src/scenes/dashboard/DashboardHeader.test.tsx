@@ -5,7 +5,6 @@ import { BindLogic } from 'kea'
 
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
