@@ -1,13 +1,22 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
+from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.errors import CHQueryErrorTooManyBytes, ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.errors import (
+    CHQueryErrorLogsClusterUnavailable,
+    CHQueryErrorTooManyBytes,
+    CHQueryErrorUnknownIdentifier,
+    ExposedCHQueryError,
+    wrap_clickhouse_query_error,
+)
 
 
 class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
@@ -117,3 +126,42 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         )
         wrapped = wrap_clickhouse_query_error(server_error)
         assert getattr(wrapped, "code_name", None) == "too_many_bytes"
+
+
+class TestLogsClusterUnavailableError(SimpleTestCase):
+    """A `FROM logs` query in an environment without the LOGS cluster must yield an actionable
+    message, not the raw `Unknown table expression identifier 'logs_distributed'` internal error."""
+
+    @parameterized.expand(
+        [
+            "logs_distributed",
+            "log_attributes_distributed",
+            "logs_kafka_metrics_distributed",
+            "trace_spans_distributed",
+            "trace_attributes_distributed",
+        ]
+    )
+    def test_missing_logs_cluster_table_is_exposed_with_friendly_message(self, table: str):
+        server_error = ServerException(
+            f"DB::Exception: Unknown table expression identifier '{table}' in scope "
+            f"SELECT count() AS c FROM {table}. Stack trace: ...",
+            code=47,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorLogsClusterUnavailable)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        message = str(wrapped)
+        assert table in message
+        assert "logs product" in message
+        # The raw ClickHouse internals must not leak through.
+        assert "DB::Exception" not in message
+        assert "Stack trace" not in message
+
+    def test_unrelated_unknown_identifier_is_not_treated_as_logs_cluster(self):
+        server_error = ServerException(
+            "DB::Exception: Unknown table expression identifier 'events' in scope SELECT * FROM events.",
+            code=47,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorUnknownIdentifier)
+        assert not isinstance(wrapped, CHQueryErrorLogsClusterUnavailable)
