@@ -113,6 +113,31 @@ def test_concurrent_runs_for_one_channel_post_to_slack_once(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
+    # An unbounded claim grows the LLM prompt and the Slack payload with the merge-burst size, and a
+    # rejected oversized payload retries the identical batch forever. The claim caps per run and the
+    # remainder drains on the next one.
+    channel_id = _seed_channel_and_prs(team.id, pr_count=3)
+    batch_sizes: list[int] = []
+
+    def sized_summary(prs: list[PullRequest]) -> DigestSummary:
+        batch_sizes.append(len(prs))
+        return DigestSummary(intro="x", prs=[])
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.DIGEST_MAX_PRS_PER_RUN", 2),
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1"),
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=sized_summary),
+    ):
+        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    assert batch_sizes == [2, 1]
+    with team_scope(team.id):
+        assert PullRequest.objects.filter(digest_run__isnull=True).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     # A Slack failure must not hide the PRs: they're claimed before posting, so on failure they have
     # to be unlinked again (the retry query filters digest_run__isnull=True). Otherwise they'd stay

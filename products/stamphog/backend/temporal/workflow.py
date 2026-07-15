@@ -10,6 +10,8 @@ all bulky data lives on ``ReviewRun.output`` in Postgres.
 
 from __future__ import annotations
 
+import asyncio
+
 import temporalio.workflow
 from temporalio import workflow
 
@@ -22,6 +24,8 @@ from products.stamphog.backend.temporal.constants import (
     POST_VERDICT_TIMEOUT,
     RUN_REVIEW_TIMEOUT,
     SANDBOX_RETRY_POLICY,
+    STAMPHOG_BOT_REVIEW_MAX_POLLS,
+    STAMPHOG_BOT_REVIEW_POLL_SECONDS,
 )
 
 with temporalio.workflow.unsafe.imports_passed_through():
@@ -30,6 +34,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         StamphogReviewInput,
         dismiss_stale_approvals,
         fetch_review_context,
+        list_in_flight_reviewer_bots,
         mark_review_failed,
         post_verdict,
         run_review_in_sandbox,
@@ -60,6 +65,22 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
+
+            # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before provisioning: the
+            # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
+            # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
+            # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
+            # and returns WAIT rather than approving over an unfinished review.
+            for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
+                bots = await workflow.execute_activity(
+                    list_in_flight_reviewer_bots,
+                    input,
+                    start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+                if not bots["in_flight"]:
+                    break
+                await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
 
             await workflow.execute_activity(
                 run_review_in_sandbox,

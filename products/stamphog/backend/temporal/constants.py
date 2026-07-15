@@ -21,6 +21,23 @@ STAMPHOG_TASK_QUEUE = "stamphog-task-queue"
 STAMPHOG_SANDBOX_REPO_DIR = "/tmp/stamphog/target"
 STAMPHOG_SANDBOX_WORKSPACE_DIR = "/tmp/stamphog/workspace"
 STAMPHOG_SANDBOX_ENGINE_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/pr-approval-agent"
+
+# Reviewer bots whose 👀 reaction means "review in flight" — the hosted workflow waits these out
+# server-side before provisioning the sandbox (the sandbox holds no token to poll with). Mirrors the
+# engine's TRUSTED_REACTOR_BOTS (tools/pr-approval-agent/github.py) and its wait timings
+# (review_pr.py); the server cannot import the hyphenated engine dir, so keep the two in sync.
+STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
+    {
+        "chatgpt-codex-connector[bot]",
+        "copilot-pull-request-reviewer[bot]",
+        "greptile-apps[bot]",
+        "hex-security-app[bot]",
+        "veria-ai[bot]",
+    }
+)
+STAMPHOG_BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+STAMPHOG_BOT_REVIEW_POLL_SECONDS = 30
+STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the Action's wait budget
 # The posthog-owners resolver package, expected by the engine as a sibling of its own dir
 # (gates.py resolves `../owners` for the hogli-resolver ownership format).
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"

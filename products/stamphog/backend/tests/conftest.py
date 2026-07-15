@@ -21,6 +21,7 @@ from products.stamphog.backend.temporal.activities import (
     StamphogReviewInput,
     dismiss_stale_approvals,
     fetch_review_context,
+    list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
     run_review_in_sandbox,
@@ -113,6 +114,9 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(fetch_review_context, inp)
+        # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
+        # reactions snapshot, then proceed) without its durable timers.
+        _run_activity(list_in_flight_reviewer_bots, inp)
         _run_activity(run_review_in_sandbox, inp)
         _run_activity(post_verdict, inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path

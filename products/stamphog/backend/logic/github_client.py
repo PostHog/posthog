@@ -361,6 +361,34 @@ class StamphogGitHubClient:
             )
         return self._json(response, path)
 
+    def get_pr_reactions(self, repo: str, number: int) -> list[dict]:
+        """Reactions on the PR itself, as ``[{user, content, created_at}]``.
+
+        Feeds the in-flight reviewer-bot wait (a trusted bot's fresh 👀 means its review is still
+        running). One page is plenty — reactions on a PR are a handful, and the consumer only cares
+        about a small bot allowlist.
+        """
+        path = f"/repos/{repo}/issues/{number}/reactions"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+            params={"per_page": _PER_PAGE},
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch reactions for {repo}#{number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return [
+            {
+                "user": (item.get("user") or {}).get("login") or "",
+                "content": item.get("content") or "",
+                "created_at": item.get("created_at") or "",
+            }
+            for item in self._json(response, path)
+        ]
+
     def get_collaborator_permission(self, repo: str, username: str) -> str:
         """The user's effective permission on the repo: ``admin``, ``write``, ``read``, or ``none``.
 

@@ -16,6 +16,7 @@ and injects the policy into the sandbox, and only ever reads back a single verdi
 from __future__ import annotations
 
 import os
+import re
 import json
 import shlex
 import base64
@@ -27,6 +28,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.db import router
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import yaml
 from temporalio import activity
@@ -48,6 +50,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
+    STAMPHOG_BOT_EYES_MAX_AGE_SECONDS,
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
@@ -56,6 +59,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_OWNERS_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
+    STAMPHOG_TRUSTED_REACTOR_BOTS,
 )
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -232,6 +236,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "reviews": reviews,
         "discussion": discussion,
         "check_runs": check_runs,
+        "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
     }
@@ -268,6 +273,42 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
+    """Allowlisted reviewer bots with a fresh 👀 on the PR, refreshing the stored snapshot.
+
+    The Action waits these bots out by polling GitHub from the runner; the hosted sandbox holds no
+    token, so the WORKFLOW polls this activity instead, sleeping on durable timers between calls.
+    Each call re-fetches the reactions and refreshes ``run.output["pr_reactions"]`` so the sandbox
+    context reflects the latest snapshot — if the wait budget expires with a bot still in flight,
+    the engine sees the fresh 👀 and returns WAIT rather than approving over an unfinished review.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"in_flight": []}
+    repo_config = run.pull_request.repo_config
+    client = StamphogGitHubClient(repo_config.installation_id)
+    reactions = client.get_pr_reactions(repo_config.repository, run.pull_request.pr_number)
+    run.output = {**(run.output or {}), "pr_reactions": reactions}
+    run.save(update_fields=["output", "updated_at"])
+
+    now = timezone.now()
+    in_flight = sorted(
+        {
+            reaction["user"]
+            for reaction in reactions
+            if reaction.get("content") == "eyes"
+            and (reaction.get("user") or "").lower() in STAMPHOG_TRUSTED_REACTOR_BOTS
+            and (created := parse_datetime(reaction.get("created_at") or "")) is not None
+            and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
+        }
+    )
+    if in_flight:
+        activity.logger.info(f"Run {run.id}: reviewer bot(s) in flight: {', '.join(in_flight)}")
+    return {"in_flight": in_flight}
+
+
+@activity.defn
+@asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
     run = _load_run(input)
@@ -288,6 +329,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     reviews = output.get("reviews", [])
     discussion = output.get("discussion", [])
     check_runs = output.get("check_runs", [])
+    pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
@@ -327,6 +369,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         reviews=reviews,
         discussion=discussion,
         check_runs=check_runs,
+        pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
         base_sha=base_sha,
         head_sha=run.head_sha,
@@ -422,10 +465,25 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     if parsed.stamphog_version:
         update_fields.append("output")
 
+    # Last look before any GitHub write: a same-head re-review delivery (e.g. a trigger-label re-add)
+    # supersedes this run WITHOUT moving the head, so the head guard above can't catch it — only a
+    # fresh status read can.
+    superseded_now = (
+        ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id, status=ReviewRunStatus.SUPERSEDED)
+        .exists()
+    )
+    if superseded_now:
+        activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
+        return {"verdict": "skipped_superseded"}
+
     if parsed.gate_blocked:
         # The deterministic gates denied auto-review — a terminal, non-approval
         # outcome. The engine still rendered a plain-language explanation; post it.
-        _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
+        _post_sticky(
+            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
+        )
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
@@ -434,14 +492,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # re-approving. Residual window: GitHub approved but the save below crashed leaves
         # the id unset, so a retry approves once more — accepted given at-least-once delivery.
         if run.posted_review_id is None:
-            body = _scrub_credentials(parsed.review_body or _approve_comment(parsed))
+            body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
             review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
             run.posted_review_id = _comment_id(review)
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
     else:
-        _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
+        _post_sticky(
+            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
+        )
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
@@ -457,7 +517,20 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at
-    run.save(update_fields=update_fields)
+    # Conditional terminal save: a delivery superseding this run between the guards above and here
+    # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
+    updated = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .update(
+            **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
+            updated_at=timezone.now(),
+        )
+    )
+    if not updated:
+        activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
+        return {"verdict": "skipped_superseded"}
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
@@ -542,6 +615,23 @@ def _llm_env_secrets() -> list[str]:
         for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL", "POSTHOG_API_KEY")
         if (value := os.environ.get(key))
     ]
+
+
+# Markdown image embeds and raw <img> tags in text GitHub renders. Images are the one construct
+# GitHub fetches automatically (through its camo proxy) the moment the page renders — no click needed.
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>", re.IGNORECASE)
+
+
+def _neutralize_active_markdown(text: str) -> str:
+    """Remove auto-fetched markdown constructs from reviewer-authored text before it reaches GitHub.
+
+    The reviewer LLM reads untrusted PR content, so its output can be prompt-injected. Credential
+    scrubbing is exact-string only — a token re-encoded (base64, split) into an image URL slips
+    through, and GitHub fetching the image on render would exfiltrate it OUTSIDE the sandbox egress
+    allowlist. Plain links stay: they are not fetched without a click, and stripping them would
+    mangle legitimate references to code and PRs.
+    """
+    return _MARKDOWN_IMAGE_RE.sub("[image removed]", text)
 
 
 def _scrub_credentials(text: str, *secrets: str) -> str:

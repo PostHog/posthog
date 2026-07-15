@@ -1,6 +1,7 @@
 """Tests for the offline review entrypoint's context handling."""
 
 import sys
+from datetime import UTC, datetime
 
 from unittest.mock import MagicMock
 
@@ -52,3 +53,31 @@ def test_commented_reviews_are_dropped_offline(monkeypatch) -> None:
     assurance = pipeline._summarize_assurance()
     assert assurance["head_commented_users"] == []
     assert assurance["head_approvals"] == ["dave"]
+
+
+def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) -> None:
+    # The hosted context now carries raw PR reactions; a fresh 👀 from an allowlisted reviewer bot
+    # must reach PRData so the offline WAIT check can fire — hard-coding pr_reactions=[] meant
+    # stamphog could approve while another required reviewer was still mid-review. Untrusted
+    # reactors must be dropped (anyone can react on a public PR).
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    context = {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {"number": 1, "title": "t", "state": "OPEN", "user": {"login": "author", "type": "User"}},
+        "pr_reactions": [
+            {"user": "greptile-apps[bot]", "content": "eyes", "created_at": now_iso},
+            {"user": "random-account", "content": "eyes", "created_at": now_iso},
+        ],
+    }
+
+    pr = review_local._build_pr_data(context)
+
+    assert [r["user"] for r in pr.pr_reactions] == ["greptile-apps[bot]"]
+    assert pr.pr_reactions[0]["emoji"] == "👀"
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = pr
+    assert pipeline._in_flight_bot_reviewers() == ["greptile-apps[bot]"]

@@ -90,6 +90,7 @@ def build_reviewer_invocation(
     reviews: list[dict],
     discussion: list[dict],
     check_runs: list[dict],
+    pr_reactions: list[dict],
     author_pr_numbers: list[int],
     base_sha: str,
     head_sha: str,
@@ -114,6 +115,7 @@ def build_reviewer_invocation(
         "reviews": reviews,
         "discussion": discussion,
         "check_runs": check_runs,
+        "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]

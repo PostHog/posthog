@@ -100,6 +100,7 @@ _LABEL_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
+_PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -135,6 +136,8 @@ class GitHubRecorder:
         # (repo, login) -> permission for the author write gate; unscripted authors default to "write"
         # so tests that aren't about the gate flow through it.
         self.collaborator_permissions: dict[tuple[str, str], str] = {}
+        # (repo, number) -> raw reaction dicts for the in-flight reviewer-bot wait; default none.
+        self.pr_reactions: dict[tuple[str, int], list[dict]] = {}
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -167,6 +170,8 @@ class GitHubRecorder:
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})
+        if method == "GET" and (m := _PR_REACTIONS_RE.match(path)):
+            return FakeResponse(200, json_data=self.pr_reactions.get((m.group("repo"), int(m.group("number"))), []))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":

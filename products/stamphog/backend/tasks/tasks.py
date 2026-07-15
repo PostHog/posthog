@@ -393,10 +393,12 @@ def _resolve_installation_team_ids(installation_id: str) -> list[int]:
     config's. Resolving to a single (oldest) team would leave other teams' rows live after an uninstall
     and could bind a newly added repo to a team its adder never intended. unscoped(): the owning teams
     are exactly what's being resolved here — the one cross-team read on this path (mirrors
-    _resolve_repo_config).
+    _resolve_repo_config, writer pin included: a lagged reader returning no teams would silently and
+    permanently skip the lifecycle mutation for a just-synced installation).
     """
     return list(
         StamphogRepoConfig.objects.unscoped()
+        .using(router.db_for_write(StamphogRepoConfig))
         .filter(provider="github", installation_id=installation_id)
         .values_list("team_id", flat=True)
         .distinct()

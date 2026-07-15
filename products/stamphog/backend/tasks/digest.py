@@ -30,6 +30,12 @@ logger = structlog.get_logger(__name__)
 # doesn't dump ancient history into its first digest.
 DIGEST_LOOKBACK_DAYS = 7
 
+# Per-run claim ceiling. An unbounded claim grows the LLM prompt, the stored summary, and the Slack
+# payload with the burst size — and if either rejects the oversized payload, the failure handler
+# unlinks the same PRs and every later run retries the identical oversized batch forever. Capping the
+# claim drains a backlog across daily runs instead; Slack rendering caps at 40 sections regardless.
+DIGEST_MAX_PRS_PER_RUN = 100
+
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
 # failing) — reclaim it so those PRs re-enter the next digest instead of being stranded forever.
 STALE_PENDING_RUN_MINUTES = 60
@@ -98,7 +104,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=claim_floor)
             .select_for_update(of=("self",))
             .select_related("repo_config")
-            .order_by("merged_at")
+            .order_by("merged_at")[:DIGEST_MAX_PRS_PER_RUN]
         )
         if not prs:
             logger.info("stamphog_digest_no_prs", audience_key=channel.audience_key, team_id=team_id)

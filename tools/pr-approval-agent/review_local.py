@@ -56,10 +56,12 @@ from familiarity import (
 )
 from gates import POLICY
 from github import (
+    TRUSTED_REACTOR_BOTS,
     PRData,
     _git_diff_files,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
+    _reaction_emoji,
     is_bot_author,
 )
 from policy import FamiliarityPolicy
@@ -134,6 +136,16 @@ def _build_pr_data(context: dict) -> PRData:
     # APPROVED and CHANGES_REQUESTED still flow through — the prerequisite gate depends on them.
     reviews = [r for r in (context.get("reviews") or []) if r.get("state") != "COMMENTED"]
 
+    # Trusted-bot reactions only: the offline path has no token for the org-membership check the
+    # Action's reactor predicate performs, and the in-flight wait consumes only allowlisted bot 👀
+    # anyway — human reactions are never waited on. REST content values lowercase-match the mapper.
+    author_login = user.get("login") or ""
+    pr_reactions = [
+        {"user": login, "emoji": _reaction_emoji(r.get("content", "")), "created_at": r.get("created_at")}
+        for r in context.get("pr_reactions") or []
+        if (login := r.get("user") or "") and login.lower() in TRUSTED_REACTOR_BOTS and login != author_login
+    ]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -150,7 +162,7 @@ def _build_pr_data(context: dict) -> PRData:
         review_comments=[],
         check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
-        pr_reactions=[],
+        pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
     )
@@ -263,6 +275,27 @@ def run(context: dict) -> dict:
         pipeline._classify()
         _run_gates_offline(pipeline)
         gate_verdict = pipeline._gate_verdict()
+
+        # Mirror the Action's in-flight reviewer-bot handling, minus the wait: there is no token in
+        # the sandbox to poll with, and the SERVER already waited out the race (workflow bot-wait
+        # loop) and refreshed this snapshot before provisioning. Bots still showing fresh 👀 here
+        # mean the server's budget expired — WAIT, never approve over an unfinished review. Gate
+        # denials skip the check, same as the Action: a refusal can't approve over anything.
+        if gate_verdict != "DENIED" and (in_flight := pipeline._in_flight_bot_reviewers()):
+            bot_list = ", ".join(f"@{b}" for b in in_flight)
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{bot_list} still {'have' if len(in_flight) > 1 else 'has'} a review in flight (👀) — "
+                    "not approving over an unfinished review. The review re-runs on the next push, or "
+                    "re-request one once the reviewer finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
         _attach_familiarity(pipeline, context)
         pipeline._llm_review(gate_verdict)
     finally:
