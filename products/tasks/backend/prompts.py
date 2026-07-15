@@ -20,13 +20,14 @@ def generate_wizard_head_branch() -> str:
     return f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
 
 
-WIZARD_PR_AGENT_PROMPT = f"""
+WIZARD_PR_AGENT_PROMPT = rf"""
 # Context
 
 PostHog's setup wizard has already run in this repository and integrated PostHog. The working tree
 contains its uncommitted changes: modified source files, an updated package manifest, installed
 dependencies, a `posthog-setup-report.md` summary. It'll also possibly contain a
-`.posthog-events.json` plan and some skills definitions under `.claude/skills/*`.
+`.posthog-events.json` plan and some skills definitions under a harness skills folder such as
+`.claude/skills/*` or `.agents/skills/*`.
 
 The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
 repository, so it can never be committed). Read it whenever you need to understand what the wizard
@@ -87,17 +88,26 @@ are actually in the repository.
 
 4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
    only. Leave them untracked or exclude them from staging.
-5. Do NOT commit any of the skills included under `.claude/skills/*` or any other folder used
-   by local harnesses to store skills. Leave them untracked or exclude them from staging.
+5. Do NOT commit any of the skills included under a harness skills folder like `.claude/skills/*`
+   or `.agents/skills/*` (any `.<harness>/skills/` path). Leave them untracked or exclude them
+   from staging.
 
-**Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and
-contains neither reference file:
+**Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and contains none of the
+forbidden files. Run the two checks separately so you can see exactly which kind leaked if either
+fails:
 
 ```bash
 git rev-parse --abbrev-ref HEAD          # prints: {WIZARD_HEAD_BRANCH_PLACEHOLDER}
-git show --stat HEAD                     # lists the wizard's files
-git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: forbidden files committed" || echo "OK: no forbidden files"
-# expected: OK: no forbidden files (the grep finding nothing is the pass case)
+git show --stat HEAD                      # lists the wizard's files
+
+# 1. Reference files (local-only summaries/plans/logs):
+git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: reference files committed" || echo "OK: no reference files"
+
+# 2. Harness skills folders (.claude/skills/, .agents/skills/, any .<harness>/skills/):
+git show --stat HEAD | grep -E '\.[^/]+/skills/' && echo "FAIL: skills files committed" || echo "OK: no skills files"
+
+# expected: both print OK (the grep finding nothing is the pass case). If either FAILs, unstage
+# those paths, amend the commit, and re-run this checkpoint.
 ```
 
 ## Step 3 - Configure environment variables for production
@@ -228,15 +238,19 @@ Netlify, Heroku, Fly.io, etc. - then suggest using that instead of the dashboard
 The following example is for Vercel, but you should use the appropriate command for the hosting provider
 you've inferred from the codebase.
 
+Double-check the exact CLI syntax for the provider you detected - many commands (including
+`vercel env add`) take the target environment as a positional argument and read the value from
+stdin, so passing the value as a positional would silently set the wrong thing.
+
 ```markdown
 ### Setting environment variables via a local CLI
 
 If you are used to running commands locally to configure your environment variables, then you can
-do it as follows for Vercel:
+do it as follows for Vercel (the value is piped in; `production` is the target environment):
 
 ```bash
-npx vercel env add NEXT_PUBLIC_POSTHOG_TOKEN phc_abc123def456
-npx vercel env add NEXT_PUBLIC_POSTHOG_HOST https://us.i.posthog.com
+echo "phc_abc123def456" | npx vercel env add NEXT_PUBLIC_POSTHOG_TOKEN production
+echo "https://us.i.posthog.com" | npx vercel env add NEXT_PUBLIC_POSTHOG_HOST production
 ```
 ```
 
