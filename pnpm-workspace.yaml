@@ -65,7 +65,7 @@ catalog:
     '@storybook/react-vite': ^10.4.3
     storybook: ^10.4.3
     # Common utilities
-    fast-deep-equal: ^3.1.3
+    fast-equals: ^6.0.0
     fuse.js: ^7.1.0
     ts-pattern: '4.3'
     use-debounce: ^9.0.3
