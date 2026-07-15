@@ -72,7 +72,7 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex
+from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
 from products.approvals.backend.decorators import approval_gate
@@ -3567,8 +3567,7 @@ class FeatureFlagViewSet(
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
             elif key == "archived":
-                is_archived = value if isinstance(value, bool) else str(value).lower() == "true"
-                queryset = queryset.filter(archived=is_archived)
+                queryset = queryset.filter(archived=str_to_bool(value))
             elif key == "created_by_id":
                 user_ids = parse_created_by_ids(value)
                 if user_ids:
@@ -3638,20 +3637,13 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":
-                # Handle both string and boolean
-                if isinstance(value, bool):
-                    filter_value = value
-                else:
-                    filter_value = str(value).lower() in ("true", "1", "yes")
-
                 queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
-                if filter_value:
+                if str_to_bool(value):
                     queryset = queryset.filter(eval_tag_count__gt=0)
                 else:
                     queryset = queryset.filter(eval_tag_count=0)
             elif key == "eligible_for_experiment":
-                wants_eligible = value if isinstance(value, bool) else str(value).lower() == "true"
-                if wants_eligible:
+                if str_to_bool(value):
                     # Subquery so this works on plain QuerySets too (e.g. objects_including_soft_deleted).
                     queryset = queryset.filter(
                         pk__in=FeatureFlag.objects.filter(team__project_id=self.project_id)
