@@ -2033,6 +2033,9 @@ class ExternalDataSourceType(StrEnum):
     KONG_KONNECT = "KongKonnect"
     KANDJI = "Kandji"
     AUTOMOX = "Automox"
+    AUTUMN = "Autumn"
+    GET_STREAM = "GetStream"
+    OCTOLENS = "Octolens"
 
 
 class ExternalQueryErrorCode(StrEnum):
