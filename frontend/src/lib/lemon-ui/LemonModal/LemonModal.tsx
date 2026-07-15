@@ -72,6 +72,24 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
     )
 }
 
+function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
+    if (!titleElement) {
+        return ''
+    }
+
+    const textSegments: string[] = []
+    const textNodeWalker = document.createTreeWalker(titleElement, NodeFilter.SHOW_TEXT)
+
+    while (textNodeWalker.nextNode()) {
+        const text = textNodeWalker.currentNode.textContent?.trim()
+        if (text) {
+            textSegments.push(text)
+        }
+    }
+
+    return textSegments.join(' ').replace(/\s+/g, ' ')
+}
+
 function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
     const titleRef = useRef<HTMLHeadingElement>(null)
     const [isTruncated, setIsTruncated] = useState(false)
@@ -102,10 +120,7 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
     }, [children, isTruncated])
 
     return (
-        <Tooltip
-            title={isTruncated ? () => titleRef.current?.textContent ?? '' : undefined}
-            placement="bottom-start"
-        >
+        <Tooltip title={isTruncated ? () => getTooltipTitle(titleRef.current) : undefined} placement="bottom-start">
             <h3 ref={titleRef} className="LemonModal__title" tabIndex={isTruncated ? 0 : undefined}>
                 {children}
             </h3>

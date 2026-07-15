@@ -101,7 +101,13 @@ export const WithLongTitle: Story = {
             <LemonModal
                 inline
                 width={480}
-                title="/project/example/groups/example.myshopify.com/sessionRecordings/with/a/title/that/is/too/long/to/display/in/full"
+                title={
+                    <span className="flex gap-2">
+                        <span>Session recordings</span>
+                        <span aria-hidden="true">•</span>
+                        <span>example.myshopify.com/with/a/title/that/is/too/long/to/display/in/full</span>
+                    </span>
+                }
                 onClose={() => undefined}
             >
                 The title wraps without overlapping the close button and shows the full value in a tooltip when it is
