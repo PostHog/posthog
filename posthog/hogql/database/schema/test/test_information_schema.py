@@ -200,20 +200,29 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
 
-    def test_tables_list_unique_posthog_namespaced_tables_without_duplicates(self):
+    def test_tables_list_posthog_namespaced_tables_alongside_same_named_warehouse_tables(self):
+        self._create_warehouse_table(name="trace_spans")
         response = execute_hogql_query(
             """
             SELECT table_name, table_schema, table_type
             FROM system.information_schema.tables
-            WHERE table_name IN ('posthog.ai_events', 'posthog.trace_spans', 'posthog.metrics', 'posthog.events')
+            WHERE table_name IN (
+                'trace_spans',
+                'posthog.ai_events',
+                'posthog.trace_spans',
+                'posthog.metrics',
+                'posthog.events'
+            )
             """,
             team=self.team,
         )
         rows = {row[0]: (row[1], row[2]) for row in response.results or []}
         assert rows == {
+            "trace_spans": ("warehouse", "data_warehouse"),
             "posthog.ai_events": ("public", "posthog"),
             "posthog.trace_spans": ("public", "posthog"),
             "posthog.metrics": ("public", "posthog"),
+            "posthog.events": ("public", "posthog"),
         }
 
     def test_access_scoped_system_tables_are_filtered(self):

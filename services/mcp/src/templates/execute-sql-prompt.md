@@ -19,7 +19,7 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 ### Common pitfalls
 
 - **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
-- **Namespace-only `posthog.*` tables follow the same rule:** discover `posthog.ai_events`, `posthog.trace_spans`, and `posthog.metrics` with their full names; bare names such as `'trace_spans'` are neither queryable nor present in the catalog.
+- **Namespace-only `posthog.*` tables follow the same rule:** discover the built-in `posthog.ai_events`, `posthog.trace_spans`, and `posthog.metrics` tables with their full names. A bare name such as `'trace_spans'` may be absent or refer to an unrelated warehouse table or view.
 
 ### Format SQL for readability
 

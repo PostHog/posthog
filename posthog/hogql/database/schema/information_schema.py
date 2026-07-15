@@ -174,9 +174,7 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
 
 
 def _visible_table_names(database: "Database") -> list[str]:
-    names = database.tables.resolve_visible_table_names()
-    name_set = set(names)
-    return [name for name in names if not name.startswith("posthog.") or name.removeprefix("posthog.") not in name_set]
+    return database.tables.resolve_visible_table_names()
 
 
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
