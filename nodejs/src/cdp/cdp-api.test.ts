@@ -2,6 +2,7 @@ import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
+import jwt from 'jsonwebtoken'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -1254,6 +1255,16 @@ describe('CDP API', () => {
         const sweepFloor = new Date('2025-06-01T00:10:00.000Z')
         const sweepUntil = new Date('2025-06-01T00:40:00.000Z')
 
+        // Mirrors Django's mint (posthog/plugins/plugin_server_api.py) with the shared dev/test key.
+        const mintToken = (teamId: number, hogFlowId: string, secret = 'local-dev-workflows-reschedule-jwt') =>
+            jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, {
+                audience: 'posthog:workflows:reschedule_parked',
+                expiresIn: '2m',
+            })
+        const authFor = (teamId: number, hogFlowId: string) => ({
+            Authorization: `Bearer ${mintToken(teamId, hogFlowId)}`,
+        })
+
         beforeEach(async () => {
             mockRescheduleParkedJobs = jest.fn().mockResolvedValue({
                 swept: 5,
@@ -1291,6 +1302,7 @@ describe('CDP API', () => {
         it('runs a sweep slice and returns the bounds for follow-up slices', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .set(authFor(rescheduleHogFlow.team_id, rescheduleHogFlow.id))
                 .send({ action_ids: ['delay_1', 'wait_1'] })
 
             expect(res.status).toEqual(200)
@@ -1313,6 +1325,7 @@ describe('CDP API', () => {
         it('parses passed-through bounds into dates', async () => {
             const res = await supertest(app)
                 .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .set(authFor(rescheduleHogFlow.team_id, rescheduleHogFlow.id))
                 .send({
                     action_ids: ['delay_1'],
                     sweep_floor: sweepFloor.toISOString(),
@@ -1341,6 +1354,7 @@ describe('CDP API', () => {
         ])('rejects a bad body: %s', async (_desc, body) => {
             const res = await supertest(app)
                 .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .set(authFor(rescheduleHogFlow.team_id, rescheduleHogFlow.id))
                 .send(body)
 
             expect(res.status).toEqual(400)
@@ -1352,10 +1366,55 @@ describe('CDP API', () => {
 
             const res = await supertest(app)
                 .post(`/api/projects/${otherTeamId}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .set(authFor(otherTeamId, rescheduleHogFlow.id))
                 .send({ action_ids: ['delay_1'] })
 
             expect(res.status).toEqual(404)
             expect(mockRescheduleParkedJobs).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({
+                    Authorization: `Bearer ${mintToken(rescheduleHogFlow.team_id, rescheduleHogFlow.id, 'wrong-key')}`,
+                }),
+            ],
+            [
+                "another workflow's token",
+                () => ({ Authorization: `Bearer ${mintToken(rescheduleHogFlow.team_id, new UUIDT().toString())}` }),
+            ],
+            [
+                "another team's token",
+                () => ({ Authorization: `Bearer ${mintToken(rescheduleHogFlow.team_id + 1, rescheduleHogFlow.id)}` }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .set(headers())
+                .send({ action_ids: ['delay_1'] })
+
+            expect(res.status).toEqual(401)
+            expect(mockRescheduleParkedJobs).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the reschedule JWT key is not provisioned', async () => {
+            const savedJwt = api['rescheduleJwt']
+            api['rescheduleJwt'] = null
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`
+                    )
+                    .set(authFor(rescheduleHogFlow.team_id, rescheduleHogFlow.id))
+                    .send({ action_ids: ['delay_1'] })
+
+                expect(res.status).toEqual(503)
+                expect(mockRescheduleParkedJobs).not.toHaveBeenCalled()
+            } finally {
+                api['rescheduleJwt'] = savedJwt
+            }
         })
 
         it('errors if the cyclotron producer is not configured', async () => {

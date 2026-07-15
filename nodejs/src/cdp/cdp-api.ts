@@ -56,6 +56,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -124,6 +125,10 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
+    // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
+    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
+    // isn't provisioned — the route then fails closed.
+    private rescheduleJwt: JWT | null
 
     constructor(
         private config: PluginsServerConfig,
@@ -172,6 +177,9 @@ export class CdpApi {
             this.invocationResultsService
         )
         this.batchResolverProducer = batchResolverProducer
+        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
+            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
+            : null
     }
 
     public get service(): PluginServerService {
@@ -849,6 +857,10 @@ export class CdpApi {
     // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
     // wait window; one call is one slice, and the caller loops with the returned bounds until
     // `done`. See CyclotronV2Manager.rescheduleParkedJobs for the sweep semantics.
+    //
+    // Auth: a scoped JWT minted by Django per call, pinned to this team + workflow — NOT the
+    // fleet-wide internal secret (the route is exempted from that middleware). Fails closed when
+    // the key isn't provisioned.
     private postHogFlowRescheduleParked = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             if (!this.batchResolverProducer) {
@@ -856,8 +868,27 @@ export class CdpApi {
                     error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
                 })
             }
+            if (!this.rescheduleJwt) {
+                return res.status(503).json({
+                    error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                })
+            }
 
             const { team_id, id } = req.params
+
+            const authHeader = req.headers['authorization']
+            const token =
+                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+            const claims = token
+                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
+                      ignoreVerificationErrors: true,
+                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
+                : undefined
+            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
+            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            }
+
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
