@@ -1583,7 +1583,7 @@ class FreshserviceSourceConfig(config.Config):
 
 @config.config
 class FrillSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

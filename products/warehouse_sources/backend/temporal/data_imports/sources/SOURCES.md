@@ -184,6 +184,7 @@ the row lists both.
 | flowlu                    | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
 | formbricks                | HTTP                        | requests                                                        | ✅                          |
+| frill                     | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -620,7 +621,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshchat
 - freshservice
-- frill
 - fulcrum
 - gerrit
 - getstream
