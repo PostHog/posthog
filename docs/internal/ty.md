@@ -1,43 +1,45 @@
-# Ty Type Checking
+# Python type checking
 
-ty runs in CI as an informational check to evaluate its usefulness vs mypy. If you see ty annotations on your PR:
+PostHog runs both ty and mypy.
+Both checks reject type errors in CI, while local hooks run narrower checks for faster feedback.
 
-- Review the feedback — ty often catches real type issues
-- Share your experience in #team-devex
-- ty warnings are informational and don't block CI
+| Checker | Local hook | CI role |
+| --- | --- | --- |
+| ty | Runs on staged Python files through lint-staged and rejects the commit on errors | Runs across the repository and blocks CI on errors |
+| mypy | Runs on eligible changed Python files through `hogli ci:preflight --strict` and rejects the push on errors or timeouts | Runs across the repository and remains the authoritative type checker |
 
-## Manual Usage
+`hogli ci:preflight` applies `[tool.mypy].exclude` before passing explicit paths to mypy, matching the files discovered by the full CI check.
+If mypy is unavailable locally, preflight skips it and leaves CI as the gate.
+
+## Manual usage
 
 ```bash
-uv run ty check path/to/file.py    # Check specific files
-uv run ty check posthog ee         # Check directories
+uv run --no-sync ty check path/to/file.py
+uv run --no-sync mypy -- path/to/file.py
+hogli ci:preflight --strict
 ```
 
-## Ty vs mypy: Fast trial vs authoritative checking
+## Ty and mypy
 
-**ty** is currently in trial mode:
+**ty** provides fast feedback:
 
-- Extremely fast (~10-100x faster than mypy)
-- Alpha software — expect edge cases
-- Runs in CI (informational, non-blocking) and as a lint-staged pre-commit check to gather feedback
+- Runs on staged Python files before commit
+- Runs across the repository in CI
 - Uses GitHub problem matcher to show warnings inline
+- Has known limitations around Django and DRF metaprogramming
 
 **mypy** remains the **authoritative type checker**:
 
 - More mature and comprehensive
 - Slower but thorough
-- Final source of truth (runs in CI and blocks on errors)
-- Checks changed Python files through `hogli ci:preflight`; mypy's default incremental cache speeds up repeat runs
-- Honors `[tool.mypy].exclude` so local preflight checks the same files as CI
-- Type errors and timeouts reject the strict pre-push check; a missing mypy executable skips locally and leaves CI as the gate
-- If a cached result looks stale, add `--no-incremental` to the printed mypy command to bypass cache reads
-- Recommended for local deep checks
+- Uses its incremental cache to speed up repeat local checks
+- Runs on changed files in strict preflight and across the repository in CI
+- Blocks both strict preflight and CI on type errors
 
-This trial helps us evaluate whether ty should become a blocking check in the future.
+If a cached result looks stale, add `--no-incremental` before the `--` path separator in the printed mypy command to bypass cache reads.
 
 ## Configuration
 
-ty rule categories where ty disagrees with mypy on idiomatic Django/DRF code
-are suppressed in `pyproject.toml` under `[tool.ty.rules]`. This replaced the
-earlier `ty-baseline.txt` filter file (removed in #55368). Add a new
-`<rule> = "ignore"` there if CI surfaces a spurious ty category.
+ty rule categories where ty disagrees with mypy on idiomatic Django/DRF code are suppressed in `pyproject.toml` under `[tool.ty.rules]`.
+This replaced the earlier `ty-baseline.txt` filter file (removed in #55368).
+Add a new `<rule> = "ignore"` there if CI surfaces a spurious ty category.
