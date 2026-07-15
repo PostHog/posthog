@@ -420,6 +420,18 @@ class TestExternalDataSource(APIBaseTest):
             # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
             ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
             ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The wizard's self-driving program marks its UA distinctly → self_driving, not plain wizard.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # The self-driving marker only refines the mcp upgrade — it never rewrites explicit values.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.API,
+                ExternalDataSource.CreatedVia.API,
+            ),
             # The MCP server appends the originating client to its own UA when proxying.
             (
                 "posthog/mcp-server; version: 1.0.0; for posthog/code",

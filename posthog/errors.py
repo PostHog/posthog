@@ -253,7 +253,7 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
-class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+class CHQueryErrorNumberOfArgumentsDoesntMatch(ExposedCHQueryError):
     pass
 
 
@@ -350,15 +350,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
-    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
-    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", category=QueryErrorCategory.USER_ERROR),
+    34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION", user_safe=True),
+    35: ErrorCodeMeta("TOO_FEW_ARGUMENTS_FOR_FUNCTION", user_safe=True),
     36: ErrorCodeMeta("BAD_ARGUMENTS", user_safe=True),
     37: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_AST"),
     38: ErrorCodeMeta("CANNOT_PARSE_DATE", user_safe=True),
     39: ErrorCodeMeta("TOO_LARGE_SIZE_COMPRESSED"),
     40: ErrorCodeMeta("CHECKSUM_DOESNT_MATCH"),
     41: ErrorCodeMeta("CANNOT_PARSE_DATETIME", user_safe=True),
-    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", category=QueryErrorCategory.USER_ERROR),
+    42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
         "ILLEGAL_COLUMN", category=QueryErrorCategory.USER_ERROR

@@ -6,9 +6,10 @@ from django.db import transaction
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from asgiref.sync import async_to_sync
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -44,6 +45,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
+    update_external_job_status,
 )
 from products.data_warehouse.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
@@ -57,6 +59,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
@@ -506,8 +509,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Membership is enforced only when the override actually changes: existing pins are
             # honored verbatim even if the vendor version was later retired from
             # supported_versions, so full-payload PATCHes (the sources list spreads the GET
-            # response back) never 400 on unrelated edits. Schemas are not created through this
-            # serializer, so there is no create path to validate.
+            # response back) never 400 on unrelated edits. The viewset 405s POST, so there is
+            # no create path to validate.
             if "api_version" in attrs and instance is not None and override != instance.api_version:
                 try:
                     source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
@@ -1305,7 +1308,6 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
-        "create",
         "update",
         "partial_update",
         "patch",
@@ -1322,6 +1324,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    @extend_schema(exclude=True)
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Schemas are created by source schema discovery, never via the API. ModelViewSet would
+        # otherwise route POST here, whose serializer create path skips the api_version guards.
+        raise MethodNotAllowed("POST")
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -1450,6 +1458,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                description="The running sync was cancelled. v3 pipeline jobs are marked Failed immediately; "
+                "for older pipeline versions the cancelled workflow records the final status.",
+            ),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="No running sync to cancel, or the sync already finished.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def cancel(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1466,14 +1490,57 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "No running sync to cancel."},
             )
 
+        if latest_running_job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            # v1/v2: the workflow itself owns the job's terminal status, so keep the legacy
+            # behavior where the cancel RPC is the whole operation and a missing workflow
+            # is an error.
+            try:
+                cancel_external_data_workflow(latest_running_job.workflow_id)
+            except temporalio.service.RPCError as e:
+                logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+                )
+            return Response(status=status.HTTP_200_OK)
+
+        # v3: durable marker FIRST. Failed is terminal/absorbing, so the loader's later
+        # Completed write and the workflow finally-block write become no-ops.
+        model = update_external_job_status(
+            job_id=str(latest_running_job.id),
+            team_id=instance.team_id,
+            status=ExternalDataJob.Status.FAILED,
+            logger=logger,
+            latest_error="Sync cancelled by user",
+        )
+        if model.status != ExternalDataJob.Status.FAILED:
+            # The job reached a different terminal state concurrently (e.g. Completed).
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": "The sync already finished."},
+            )
+
         try:
             cancel_external_data_workflow(latest_running_job.workflow_id)
         except temporalio.service.RPCError as e:
-            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
-            )
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                # v3 loading phase: the extraction workflow already completed while the loader
+                # drains batches. The Failed marker above makes the loader skip and clean up.
+                logger.info("cancel_sync_workflow_already_finished", schema_id=str(instance.id))
+            else:
+                # Transient RPC failure against a possibly-live workflow. The Failed marker is
+                # already durable (terminal statuses absorb the workflow's later writes, and the
+                # v3 loader cleans up off the marker), so the cancel stands - but the workflow
+                # may keep running until it finishes on its own, so surface the failure.
+                logger.exception("cancel_sync_workflow_cancel_rpc_failed", schema_id=str(instance.id))
+
+        try:
+            # Clear the schema's in-flight row counter; nothing will finish it once the job is Failed.
+            async_to_sync(finish_row_tracking)(instance.team_id, str(instance.id))
+        except Exception as e:
+            # Best-effort: the counter is rebuilt from scratch by the next sync.
+            logger.exception("cancel_sync_row_tracking_cleanup_failed", schema_id=str(instance.id))
+            capture_exception(e)
 
         return Response(status=status.HTTP_200_OK)
 

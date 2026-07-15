@@ -109,7 +109,7 @@
         "cors": "^2.8.5",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
-        "fast-deep-equal": "catalog:",
+        "fast-equals": "catalog:",
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",

@@ -86,23 +86,6 @@ export const externalDataSchemasList = async (
     })
 }
 
-export const getExternalDataSchemasCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/`
-}
-
-export const externalDataSchemasCreate = async (
-    projectId: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
-    })
-}
-
 export const getExternalDataSchemasRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_schemas/${id}/`
 }
@@ -176,14 +159,11 @@ export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: str
 export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 

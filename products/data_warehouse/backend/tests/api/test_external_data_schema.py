@@ -2827,8 +2827,9 @@ class TestUpdateExternalDataSchema:
 
 
 class TestCancelExternalDataSchema(APIBaseTest):
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
-    def test_cancel_running_sync(self, mock_cancel):
+    def _create_schema_with_running_job(self, pipeline_version=None):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -2840,15 +2841,25 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.warehouse_sources.backend.facade.models import ExternalDataJob
-
         job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
             status=ExternalDataJob.Status.RUNNING,
             workflow_id="test-workflow-id",
+            pipeline_version=pipeline_version,
         )
+        return schema, job
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_running_v3_sync_marks_job_failed(self, mock_cancel, mock_finish_row_tracking):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
@@ -2856,6 +2867,89 @@ class TestCancelExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200
         mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        # Nothing will finish the in-flight row counter once the job is Failed, so cancel must.
+        mock_finish_row_tracking.assert_awaited_once_with(self.team.pk, str(schema.id))
+
+    @parameterized.expand(
+        [
+            # v3 loading phase: the extraction workflow completed but the job stays Running while
+            # the loader drains batches. Cancel must mark the job Failed (the loader acts on that
+            # marker) instead of returning a 400.
+            ("workflow_already_finished", "NOT_FOUND"),
+            # Transient RPC failure: the Failed marker is durable and absorbing, so the cancel
+            # stands and a 500 would strand the user (the job is no longer Running, so a retry
+            # can't reach the workflow again).
+            ("transient_rpc_failure", "UNAVAILABLE"),
+        ]
+    )
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_v3_succeeds_when_cancel_rpc_fails(self, _case, rpc_status_name, mock_cancel, _mock_finish):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
+        mock_cancel.side_effect = RPCError("cancel failed", RPCStatusCode[rpc_status_name], b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("v1", "v1-dlt-sync"), ("legacy_null_version", None)])
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_leaves_status_to_the_workflow(self, _case, pipeline_version, mock_cancel):
+        # Pre-v3 pipelines: the cancelled workflow records the job's terminal status itself,
+        # so the endpoint must not write a Failed marker.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=pipeline_version)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
+        assert job.latest_error is None
+
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_returns_400_when_workflow_missing(self, mock_cancel):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V1)
+        mock_cancel.side_effect = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 400
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
 
     @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
     def test_cancel_when_no_running_job(self, mock_cancel):
@@ -3435,6 +3529,18 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
             data=payload,
         )
+
+    def test_create_via_api_is_blocked(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/",
+            data={"name": "Customer", "source": str(source.id), "api_version": "not-validated"},
+        )
+        assert response.status_code == 405
 
     def test_set_and_clear_api_version_override(self):
         schema = self._create_schema()
