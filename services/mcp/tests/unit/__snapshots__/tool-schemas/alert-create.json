@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "calculation_interval": {
-            "description": "How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
-            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
+            "description": "How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+            "enum": ["real_time", "every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "condition": {
@@ -94,6 +94,17 @@
                         },
                         {
                             "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                },
                                 "funnel_step": {
                                     "anyOf": [
                                         {
@@ -117,6 +128,27 @@
                             },
                             "required": ["metric"],
                             "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+                                },
+                                "type": {
+                                    "default": "MetricsAlertConfig",
+                                    "enum": ["MetricsAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
                         }
                     ],
                     "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
@@ -125,7 +157,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions."
+            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period)."
         },
         "detector_config": {
             "anyOf": [
@@ -197,8 +229,8 @@
                                                         "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "zscore",
                                                         "default": "zscore",
+                                                        "enum": ["zscore"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -275,8 +307,8 @@
                                                         "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "mad",
                                                         "default": "mad",
+                                                        "enum": ["mad"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -353,8 +385,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
-                                                        "const": "iqr",
                                                         "default": "iqr",
+                                                        "enum": ["iqr"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -431,8 +463,8 @@
                                                         "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
-                                                        "const": "threshold",
                                                         "default": "threshold",
+                                                        "enum": ["threshold"],
                                                         "type": "string"
                                                     },
                                                     "upper_bound": {
@@ -509,8 +541,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "ecod",
                                                         "default": "ecod",
+                                                        "enum": ["ecod"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -587,8 +619,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "copod",
                                                         "default": "copod",
+                                                        "enum": ["copod"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -676,8 +708,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "isolation_forest",
                                                         "default": "isolation_forest",
+                                                        "enum": ["isolation_forest"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -777,8 +809,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "knn",
                                                         "default": "knn",
+                                                        "enum": ["knn"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -866,8 +898,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "hbos",
                                                         "default": "hbos",
+                                                        "enum": ["hbos"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -955,8 +987,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "lof",
                                                         "default": "lof",
+                                                        "enum": ["lof"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -1055,8 +1087,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "ocsvm",
                                                         "default": "ocsvm",
+                                                        "enum": ["ocsvm"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -1133,8 +1165,8 @@
                                                         "description": "Anomaly probability threshold (default: 0.9)"
                                                     },
                                                     "type": {
-                                                        "const": "pca",
                                                         "default": "pca",
+                                                        "enum": ["pca"],
                                                         "type": "string"
                                                     },
                                                     "window": {
@@ -1161,8 +1193,8 @@
                                     "type": "string"
                                 },
                                 "type": {
-                                    "const": "ensemble",
                                     "default": "ensemble",
+                                    "enum": ["ensemble"],
                                     "type": "string"
                                 }
                             },
@@ -1229,8 +1261,8 @@
                                     "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "zscore",
                                     "default": "zscore",
+                                    "enum": ["zscore"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1307,8 +1339,8 @@
                                     "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "mad",
                                     "default": "mad",
+                                    "enum": ["mad"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1385,8 +1417,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
-                                    "const": "iqr",
                                     "default": "iqr",
+                                    "enum": ["iqr"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1463,8 +1495,8 @@
                                     "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
-                                    "const": "threshold",
                                     "default": "threshold",
+                                    "enum": ["threshold"],
                                     "type": "string"
                                 },
                                 "upper_bound": {
@@ -1541,8 +1573,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "ecod",
                                     "default": "ecod",
+                                    "enum": ["ecod"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1619,8 +1651,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "copod",
                                     "default": "copod",
+                                    "enum": ["copod"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1708,8 +1740,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "isolation_forest",
                                     "default": "isolation_forest",
+                                    "enum": ["isolation_forest"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1809,8 +1841,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "knn",
                                     "default": "knn",
+                                    "enum": ["knn"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1898,8 +1930,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "hbos",
                                     "default": "hbos",
+                                    "enum": ["hbos"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -1987,8 +2019,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "lof",
                                     "default": "lof",
+                                    "enum": ["lof"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2087,8 +2119,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "ocsvm",
                                     "default": "ocsvm",
+                                    "enum": ["ocsvm"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2165,8 +2197,8 @@
                                     "description": "Anomaly probability threshold (default: 0.9)"
                                 },
                                 "type": {
-                                    "const": "pca",
                                     "default": "pca",
+                                    "enum": ["pca"],
                                     "type": "string"
                                 },
                                 "window": {
@@ -2214,6 +2246,7 @@
         },
         "name": {
             "description": "Human-readable name for the alert.",
+            "maxLength": 255,
             "type": "string"
         },
         "schedule_restriction": {
@@ -2336,6 +2369,7 @@
                 },
                 "name": {
                     "description": "Optional name for the threshold.",
+                    "maxLength": 255,
                     "type": "string"
                 }
             },

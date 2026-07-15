@@ -15,6 +15,8 @@ export type FeatureFlagKeyValidation = {
     valid: boolean
     error: string | null
     existingFlag?: FeatureFlagType
+    /** The key this result validated, so consumers can detect a stale result after the key changed. */
+    key?: string
 }
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
@@ -90,7 +92,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     // First do client-side validation
                     const clientError = validateFeatureFlagKey(key)
                     if (clientError) {
-                        return { valid: false, error: clientError }
+                        return { valid: false, error: clientError, key }
                     }
 
                     // Check if key already exists in our unavailable keys set
@@ -102,6 +104,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                             valid: false,
                             error: 'A feature flag with this key already exists.',
                             existingFlag,
+                            key,
                         }
                     }
 
@@ -117,11 +120,12 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                                 valid: false,
                                 error: 'A feature flag with this key already exists.',
                                 existingFlag: exactMatch,
+                                key,
                             }
                         }
                     }
 
-                    return { valid: true, error: null }
+                    return { valid: true, error: null, key }
                 },
                 clearFeatureFlagKeyValidation: () => null,
             },

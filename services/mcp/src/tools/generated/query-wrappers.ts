@@ -79,7 +79,7 @@ const AssistantDurationRange = z.object({
 
 const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
-const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month'])
+const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
 
 const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
     'exact',
@@ -471,7 +471,7 @@ const TrendsFormulaNode = z.object({
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
-        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
+        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage. `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
     )
         .default('numeric')
         .optional(),
@@ -520,7 +520,7 @@ const AssistantTrendsFilter = z.object({
     formulaNodes: z
         .array(TrendsFormulaNode)
         .describe(
-            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
+            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.'
         )
         .optional(),
     metricChangeDecreaseColor: z
@@ -963,7 +963,7 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int()
+const positive_integer = z.coerce.number().int().min(1)
 
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
@@ -1201,6 +1201,220 @@ const AssistantLifecycleQuery = z.object({
         .array(AssistantLifecycleSeriesNode)
         .max(1)
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
+})
+
+const ActionConversionGoal = z.object({
+    actionId: integer,
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const PropertyOperator = z.enum([
+    'exact',
+    'is_not',
+    'icontains',
+    'not_icontains',
+    'regex',
+    'not_regex',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'is_set',
+    'is_not_set',
+    'is_date_exact',
+    'is_date_before',
+    'is_date_after',
+    'between',
+    'not_between',
+    'min',
+    'max',
+    'in',
+    'not_in',
+    'is_cleaned_path_exact',
+    'flag_evaluates_to',
+    'semver_eq',
+    'semver_neq',
+    'semver_gt',
+    'semver_gte',
+    'semver_lt',
+    'semver_lte',
+    'semver_tilde',
+    'semver_caret',
+    'semver_wildcard',
+    'icontains_multi',
+    'not_icontains_multi',
+])
+
+const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+
+const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+
+const EventPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('exact'),
+    type: z.literal('event').describe('Event properties').default('event'),
+    value: PropertyFilterValue.optional(),
+})
+
+const PersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('person').describe('Person properties').default('person'),
+    value: PropertyFilterValue.optional(),
+})
+
+const SessionPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('session').default('session'),
+    value: PropertyFilterValue.optional(),
+})
+
+const CohortPropertyFilter = z.object({
+    cohort_name: z.string().optional(),
+    key: z.literal('id').default('id'),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('in'),
+    type: z.literal('cohort').default('cohort'),
+    value: z.coerce.number().int(),
+})
+
+const WebAnalyticsPropertyFilter = z.union([
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+])
+
+const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
+
+const AssistantWebOverviewQuery = z.object({
+    compareFilter: CompareFilter.describe(
+        'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
+    ).optional(),
+    conversionGoal: z
+        .union([WebAnalyticsConversionGoal, z.null()])
+        .describe(
+            'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
+        )
+        .optional(),
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to URL-style breakdowns.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    kind: z.literal('WebOverviewQuery').default('WebOverviewQuery'),
+    properties: WebAnalyticsPropertyFilters.describe(
+        'Property filters applied to the query. Accepts event, person, session, or cohort filters.'
+    )
+        .default([])
+        .optional(),
+})
+
+const WebStatsBreakdown = z.enum([
+    'Page',
+    'InitialPage',
+    'ExitPage',
+    'ExitClick',
+    'PreviousPage',
+    'ScreenName',
+    'InitialChannelType',
+    'InitialReferringDomain',
+    'InitialReferringURL',
+    'InitialUTMSource',
+    'InitialUTMCampaign',
+    'InitialUTMMedium',
+    'InitialUTMTerm',
+    'InitialUTMContent',
+    'InitialUTMSourceMediumCampaign',
+    'Browser',
+    'OS',
+    'Viewport',
+    'DeviceType',
+    'Country',
+    'Region',
+    'City',
+    'Timezone',
+    'Language',
+    'FrustrationMetrics',
+])
+
+const non_negative_integer = z.coerce.number().int().min(0)
+
+const AssistantWebStatsTableQuery = z.object({
+    breakdownBy: WebStatsBreakdown.describe(
+        'Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`.'
+    ),
+    compareFilter: CompareFilter.describe(
+        'Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.'
+    ).optional(),
+    conversionGoal: z
+        .union([WebAnalyticsConversionGoal, z.null()])
+        .describe(
+            'Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.'
+        )
+        .optional(),
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to URL-style breakdowns.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    includeAvgTimeOnPage: z.coerce
+        .boolean()
+        .describe(
+            'Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path.'
+        )
+        .default(false)
+        .optional(),
+    includeBounceRate: z.coerce
+        .boolean()
+        .describe('Add a bounce-rate column. Most useful with a path-style breakdown.')
+        .default(false)
+        .optional(),
+    includeHost: z.coerce
+        .boolean()
+        .describe(
+            'When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately.'
+        )
+        .default(false)
+        .optional(),
+    kind: z.literal('WebStatsTableQuery').default('WebStatsTableQuery'),
+    limit: positive_integer
+        .max(200)
+        .describe(
+            'Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper.'
+        )
+        .optional(),
+    offset: non_negative_integer.describe('Pagination offset.').optional(),
+    properties: WebAnalyticsPropertyFilters.describe(
+        'Property filters applied to the query. Accepts event, person, session, or cohort filters.'
+    )
+        .default([])
+        .optional(),
 })
 
 const AssistantTracesQuery = z.object({
@@ -1517,6 +1731,20 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
+    }),
+    'query-web-overview': createQueryWrapper({
+        name: 'query-web-overview',
+        schema: AssistantWebOverviewQuery,
+        kind: 'WebOverviewQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
+    }),
+    'query-web-stats': createQueryWrapper({
+        name: 'query-web-stats',
+        schema: AssistantWebStatsTableQuery,
+        kind: 'WebStatsTableQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
     }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',

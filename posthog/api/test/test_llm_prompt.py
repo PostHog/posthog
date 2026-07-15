@@ -3,14 +3,14 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.llm_prompt import LLMPromptViewSet
-from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
+from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES, LLMPromptDuplicateSerializer
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
@@ -43,6 +43,7 @@ class TestLLMPromptAPI(APIBaseTest):
             data={
                 "name": "my-prompt",
                 "prompt": "You are a helpful assistant.",
+                "version_description": "Initial version",
             },
             format="json",
         )
@@ -52,6 +53,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["is_latest"] is True
         assert response.json()["latest_version"] == 1
         assert response.json()["version_count"] == 1
+        assert response.json()["version_description"] == "Initial version"
 
     def test_create_prompt_with_duplicate_active_name_fails(self):
         self.create_prompt_version(name="my-prompt")
@@ -343,6 +345,23 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(latest.id)
         assert response.json()["latest_version"] == 2
         assert response.json()["version_count"] == 2
+
+    def test_publish_persists_version_description_and_returns_it_in_version_summaries(self):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v2", "base_version": 1, "version_description": "Tightened the refusal criteria"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] == "Tightened the refusal criteria"
+
+        resolve_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/publish-prompt/")
+        assert resolve_response.status_code == status.HTTP_200_OK
+        versions = resolve_response.json()["versions"]
+        assert [v["version_description"] for v in versions] == ["Tightened the refusal criteria", None]
 
     def test_update_prompt_by_name_falls_back_when_post_publish_refresh_misses_row(self):
         first_version = self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
@@ -881,21 +900,14 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("spaces", "invalid name with spaces"),
-            ("slash", "has/slash"),
-            ("dot", "has.dot"),
-            ("reserved_new", "new"),
-            ("reserved_new_upper", "NEW"),
-        ]
-    )
-    def test_duplicate_prompt_rejects_invalid_new_name(self, _label, bad_name):
+    def test_duplicate_prompt_rejects_invalid_new_name(self):
+        # Wiring guard: the duplicate action validates new_name through LLMPromptDuplicateSerializer.
+        # The full invalid-name matrix runs without a DB in TestLLMPromptDuplicateSerializerValidationNoDB.
         self.create_prompt_version(name="original", version=1, is_latest=True, prompt="content")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
-            data={"new_name": bad_name},
+            data={"new_name": "invalid name with spaces"},
             format="json",
         )
 
@@ -928,3 +940,25 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "archived-name"
         assert response.json()["version"] == 1
+
+
+class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
+    # validate_new_name is a pure regex + reserved-name check (no context, no DB). The duplicate
+    # endpoint's use of this serializer is guarded by test_duplicate_prompt_rejects_invalid_new_name.
+    @parameterized.expand(
+        [
+            ("spaces", "invalid name with spaces"),
+            ("slash", "has/slash"),
+            ("dot", "has.dot"),
+            ("reserved_new", "new"),
+            ("reserved_new_upper", "NEW"),
+        ]
+    )
+    def test_rejects_invalid_new_name(self, _label: str, bad_name: str) -> None:
+        serializer = LLMPromptDuplicateSerializer(data={"new_name": bad_name})
+        assert not serializer.is_valid()
+        assert "new_name" in serializer.errors
+
+    def test_accepts_valid_new_name(self) -> None:
+        serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
+        assert serializer.is_valid(), serializer.errors

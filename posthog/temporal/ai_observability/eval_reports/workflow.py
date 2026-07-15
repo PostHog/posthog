@@ -12,8 +12,9 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    check_count_triggered_eval_report_activity,
     deliver_report_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -25,6 +26,8 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     AGENT_HEARTBEAT_TIMEOUT,
     AGENT_RETRY_POLICY,
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
+    COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+    COUNT_TRIGGER_CHECK_BATCH_SIZE,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -43,7 +46,9 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EmitEvalReportSignalWorkflow,
 )
+from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
 from posthog.temporal.ai_observability.eval_reports.types import (
+    CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     GenerateAndDeliverEvalReportWorkflowInput,
@@ -113,17 +118,18 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
         result = await temporalio.workflow.execute_activity(
-            fetch_count_triggered_eval_reports_activity,
+            fetch_count_triggered_eval_report_candidates_activity,
             inputs,
             start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
+        report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
-        if not result.report_ids:
+        if not report_ids:
             return
 
         tasks = []
-        for report_id in result.report_ids:
+        for report_id in report_ids:
             task = temporalio.workflow.execute_child_workflow(
                 GenerateAndDeliverEvalReportWorkflow.run,
                 GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
@@ -133,7 +139,59 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures("count_triggered_eval_report", result.report_ids, results)
+        _log_fan_out_failures("count_triggered_eval_report", report_ids, results)
+
+
+async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
+    due_report_ids: list[str] = []
+    failed: list[tuple[str, str]] = []
+    skipped_counts = {
+        "cooldown": 0,
+        "daily_cap": 0,
+        "not_deliverable": 0,
+    }
+
+    for batch in _batch_report_ids(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE):
+        tasks = [
+            temporalio.workflow.execute_activity(
+                check_count_triggered_eval_report_activity,
+                CheckCountTriggeredEvalReportInput(report_id=report_id),
+                start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+                retry_policy=FETCH_RETRY_POLICY,
+            )
+            for report_id in batch
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for report_id, result in zip(batch, results):
+            if isinstance(result, BaseException):
+                failed.append((report_id, f"{type(result).__name__}: {result}"))
+            elif result.due:
+                due_report_ids.append(result.report_id)
+            elif result.skipped_reason is not None:
+                skipped_counts[result.skipped_reason] = skipped_counts.get(result.skipped_reason, 0) + 1
+
+    if failed:
+        temporalio.workflow.logger.warning(
+            "count_triggered_eval_report_check.activity_errors",
+            extra={"failed_count": len(failed), "failures": failed},
+        )
+
+    temporalio.workflow.logger.info(
+        "llma_eval_reports_coordinator_count_triggered_poll",
+        extra={
+            "reports_found": len(due_report_ids),
+            "total_checked": len(report_ids),
+            "skipped_cooldown": skipped_counts["cooldown"],
+            "skipped_daily_cap": skipped_counts["daily_cap"],
+            "skipped_not_deliverable": skipped_counts["not_deliverable"],
+        },
+    )
+    record_coordinator_reports_found(len(due_report_ids), "count_triggered")
+    return due_report_ids
+
+
+def _batch_report_ids(report_ids: list[str], batch_size: int) -> list[list[str]]:
+    return [report_ids[index : index + batch_size] for index in range(0, len(report_ids), batch_size)]
 
 
 def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
@@ -207,9 +265,9 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # 3b. Emit a signal for this report run (fire-and-forget).
         # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
         # parent-close lets the LLM summary call continue independently so it doesn't
-        # block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS, EVALUATION)
-        # row that gates per-result emission — the activity bails out early for
-        # teams/evaluations that haven't opted in.
+        # block delivery. Gated by the team-level SignalSourceConfig(LLM_ANALYTICS,
+        # EVALUATION_REPORT) row — the activity bails out early for teams that
+        # haven't opted in.
         # Wrapped in workflow.patched so in-flight workflows started before this code
         # was deployed don't hit a nondeterminism error on replay — they'll skip the
         # child-workflow command entirely.

@@ -5,11 +5,14 @@ from collections.abc import Generator
 from typing import Any
 from urllib.parse import urlparse
 
+from requests import Response
 from requests.exceptions import (
+    ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
     RequestException,
 )
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -32,9 +35,17 @@ _CONVEX_RETRY = DEFAULT_RETRY.new(
 )
 
 
+# list_snapshot cursors are opaque {tablet, id} strings; document_deltas cursors are integer
+# `_ts` timestamps. The two are not interchangeable, so each endpoint's resume state is kept
+# under its own Redis namespace (see convex_source) to stop a retry that flips between them
+# from replaying one endpoint's cursor against the other.
+_SNAPSHOT_RESUME_NAMESPACE = "list_snapshot"
+_DELTAS_RESUME_NAMESPACE = "document_deltas"
+
+
 @dataclasses.dataclass
 class ConvexResumeConfig:
-    cursor: int
+    cursor: int | str
     snapshot: int | None = None
 
 
@@ -89,11 +100,25 @@ def _headers(deploy_key: str) -> dict[str, str]:
     }
 
 
+@retry(
+    retry=retry_if_exception_type(ChunkedEncodingError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int) -> Response:
+    # requests reads the body eagerly (stream=False), so a connection broken mid-chunk surfaces
+    # here as ChunkedEncodingError — it happens after the response headers, so _CONVEX_RETRY (a
+    # urllib3 Retry, which only covers pre-response failures) never sees it. It's transient and
+    # every Convex read is an idempotent GET, so a fresh request re-fetches the page.
+    return make_tracked_session(retry=_CONVEX_RETRY).get(
+        url, headers=_headers(deploy_key), params=params, timeout=timeout
+    )
+
+
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = make_tracked_session(retry=_CONVEX_RETRY).get(
-        url, headers=_headers(deploy_key), params={"deltaSchema": "true", "format": "json"}, timeout=30
-    )
+    response = _convex_get(url, deploy_key, {"deltaSchema": "true", "format": "json"}, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -110,7 +135,8 @@ def list_snapshot(
     which can be used as the starting cursor for document_deltas.
     """
     base_url = f"{deploy_url.rstrip('/')}/api/list_snapshot"
-    cursor: int | None = None
+    # Convex returns the snapshot cursor as an opaque {tablet, id} string, not an integer.
+    cursor: int | str | None = None
     snapshot: int | None = None
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -125,9 +151,7 @@ def list_snapshot(
         if snapshot is not None:
             params["snapshot"] = snapshot
 
-        response = make_tracked_session(retry=_CONVEX_RETRY).get(
-            base_url, headers=_headers(deploy_key), params=params, timeout=60
-        )
+        response = _convex_get(base_url, deploy_key, params, timeout=60)
         response.raise_for_status()
         data = response.json()
 
@@ -170,15 +194,24 @@ def document_deltas(
     current_cursor = cursor
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only trust an integer resume cursor — document_deltas requires an integer `_ts`. A
+    # non-integer here means stale or cross-endpoint state; ignore it and restart from the
+    # DB watermark rather than replaying a cursor Convex would reject with a 400.
     if resume_config is not None:
-        current_cursor = resume_config.cursor
+        if isinstance(resume_config.cursor, int):
+            current_cursor = resume_config.cursor
+        else:
+            # Namespacing should keep this from happening; if it does, surface it rather than
+            # silently dropping the saved cursor.
+            logger.warning(
+                "Discarding non-integer document_deltas resume cursor for table '%s'; restarting from the DB watermark",
+                table_name,
+            )
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
-        response = make_tracked_session(retry=_CONVEX_RETRY).get(
-            base_url, headers=_headers(deploy_key), params=params, timeout=60
-        )
+        response = _convex_get(base_url, deploy_key, params, timeout=60)
 
         if response.status_code == 400:
             error_data = response.json()
@@ -224,7 +257,13 @@ def validate_credentials(deploy_url: str, deploy_key: str) -> tuple[bool, str | 
                 pass
             if e.response.status_code in (401, 403):
                 return False, "Invalid deploy key. Check your Convex deploy key and try again."
-        return False, str(e)
+        # Any other status falls through to a generic message. Keep the raw error
+        # (which embeds the deployment URL) out of what the user sees.
+        detail = f" (HTTP {e.response.status_code})" if e.response is not None else ""
+        return (
+            False,
+            f"The Convex deployment rejected the request{detail}. Check your deployment URL and deploy key, then try again.",
+        )
     except RequestsConnectionError:
         return False, "Could not connect to the Convex deployment. Check your deployment URL and try again."
     except RequestException as e:
@@ -254,10 +293,12 @@ def convex_source(
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
-            for batch in document_deltas(clean_url, deploy_key, table_name, cursor, resumable_source_manager):
+            deltas_manager = resumable_source_manager.with_namespace(_DELTAS_RESUME_NAMESPACE)
+            for batch in document_deltas(clean_url, deploy_key, table_name, cursor, deltas_manager):
                 yield _normalize_timestamps(batch)
         else:
-            for batch in list_snapshot(clean_url, deploy_key, table_name, resumable_source_manager):
+            snapshot_manager = resumable_source_manager.with_namespace(_SNAPSHOT_RESUME_NAMESPACE)
+            for batch in list_snapshot(clean_url, deploy_key, table_name, snapshot_manager):
                 yield _normalize_timestamps(batch)
 
     return SourceResponse(

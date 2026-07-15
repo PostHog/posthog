@@ -730,19 +730,33 @@ class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
-class EmailMFAThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa"
+class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification"
     rate = "6/20minutes"
 
+    def get_cache_key(self, request, view):
+        # Key on the pending login's user id (from the session), not on request data. The base class
+        # would fall back to a request-body "email" field, which the code-verification request never
+        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
+        # it. The session is the source of truth for who is being verified.
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-class EmailMFAResendThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa_resend"
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
+class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification_resend"
     rate = "1/minute"
 
     def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import email_mfa_verifier
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -831,6 +845,18 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         # this value isn't use controllable and can't generate html/js, so there's no risk of xss
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_query_{sha_hash}"
+
+
+class SetupWizardCloudRunBurstRateThrottle(UserRateThrottle):
+    # "Run the setup wizard in the cloud" provisions a Modal sandbox and runs an LLM agent per call,
+    # so cap it hard per user — a couple per hour only, with an absolute daily ceiling (sustained throttle below).
+    scope = "wizard_cloud_run_burst"
+    rate = "2/hour"
+
+
+class SetupWizardCloudRunSustainedRateThrottle(UserRateThrottle):
+    scope = "wizard_cloud_run_day"
+    rate = "5/day"
 
 
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -1196,4 +1222,13 @@ class TeamsOAuthCallbackThrottle(IPThrottle):
     """
 
     scope = "teams_oauth_callback"
+    rate = "30/minute"
+
+
+class SupportSlackOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated support Slack OAuth callback endpoint by IP.
+    """
+
+    scope = "support_slack_oauth_callback"
     rate = "30/minute"

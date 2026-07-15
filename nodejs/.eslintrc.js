@@ -12,7 +12,15 @@ module.exports = {
         'plugin:@eslint-community/eslint-comments/recommended',
         'prettier',
     ],
-    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/common/config/idl'],
+    ignorePatterns: [
+        'bin',
+        'dist',
+        'node_modules',
+        'src/common/config/idl',
+        // Standalone package with its own oxlint config; not part of the plugin-server eslint pass.
+        'src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar',
+        '**/dev/**',
+    ],
     rules: {
         'no-restricted-syntax': [
             'error',

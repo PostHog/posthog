@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::{
     api_proxy,
@@ -10,7 +10,7 @@ use crate::{
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
-    invocation_context::{context, init_context, INVOCATION_CONTEXT},
+    invocation_context::{context, init_context, set_telemetry_command_name, INVOCATION_CONTEXT},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
@@ -243,20 +243,98 @@ pub enum SchemaCommand {
     Status,
 }
 
+impl Commands {
+    fn telemetry_command_name(&self) -> &'static str {
+        match self {
+            Commands::Login => "login",
+            Commands::Exp { cmd } => cmd.telemetry_command_name(),
+            Commands::Sourcemap { cmd } => match cmd {
+                SourcemapCommand::Inject(_) => "sourcemap_inject",
+                SourcemapCommand::Upload(_) => "sourcemap_upload",
+                SourcemapCommand::Process(_) => "sourcemap_process",
+            },
+            Commands::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(_) => "dsym_upload",
+            },
+            Commands::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(_) => "hermes_inject",
+                HermesSubcommand::Upload(_) => "hermes_upload",
+                HermesSubcommand::Clone(_) => "hermes_clone",
+            },
+            Commands::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(_) => "proguard_upload",
+            },
+            Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Upload(_) => "symbolset_upload",
+                SymbolSetsSubcommand::Download(_) => "symbolset_download",
+                SymbolSetsSubcommand::Extract(_) => "symbolset_extract",
+            },
+            Commands::Api { .. } => "api",
+        }
+    }
+}
+
+impl ExpCommand {
+    fn telemetry_command_name(&self) -> &'static str {
+        match self {
+            ExpCommand::Task { cmd, .. } => match cmd {
+                TaskCommand::List { .. } => "task_list",
+                TaskCommand::Progress { .. } => "task_progress",
+                TaskCommand::UpdateStage { .. } => "task_update_stage",
+            },
+            ExpCommand::Query { cmd } => match cmd {
+                QueryCommand::Editor { .. } => "query_editor",
+                QueryCommand::Run { .. } => "query_run",
+                QueryCommand::Check { .. } => "query_check",
+            },
+            ExpCommand::Endpoints { cmd } => match cmd {
+                EndpointCommand::List(_) => "endpoints_list",
+                EndpointCommand::Get(_) => "endpoints_get",
+                EndpointCommand::Open(_) => "endpoints_open",
+                EndpointCommand::Run(_) => "endpoints_run",
+                EndpointCommand::Push(_) => "endpoints_push",
+                EndpointCommand::Pull(_) => "endpoints_pull",
+                EndpointCommand::Diff(_) => "endpoints_diff",
+            },
+            ExpCommand::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(_) => "hermes_inject",
+                HermesSubcommand::Upload(_) => "hermes_upload",
+                HermesSubcommand::Clone(_) => "hermes_clone",
+            },
+            ExpCommand::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(_) => "proguard_upload",
+            },
+            ExpCommand::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(_) => "dsym_upload",
+            },
+            ExpCommand::Schema { cmd } => match cmd {
+                SchemaCommand::Pull { .. } => "schema_pull",
+                SchemaCommand::Status => "schema_status",
+            },
+        }
+    }
+}
+
 impl Cli {
     pub fn run() -> Result<(), CapturedError> {
         let command = Cli::parse();
         let no_fail = command.no_fail;
+        set_telemetry_command_name(command.command.telemetry_command_name());
 
-        match command.run_impl() {
+        let result = command.run_impl().map_err(|error| error.capture());
+
+        if INVOCATION_CONTEXT.get().is_some() {
+            context().finish();
+        }
+
+        match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                let msg = match &e.exception_id {
-                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
-                    None => format!("Oops! {:?}", e.inner),
-                };
-                error!(msg);
                 if no_fail {
+                    match &e.exception_id {
+                        Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
+                        None => eprintln!("Oops! {:?}", e.inner),
+                    };
                     Ok(())
                 } else {
                     Err(e)
@@ -413,10 +491,6 @@ impl Cli {
                     }
                 },
             },
-        }
-
-        if INVOCATION_CONTEXT.get().is_some() {
-            context().finish();
         }
 
         Ok(())

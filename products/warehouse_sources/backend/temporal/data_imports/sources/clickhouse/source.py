@@ -68,6 +68,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -213,6 +214,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
+            # query as Arrow: a selected column has a type ClickHouse can't serialize
+            # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
+            # materialized view). The column type is fixed, so retrying replays the
+            # identical failure. We match the stable Arrow-conversion phrase, not the
+            # volatile column name or type in the message.
+            "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
         }
 
     def get_schemas(
@@ -225,7 +233,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_clickhouse_schemas(
                 host=host,
                 port=port,
@@ -340,7 +348,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return None
 
     def get_connection_metadata(self, config: ClickHouseSourceConfig, team_id: int) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_clickhouse_connection_metadata(
                 host=host,
                 port=port,
@@ -354,7 +362,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
 

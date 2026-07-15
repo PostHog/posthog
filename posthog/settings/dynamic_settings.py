@@ -120,6 +120,12 @@ CONSTANCE_CONFIG = {
         "Reply address to which email clients should send responses.",
         str,
     ),
+    "EMAIL_TIMEOUT": (
+        get_from_env("EMAIL_TIMEOUT", 30, type_cast=int),
+        "Socket timeout in seconds for SMTP connections. Bounds how long a send waits on an "
+        "unresponsive relay before raising (and being retried), instead of blocking forever.",
+        int,
+    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
@@ -279,11 +285,6 @@ CONSTANCE_CONFIG = {
         "Teams that will have web analytics cache warming enabled",
         list[int],
     ),
-    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS": (
-        get_from_env("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS", default=[2, 140988], type_cast=list[int]),
-        "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
-        list[int],
-    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -304,6 +305,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_USE_SSL",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
+    "EMAIL_TIMEOUT",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
@@ -333,7 +335,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
-    "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",

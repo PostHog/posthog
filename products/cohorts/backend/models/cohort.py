@@ -1,8 +1,10 @@
 import re
 import time
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
@@ -26,12 +28,15 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
-from posthog.models.person.util import get_person_by_uuid
+from posthog.models.person.util import get_person_by_uuid, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
+
+from products.cohorts.backend.models.leaf_shape import extract_behavioral_leaf_shape_hash, extract_leaf_shape_hash
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -199,6 +204,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     errors_calculating = models.IntegerField(default=0)
     last_error_at = models.DateTimeField(blank=True, null=True)
     last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
+    last_backfill_events_at = models.DateTimeField(blank=True, null=True)
+    filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
+    behavioral_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
@@ -242,6 +250,81 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def __str__(self):
         return self.name or "Untitled cohort"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
+        # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
+        positional_update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
+        maintained_update_fields = self._maintain_behavioral_shape(positional_update_fields)
+        if len(args) > 3:
+            args = (*args[:3], maintained_update_fields, *args[4:])
+        else:
+            kwargs["update_fields"] = maintained_update_fields
+        super().save(*args, **kwargs)
+
+    def _maintain_behavioral_shape(self, update_fields: Iterable[str] | None) -> set[str] | None:
+        self._leaf_shape_changed = False
+        maintained_update_fields = set(update_fields) if update_fields is not None else None
+        try:
+            if not self.team_id or not is_realtime_cohort_team(self.team_id):
+                return maintained_update_fields
+            if self.cohort_type != CohortType.REALTIME or self.is_static or self.deleted:
+                return maintained_update_fields
+            if maintained_update_fields is not None and "filters" not in maintained_update_fields:
+                return maintained_update_fields
+
+            new_shape_hash = extract_leaf_shape_hash(self.filters)
+            new_behavioral_shape_hash = extract_behavioral_leaf_shape_hash(self.filters)
+            stored_shape_hash = self.__dict__.get("filters_shape_hash")
+            stored_behavioral_shape_hash = self.__dict__.get("behavioral_filters_shape_hash")
+            previous_behavioral_shape_hash = stored_behavioral_shape_hash
+
+            if not self._state.adding and (stored_shape_hash is None or stored_behavioral_shape_hash is None):
+                persisted = (
+                    Cohort.objects.filter(id=self.pk, team_id=self.team_id)
+                    .values("filters", "filters_shape_hash", "behavioral_filters_shape_hash")
+                    .first()
+                )
+                if persisted is not None:
+                    if stored_shape_hash is None:
+                        stored_shape_hash = persisted["filters_shape_hash"]
+                    if stored_behavioral_shape_hash is None:
+                        stored_behavioral_shape_hash = persisted["behavioral_filters_shape_hash"]
+                        previous_behavioral_shape_hash = (
+                            stored_behavioral_shape_hash
+                            if stored_behavioral_shape_hash is not None
+                            else extract_behavioral_leaf_shape_hash(persisted["filters"])
+                        )
+
+            shape_hash_needs_update = stored_shape_hash != new_shape_hash
+            behavioral_shape_hash_needs_update = stored_behavioral_shape_hash != new_behavioral_shape_hash
+            behavioral_shape_changed = (
+                not self._state.adding and previous_behavioral_shape_hash != new_behavioral_shape_hash
+            )
+
+            self.filters_shape_hash = new_shape_hash
+            self.behavioral_filters_shape_hash = new_behavioral_shape_hash
+            if behavioral_shape_changed:
+                self.last_backfill_events_at = None
+                self._leaf_shape_changed = True
+
+            if maintained_update_fields is None:
+                return None
+            if shape_hash_needs_update:
+                maintained_update_fields.add("filters_shape_hash")
+            if behavioral_shape_hash_needs_update:
+                maintained_update_fields.add("behavioral_filters_shape_hash")
+            if behavioral_shape_changed:
+                maintained_update_fields.add("last_backfill_events_at")
+            return maintained_update_fields
+        except Exception as error:
+            logger.exception(
+                "failed_to_maintain_cohort_behavioral_shape",
+                cohort_id=self.pk,
+                team_id=self.team_id,
+                error=str(error),
+            )
+            return maintained_update_fields
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
@@ -261,10 +344,51 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             should_delete=self.deleted,
         )
 
+    def _has_filter_type(self, filter_type: str) -> bool:
+        """Check whether the cohort's filter tree contains any leaf node of the given type."""
+        if not self.filters:
+            return False
+        properties = self.filters.get("properties")
+        if not properties:
+            return False
+
+        def _check(node) -> bool:
+            if not isinstance(node, dict):
+                return False
+            node_type = node.get("type")
+            if node_type in ("AND", "OR"):
+                return any(_check(child) for child in node.get("values", []))
+            return node_type == filter_type
+
+        return _check(properties)
+
     @property
     def is_flag_compatible(self) -> bool:
-        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups."""
-        return self.cohort_type == CohortType.REALTIME and self.last_backfill_person_properties_at is not None
+        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
+
+        Gates on both person property and event backfills based on which filter types the cohort uses:
+        - Cohorts with person property filters require last_backfill_person_properties_at
+        - Cohorts with behavioral event filters require last_backfill_events_at
+        - Cohorts with both require both timestamps
+        - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
+          are not flag-compatible, even if stale timestamps are set, because HogQLRealtimeCohortQuery
+          cannot evaluate them.
+        """
+        if self.cohort_type != CohortType.REALTIME:
+            return False
+
+        has_person_filters = self._has_filter_type("person")
+        has_behavioral_filters = self._has_filter_type("behavioral")
+
+        if not (has_person_filters or has_behavioral_filters):
+            return False
+
+        if has_person_filters and self.last_backfill_person_properties_at is None:
+            return False
+        if has_behavioral_filters and self.last_backfill_events_at is None:
+            return False
+
+        return True
 
     @property
     def properties(self) -> PropertyGroup:
@@ -480,6 +604,42 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
         )
 
+    def insert_users_list_by_id_uuid_pairs_skip_validation(
+        self,
+        items: list[tuple[int, str]],
+        *,
+        team_id: int,
+        raise_on_error: bool = False,
+    ) -> int:
+        """
+        Insert already-resolved (person_id, person_uuid) members into the cohort, for the given team.
+
+        Skips the per-batch UUID → person id resolution that ``insert_users_list_by_uuid``
+        performs — for callers that resolved the persons themselves (e.g. a validation pass over
+        the same set) and must not pay for a second personhog lookup. Semantics otherwise match
+        ``insert_users_list_by_uuid``, including ``raise_on_error``.
+
+        The ``_skip_validation`` suffix is the tenant-isolation contract: pairs MUST come from a
+        team-scoped personhog read for this same ``team_id`` (e.g.
+        ``get_person_ids_and_uuids_by_uuids``). Nothing downstream re-validates person ownership —
+        the InsertCohortMembers RPC is team-blind, and in the UUID path that validation happens
+        implicitly in the resolve step this method skips.
+        Wrong-team pairs would write inert membership rows (read paths join membership against
+        the team's own persons, so foreign ids never match), but they are still a tenant-data
+        integrity violation.
+
+        Returns:
+            The number of batches processed.
+        """
+        batch_iterator = ArrayBatchIterator(items, batch_size=DEFAULT_COHORT_INSERT_BATCH_SIZE)
+        return self._insert_users_list_with_batching(
+            batch_iterator,
+            insert_in_clickhouse=True,
+            team_id=team_id,
+            raise_on_error=raise_on_error,
+            insert_batch=lambda batch: self._insert_resolved_batch(batch, insert_in_clickhouse=True, team_id=team_id),
+        )
+
     def insert_users_by_email(
         self,
         items: list[str],
@@ -550,11 +710,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _insert_users_list_with_batching(
         self,
-        batch_iterator: BatchIterator[str],
+        batch_iterator: BatchIterator[Any],
         insert_in_clickhouse: bool = False,
         *,
         team_id: int,
         raise_on_error: bool = False,
+        insert_batch: Callable[[list[Any]], None] | None = None,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -563,18 +724,27 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             team_id: The ID of the team to which the cohort belongs.
+            insert_batch: Override for the per-batch write. Defaults to resolving each batch of
+                UUIDs via personhog and inserting (``_insert_batch_via_personhog``, which honors
+                ``insert_in_clickhouse``); callers whose batches are not plain UUID lists supply
+                a writer matching their item type.
 
         Returns:
             Number of batches processed.
         """
         from products.cohorts.backend.models.util import count_cohort_members
 
+        def _resolve_and_insert_batch(batch: list[Any]) -> None:
+            self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+
+        insert_batch = insert_batch or _resolve_and_insert_batch
+
         current_batch_index = -1
         processing_error = None
         try:
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
-                self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+                insert_batch(batch)
 
         except SoftTimeLimitExceeded as err:
             # Let a Celery soft-time-limit interruption propagate so the task's time limit
@@ -634,34 +804,43 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     ) -> None:
         """Personhog path for inserting a single batch of cohort members.
 
-        Resolves UUIDs → person IDs via personhog, then calls the
-        InsertCohortMembers RPC. ClickHouse inserts (if requested)
-        exclude persons already in the cohort because the
-        person_static_cohort table's ORDER BY includes a per-row UUID,
+        Resolves UUIDs → person IDs via personhog (field-masked — membership only needs
+        id/uuid, not properties or distinct IDs), then writes the resolved batch.
+        """
+        with personhog_caller_tag("cohorts/static-insert"):
+            id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
+        self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
+
+    def _insert_resolved_batch(
+        self,
+        id_uuid_pairs: list[tuple[int, str]],
+        *,
+        insert_in_clickhouse: bool,
+        team_id: int,
+    ) -> None:
+        """Write a single batch of already-resolved (person_id, person_uuid) cohort members.
+
+        Trusts the pairs — see the tenant-isolation contract on
+        ``insert_users_list_by_id_uuid_pairs_skip_validation``. Calls the InsertCohortMembers RPC.
+        ClickHouse inserts (if requested) exclude persons already in the cohort
+        because the person_static_cohort table's ORDER BY includes a per-row UUID,
         preventing ReplacingMergeTree from deduplicating repeated inserts.
         """
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-        from posthog.models.person.util import get_persons_by_uuids
 
-        from products.cohorts.backend.models.util import insert_static_cohort
+        from products.cohorts.backend.models.util import insert_cohort_members, insert_static_cohort
 
-        # Cohort membership only needs id/uuid, so skip the unbounded per-person distinct-id fetch.
-        with personhog_caller_tag("cohorts/static-insert"):
-            persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
-        if not persons:
+        if not id_uuid_pairs:
             return
 
-        person_ids = [p.id for p in persons]
-        person_uuids = [p.uuid for p in persons]
+        person_ids = [person_id for person_id, _ in id_uuid_pairs]
+        person_uuids = [person_uuid for _, person_uuid in id_uuid_pairs]
 
         if insert_in_clickhouse:
-            uuid_strs = [str(u) for u in person_uuids]
-            existing_uuids = self._get_existing_ch_member_uuids(uuid_strs, team_id, PERSON_STATIC_COHORT_TABLE)
-            new_uuids = [u for u in person_uuids if str(u) not in existing_uuids]
+            existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
                 insert_static_cohort(new_uuids, self.pk, team_id=team_id)
-
-        from products.cohorts.backend.models.util import insert_cohort_members
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 

@@ -4,7 +4,11 @@ import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { invalidateTaxonomicResourcesWhere } from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
+import {
+    TAXONOMIC_LIST_KEY_FAMILY,
+    TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+    invalidateTaxonomicResourcesWhere,
+} from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -88,7 +92,9 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     const processedCriteria = { ...criteria }
 
     if (
-        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(criteria.type) &&
+        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person, BehavioralFilterKey.PersonMetadata].includes(
+            criteria.type
+        ) &&
         !('value_property' in criteria)
     ) {
         processedCriteria.value_property = criteria.value
@@ -117,12 +123,14 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
 /**
  * Predicate for `invalidateTaxonomicResourcesWhere` — matches the cache
  * entries belonging to the `Cohorts` / `CohortsWithAllUsers` taxonomic
- * groups. The key shape is set in `useGroupList`:
- *   ['taxonomic-list', groupType, endpoint, scopedEndpoint, isExpanded,
- *    searchQuery, limit, showNumericalPropsOnly, hideBehavioralCohorts]
+ * groups. `useGroupList.ts` caches under two key families — `remoteKey`
+ * (`TAXONOMIC_LIST_KEY_FAMILY`) and `serverSearchKey`
+ * (`TAXONOMIC_LIST_SEARCH_KEY_FAMILY`) — both shaped
+ * `[family, groupType, ...fetch params]` and growing with new fetch params,
+ * so rely only on the leading two positions here.
  */
 function isCohortTaxonomicListKey(key: unknown[]): boolean {
-    if (key[0] !== 'taxonomic-list') {
+    if (key[0] !== TAXONOMIC_LIST_KEY_FAMILY && key[0] !== TAXONOMIC_LIST_SEARCH_KEY_FAMILY) {
         return false
     }
     return key[1] === TaxonomicFilterGroupType.Cohorts || key[1] === TaxonomicFilterGroupType.CohortsWithAllUsers
@@ -298,6 +306,11 @@ export const cohortsModel = kea<cohortsModelType>([
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
                 callback: (undo) => {
+                    if (undo) {
+                        // The delete-time invalidation above already ran; a restore needs its
+                        // own, or pickers keep serving the deleted-state cache for staleTime.
+                        invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
+                    }
                     actions.loadCohorts()
                     if (cohort.id && cohort.id !== 'new') {
                         if (undo) {

@@ -13,6 +13,7 @@ import {
     HogFunctionInvocationGlobals,
     LogEntry,
     LogEntryLevel,
+    MessageAssetRow,
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
@@ -20,6 +21,7 @@ import {
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
+import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -32,6 +34,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
+    WorkflowChangedError,
     actionIdForLogging,
     ensureCurrentAction,
     findContinueAction,
@@ -86,13 +89,20 @@ export class HogFlowExecutorService {
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
+        emailValidationService: EmailValidationService,
         duplicateObserver?: HogFlowDuplicateObserverService
     ) {
         this.duplicateObserver = duplicateObserver ?? null
-        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
+        const hogFunctionHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'fetch'
+        )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
+            emailValidationService,
             'email'
         )
 
@@ -105,6 +115,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
+            function_push: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
@@ -176,8 +187,9 @@ export class HogFlowExecutorService {
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
+        const emailAssets: MessageAssetRow[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation)
+        const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
             return earlyExitResult
         }
@@ -213,6 +225,7 @@ export class HogFlowExecutorService {
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
+            emailAssets.push(...result.emailAssets)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -223,6 +236,7 @@ export class HogFlowExecutorService {
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
+        result.emailAssets = emailAssets
 
         return result
     }
@@ -265,7 +279,9 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        metrics: MinimalAppMetric[],
+        capturedPostHogEvents: HogFunctionCapturedEvent[]
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -300,6 +316,41 @@ export class HogFlowExecutorService {
                     'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
                     { hogFlowId: hogFlow.id }
                 )
+            }
+        }
+        // Count property-based conversions here, regardless of exit condition, so the metric is
+        // meaningful even for flows that don't exit on conversion. Captured before the event-flag
+        // override below: event-based conversions are counted by the subscription matcher, so the
+        // executor must only emit for the property path or exit-on-conversion event flows double-count.
+        // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
+        const propertyConversionMatched = conversionMatch === true
+        let conversionMetric: MinimalAppMetric | null = null
+        let conversionEvent: HogFunctionCapturedEvent | null = null
+        if (propertyConversionMatched && !invocation.state.conversionCounted) {
+            invocation.state.conversionCounted = true
+            conversionMetric = {
+                team_id: hogFlow.team_id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                instance_id: hogFlow.id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+            }
+            // Also surface the conversion as a billable PostHog event so it can power insights and
+            // cohorts (mirrors the $workflows_email_* engagement events). Event-based conversions are
+            // emitted by the subscription matcher, so this only fires for the property path.
+            const distinctId = invocation.state.event?.distinct_id
+            if (distinctId) {
+                conversionEvent = {
+                    team_id: hogFlow.team_id,
+                    event: '$workflows_conversion',
+                    distinct_id: distinctId,
+                    timestamp: new Date().toISOString(),
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        $workflow_conversion_type: 'property',
+                    },
+                }
             }
         }
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
@@ -352,6 +403,16 @@ export class HogFlowExecutorService {
                 metric_name: 'early_exit',
                 count: 1,
             })
+        }
+
+        // Route the conversion metric/event onto whichever result is actually flushed: the early-exit
+        // result when we exit, otherwise the caller's arrays (which become result.metrics /
+        // result.capturedPostHogEvents once the run continues and finishes).
+        if (conversionMetric) {
+            ;(earlyExitResult?.metrics ?? metrics).push(conversionMetric)
+        }
+        if (conversionEvent) {
+            ;(earlyExitResult?.capturedPostHogEvents ?? capturedPostHogEvents).push(conversionEvent)
         }
 
         return earlyExitResult
@@ -433,16 +494,47 @@ export class HogFlowExecutorService {
                     this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
-                // Add logs and metric specifically for this action
-                this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.trackActionMetric(result, currentAction, 'failed')
+                // A live-edit WorkflowChangedError is not this action failing - the graph moved
+                // underneath the run - so it skips the failure log/metric and is classified by the
+                // outer catch. The same error from an untouched flow is a malformed definition and
+                // keeps the failure treatment.
+                if (!this.isLiveEditWorkflowChange(err, invocation)) {
+                    // Add logs and metric specifically for this action
+                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                    this.trackActionMetric(result, currentAction, 'failed')
+                }
 
                 throw err
             }
         } catch (err) {
+            // The workflow was edited underneath this run and its current step (or that step's next
+            // edge) no longer exists. That's a user action, not a defect: finish the run as a
+            // deliberate exit - no result.error, so it doesn't count towards the workflow's failure
+            // rate - with its own metric so exits are attributable per workflow.
+            if (this.isLiveEditWorkflowChange(err, invocation)) {
+                result.finished = true
+                this.log(
+                    result,
+                    'info',
+                    `Workflow exited: the workflow was edited and this run's current step no longer exists (${err.message})`
+                )
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                    instance_id: invocation.state.currentAction?.id,
+                    metric_kind: 'other',
+                    metric_name: 'exited_workflow_changed',
+                    count: 1,
+                })
+
+                return result
+            }
+
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // (a WorkflowChangedError from an untouched flow lands here too: the graph was malformed
+            // all along, so it stays a failure the author can see rather than a quiet exit)
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -454,6 +546,19 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    // A structural lookup miss only counts as a live edit when the flow was actually updated after
+    // the run arrived at its current step. Otherwise the graph was malformed from the start (a bad
+    // save, a lenient draft in a test run) and hiding it as a deliberate exit would bury the defect.
+    private isLiveEditWorkflowChange(err: unknown, invocation: CyclotronJobInvocationHogFlow): boolean {
+        if (!(err instanceof WorkflowChangedError)) {
+            return false
+        }
+        const stepStartedAt = invocation.state.currentAction?.startedAtTimestamp
+        // updated_at is a Date from pg in production and epoch millis in fixtures - normalize
+        const updatedAt = invocation.hogFlow.updated_at ? new Date(invocation.hogFlow.updated_at).getTime() : null
+        return Boolean(stepStartedAt && updatedAt && updatedAt > stepStartedAt)
     }
 
     private goToNextAction(

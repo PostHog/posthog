@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.test import TestCase
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models.integration import Integration
@@ -191,6 +192,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -237,6 +239,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -276,6 +279,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -290,3 +294,72 @@ class TestForwardPendingUserMessage(TestCase):
 
         mock_enqueue_relay.assert_called_once()
         assert "couldn't fetch the reply text" in mock_enqueue_relay.call_args.kwargs["text"]
+
+
+_extract_text_from_message_payload = _module._extract_text_from_message_payload
+
+
+class TestExtractTextFromMessagePayload(TestCase):
+    """Guards the ``text-after-last-tool_use`` rule that keeps interim narrative
+    ("Let me pull DAU…") out of the Slack reply while preserving the final answer."""
+
+    @parameterized.expand(
+        [
+            (
+                "string_content_returned_as_is",
+                {"content": "final answer"},
+                "final answer",
+            ),
+            (
+                "no_tool_use_joins_every_text_part",
+                {
+                    "content": [
+                        {"type": "text", "text": "part one"},
+                        {"type": "text", "text": "part two"},
+                    ]
+                },
+                "part one\npart two",
+            ),
+            (
+                "drops_text_before_the_only_tool_use",
+                {
+                    "content": [
+                        {"type": "text", "text": "I'll pull DAU."},
+                        {"type": "tool_use", "name": "hogql_query"},
+                        {"type": "text", "text": "Here's your answer."},
+                    ]
+                },
+                "Here's your answer.",
+            ),
+            (
+                "keeps_only_text_after_the_last_of_many_tool_uses",
+                {
+                    "content": [
+                        {"type": "text", "text": "step 1 setup"},
+                        {"type": "tool_use", "name": "a"},
+                        {"type": "text", "text": "step 2 setup"},
+                        {"type": "tool_use", "name": "b"},
+                        {"type": "text", "text": "final answer"},
+                    ]
+                },
+                "final answer",
+            ),
+            (
+                "no_text_after_last_tool_use_returns_none",
+                {
+                    "content": [
+                        {"type": "text", "text": "I'll do stuff"},
+                        {"type": "tool_use", "name": "x"},
+                    ]
+                },
+                None,
+            ),
+            (
+                "falls_back_to_top_level_text_when_content_absent",
+                {"text": "hello"},
+                "hello",
+            ),
+        ]
+    )
+    def test_extract(self, _name: str, message: dict, expected: str | None) -> None:
+        assert _extract_text_from_message_payload(message) == expected

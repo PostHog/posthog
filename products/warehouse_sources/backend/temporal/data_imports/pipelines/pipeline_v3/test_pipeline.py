@@ -41,6 +41,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
     pipeline._cdp_producer = MagicMock()
+    pipeline._person_property_sink = MagicMock(should_stage=AsyncMock(return_value=False))
     pipeline._batcher = MagicMock()
     pipeline._load_id = 1
     pipeline._s3_batch_writer = MagicMock()
@@ -49,6 +50,8 @@ def _make_pipeline() -> PipelineV3:
     pipeline._batch_results = []
     pipeline._shutdown_monitor = MagicMock()
     pipeline._attempt = 1
+    pipeline._uses_delta_write_column_selection = False
+    pipeline._observed_columns = {}
 
     return pipeline
 

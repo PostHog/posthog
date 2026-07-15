@@ -113,6 +113,27 @@ def _repo_commit_properties() -> dict[str, str]:
     return {"repo_sha": commit[0], "repo_commit_date": commit[1]}
 
 
+@functools.cache
+def _git_branch() -> str | None:
+    """Current branch name — the join key from a hogli run back to its PR.
+
+    "HEAD" (detached) and failures collapse to None so they don't pollute the
+    dimension. Cached per process: hogli commands are short-lived, so the branch
+    can't change mid-run.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return None
+    branch = result.stdout.strip()
+    return branch if result.returncode == 0 and branch and branch != "HEAD" else None
+
+
 def _infer_process_manager(command: str | None) -> str | None:
     pm = os.environ.get("HOGLI_PROCESS_MANAGER")
     if pm:
@@ -182,6 +203,7 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
         "is_worktree": (REPO_ROOT / ".git").is_file(),
         "is_posthog_dev": _is_posthog_dev(),
         "process_manager": _infer_process_manager(command),
+        "git_branch": _git_branch(),
         **_repo_commit_properties(),
     }
 

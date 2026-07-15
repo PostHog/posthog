@@ -1,12 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { IconBrowser, IconDownload } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -19,6 +21,8 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { heatmapLogic } from './heatmapLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
@@ -38,6 +42,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         desiredNumericWidth,
         effectiveWidth,
         scalePercent,
+        isHeightCapped,
     } = useValues(logic)
     const {
         setName,
@@ -45,6 +50,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         updateHeatmap,
         onIframeLoad,
         setScreenshotLoaded,
+        setScreenshotError,
         exportHeatmap,
         setContainerWidth,
     } = useActions(logic)
@@ -137,6 +143,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <HeatmapHeader />
                 <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
+                {isHeightCapped && (
+                    <LemonBanner type="info" className="mb-2">
+                        This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
+                        so data below that point isn't shown.
+                    </LemonBanner>
+                )}
                 <div ref={measureRef} className="w-full">
                     <div
                         className="border mx-auto bg-surface-primary rounded-lg"
@@ -157,7 +169,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     <div className="flex-1 flex items-center justify-center min-h-96">
                                         <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
-                                            <FilmCameraHog
+                                            <HedgehogDirector
                                                 className="w-32 h-32 mx-auto mb-2"
                                                 style={{
                                                     animation: 'hog-wobble 1.2s ease-in-out infinite alternate',
@@ -192,10 +204,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             }}
                                             onLoad={() => {
                                                 setScreenshotLoaded(true)
+                                                setScreenshotError(null)
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
-                                                console.error('Failed to load screenshot')
+                                                setScreenshotLoaded(false)
+                                                setScreenshotError('The screenshot failed to load.')
                                             }}
                                         />
                                     </>

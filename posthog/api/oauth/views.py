@@ -47,6 +47,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -67,6 +68,14 @@ from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+# Extended access-token TTL for clients that rarely re-authorize: dynamically
+# registered (DCR/CIMD) clients that don't reliably refresh, and first-party
+# PostHog apps. Safe to extend because these tokens stay opaque and DB-backed:
+# every request revalidates the token against the DB, so revoking an app's
+# sessions deletes its token rows and takes effect immediately regardless of TTL.
+EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 
 # Clients for which we must NOT issue refresh tokens. The token response will omit
@@ -280,6 +289,12 @@ class OAuthValidator(OAuth2Validator):
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
+        return False
+
+    def _is_first_party_client(self, request) -> bool:
+        """Check if the client is a first-party PostHog application."""
+        if hasattr(request, "client") and request.client:
+            return bool(getattr(request.client, "is_first_party", False))
         return False
 
     def _should_skip_refresh_token(self, request) -> bool:
@@ -496,14 +511,17 @@ class OAuthValidator(OAuth2Validator):
     def _get_token_expires_in(self, request) -> int:
         """
         Returns access token expiry in seconds.
-        Dynamically registered (DCR/CIMD) clients get extended TTL since they
-        don't reliably refresh. Impersonation-minted tokens are capped to the
-        impersonation idle timeout so they can't outlive the admin's session.
+
+        Dynamically registered (DCR/CIMD) clients get an extended TTL since they
+        don't reliably refresh; first-party PostHog apps get the same extended TTL.
+        Impersonation-minted tokens are capped to the impersonation idle timeout so
+        they can't outlive the admin's session. That check comes first so an
+        impersonated first-party app can't inherit the longer window.
         """
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
-        if self._is_dynamic_client(request):
-            return 60 * 60 * 24 * 7  # 7 days
+        if self._is_dynamic_client(request) or self._is_first_party_client(request):
+            return EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
     def save_bearer_token(self, token, request, *args, **kwargs):
@@ -525,7 +543,8 @@ class OAuthValidator(OAuth2Validator):
         logger.info(
             "oauth_save_bearer_token",
             client_id_prefix=str(client_id)[:8] if client_id else "unknown",
-            is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
+            is_dynamic_client=self._is_dynamic_client(request),
+            is_first_party=self._is_first_party_client(request),
             expires_in=expires_in,
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
@@ -987,25 +1006,29 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        return render_template(
-            "index.html",
-            request,
-            context={
-                "oauth_application": {
-                    "name": application.name,
-                    "client_id": application.client_id,
-                    "is_verified": application.is_verified,
-                    "logo_uri": application.logo_uri,
-                    "required_scopes": application.required_scopes,
-                    # The read-only form of a `*` grant, computed from the same ceiling
-                    # resolution `validate_scopes` enforces — the frontend's scope list
-                    # drifts from the server's (both over- and under-granting otherwise).
-                    "wildcard_read_scopes": sorted(
-                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
-                    ),
-                }
-            },
-        )
+        template_context: dict[str, object] = {
+            "oauth_application": {
+                "name": application.name,
+                "client_id": application.client_id,
+                "is_verified": application.is_verified,
+                "logo_uri": application.logo_uri,
+                "required_scopes": application.required_scopes,
+                # The read-only form of a `*` grant, computed from the same ceiling
+                # resolution `validate_scopes` enforces — the frontend's scope list
+                # drifts from the server's (both over- and under-granting otherwise).
+                "wildcard_read_scopes": sorted(
+                    scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                ),
+            }
+        }
+
+        requested_scope = (request.query_params.get("scope") or "").strip()
+        if not requested_scope:
+            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            if oauth_mcp_consent is not None:
+                template_context["oauth_mcp_consent"] = oauth_mcp_consent
+
+        return render_template("index.html", request, context=template_context)
 
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})

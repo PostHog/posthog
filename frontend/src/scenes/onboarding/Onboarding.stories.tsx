@@ -18,7 +18,7 @@ import { OnboardingStepKey } from '~/types'
 import { onboardingLogic } from './legacy/onboardingLogic'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding',
+    title: 'Scenes-Other/Onboarding/Legacy',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

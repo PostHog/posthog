@@ -20,6 +20,7 @@ function fakeProvider(over: Partial<IdentityProvider> = {}): IdentityProvider {
         allowedHosts: () => ['app.posthog.test'],
         resolve: vi.fn(async () => null),
         initiate: vi.fn(async () => ({ authorizeUrl: 'https://app.posthog.test/oauth/authorize/?x=1', stateId: 's' })),
+        exchange: vi.fn(),
         complete: vi.fn(),
         ...over,
     }

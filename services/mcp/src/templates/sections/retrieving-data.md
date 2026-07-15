@@ -10,22 +10,7 @@ Reach for `execute-sql` only when no `query-*` tool can express the question:
 
 When you do use `execute-sql`, run `info execute-sql` first for the full discovery workflow, worked examples, and column-handling rules — this section only summarizes routing.
 
-#### Searching for existing entities
-
-"find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
-
-Required order on every run, no shortcuts:
-
-1. `info execute-sql` AND `info read-data-warehouse-schema` — load both tool guides, even if a skill is already loaded.
-2. `read-data-warehouse-schema` — confirms the table's columns. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — call the tool.
-3. `execute-sql` against `system.*` — uses only columns confirmed in step 2.
-4. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
-
-<bad-example>
-User: rename / find / list … (any `system.*` question)
-Assistant: [Calls `execute-sql` against `system.insights` without first running `read-data-warehouse-schema` — OR runs `read-data-warehouse-schema` partway through, only after several `execute-sql` calls thrashed]
-WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against `system.*` MUST be preceded by `read-data-warehouse-schema` in the same run. Same for `info read-data-warehouse-schema` before the first `read-data-warehouse-schema` call. Skipping or postponing either step is a hard violation.
-</bad-example>
+{entity_schema_discovery}
 
 #### Available insight query tools
 
@@ -43,64 +28,4 @@ By insight type:
 - "New vs returning vs dormant / user composition" -> `query-lifecycle`
 - "LLM traces / AI generations / token usage" -> `query-llm-traces-list`
 
-##### Trends
-
-A trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.
-
-The trends insights have the following features:
-
-- The insight can show multiple trends in one request.
-- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
-- Filter and break down data using multiple properties.
-- Compare with the current period with previous.
-- Apply various aggregation types, like sum, average, etc., and chart types.
-- And more.
-
-Examples of use cases include:
-
-- How the product's most important metrics change over time.
-- Long-term patterns, or cycles in product's usage.
-- The usage of different features side-by-side.
-- How the properties of events vary using aggregation (sum, average, etc).
-- Users can also visualize the same data points in a variety of ways.
-
-##### Funnel
-
-A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels REQUIRE AT LEAST TWO series (events or actions), so the conversation history should mention at least two events.
-
-The funnel insights have the following features:
-
-- Various visualization types (steps, time-to-convert, historical trends).
-- Filter data and apply exclusion steps (events only, not actions).
-- Break down data using a single property.
-- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.
-- Aggregate by users, sessions, or specific group types.
-- Sample data.
-- Track first-time conversions with special math aggregations.
-- And more.
-
-Examples of use cases include:
-
-- Conversion rates between steps.
-- Drop off steps (which step loses most users).
-- Steps with the highest friction and time to convert.
-- If product changes are improving their funnel over time.
-- Average/median/histogram of time to convert.
-- Conversion trends over time (using trends visualization type).
-- First-time user conversions (using `first_time_for_user` math).
-
-##### Retention
-
-A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
-
-The retention insights have the following features: filter data, sample data, and more.
-
-Examples of use cases include:
-
-- How many users come back and perform an action after their first visit.
-- How many users come back to perform action X after performing action Y.
-- How often users return to use a specific feature.
-
-#### SQL fallback
-
-Reach for `execute-sql` only when the question genuinely cannot be expressed as a typed insight (entity search via `system.*`, multi-event joins, custom CTEs, data-warehouse joins). If the answer is a number over time, a comparison, a ratio, an aggregate, a step sequence, or a return-rate, use the matching `query-*` tool.
+Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.

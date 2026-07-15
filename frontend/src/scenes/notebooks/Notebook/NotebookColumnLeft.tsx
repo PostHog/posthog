@@ -10,7 +10,7 @@ import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookHistory } from './NotebookHistory'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
@@ -22,14 +22,12 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
         useValues(notebookLogic)
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
 
-    if (isMarkdownNotebook) {
-        return null
-    }
-
     const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebook
+    const shouldShowNodeSettings = editingNodeLogicsForLeft.length > 0 && !isMarkdownNotebook
+    const shouldShowKernelInfo = showKernelInfo && !isMarkdownNotebook
     const isShowingEffectiveLeftColumn =
         isShowingLeftColumn &&
-        (editingNodeLogicsForLeft.length > 0 || showHistory || shouldShowTableOfContents || showKernelInfo)
+        (shouldShowNodeSettings || showHistory || shouldShowTableOfContents || shouldShowKernelInfo)
 
     return (
         <div
@@ -40,15 +38,17 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
             <div className="NotebookColumn__content">
                 {isShowingEffectiveLeftColumn ? (
                     <>
-                        {editingNodeLogicsForLeft.map((logic) => (
-                            <div key={logic.values.nodeId}>
-                                <NotebookNodeSettingsOffset logic={logic} />
-                                <NotebookNodeSettingsWidget logic={logic} />
-                            </div>
-                        ))}
+                        {shouldShowNodeSettings
+                            ? editingNodeLogicsForLeft.map((logic) => (
+                                  <div key={logic.values.nodeId}>
+                                      <NotebookNodeSettingsOffset logic={logic} />
+                                      <NotebookNodeSettingsWidget logic={logic} />
+                                  </div>
+                              ))
+                            : null}
                         {showHistory ? <NotebookHistory /> : null}
                         {shouldShowTableOfContents ? <NotebookTableOfContents /> : null}
-                        {showKernelInfo ? <NotebookKernelInfo /> : null}
+                        {shouldShowKernelInfo ? <NotebookKernelInfo /> : null}
                     </>
                 ) : null}
             </div>
@@ -83,7 +83,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
         updateHeight()
 
         return () => clearInterval(interval)
-    }, [ref, offsetRef.current, height, isPageVisible])
+    }, [ref, height, isPageVisible])
 
     return (
         <div

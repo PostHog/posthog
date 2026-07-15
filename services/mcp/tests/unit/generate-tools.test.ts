@@ -359,6 +359,60 @@ describe('generateToolCode with input_schema', () => {
         )
         expect(result.code).toMatchSnapshot()
     })
+
+    it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { include: ['id', 'name'], selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // The `fields` param must be added to the custom schema, constrained to the allowlist,
+        // and reject an empty array so it can't silently fall back to the full payload.
+        expect(result.code).toContain('.extend({ fields: z.array(z.enum([')
+        expect(result.code).toContain("z.enum(['id', 'name'])")
+        expect(result.code).toContain('.min(1)')
+        // And the response filter must honor it, falling back to the full allowlist when omitted.
+        expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
+    })
+
+    it('throws when selectable is set without an include allowlist', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            response: { selectable: true },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        // selectable has no allowlist to constrain `fields` against — codegen must fail loudly rather
+        // than silently emit a tool whose selectable flag does nothing.
+        expect(() =>
+            generateToolCode(
+                'things-list',
+                config,
+                resolved,
+                defaultCategory,
+                makeSpec(),
+                new Set<string>(),
+                stubGetQuerySchema
+            )
+        ).toThrow(/response\.selectable requires a non-empty response\.include allowlist/)
+    })
 })
 
 describe('generateToolCode without input_schema', () => {
@@ -1804,5 +1858,63 @@ describe('generateToolCode with confirmed_action', () => {
             stubGetQuerySchema
         )
         expect(result.code).toContain('actionLabel: "Enforce 2FA"')
+    })
+})
+
+describe('optional param with state fallback', () => {
+    const resolved = (): ResolvedOperation =>
+        makeResolved({
+            path: '/api/organizations/{organization_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { in: 'path', name: 'organization_id', required: true, schema: { type: 'string' } },
+                    { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+    const config = (): ToolConfig => ({
+        operation: 'things_retrieve',
+        enabled: true,
+        param_overrides: {
+            id: {
+                description: 'Thing ID. If omitted, uses the active project.',
+                optional: true,
+                fallback: 'projectId',
+                cast: 'string-int',
+            },
+        },
+    })
+
+    it('resolves the omitted param from state in the handler', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('const id = params.id ?? await context.stateManager.getProjectId()')
+    })
+
+    it('surfaces the field as optional despite the cast wrapper (z.preprocess strips inner optionality)', () => {
+        const result = generateToolCode(
+            'things-retrieve',
+            config(),
+            resolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        // The outer `.optional()` after the preprocess is what makes the agent-facing
+        // JSON Schema treat the param as optional. Without it, the tool would still
+        // demand the id the fallback exists to supply.
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('.optional()).optional()')
     })
 })

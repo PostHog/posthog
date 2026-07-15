@@ -12,7 +12,7 @@ from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, Te
 
 from posthog.models import GroupTypeMapping, PropertyDefinition, Team
 
-from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 T = TypeVar("T", bound=Model)
 

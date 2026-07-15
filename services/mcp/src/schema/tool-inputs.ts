@@ -48,7 +48,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard to see required fields per source type.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -367,10 +367,6 @@ export const ExecuteSQLSchema = z.object({
             'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
-
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),

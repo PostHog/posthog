@@ -15,7 +15,7 @@ import {
 } from '../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
-import { CdpOutputs, createCdpCoreServices } from './cdp-services'
+import { createCdpCoreServices } from './cdp-services'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
@@ -23,13 +23,20 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
+import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
+import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import {
+    BatchResolverState,
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    serializeResolverState,
+} from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -74,6 +81,25 @@ function sanitizeContentType(contentType: string | undefined, fallback: string):
     return fallback
 }
 
+// Matches the default email template's `to.email` value: `{{ person.properties.email }}`, whitespace-tolerant.
+// Anything else (custom property, computed Liquid, static address) makes the dedupe key diverge from the
+// actual send target — see `canDedupeByEmail`.
+const DEFAULT_EMAIL_TO_TEMPLATE_RE = /^\s*\{\{\s*person\.properties\.email\s*\}\}\s*$/
+
+function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
+    if (!Array.isArray(hogFlow.actions)) {
+        return false
+    }
+    const emailActions = hogFlow.actions.filter((action: any) => action?.type === 'function_email')
+    if (emailActions.length === 0) {
+        return false
+    }
+    return emailActions.every((action: any) => {
+        const toEmail = action?.config?.inputs?.email?.value?.to?.email
+        return typeof toEmail === 'string' && DEFAULT_EMAIL_TO_TEMPLATE_RE.test(toEmail)
+    })
+}
+
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
@@ -95,14 +121,15 @@ export class CdpApi {
     private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
-    private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
+    private batchResolverProducer: CyclotronV2JobProducer | null
 
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -115,7 +142,6 @@ export class CdpApi {
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
         this.invocationResultsService = services.invocationResultsService
-        this.outputs = services.outputs
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -145,6 +171,7 @@ export class CdpApi {
             this.hogWatcher,
             this.invocationResultsService
         )
+        this.batchResolverProducer = batchResolverProducer
     }
 
     public get service(): PluginServerService {
@@ -211,6 +238,7 @@ export class CdpApi {
             asyncHandler(this.postRerunInvocations('hog_function'))
         )
         router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
+        router.get('/api/projects/:team_id/hog_flows/:id/in_flight_count', asyncHandler(this.getHogFlowInFlightCount))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -582,6 +610,35 @@ export class CdpApi {
                 : undefined
 
             const logs: MinimalLogEntry[] = []
+
+            // In production a wait_until_condition step's "events to wait for" are evaluated by the
+            // subscription matcher against incoming events (never by the executor), so a plain
+            // executeCurrentAction could not advance past one. Simulate the matcher here: when the
+            // supplied test event matches, tag the invocation the same way a real match would, and
+            // the handler advances to the next step.
+            const currentAction: HogFlowAction | undefined = current_action_id
+                ? compoundConfiguration.actions?.find((a: HogFlowAction) => a.id === current_action_id)
+                : undefined
+            if (currentAction?.type === 'wait_until_condition' && invocation.state.currentAction) {
+                const matched = await matchesWaitUntilCondition(currentAction, filterGlobals, {
+                    hogFlowId: isNewHogFlow ? 'new' : id,
+                    actionId: currentAction.id,
+                })
+                if (matched) {
+                    invocation.state.currentAction.eventMatched = true
+                    invocation.state.currentAction.eventMatchedEvent = globals.event.event
+                    invocation.state.currentAction.eventMatchedEventUuid = globals.event.uuid
+                    invocation.state.currentAction.eventMatchedEventTimestamp = globals.event.timestamp
+                }
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: matched
+                        ? `Test event '${globals.event.event}' matched the wait conditions`
+                        : `Test event '${globals.event.event}' did not match the wait conditions - the workflow would continue waiting`,
+                })
+            }
+
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
             options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
@@ -743,6 +800,37 @@ export class CdpApi {
             }
         }
 
+    // How many of this workflow's runs are still in flight (parked on waits/delays or actively
+    // executing). Django calls this to show publish/edit impact before a live workflow changes.
+    private getHogFlowInFlightCount = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({ count })
+        } catch (e) {
+            logger.error('Error counting in-flight hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id, parent_run_id } = req.params
@@ -768,20 +856,38 @@ export class CdpApi {
             const maxAudienceSize =
                 typeof req.body.max_audience_size === 'number' ? req.body.max_audience_size : undefined
 
-            const batchHogFlowRequest = {
+            if (!this.batchResolverProducer) {
+                throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
+            }
+
+            const initialState: BatchResolverState = {
+                batchJobId: parent_run_id,
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                parentRunId: parent_run_id,
                 filters: {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
                 },
-                maxAudienceSize,
+                variables: req.body.variables ?? {},
+                groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
+                // Only dedupe by email when every email action's `to` template is exactly the default
+                // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
+                // strings) would make the dedupe key diverge from the actual send target — better to skip
+                // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
+                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
+                cursor: null,
+                totalEnqueued: 0,
+                pagesProcessed: 0,
+                attempts: 0,
+                startedAt: new Date().toISOString(),
             }
-
-            await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
-                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
-                key: `${team.id}_${hogFlow.id}`,
+            await this.batchResolverProducer.createJob({
+                teamId: team.id,
+                queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                parentRunId: parent_run_id,
+                functionId: hogFlow.id,
+                state: serializeResolverState(initialState),
             })
 
             res.json({ status: 'queued' })

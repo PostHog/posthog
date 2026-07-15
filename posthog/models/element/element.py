@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -60,10 +61,6 @@ def elements_to_string(elements: list[Element]) -> str:
 def chain_to_elements(chain: str) -> list[Element]:
     """
     Converts an elements chain string into a list of Element objects.
-    Since for example in the elements API this could be called on a large list
-    which has a limited number of unique elements_chains,
-    we have a limited LRU in-memory cache
-    conversion is completely deterministic, so can be cached indefinitely
     """
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
@@ -95,3 +92,105 @@ def chain_to_elements(chain: str) -> list[Element]:
 
         elements.append(element)
     return elements
+
+
+_MAX_DATA_ATTRIBUTES = 50
+
+
+def _glob_matcher(pattern: str) -> Callable[[str], bool]:
+    """Returns a matcher for a glob pattern where each * matches any run of characters.
+    Linear-time string scanning, never regex, so caller-supplied patterns can't trigger
+    catastrophic backtracking."""
+    head, *middle, tail = pattern.split("*")
+
+    def matches(key: str) -> bool:
+        if not key.startswith(head) or not key.endswith(tail):
+            return False
+        position = len(head)
+        end = len(key) - len(tail)
+        for segment in middle:
+            found = key.find(segment, position, end)
+            if found == -1:
+                return False
+            position = found + len(segment)
+        return position <= end
+
+    return matches
+
+
+def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str], bool] | None:
+    """
+    Builds a matcher for attr__ keys matching the configured data attributes, mirroring the
+    toolbar's matchesDataAttribute: keys carry an attr__ prefix and configured names may use
+    * wildcards (e.g. data-*). Entries beyond the first 50 are ignored to bound per-key cost.
+    Returns None when there is nothing to filter by.
+    """
+    entries = [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
+    if not entries:
+        return None
+
+    exact_keys = frozenset(f"attr__{entry}" for entry in entries if "*" not in entry)
+    glob_matchers = [_glob_matcher(f"attr__{entry}") for entry in entries if "*" in entry]
+
+    def matches(key: str) -> bool:
+        if key in exact_keys:
+            return True
+        for matcher in glob_matchers:
+            if matcher(key):
+                return True
+        return False
+
+    return matches
+
+
+def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] | None = None) -> list[dict]:
+    """
+    Converts an elements chain string into serialized element dicts, shaped exactly like
+    ElementSerializer output but without instantiating Element models, so the elements API
+    can serialize large pages cheaply. attributes_filter optionally restricts the attributes
+    map to matching keys (see build_attributes_filter).
+    """
+    element_dicts: list[dict] = []
+    for idx, el_string in enumerate(split_chain_regex.findall(chain)):
+        el_string_match = split_class_attributes.search(el_string)
+        tag_part = el_string_match.group(1) if el_string_match else ""
+        attrs_part = el_string_match.group(3) if el_string_match else None
+
+        element: dict = {
+            "text": None,
+            "tag_name": None,
+            "attr_class": None,
+            "href": None,
+            "attr_id": None,
+            "nth_child": None,
+            "nth_of_type": None,
+            "attributes": {},
+            "order": idx,
+        }
+
+        if tag_part:
+            tag_and_class = tag_part.split(".", 1)
+            element["tag_name"] = tag_and_class[0]
+            if len(tag_and_class) > 1:
+                element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
+
+        if attrs_part:
+            for attribute_match in parse_attributes_regex.finditer(attrs_part):
+                key = attribute_match.group("key")
+                value = attribute_match.group("value")
+                if key == "href":
+                    element["href"] = value
+                elif key == "nth-child":
+                    element["nth_child"] = int(value)
+                elif key == "nth-of-type":
+                    element["nth_of_type"] = int(value)
+                elif key == "text":
+                    element["text"] = value
+                elif key == "attr_id":
+                    element["attr_id"] = value
+                elif key:
+                    if attributes_filter is None or attributes_filter(key):
+                        element["attributes"][key] = value
+
+        element_dicts.append(element)
+    return element_dicts

@@ -16,18 +16,29 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
     InitialPermissionMode,
 )
+
+# TaskArtifact's choice enums live on the model as Django ``TextChoices``; re-exported here
+# so presentation builds serializer choices without importing the ORM model directly.
+from products.tasks.backend.models import TaskArtifact as _TaskArtifact
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RunState,
     RuntimeAdapter,
+    get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_supported_reasoning_efforts,
     parse_run_state,
 )
+
+TaskArtifactType = _TaskArtifact.ArtifactType
+TaskArtifactAdapter = _TaskArtifact.Adapter
+TaskArtifactStatus = _TaskArtifact.Status
 
 __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
@@ -38,10 +49,16 @@ __all__ = [
     "GitHubCredentialSource",
     "LLMProvider",
     "PrAuthorshipMode",
+    "ReasoningEffort",
     "RunSource",
     "RunState",
     "RuntimeAdapter",
+    "TaskArtifactAdapter",
+    "TaskArtifactStatus",
+    "TaskArtifactType",
+    "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_supported_reasoning_efforts",
     "parse_run_state",
 ]

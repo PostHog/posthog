@@ -25,7 +25,9 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {
+                all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
+                channel: params.channel,
                 created_by: params.created_by,
                 internal: params.internal,
                 limit: params.limit,

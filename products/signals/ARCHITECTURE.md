@@ -484,18 +484,18 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                       |
-| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                              |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)               |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                    |
-| `config`         | JSONField | Source-specific configuration                                                                                                                                     |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                            |
+| Field            | Type      | Description                                                                                                                                                                            |
+| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
+| `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
 
 **Behavioral notes:**
 
-- `SignalSourceConfig.is_source_enabled()` special-cases `llm_analytics`: eval signals are always allowed at the model gate and are then further filtered by the eval workflow’s own config checks.
+- `llm_analytics` signals go through the standard enabled-row check like every other source. Per-result `evaluation` signals are additionally filtered by the per-evaluation `evaluation_ids` allowlist in the row's `config`, enforced upstream in the eval workflows; `evaluation_report` signals are gated by their own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle).
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
   - `session_analysis_cluster` derives status from the Temporal clustering workflow
@@ -1047,7 +1047,7 @@ Cleared for the team:
 | Wizard report      | `<install-dir>/posthog-self-driving-report.md` (only if `--install-dir` is given)                                                                                                                                                                       |
 | Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                       |
 
-Preserved: canonical scouts and the `authoring-signals-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard), and the `llm_analytics` source is always enabled in code regardless of its config row.
+Preserved: canonical scouts and the `authoring-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard); `llm_analytics` sources are gated by their `SignalSourceConfig` rows like any other source.
 
 ---
 
@@ -1104,6 +1104,25 @@ Signal {index}:
 | `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                     |
 | `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)                                         |
 | `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing) |
+
+---
+
+## Testing refunds locally
+
+How to exercise the PR refund flow (`backend/billing.py`, the `refund` action, the credited-path billing sync) against a fully local two-service setup:
+
+1. **Billing service**: follow "Developing locally" in the billing repo's README (boots on `http://localhost:8100`).
+   The dispute endpoint (`POST /api/signals/dispute-pr`) must exist on the billing checkout.
+   Dev mode auto-creates the `License` and `Customer` rows on first authenticated call — nothing to seed there.
+2. **Posthog**: start the stack with `BILLING_SERVICE_URL=http://localhost:8100` visible to **both** the web backend and the celery worker (put it in `.env.local`, which wins over `.env.development`).
+   The dev license auto-creates as `…::license-so-secret`, matching billing's default `LICENSE_SECRET_KEY`; a stale `ee_license` row with a different secret is the classic JWT-auth failure — check `SELECT key FROM ee_license;`.
+3. **Feature flag**: `signals-pr-refunds` must exist, active at 100%, in the local self-capture project (create via UI or shell; `sync_feature_flags` also works but flips every flag).
+   Without it the refund endpoints return **404**. Backend picks it up within the ~90s SDK poll (or restart); the frontend needs a page reload.
+4. **Data**: `python manage.py seed_refund_test_data --team-id 1` seeds the full matrix — excluded-path (PR today), credited-path (PR yesterday), billing-exempt, and a no-PR exemption-command target.
+5. **Expectations**: with an unseeded billing side the credited path legitimately returns `credit_amount_usd = "0.00"` — that IS the success path (free plan → nothing to credit). Non-$0 outcomes (`"15.00"` with paid-tier usage) require seeding a paid inbox state on the billing side; the recipe, a posthog-free curl smoke test, and how to verify the Stripe balance transaction live in the billing repo (internal): `notes/testing-signals-disputes-locally.md`.
+   Inspecting the paid state via the posthog billing page (`/organization/billing`) additionally requires **organization owner** — local dev users are typically only `administrator`, so bump `OrganizationMembership.level` to `OWNER` (15) first.
+   Verify `billing_synced_at`/`credit_amount_usd` on `signals_signalreportrefund` (posthog) and, for non-$0 outcomes, the `Credit` row keyed `signals_pr_dispute:{billing_customer_id}:{refund_id}` (billing). $0 outcomes persist nothing billing-side (`credit_id: null` in the response) — the refund row is the whole record.
+   Celery-side analytics events (`signals_pr_refund_credit_issued`/`_failed`) are dropped locally (`ph_scoped_capture` is cloud-gated); the sync itself is unaffected.
 
 ---
 

@@ -16,12 +16,17 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
-from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
+from products.signals.backend.scout_harness.skill_loader import (
+    LoadedSkill,
+    load_skill_for_run,
+    skill_uses_report_channel,
+)
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -45,8 +50,8 @@ SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 # the posture selection where the sandbox context is built). A baseline scout never carries that
 # scope, so the MCP server strips the report tools from its toolset — they can't bleed into a run
 # that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
-# write itself.
-REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+# write itself. `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` live in `skill_loader` so the
+# runner, prompt builder, and viewset all resolve the same opt-in set.
 
 
 @dataclass(frozen=True)
@@ -218,6 +223,20 @@ async def arun_signals_scout(
     scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
         team, skill.name, str(run_id)
     )
+
+    # A runtime pin takes precedence over the scout-model gate and replaces it wholesale —
+    # runtime/model/effort move as a set so a Codex runtime never pairs with a glm model.
+    # Model-only payload entries are deliberately ignored for scout: the gate supplies
+    # model+runtime as a pair, and overriding one without the other would mis-route.
+    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
+    if agent_runtime.runtime_adapter:
+        runtime_adapter: str | None = agent_runtime.runtime_adapter
+        model = agent_runtime.model
+        reasoning_effort: str | None = agent_runtime.reasoning_effort
+    else:
+        runtime_adapter = scout_model.runtime_adapter
+        model = scout_model.model
+        reasoning_effort = None
     try:
         last_message, task_run_id = await _spawn_and_run(
             team=team,
@@ -228,8 +247,9 @@ async def arun_signals_scout(
             repository=repository,
             verbose=verbose,
             user_id=user_id,
-            model=scout_model.model,
-            runtime_adapter=scout_model.runtime_adapter,
+            model=model,
+            runtime_adapter=runtime_adapter,
+            reasoning_effort=reasoning_effort,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -349,14 +369,15 @@ async def _spawn_and_run(
     verbose: bool,
     user_id: int,
     model: str | None,
-    runtime_adapter: str | None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
-    `user_id` is the acting user resolved (and validated non-None) by the caller. `model` is the
-    agent-model override (`None` keeps the agent-server default), and `runtime_adapter` is the runtime
-    that serves it (paired with `model` — the agent server derives the provider from it). Returns
-    `(last_message, task_run_id)`.
+    `user_id` is the acting user resolved (and validated non-None) by the caller. `model`,
+    `runtime_adapter`, and `reasoning_effort` are the agent runtime overrides (`model` paired with the
+    `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
+    the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
     """
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
@@ -387,16 +408,15 @@ async def _spawn_and_run(
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
         posthog_mcp_scopes=(
-            "signals_scout_reports" if REPORT_CHANNEL_TOOLS & set(skill.allowed_tools or []) else "signals_scout"
+            "signals_scout_reports" if skill_uses_report_channel(skill.allowed_tools) else "signals_scout"
         ),
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
         # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
         model=model,
-        # The runtime that serves `model`. Paired with it because the agent server derives the LLM
-        # provider from the runtime — a model with no runtime can't be routed and falls back to the
-        # server default. `None` alongside a `None` model keeps the agent-server defaults for both.
+        # Paired with `model`: the agent server derives the LLM provider from the runtime.
         runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
     )
     prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
     logger.info(
@@ -564,6 +584,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 task_run.id,
                 "Scout run abandoned: no terminal status past the runtime ceiling "
                 "(worker/sandbox lost before finalize).",
+                error_type="stale_run_reaped",
             )
             if not claimed:
                 continue

@@ -1,13 +1,14 @@
 import json
+import uuid
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
 from django.db import connection, models
 from django.db.models import Manager, QuerySet
 from django.db.models.functions import Coalesce
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -20,6 +21,7 @@ from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
@@ -477,6 +479,14 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    warehouse_origin = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Provenance for a person property populated from a data warehouse source "
+            "(source/table/column/last synced), or null. Read-only."
+        ),
+    )
+
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -487,6 +497,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "tags",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
+            "warehouse_origin",
         )
 
     def validate(self, data):
@@ -748,6 +759,13 @@ class PropertyDefinitionViewSet(
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
+        # A non-UUID lookup (e.g. the literal "undefined" from a link built without a saved
+        # definition id) would raise a ValueError deep in the ORM and surface as a 500. Return a
+        # clean 404 instead.
+        try:
+            uuid.UUID(str(id))
+        except ValueError:
+            raise Http404("Property definition not found.")
         non_enterprise_property = get_object_or_404(
             PropertyDefinition.objects.alias(
                 effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -928,7 +946,7 @@ class PropertyDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=instance_id,
             scope="PropertyDefinition",
             activity="deleted",

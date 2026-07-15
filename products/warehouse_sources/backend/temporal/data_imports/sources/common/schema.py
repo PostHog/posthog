@@ -44,6 +44,12 @@ class SourceSchema:
     label: str | None = None
     detected_primary_keys: list[str] | None = None
     rls_warning: str | None = None
+    # Per-source default for the incremental overlap re-read window, applied at schema
+    # creation when the caller doesn't set one. Sources whose recent rows get restated
+    # upstream (e.g. Google Ads stats tables, which Google keeps revising for days) set
+    # this so each incremental run re-reads a trailing window instead of freezing a day
+    # at its first-imported value. Only consumed for schemas synced incrementally.
+    default_incremental_lookback_seconds: int | None = None
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -61,17 +67,20 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
 def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     """Build a default ``schemas`` payload for one-shot source creation.
 
-    Enables every discovered table and picks a sync type per table: ``incremental`` when the
-    source supports it and a tracking column exists (cheapest ongoing sync), else ``append``
-    when supported, else ``full_refresh``. Never defaults to ``cdc`` — that needs Postgres
-    prerequisites and explicit opt-in. Webhook-only tables start disabled because webhook
-    registration needs the created source; the setup flow attempts it right after creation
-    and, on success, switches webhook-capable tables to the webhook sync method. These
-    polling defaults are also the fallback when that registration fails.
+    Enables every discovered table the source marks as default-on and picks a sync type per
+    table: ``incremental`` when the source supports it and a tracking column exists (cheapest
+    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never defaults to
+    ``cdc`` — that needs Postgres prerequisites and explicit opt-in. Webhook-only tables start
+    disabled because webhook registration needs the created source; the setup flow attempts it
+    right after creation and, on success, switches webhook-capable tables to the webhook sync
+    method. These polling defaults are also the fallback when that registration fails. Tables
+    with ``should_sync_default=False`` also start disabled: sources use it for tables whose
+    sync needs grants beyond what source creation validated, and the schema picker already
+    honors it, so one-shot setup must not force-enable what the picker would leave off.
     """
     schemas: list[dict] = []
     for source_schema in source_schemas:
-        if source_schema.webhook_only:
+        if source_schema.webhook_only or not source_schema.should_sync_default:
             schemas.append({"name": source_schema.name, "should_sync": False})
             continue
 

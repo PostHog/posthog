@@ -205,6 +205,18 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_push'),
+        config: z.object({
+            message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-native-push'),
+            inputs: z.record(z.string(), CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
+        }),
+    }),
     // Exit
     z.object({
         ..._commonActionFields,
@@ -265,6 +277,9 @@ export const HogFlowSchema = z.object({
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     billable_action_types: z.array(z.string()).optional().nullable(),
+    // Selected by the worker (HOG_FLOW_FIELDS); pg returns timestamptz as a Date, fixtures use
+    // epoch millis. Used to distinguish live edits from malformed-from-birth graphs.
+    updated_at: z.union([z.number(), z.string(), z.date()]).optional(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

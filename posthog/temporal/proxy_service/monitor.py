@@ -41,6 +41,13 @@ from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusR
 
 LOGGER = get_logger(__name__)
 
+# Timeout (seconds) for every network call in the live-proxy probe - the POST and the raw-socket
+# cert fetch. The domain is attacker-controllable, so an unbounded call lets a malicious domain
+# hang the activity until Temporal's start_to_close_timeout. 5.0 (vs the diagnostics probe's 3.0 in
+# proxy_record_diagnostics.py) leaves headroom under this activity's 10s start_to_close budget,
+# where a single on-demand diagnostics run instead shares its tighter budget across several checks.
+PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
+
 
 @dataclass
 class MonitorManagedProxyInputs:
@@ -255,32 +262,56 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
     # send dummy event to check the proxy is working
     try:
+        # allow_redirects=False is a security boundary: the domain is attacker-controllable
+        # (an org admin sets it, and controls its DNS), so following redirects would let them
+        # point us at internal targets (ClickHouse's HTTP interface, cloud metadata, management
+        # APIs) - an SSRF. A working proxy answers /i/v0/e/ with a 2xx directly. Same protection
+        # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
+        # (_check_live_event).
         response = requests.post(
             f"https://{proxy_record.domain}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
         )
+
+        # Since we don't follow redirects, treat a 3xx as a failed check rather than a live proxy:
+        # a working proxy answers /i/v0/e/ with a direct 2xx, and a redirect is exactly the response
+        # the allow_redirects=False guard above refuses to chase. raise_for_status only rejects
+        # 4xx/5xx, so 3xx would otherwise slip through and mark the record VALID.
+        if 300 <= response.status_code < 400:
+            return CheckActivityOutput(
+                errors=[f"Proxy returned a redirect ({response.status_code}); expected a direct 2xx response"],
+                warnings=[],
+            )
 
         response.raise_for_status()
 
-        # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem
+        # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
+        # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
+        # an attacker-controlled domain can't stall this raw socket the way it could the POST above -
+        # same guard, same reason. Mirrors _check_cert_expiry in proxy_record_diagnostics.py.
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with ctx.wrap_socket(socket.socket(), server_hostname=proxy_record.domain) as s:
-            s.connect((proxy_record.domain, 443))
-            cert = s.getpeercert()
-            if cert is None:
-                # How can cert be none if we sent an event over https?
-                raise Exception(
-                    "Certificate not found while monitoring proxy endpoint (but we sent an event successfully)"
-                )
-            assert isinstance(cert["notAfter"], str)
-            expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
-            if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
-                return CheckActivityOutput(
-                    errors=["Live proxy certificate is expiring soon"],
-                    warnings=[],
-                )
+        with socket.create_connection((proxy_record.domain, 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S) as sock:
+            with ctx.wrap_socket(sock, server_hostname=proxy_record.domain) as s:
+                cert = s.getpeercert()
+        if cert is None:
+            # How can cert be none if we sent an event over https?
+            raise Exception("Certificate not found while monitoring proxy endpoint (but we sent an event successfully)")
+        assert isinstance(cert["notAfter"], str)
+        expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+        if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
+            return CheckActivityOutput(
+                errors=["Live proxy certificate is expiring soon"],
+                warnings=[],
+            )
+    except requests.exceptions.Timeout:
+        return CheckActivityOutput(
+            errors=["Proxy did not respond within the timeout"],
+            warnings=[],
+        )
     except requests.exceptions.SSLError:
         return CheckActivityOutput(
             errors=["Failed to connect to proxy: invalid SSL certificate"],
@@ -294,6 +325,21 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
     except requests.exceptions.HTTPError as e:
         return CheckActivityOutput(
             errors=[f"Failed to send event to proxy, expected 200 but got {e.response.status_code}"],
+            warnings=[],
+        )
+    except requests.exceptions.RequestException:
+        # Any other POST-phase requests failure (malformed response, bad URL, etc). Caught before the
+        # stdlib handler below so a POST error isn't mislabelled as a cert-fetch failure - requests
+        # exceptions subclass OSError. Mirrors the sibling's broad RequestException handling.
+        return CheckActivityOutput(
+            errors=["Failed to send event to proxy"],
+            warnings=[],
+        )
+    except (TimeoutError, ssl.SSLError, OSError) as e:
+        # Raw-socket cert fetch failed (timeout, refused connection, TLS error). requests exceptions
+        # are handled above; this catches the stdlib socket/ssl errors the cert probe can raise.
+        return CheckActivityOutput(
+            errors=[f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
             warnings=[],
         )
 

@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { ChatMessage, Ticket } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket } from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList } from './MessageList'
 
@@ -34,6 +34,12 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Blocks sending customer-facing messages (private notes stay available) */
+    replyDisabledReason?: string | JSX.Element
+    latestAiMessageId?: string | null
+    feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
+    showAiReplyFeedback?: boolean
+    onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
 export function ChatView({
@@ -55,6 +61,11 @@ export function ChatView({
     isPrivate,
     onPrivateChange,
     extraActions,
+    replyDisabledReason,
+    latestAiMessageId,
+    feedbackByMessageId,
+    showAiReplyFeedback,
+    onSubmitAiReplyFeedback,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -73,6 +84,10 @@ export function ChatView({
                 maxHeight={listMaxHeight}
                 unreadCustomerCount={unreadCustomerCount}
                 showDeliveryStatus={showDeliveryStatus}
+                latestAiMessageId={latestAiMessageId}
+                feedbackByMessageId={feedbackByMessageId}
+                showAiReplyFeedback={showAiReplyFeedback}
+                onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
             />
             <div className="border-t pt-3">
                 <MessageInput
@@ -84,6 +99,7 @@ export function ChatView({
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
+                    replyDisabledReason={replyDisabledReason}
                 />
             </div>
         </LemonCard>

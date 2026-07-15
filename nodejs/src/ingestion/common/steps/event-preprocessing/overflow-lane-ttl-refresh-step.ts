@@ -1,8 +1,8 @@
-import { PipelineResult, ok } from '~/ingestion/framework/results'
 import {
     OverflowEventBatch,
     OverflowRedirectService,
-} from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
+} from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { EventHeaders, PipelineEvent } from '~/types'
 
 export interface OverflowLaneTTLRefreshStepInput {
@@ -52,7 +52,7 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
 
         // TTL refresh doesn't affect routing, so attach it as a pipeline side effect
         // instead of blocking the pipeline on a Redis write.
-        const refreshPromise = overflowRedirectService.handleEventBatch('events', batches)
+        const refreshPromise = overflowRedirectService.handleEventBatch(batches)
 
         return Promise.resolve(inputs.map((input) => ok(input, [refreshPromise])))
     }

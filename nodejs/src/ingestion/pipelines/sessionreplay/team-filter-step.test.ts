@@ -1,17 +1,19 @@
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { TeamFilterStepInput, TeamTokenResolver, createTeamFilterStep } from './team-filter-step'
 
 describe('createTeamFilterStep', () => {
-    const createInput = (token?: string): TeamFilterStepInput => ({
-        headers: createTestEventHeaders({ token }),
+    // Headers are guaranteed by the upstream validate step, so they're always present here.
+    const createInput = (token: string): TeamFilterStepInput => ({
+        headers: { token, session_id: 'session-1', distinct_id: 'distinct-1' },
     })
 
     const defaultTeam: TeamForReplay = {
         teamId: 1,
         consoleLogIngestionEnabled: false,
+        aiTrainingOptedIn: true,
+        firstPartyHosts: [],
     }
 
     it('should enrich message with team context when team is valid', async () => {
@@ -29,24 +31,6 @@ describe('createTeamFilterStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.team.teamId).toBe(1)
         }
-    })
-
-    it('should DLQ message when token is missing', async () => {
-        const mockTeamService: TeamTokenResolver = {
-            getTeamByToken: jest.fn(),
-            getRetentionPeriodByTeamId: jest.fn(),
-        }
-
-        const step = createTeamFilterStep(mockTeamService)
-        const input = createInput(undefined)
-
-        const result = await step(input)
-
-        expect(result.type).toBe(PipelineResultType.DLQ)
-        if (result.type === PipelineResultType.DLQ) {
-            expect(result.reason).toBe('no_token_in_header')
-        }
-        expect(mockTeamService.getTeamByToken).not.toHaveBeenCalled()
     })
 
     it('should drop message when team is not found', async () => {

@@ -15,6 +15,7 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import grpc
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
@@ -40,6 +41,7 @@ from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -48,19 +50,25 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
@@ -252,10 +260,19 @@ def assert_feature_flag_write_scope(
     )
 
     if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
+        # Tailor the remediation to the token type — only personal API keys are edited on the
+        # user-api-keys settings page; OAuth / ID-JAG / project-secret keys are managed elsewhere.
+        if auth_kind == "personal_api_key":
+            key_guidance = (
+                f"Add `feature_flag:write` to your personal API key at "
+                f"{settings.SITE_URL}/settings/user-api-keys (editing its scopes keeps the same key value), "
+                f"or use a key with the `*` scope."
+            )
+        else:
+            key_guidance = "Add `feature_flag:write` to the key you're using, or use a key with the `*` scope."
         raise exceptions.PermissionDenied(
             f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
-            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "
-            f"with the `*` scope."
+            f"in addition to `{resource_scope}`. {key_guidance}"
         )
 
 
@@ -550,23 +567,46 @@ def check_flag_limits_for_team(
         )
 
 
-class RemoteConfigThrottle(BurstRateThrottle):
+# Default per-key and per-team cap for remote_config. Both throttles below respect
+# per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
+REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
+
+
+def _apply_remote_config_team_rate_override(throttle, view) -> None:
+    # Raise or lower a specific team's remote_config cap via REMOTE_CONFIG_RATE_LIMITS. On any
+    # lookup/parse failure, leave the default rate in place rather than failing the request.
+    team_id = throttle.safely_get_team_id_from_view(view)
+    if team_id:
+        try:
+            custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+            if custom_rate:
+                num_requests, duration = throttle.parse_rate(custom_rate)
+                throttle.rate = custom_rate
+                throttle.num_requests = num_requests
+                throttle.duration = duration
+        except Exception:
+            logger.exception("Error getting team-specific rate limit for team %s", team_id)
+
+
+class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
+    # PersonalApiKeyRateThrottle would let through.
     scope = "feature_flag_remote_config"
-    rate = "600/minute"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
+        _apply_remote_config_team_rate_override(self, view)
+        return super().allow_request(request, view)
 
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
+class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential.
+    scope = "feature_flag_remote_config_psak_team"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
+
+    def allow_request(self, request, view):
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
@@ -684,12 +724,10 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
-        from loginas.utils import is_impersonated_session
-
         from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
-        was_impersonated = is_impersonated_session(request) if request else False
+        was_impersonated = is_impersonated(request)
 
         log_activity(
             organization_id=obj.team.organization_id,
@@ -873,6 +911,10 @@ class FeatureFlagSerializer(
         queryset=Dashboard.objects.all(),
     )
     is_used_in_replay_settings = serializers.SerializerMethodField()
+    is_eligible_for_experiment = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+    )
 
     name = serializers.CharField(
         required=False,
@@ -930,6 +972,7 @@ class FeatureFlagSerializer(
             "_create_in_folder",
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
+            "is_eligible_for_experiment",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -980,6 +1023,11 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_flag_limits()
+
+        # Materialize the remote-config 100% rollout default here, before the approval gate runs in
+        # create(), so a remote-config create trips the rollout policy instead of slipping past it.
+        if self.instance is None:
+            self._apply_remote_config_default_filters(attrs, filters_key="get_filters")
 
         request = self.context.get("request")
         if not request:
@@ -1095,6 +1143,32 @@ class FeatureFlagSerializer(
 
         if has_encrypted and not is_remote:
             raise serializers.ValidationError("Encrypted payloads require the flag to be a remote configuration.")
+
+    @staticmethod
+    def _apply_remote_config_default_filters(validated_data: dict, filters_key: str) -> None:
+        """Remote-config flags always resolve to a 100% rollout.
+
+        Synthesize that default into ``validated_data`` so it is present *before* the approval gate
+        inspects the change. Otherwise a remote-config create with no ``filters`` would skip the
+        rollout (``feature_flag.update``) policy, and the 100% rollout would then be applied below
+        the gate unapproved. ``filters_key`` is ``get_filters`` during serializer validation (the
+        field's source) and ``filters`` once ``_update_filters`` has renamed it in ``create``.
+        """
+        if not validated_data.get("is_remote_configuration", False):
+            return
+
+        filters = validated_data.get(filters_key, {}) or {}
+        groups = filters.get("groups", [])
+
+        # If no groups exist, create one with 100% rollout
+        if not groups:
+            filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
+            validated_data[filters_key] = filters
+        else:
+            # If groups exist, update any with 0% or None rollout to 100%
+            for group in groups:
+                if group.get("rollout_percentage") in [0, None]:
+                    group["rollout_percentage"] = 100
 
     def validate_key(self, value):
         exclude_kwargs = {}
@@ -1663,6 +1737,7 @@ class FeatureFlagSerializer(
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
 
+    @approval_gate(["feature_flag.enable", "feature_flag.update"])
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -1678,20 +1753,9 @@ class FeatureFlagSerializer(
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
 
-        # Set default filters for remote config flags to 100% rollout
-        if validated_data.get("is_remote_configuration", False):
-            filters = validated_data.get("filters", {}) or {}
-            groups = filters.get("groups", [])
-
-            # If no groups exist, create one with 100% rollout
-            if not groups:
-                filters["groups"] = [{"properties": [], "rollout_percentage": 100, "variant": None}]
-                validated_data["filters"] = filters
-            else:
-                # If groups exist, update any with 0% or None rollout to 100%
-                for group in groups:
-                    if group.get("rollout_percentage") in [0, None]:
-                        group["rollout_percentage"] = 100
+        # Safety net: validate() already materialized this for gated creates, but keep it here for
+        # any path that reaches create() without it (e.g. approved-CR re-apply builds a fresh payload).
+        self._apply_remote_config_default_filters(validated_data, filters_key="filters")
 
         encrypt_flag_payloads(validated_data)
 
@@ -1738,7 +1802,7 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
-            if instance.features.count() > 0:
+            if instance.features.exists():
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
@@ -1883,15 +1947,17 @@ class FeatureFlagSerializer(
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
+                original_flag = request.data.get("original_flag", {})
                 conflicting_changes = self._get_conflicting_changes(
                     locked_instance,
                     validated_data,
-                    request.data.get("original_flag", {}),
+                    original_flag,
                 )
                 if len(conflicting_changes) > 0:
                     raise Conflict(
                         f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
                     )
+                validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
             # Continue with the update
             validated_data["version"] = locked_version + 1
@@ -1924,22 +1990,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # Propagate the new variants and aggregation group type index to the linked experiments
-        if "filters" in validated_data:
-            filters = validated_data["filters"] or {}
-            multivariate = filters.get("multivariate") or {}
-            variants = multivariate.get("variants", [])
-            aggregation_group_type_index = filters.get("aggregation_group_type_index")
-
-            for experiment in instance.experiment_set.all():
-                if experiment.parameters is None:
-                    experiment.parameters = {}
-                experiment.parameters["feature_flag_variants"] = variants
-                if aggregation_group_type_index is not None:
-                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
-                else:
-                    experiment.parameters.pop("aggregation_group_type_index", None)
-                experiment.save()
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
@@ -1960,6 +2012,16 @@ class FeatureFlagSerializer(
             )
 
         return instance
+
+    def _discard_unchanged_stale_fields(self, validated_data: dict, original_flag: dict | None) -> dict:
+        if not original_flag:
+            return validated_data
+
+        return {
+            field: new_value
+            for field, new_value in validated_data.items()
+            if field not in original_flag or new_value != original_flag[field]
+        }
 
     def _get_conflicting_changes(
         self,
@@ -2659,6 +2721,9 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "FeatureFlag"
+    psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -3353,7 +3418,7 @@ class FeatureFlagViewSet(
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
-        was_impersonated = is_impersonated_session(request)
+        was_impersonated = is_impersonated(request)
 
         for flag in flags_list:
             flag_id = flag.id
@@ -3754,6 +3819,7 @@ class FeatureFlagViewSet(
             404: OpenApiResponse(response=ErrorResponseSerializer, description="Person not found"),
             500: OpenApiResponse(response=ErrorResponseSerializer, description="Server error"),
             502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(response=ErrorResponseSerializer, description="Person lookup service unavailable"),
         },
     )
     @action(
@@ -3778,25 +3844,58 @@ class FeatureFlagViewSet(
         timestamp = request.validated_data.get("timestamp")
         groups = request.validated_data.get("groups") or {}
 
+        # The identifier we were asked to resolve. Logged on every failure path below so a
+        # personhog RPC outage, a genuinely missing person, and bad input can be told apart
+        # instead of collapsing into one opaque 500 (which left this endpoint's failures
+        # unclassifiable in tool-call telemetry).
+        identifier_type = "person_id" if person_id else "distinct_id"
+        identifier_value = person_id or distinct_id
+        log_context = {
+            "team_id": self.team_id,
+            "feature_flag_id": feature_flag.id,
+            "identifier_type": identifier_type,
+            "identifier_value": identifier_value,
+        }
+
         # Resolve person and distinct_ids
         try:
             person, distinct_ids = get_person_and_distinct_ids_for_identifier(
                 team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
             )
         except ValueError as e:
-            capture_exception(e)
+            # Bad input shape (both identifiers, neither, or an empty value) — caller error, not a fault.
+            logger.warning("Invalid identifier for flag test evaluation: %s", e, extra=log_context)
             return Response({"error": "Invalid parameters"}, status=status.HTTP_400_BAD_REQUEST)
+        except grpc.RpcError as e:
+            # personhog is unreachable/erroring. This is a transient dependency failure, not a
+            # missing person or bad input, so surface a distinct retryable 503 rather than a 500.
+            logger.exception("personhog RPC failed resolving person for flag test evaluation", extra=log_context)
+            capture_exception(e)
+            return Response(
+                {"error": "Person lookup service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
+            logger.exception("Unexpected error resolving person for flag test evaluation", extra=log_context)
             capture_exception(e)
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if not person or not distinct_ids:
-            identifier_type = "distinct_id" if distinct_id else "person_id"
-            identifier_value = distinct_id or person_id
-            return Response(
-                {"detail": f"Person not found for {identifier_type}: {identifier_value}"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            # A person may legitimately not exist yet. Server-to-server and webhook
+            # automations commonly evaluate with a synthetic distinct_id plus the
+            # ``groups`` param and never identify a person, so group-only and
+            # rollout-by-distinct_id conditions must still be evaluable. When the caller
+            # gave us a distinct_id, fall through with it (empty person properties);
+            # only fail when a person_id we couldn't resolve was supplied, since then
+            # there is no distinct_id to bucket on.
+            if distinct_id:
+                person = None
+                distinct_ids = [distinct_id]
+            else:
+                return Response(
+                    {"detail": f"Person not found for person_id: {person_id}"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
         # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
         # since rollout/variant assignment can depend on the exact distinct_id used.
@@ -3837,8 +3936,8 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
-            # Use current person properties
-            person_properties = person.properties or {}
+            # Use current person properties (empty when the identity has no person yet)
+            person_properties = (person.properties or {}) if person else {}
 
         # If timestamp is provided, reconstruct the flag at that point in time.
         # ``evaluation_filters`` is what we hand to _filter_person_properties_for_flag
@@ -4034,6 +4133,8 @@ class FeatureFlagViewSet(
                 timestamp,
                 e,
                 extra={
+                    "team_id": self.team_id,
+                    "feature_flag_id": feature_flag.id,
                     "flag_key": feature_flag.key,
                     "distinct_id": distinct_id,
                     "person_id": person_id,
@@ -4050,9 +4151,10 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
         authentication_classes=[
             TeamSecretTokenAuthentication,
+            ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
-        throttle_classes=[RemoteConfigThrottle],
+        throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
@@ -4080,10 +4182,11 @@ class FeatureFlagViewSet(
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
-        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
-        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
-        # otherwise let a cross-site request inflate the team's usage numbers.
-        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
+        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
+        # usage numbers.
+        should_count = is_service_auth(request)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})

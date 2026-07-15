@@ -26,6 +26,7 @@ class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
     CONNECTION_FAILED = "connection_failed"
+    HOST_UNREACHABLE = "host_unreachable"
     SLOT_MISSING = "slot_missing"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
@@ -79,14 +80,21 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "check that the database is reachable and accepting connections.",
         True,
     ),
+    CDCErrorCategory.HOST_UNREACHABLE: (
+        "PostHog has no network route to the source database host, so it can't be reached. Check "
+        "that the host and port are correct and reachable from the public internet (PostHog's IP "
+        "addresses allowed through, and the host not resolving to a private or unreachable "
+        "address), then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.SLOT_MISSING: (
         "The replication slot no longer exists on the source database, so changes can no longer be "
-        "read. Disable and re-enable change data capture to recreate it and re-sync.",
+        "read. Use Repair CDC to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.PUBLICATION_MISSING: (
         "The publication used for change data capture no longer exists on the source database. "
-        "Recreate it, or disable and re-enable change data capture, then re-sync.",
+        "Recreate it (self-managed), or use Repair CDC (PostHog-managed) to recreate it and re-sync.",
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (

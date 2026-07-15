@@ -16,50 +16,55 @@ never touched, and the whole activity is idempotent — a column that already ha
 left alone, so it enriches once on first sync and fills in only newly-added columns later.
 """
 
-import re
 import json
 import uuid
 import dataclasses
 from datetime import timedelta
 from typing import Any
 
-from django.utils import timezone
-
-import structlog
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.semantic_enrichment import (
+    DEFAULT_ENRICHMENT_MODEL,
+    MAX_BUSINESS_CONTEXT_CHARS,
+    MAX_COLUMNS_PER_TABLE,
+    MAX_PROMPT_CHARS,
+    bound_prompt_over_columns,
+    capture_enrichment_event,
+    collapse_untrusted,
+    enrichment_enabled as _shared_enrichment_enabled,
+    extract_json_object,
+    generate_json_completion,
+    get_team_business_context,
+    upsert_column_annotation,
+)
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_table_definitions import get_hogql_column_name_mapping
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import clean_type
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
 )
 
-logger = structlog.get_logger(__name__)
+# Write-only (no Kafka `log_entries` production): this is an internal background activity, not a
+# user-facing sync, and its workflow type isn't mapped in `resolve_log_source`. The temporal worker's
+# global structlog config still merges workflow_id/run_id/attempt/task_queue onto every line.
+logger = get_write_only_logger(__name__)
 
 ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
-ENRICHMENT_MODEL = "claude-haiku-4-5"
-# Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
-MAX_COLUMNS_PER_TABLE = 200
-# The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
-# model's 200k-token context window. Cap it — a concise company summary is all the enrichment needs.
-MAX_BUSINESS_CONTEXT_CHARS = 20_000
-# Last-resort ceiling on the whole assembled prompt. Stays well under the 200k-token window (English
-# is ~3-4 chars/token, so this is ~100-130k tokens) to leave room for the response. If the prompt
-# still exceeds it after capping the business context, we drop columns from the tail until it fits;
-# enrichment is idempotent, so a later sync fills in whatever this pass skips.
-MAX_PROMPT_CHARS = 400_000
+# The bounding constants and the enrichment model now live in the shared core; re-exported here so
+# importers (and the existing test suite) keep resolving them off this module.
+ENRICHMENT_MODEL = DEFAULT_ENRICHMENT_MODEL
 
 # Product-analytics events — query these to track enrichment volume, LLM call count / token cost,
 # columns attributed, and errors across the pipeline.
@@ -68,18 +73,8 @@ EVENT_COMPLETED = "data warehouse table enrichment completed"
 EVENT_LLM_CALL = "data warehouse enrichment llm call"
 EVENT_ERROR = "data warehouse table enrichment error"
 
-_WHITESPACE_RE = re.compile(r"\s+")
-
-
-def _collapse_untrusted(text: str) -> str:
-    """Collapse whitespace (incl. control chars) in source-derived identifiers/comments.
-
-    Column names, data types, foreign-key identifiers, and native comments come from the connected
-    source database. Collapsing runs of whitespace onto a single line stops a crafted value from
-    breaking out into a fake heading or list item in the prompt; the prompt's framing already tells
-    the model to treat these as untrusted data rather than instructions.
-    """
-    return _WHITESPACE_RE.sub(" ", text).strip()
+# Back-compat alias; the implementation lives in the shared core.
+_collapse_untrusted = collapse_untrusted
 
 
 @dataclasses.dataclass(frozen=True)
@@ -93,39 +88,7 @@ class EnrichTableSemanticsInputs:
 
 
 def enrichment_enabled(team: Team) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                ENRICHMENT_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
-
-
-def capture_enrichment_event(team: Team, event: str, properties: dict[str, Any]) -> None:
-    """Best-effort product-analytics capture, attributed to the team's org/project groups.
-
-    Telemetry must never break enrichment, so all failures are swallowed (and reported to Sentry).
-    """
-    try:
-        posthoganalytics.capture(
-            distinct_id=str(team.uuid),
-            event=event,
-            properties={**properties, "team_id": team.id},
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-        )
-    except Exception as e:
-        capture_exception(e)
+    return _shared_enrichment_enabled(team, ENRICHMENT_FEATURE_FLAG)
 
 
 def build_enrichment_prompt(
@@ -224,15 +187,17 @@ def build_bounded_enrichment_prompt(
 
     The business context (the team's core memory) is unbounded free text and is the usual culprit
     behind oversized prompts, so it's capped first. If the assembled prompt is still too long — a
-    pathologically wide table, say — columns are dropped from the tail until it fits. Skipped columns
-    keep their place in the idempotency snapshot, so a later sync enriches them.
+    pathologically wide table, say — the shared bounding loop drops columns from the tail until it fits.
+    The closure re-prunes foreign keys to the surviving columns on each pass, so the prompt never
+    references a column it no longer lists. Skipped columns keep their place in the idempotency
+    snapshot, so a later sync enriches them.
     """
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
-    shown_columns = columns
-    shown_fks = foreign_keys
-    needing = columns_needing_description
-    while True:
-        prompt = build_enrichment_prompt(
+
+    def builder(shown_columns: list[dict[str, Any]], needing: list[str]) -> str:
+        kept_names = {column["name"] for column in shown_columns}
+        shown_fks = [fk for fk in foreign_keys if fk.get("column") in kept_names]
+        return build_enrichment_prompt(
             source_name=source_name,
             table_name=table_name,
             endpoint_name=endpoint_name,
@@ -243,44 +208,12 @@ def build_bounded_enrichment_prompt(
             columns_needing_description=needing,
             business_context=business_context,
         )
-        if len(prompt) <= MAX_PROMPT_CHARS or len(shown_columns) <= 1:
-            return prompt
-        # Drop ~10% of the tail columns and re-measure. Prune the ask list and the foreign keys to the
-        # surviving columns too, so the prompt never references a column it no longer lists.
-        cut = max(1, len(shown_columns) // 10)
-        shown_columns = shown_columns[:-cut]
-        kept_names = {column["name"] for column in shown_columns}
-        needing = [name for name in needing if name in kept_names]
-        shown_fks = [fk for fk in foreign_keys if fk.get("column") in kept_names]
+
+    return bound_prompt_over_columns(builder, columns, columns_needing_description, MAX_PROMPT_CHARS)
 
 
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
-
-
-def _extract_json_object(content: str) -> dict[str, Any] | None:
-    """Parse the model's JSON reply, tolerating markdown fences or surrounding prose.
-
-    `response_format={"type": "json_object"}` isn't reliably honoured through the gateway's Anthropic
-    route, so the reply can arrive fenced (```json … ```) or with leading text — a bare `json.loads`
-    then dies on the first non-`{` character. Try the whole string, then a fenced block, then the
-    outermost `{…}` span. Returns the dict, or None if nothing parses to a JSON object.
-    """
-    text = content.strip()
-    candidates = [text]
-    fence = _JSON_FENCE_RE.search(text)
-    if fence:
-        candidates.append(fence.group(1).strip())
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        candidates.append(text[start : end + 1])
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
+# Back-compat alias; the implementation lives in the shared core.
+_extract_json_object = extract_json_object
 
 
 def _generate_descriptions(
@@ -308,61 +241,48 @@ def _generate_descriptions(
         columns_needing_description=columns_needing_description,
         business_context=business_context,
     )
+    # Resolve the client through this module's get_llm_client so the existing test seam keeps working,
+    # then hand it to the shared JSON completion.
     client = get_llm_client(product="warehouse_semantic_enrichment", team_id=team_id)
-    response = client.chat.completions.create(
+    return generate_json_completion(
+        product="warehouse_semantic_enrichment",
+        team_id=team_id,
+        prompt=prompt,
         model=ENRICHMENT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        client=client,
     )
-    usage_obj = getattr(response, "usage", None)
-    usage: dict[str, Any] = {
-        "model": ENRICHMENT_MODEL,
-        "prompt_tokens": getattr(usage_obj, "prompt_tokens", None),
-        "completion_tokens": getattr(usage_obj, "completion_tokens", None),
-        "total_tokens": getattr(usage_obj, "total_tokens", None),
-    }
-    parsed = _extract_json_object(response.choices[0].message.content or "")
-    if parsed is None:
-        # Surface as an LLM failure (caught by the caller → "partial") rather than silently
-        # persisting nothing, so the error stays visible in analytics.
-        raise ValueError("model response was not valid JSON")
-    return parsed, usage
 
 
-def _get_business_context(team: Team) -> str:
-    """The team's core memory (what the company does, their terminology), if any."""
-    # Imported lazily — posthog_ai pulls in the assistant stack we don't want on this module's import path.
-    from products.posthog_ai.backend.models.assistant import CoreMemory  # noqa: PLC0415
-
-    core_memory = CoreMemory.objects.filter(team=team).first()
-    return (core_memory.text or "").strip() if core_memory else ""
+# Back-compat alias; the implementation lives in the shared core.
+_get_business_context = get_team_business_context
 
 
-# Internal plumbing columns the HogQL catalog hides from users (see DataWarehouseTable.hogql_definition).
-# Never worth enriching: they carry no user-facing meaning and each one would burn an LLM column slot.
-_INTERNAL_COLUMNS = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+# An annotation is keyed by `column_name`, a varchar(400). A column whose name doesn't fit can't be
+# stored or surfaced, so skip it rather than letting the insert raise (DataError) and crash the whole
+# table's enrichment into a Temporal retry loop.
+_MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
 
 
-def _columns_from_table(table: DataWarehouseTable) -> list[dict[str, Any]]:
-    """Source-agnostic `[{name, data_type, is_nullable}]` from `DataWarehouseTable.columns`.
-
-    `columns` is populated after every sync for every source type (unlike SQL-only `schema_metadata`),
-    keyed by column name with a ClickHouse type. Handles both the dict shape (`{"clickhouse": ...}`)
-    and the legacy plain-string shape. Internal plumbing columns are skipped.
+def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
+    """User-facing columns to enrich (see `DataWarehouseTable.get_user_facing_columns`), minus any
+    whose name exceeds the annotation key length — those can't be stored as a `WarehouseColumnAnnotation`.
     """
     result: list[dict[str, Any]] = []
-    for name, definition in (table.columns or {}).items():
-        if name in _INTERNAL_COLUMNS:
+    for column in table.get_user_facing_columns():
+        name = column.get("name")
+        if not name:
             continue
-        if isinstance(definition, dict):
-            clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
-        else:
-            clickhouse_type = definition or ""
-        is_nullable = "Nullable(" in clickhouse_type
-        data_type = clean_type(clickhouse_type) if clickhouse_type else ""
-        result.append({"name": name, "data_type": data_type or "unknown", "is_nullable": is_nullable})
+        if len(name) > _MAX_COLUMN_NAME_LENGTH:
+            # Surface the drop — otherwise the column silently vanishes from enrichment with no trace,
+            # the same opacity that made the original DataError crash hard to diagnose.
+            log.warning(
+                "warehouse_enrichment.column_name_too_long",
+                column_name_prefix=name[:64],
+                column_name_length=len(name),
+                max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
+            )
+            continue
+        result.append(column)
     return result
 
 
@@ -383,11 +303,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
 
     if not enrichment_enabled(team):
+        log.info("warehouse_enrichment.skipped", reason="flag_disabled")
         emit_completed("skipped", reason="flag_disabled")
         return {"status": "skipped", "reason": "flag_disabled"}
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
     # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
     if team.organization.is_ai_data_processing_approved is not True:
+        log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
         emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
@@ -399,10 +321,17 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     table = schema.table
     event_props["source_type"] = schema.source.source_type
     event_props["schema_name"] = schema.name
+    # Bind the schema/table context onto every subsequent log line so failures are traceable to the
+    # exact schema and table that produced them. schema_id is already bound above; repeated here so
+    # the full identifying context lives on one line.
+    log = log.bind(schema_id=str(schema_id), source_type=schema.source.source_type, schema_name=schema.name)
     if table is None:
+        log.warning("warehouse_enrichment.skipped", reason="no_table")
         emit_completed("skipped", reason="no_table")
         return {"status": "skipped", "reason": "no_table"}
     event_props["table_id"] = str(table.id)
+    log = log.bind(table_id=str(table.id))
+    log.info("warehouse_enrichment.started")
     capture_enrichment_event(team, EVENT_STARTED, event_props)
 
     existing = {
@@ -412,19 +341,24 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     # Columns + types come from `table.columns`, populated for every source type after sync — so this
     # enriches REST sources (Stripe, Hubspot, …) as well as SQL ones. Foreign keys remain SQL-only.
-    columns = [column for column in _columns_from_table(table) if column.get("name")]
+    columns = _columns_for_enrichment(table, log)
     event_props["columns_total"] = len(columns)
     if not columns:
+        log.warning("warehouse_enrichment.skipped", reason="no_columns")
         emit_completed("skipped", reason="no_columns")
         return {"status": "skipped", "reason": "no_columns"}
     columns = columns[:MAX_COLUMNS_PER_TABLE]
     foreign_keys = schema.foreign_keys or []
 
-    # Curated, documentation-sourced descriptions the source ships for this endpoint, if any.
+    # Curated, documentation-sourced descriptions the source ships for this endpoint, if any. These are
+    # keyed by the raw source field name (`created`, `customer`); re-key them to the HogQL-visible name
+    # (`created_at`, `customer_id`) each column surfaces as, so the description lands on the column that
+    # `information_schema` and the AI agent actually see. Columns with no rename map to themselves.
+    hogql_name_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
     canonical = get_canonical_descriptions_for_source(schema.source.source_type).get(schema.name, {})
     canonical_columns = {
-        name: description
-        for name, description in (canonical.get("columns") or {}).items()
+        hogql_name_by_raw.get(raw_name, raw_name): description
+        for raw_name, description in (canonical.get("columns") or {}).items()
         if isinstance(description, str) and description.strip()
     }
     canonical_table_description = canonical.get("description")
@@ -441,8 +375,15 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     table_needs_description = not bool(schema.description) and "" not in existing
     event_props["new_columns"] = len(new_columns)
     if not new_columns and not table_needs_description:
+        log.info("warehouse_enrichment.skipped", reason="already_enriched", columns_total=len(columns))
         emit_completed("skipped", reason="already_enriched")
         return {"status": "skipped", "reason": "already_enriched"}
+    log.info(
+        "warehouse_enrichment.enriching",
+        columns_total=len(columns),
+        new_columns=len(new_columns),
+        table_needs_description=table_needs_description,
+    )
 
     # 1) Canonical descriptions are authoritative — persist them directly, no LLM.
     canonical_count = 0
@@ -463,6 +404,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     columns_needing_description = [column["name"] for column in new_columns if column["name"] not in canonical_columns]
 
     if not columns_needing_description and not table_needs_description:
+        log.info("warehouse_enrichment.done", canonical=canonical_count, ai=0, llm_called=False)
         emit_completed("done", canonical_annotations=canonical_count, ai_annotations=0, llm_called=False)
         return {"status": "done", "canonical_annotations": canonical_count, "ai_annotations": 0}
 
@@ -470,6 +412,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # model context about neighbouring columns without re-describing them.
     known_descriptions = {**{name: a.description for name, a in existing.items() if name}, **canonical_columns}
     business_context = _get_business_context(team)
+    log.info(
+        "warehouse_enrichment.llm_call_started",
+        columns_requested=len(columns_needing_description),
+        canonical=canonical_count,
+        table_needs_description=table_needs_description,
+    )
     try:
         generated, usage = _generate_descriptions(
             team_id=team_id,
@@ -485,7 +433,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         )
     except Exception as e:
         capture_exception(e)
-        log.error("warehouse_enrichment.llm_failed", exc_info=True)
+        log.error(
+            "warehouse_enrichment.llm_failed",
+            error=str(e),
+            columns_requested=len(columns_needing_description),
+            exc_info=True,
+        )
         capture_enrichment_event(
             team,
             EVENT_ERROR,
@@ -539,7 +492,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             team, table, "", table_description.strip(), WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
         )
 
-    log.info("warehouse_enrichment.done", canonical=canonical_count, ai=ai_count)
+    log.info(
+        "warehouse_enrichment.done",
+        canonical=canonical_count,
+        ai=ai_count,
+        columns_requested=len(columns_needing_description),
+        llm_called=True,
+    )
     emit_completed(
         "done", canonical_annotations=canonical_count, ai_annotations=ai_count, llm_called=True, llm_error=False
     )
@@ -553,34 +512,16 @@ def _upsert_annotation(
     description: str,
     source: str,
 ) -> None:
-    """Persist one annotation for a column the caller's snapshot found unannotated.
-
-    Uses get_or_create plus a guarded update rather than update_or_create so a user edit that lands in the
-    race window between the caller's snapshot and this write is never clobbered: if a user-edited row now
-    exists for this (table, column), we leave it untouched, honouring the is_user_edited guarantee at write
-    time rather than only at snapshot time.
-    """
+    """Persist one annotation for a warehouse column via the shared guarded upsert."""
     ai_model = ENRICHMENT_MODEL if source == WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED else None
-    annotation, created = WarehouseColumnAnnotation.objects.for_team(team.id).get_or_create(
-        table=table,
+    upsert_column_annotation(
+        model=WarehouseColumnAnnotation,
+        team_id=team.id,
+        owner={"table": table},
         column_name=column_name,
-        defaults={
-            "team": team,
-            "description": description,
-            "description_source": source,
-            "ai_model": ai_model,
-        },
-    )
-    if created or annotation.is_user_edited:
-        return
-    # Guarded update: only write when the row is still not user-edited in the DB, so an edit that lands in the
-    # race window between the get_or_create read and this write is honoured rather than clobbered. update()
-    # bypasses auto_now, so updated_at is set explicitly.
-    WarehouseColumnAnnotation.objects.for_team(team.id).filter(id=annotation.id, is_user_edited=False).update(
         description=description,
-        description_source=source,
+        source=source,
         ai_model=ai_model,
-        updated_at=timezone.now(),
     )
 
 
@@ -593,9 +534,15 @@ async def enrich_table_semantics_activity(inputs: EnrichTableSemanticsInputs) ->
                 inputs.team_id, inputs.schema_id
             )
         except Exception as e:
-            # Surface unexpected failures (DB errors, etc.) to Sentry and product analytics, then re-raise
-            # so Temporal applies its retry policy.
+            # Surface unexpected failures (DB errors, etc.) to Sentry, structured logs, and product
+            # analytics — all keyed by schema_id/team_id — then re-raise so Temporal retries.
             capture_exception(e)
+            logger.exception(
+                "warehouse_enrichment.activity_failed",
+                team_id=inputs.team_id,
+                schema_id=str(inputs.schema_id),
+                error=str(e),
+            )
             try:
                 posthoganalytics.capture(
                     distinct_id=f"team-{inputs.team_id}",

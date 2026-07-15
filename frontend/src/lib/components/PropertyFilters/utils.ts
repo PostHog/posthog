@@ -32,7 +32,10 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -114,6 +117,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+        [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -128,6 +132,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
         [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
         [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
         [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -242,6 +247,9 @@ export function isGroupCardFilterKey(key: string | number | undefined, type: Pro
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }
+export function isPersonMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is PersonMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.PersonMetadata
+}
 export function isRevenueAnalyticsPropertyFilter(
     filter?: AnyFilterLike | null
 ): filter is RevenueAnalyticsPropertyFilter {
@@ -301,6 +309,9 @@ export function isSpanPropertyFilter(filter?: AnyFilterLike | null): filter is S
         filter?.type === PropertyFilterType.SpanResourceAttribute
     )
 }
+export function isMetricPropertyFilter(filter?: AnyFilterLike | null): filter is MetricPropertyFilter {
+    return filter?.type === PropertyFilterType.MetricAttribute
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -331,6 +342,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
@@ -342,6 +354,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
+        isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)
     )
 }
@@ -351,6 +364,7 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | EventMetadataPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | ElementPropertyFilter
@@ -363,12 +377,14 @@ export function isPropertyFilterWithOperator(
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | WorkflowVariablePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
@@ -383,6 +399,7 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
             isLogPropertyFilter(filter) ||
+            isMetricPropertyFilter(filter) ||
             isSpanPropertyFilter(filter) ||
             isWorkflowVariablePropertyFilter(filter))
     )
@@ -405,6 +422,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+    [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -414,6 +432,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+    [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
     [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
     [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -460,6 +479,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Event]: PropertyDefinitionType.Event,
         [PropertyFilterType.EventMetadata]: PropertyDefinitionType.EventMetadata,
         [PropertyFilterType.Person]: PropertyDefinitionType.Person,
+        [PropertyFilterType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
         [PropertyFilterType.Group]: PropertyDefinitionType.Group,
         [PropertyFilterType.Session]: PropertyDefinitionType.Session,
         [PropertyFilterType.Recording]: PropertyDefinitionType.Session,
@@ -468,6 +488,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
         [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
+        [PropertyFilterType.MetricAttribute]: PropertyDefinitionType.MetricAttribute,
         [PropertyFilterType.Span]: PropertyDefinitionType.Span,
         [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
@@ -488,6 +509,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventMetadata) {
         return PropertyFilterType.EventMetadata
     }
+    if (filterType === TaxonomicFilterGroupType.PersonMetadata) {
+        return PropertyFilterType.PersonMetadata
+    }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
         filterType?.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
@@ -497,6 +521,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
+        return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.MCPProperties) {
+        // The curated $mcp_* schema is a subgroup of event properties
         return PropertyFilterType.Event
     }
 
@@ -529,6 +558,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.LogResourceAttribute
     }
 
+    if (filterType == TaxonomicFilterGroupType.MetricAttributes) {
+        return PropertyFilterType.MetricAttribute
+    }
+
     if (filterType == TaxonomicFilterGroupType.Spans) {
         return PropertyFilterType.Span
     }
@@ -552,6 +585,33 @@ export function taxonomicFilterTypeToPropertyFilterType(
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+/**
+ * Recover a property definition's id. Pinned/default taxonomic items are stored as
+ * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
+ * (keyed by name + type) instead of building a link with an `undefined` id. Returns
+ * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
+ * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ */
+export function resolvePropertyDefinitionId(
+    definition: Pick<PropertyDefinition, 'id' | 'name'>,
+    taxonomicGroupType: TaxonomicFilterGroupType,
+    getPropertyDefinition: propertyDefinitionsModelType['values']['getPropertyDefinition']
+): PropertyDefinition['id'] | undefined {
+    if (definition.id) {
+        return definition.id
+    }
+    if (!definition.name) {
+        return undefined
+    }
+    const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroupType)
+    // `null` only when the taxonomic type has no property-filter equivalent;
+    // propertyFilterTypeToPropertyDefinitionType itself is total (defaults to Event).
+    const propertyDefinitionType = propertyFilterType
+        ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+        : null
+    return propertyDefinitionType ? getPropertyDefinition(definition.name, propertyDefinitionType)?.id : undefined
 }
 
 export function isEmptyProperty(property: AnyPropertyFilter): boolean {

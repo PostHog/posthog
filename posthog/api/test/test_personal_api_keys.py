@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,16 +19,24 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.product_analytics.backend.models.insight import Insight
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
+        description = "Test description"
         response = self.client.post(
             "/api/personal_api_keys",
-            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            {
+                "label": label,
+                "description": description,
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
         )
         assert response.status_code == 201
         data = response.json()
@@ -37,6 +46,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
+            "description": description,
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
@@ -49,6 +59,20 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "mask_value": data["mask_value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    def test_create_personal_api_key_normalizes_blank_description_to_null(self):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {
+                "label": "test",
+                "description": "",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["description"] is None
 
     def test_create_too_many_api_keys(self):
         for i in range(0, 10):
@@ -205,6 +229,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response_data[0] == {
             "id": my_key.id,
             "label": my_label,
+            "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
@@ -775,6 +800,41 @@ class TestPersonalAPIKeysWithCommentScope(PersonalAPIKeysBaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/comments/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'comment:read'"
+
+
+class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
+    # Regression: batch_by_distinct_ids and batch_by_uuids shipped without
+    # `required_scopes`, so APIScopePermission rejected every personal API key —
+    # even one scoped `*` — with "This action does not support personal API key
+    # access". Both are reads, so they must accept `person:read`.
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_allows_batch_endpoint_with_person_read_scope(self, action):
+        self.key.scopes = ["person:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": {}}
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_denies_batch_endpoint_without_person_scope(self, action):
+        self.key.scopes = ["feature_flag:read"]
+        self.key.save()
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'person:read'"
 
 
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):

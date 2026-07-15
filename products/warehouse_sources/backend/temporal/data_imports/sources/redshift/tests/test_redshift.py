@@ -827,6 +827,42 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    def test_ssl_server_error_is_non_retryable(self):
+        error_msg = (
+            'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
+            "server does not support SSL, but SSL was required"
+        )
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
+
+class TestRedshiftValidateCredentials:
+    def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):
+        # We always connect with sslmode=require, so a server that doesn't support SSL is a
+        # host/port misconfiguration on the customer's side — surface guidance, don't report it.
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
+                "server does not support SSL, but SSL was required"
+            ),
+        )
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None and "does not support SSL" in error
+        capture.assert_not_called()
+
 
 class TestRedshiftSourceForPipeline:
     def test_forwards_chunk_size_override_from_external_data_schema(self, mocker):
@@ -1038,3 +1074,16 @@ class TestConnect:
         assert kwargs["keepalives_interval"] == 10
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
+
+
+class TestGetConnectionMetadata:
+    # Source creation looks this method up by name (duck-typed) and silently persists {} when
+    # it's absent — which left direct Redshift connections labeled as Postgres in the SQL editor.
+    @pytest.mark.parametrize(
+        "schema,expected_schema",
+        [("public", "public"), ("", None), (None, None)],
+    )
+    def test_reports_redshift_engine_without_connecting(self, schema, expected_schema):
+        metadata = RedshiftSource().get_connection_metadata(_make_config(schema=schema), team_id=1)
+
+        assert metadata == {"engine": "redshift", "database": "dev", "schema": expected_schema}

@@ -1,7 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 // eslint-disable-next-line import/no-cycle
 import { userLogic } from 'scenes/userLogic'
 
@@ -54,12 +54,7 @@ export const superpowersLogic = kea<superpowersLogicType>([
         superpowersEnabled: [
             (s) => [s.user, s.preflight],
             (user, preflight) => {
-                return (
-                    user?.is_staff ||
-                    user?.is_impersonated ||
-                    preflight?.is_debug ||
-                    preflight?.instance_preferences?.debug_queries
-                )
+                return user?.is_staff || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
             },
         ],
         mcpHintsDismissed: [

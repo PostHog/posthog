@@ -60,6 +60,35 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         )
         return {row.harness: row for row in runner.calculate().results}
 
+    def test_tool_name_scopes_to_effective_tool_and_new_sdk(self) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(distinct_id="d1", properties={"$mcp_client_name": "claude-ai", **new_sdk})
+        self._emit(
+            distinct_id="d2",
+            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "cursor-vscode", **new_sdk},
+        )
+        # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name.
+        self._emit(
+            distinct_id="d3",
+            properties={
+                "$mcp_tool_name": "exec",
+                "$mcp_exec_tool_call_name": "query_run",
+                "$mcp_client_name": "windsurf",
+                **new_sdk,
+            },
+        )
+        # Same tool but missing the new-SDK source marker -> excluded.
+        self._emit(distinct_id="d4", properties={"$mcp_client_name": "claude-ai"})
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        rows = {row.harness: row for row in runner.calculate().results}
+
+        assert set(rows) == {"Claude.ai", "Windsurf"}
+
     @parameterized.expand(
         [
             ("vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
@@ -92,6 +121,18 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
                 "Claude Desktop",
             ),
             ("ua_openai", {"$mcp_client_user_agent": "openai-mcp/1.0.0"}, "OpenAI"),
+            # grok.com Connectors: the grok- UA must beat the generic "connectors-manager"
+            # clientInfo.name it also reports, or the vendor is lost to 'Other'.
+            (
+                "grok_connectors_ua_beats_generic_name",
+                {
+                    "$mcp_client_user_agent": "grok-connectors-manager/0.1.0",
+                    "$mcp_client_name": "connectors-manager",
+                },
+                "Grok",
+            ),
+            # xAI API surface: no grok UA, buckets via its grok- clientInfo.name.
+            ("grok_shell_client_name", {"$mcp_client_name": "grok-shell-posthog"}, "Grok"),
             ("session_librechat", {"mcp_session_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",

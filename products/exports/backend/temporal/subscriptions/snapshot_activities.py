@@ -121,9 +121,12 @@ def _build_states_from_content_snapshot(
         query_kind = (insight_query_kinds or {}).get(insight_id, "Unknown")
         result_payload = query_results.get("result") if query_results else None
         columns = _extract_columns(query_results)
+        value_format = insight_snap.get("value_format")
 
         if query_results and result_payload:
-            results_summary = build_results_summary(query_kind, result_payload, columns=columns)
+            results_summary = build_results_summary(
+                query_kind, result_payload, columns=columns, value_format=value_format
+            )
             fallback_reason: str | None = None
         elif query_error:
             results_summary = "Query failed"

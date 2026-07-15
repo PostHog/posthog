@@ -24,6 +24,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import Integration, SnowflakeIntegration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -96,6 +97,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "SnowflakeIncompatibleSchemaError",
+    # Raised when Snowflake denies an operation due to missing privileges. This is a customer-side
+    # configuration issue that retrying cannot fix.
+    "SnowflakeInsufficientPrivilegesError",
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
@@ -105,6 +109,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeQueryServerTimeoutError",
     # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
     "SnowflakeWarehouseUsageError",
+    # The linked Integration was deleted or doesn't belong to the team.
+    "SnowflakeIntegrationNotFoundError",
+    # The linked Integration is the wrong kind or has invalid/missing credentials.
+    "SnowflakeIntegrationError",
 )
 
 
@@ -165,6 +173,26 @@ class SnowflakeAuthenticationError(Exception):
         super().__init__(message)
 
 
+class SnowflakeIntegrationNotFoundError(Exception):
+    def __init__(self, integration_id: int, team_id: int):
+        super().__init__(f"Snowflake integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+async def _get_snowflake_integration(integration_id: int, team_id: int) -> SnowflakeIntegration:
+    """Fetch a Snowflake integration from the database.
+
+    `SnowflakeIntegration` raises `SnowflakeIntegrationError` if the config is malformed.
+    """
+    try:
+        integration = await Integration.objects.aget(
+            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
+        )
+    except Integration.DoesNotExist:
+        raise SnowflakeIntegrationNotFoundError(integration_id, team_id)
+
+    return SnowflakeIntegration(integration)
+
+
 class InvalidPrivateKeyError(Exception):
     """Raised when a private key is not valid."""
 
@@ -179,6 +207,13 @@ class SnowflakeIncompatibleSchemaError(Exception):
         super().__init__(
             f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
         )
+
+
+class SnowflakeInsufficientPrivilegesError(Exception):
+    """Raised when the configured Snowflake role lacks required privileges to perform an operation."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class SnowflakeQueryClientTimeoutError(TimeoutError):
@@ -291,7 +326,7 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
 
     elif pa.types.is_list(data_type):
         repeated = True
-        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name  # type: ignore[attr-defined]
+        snowflake_type_name = data_type_to_snowflake_type(data_type.value_type).name
 
     else:
         raise TypeError(f"Unsupported type: '{data_type}'")
@@ -441,12 +476,15 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    user: str
-    account: str
     database: str
     warehouse: str
     schema: str
     table_name: str
+    # When set, account/user/authentication_type and credentials are resolved from this Integration
+    # at run time; otherwise the inline values below are used (legacy path).
+    integration_id: int | None = None
+    user: str | None = None
+    account: str | None = None
     authentication_type: str = "password"
     password: str | None = None
     private_key: str | None = None
@@ -526,6 +564,13 @@ class SnowflakeClient:
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
 
+        # account and user are optional on the inputs (integration-backed exports resolve them at run
+        # time in the activity), but they must be resolved by the time we open a connection.
+        account = inputs.account
+        user = inputs.user
+        if account is None or user is None:
+            raise SnowflakeAuthenticationError("Snowflake account and user are required")
+
         # User could have specified both password and private key in their batch export config.
         # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
         # Therefore we decide which one to use based on the authentication_type.
@@ -545,8 +590,8 @@ class SnowflakeClient:
             raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
 
         return cls(
-            user=inputs.user,
-            account=inputs.account,
+            user=user,
+            account=account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
@@ -1009,6 +1054,8 @@ class SnowflakeClient:
         Raises:
             SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
+            SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
+                perform this operation.
         """
         select_fields = ", ".join(
             f"PARSE_JSON($1:\"{field.name}\", 'd')"
@@ -1060,6 +1107,10 @@ class SnowflakeClient:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
+            elif e.errno == 3001:
+                raise SnowflakeInsufficientPrivilegesError(
+                    f"Failed to execute COPY INTO due to insufficient privileges: {e.msg or 'no message provided'}"
+                )
 
             raise SnowflakeFileNotLoadedError(
                 table.name,
@@ -1331,6 +1382,18 @@ async def insert_into_snowflake_activity_from_stage(
     )
 
     async with Heartbeater():
+        # Integration-backed exports resolve account, user, auth type and credentials at run time;
+        # legacy exports carry them inline.
+        # TODO: require integration
+        if inputs.integration_id is not None:
+            integration = await _get_snowflake_integration(inputs.integration_id, inputs.team_id)
+            inputs.account = integration.account
+            inputs.user = integration.user
+            inputs.authentication_type = integration.authentication_type
+            inputs.password = integration.password
+            inputs.private_key = integration.private_key
+            inputs.private_key_passphrase = integration.private_key_passphrase
+
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None:
             model = inputs.batch_export_model
@@ -1525,6 +1588,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
+            integration_id=inputs.integration_id,
             user=inputs.user,
             account=inputs.account,
             authentication_type=inputs.authentication_type,

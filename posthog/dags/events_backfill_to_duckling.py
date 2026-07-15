@@ -30,14 +30,18 @@ Partition Strategy:
 """
 
 import os
+import re
 import math
 import time
+import random
 import calendar
 import dataclasses
 from collections.abc import Callable
+from contextlib import closing
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
+from django.db import DatabaseError
 from django.utils import timezone
 
 import psycopg
@@ -47,6 +51,7 @@ from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
     AssetExecutionContext,
     Config,
+    DagsterRun,
     DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
@@ -69,6 +74,16 @@ from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comme
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
 from posthog.ducklake.models import DuckgresServerTeam
+
+from products.data_warehouse.backend.facade.backfill_status import (
+    BackfillOutcome,
+    historical_backfill_months,
+    record_backfill_finished,
+    record_backfill_outcome,
+    record_backfill_started,
+    stale_running_partitions,
+)
+from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
 
 logger = structlog.get_logger(__name__)
 
@@ -601,7 +616,13 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # [1, MAX_S3_FILE_FANOUT]. Row count (not bytes) is the signal because it's the
 # dominant driver of file size and the only one ClickHouse estimates cheaply from
 # the primary key without scanning the wide columns; wide-row teams can be tuned via
-# the per-run config. At ~4KB/event-row, 1M rows lands a file near ~4GB.
+# the per-run config. At ~4KB/event-row, 5M rows lands a file near ~20GB.
+#
+# Larger files also mean fewer per-file DuckLake catalog commits: each Parquet
+# file registered via `ducklake_add_data_files` is its own autocommit'd
+# transaction, so the fan-out target directly sets the write-side commit rate
+# a downstream reader (e.g. viaduck) has to contend with under DuckLake's
+# per-table OCC.
 #
 # MAX_S3_FILE_FANOUT is bounded by WRITER MEMORY, not file count: ClickHouse's
 # PartitionedSink keeps one Parquet writer open per active bucket for the whole
@@ -612,7 +633,7 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # 256 × 128 MiB ≈ 32 GiB stays comfortably under the 100 GiB max_memory_usage ceiling.
 # N may exceed ClickHouse's max_partitions_per_insert_block (default 100) safely —
 # that limit gates MergeTree part creation, not the s3() PartitionedSink.
-TARGET_ROWS_PER_FILE = 1_000_000
+TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 # Parquet writer settings shared by every export. The byte cap is the load-bearing one:
@@ -681,6 +702,58 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
 
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
+
+
+# The recording API itself lives in the product (logic.backfill_status) and knows nothing about
+# Dagster. This adapter is the boundary: it translates Dagster's run vocabulary into ours, so a
+# different scheduler only has to supply its own translation.
+def _outcome_from_run_status(run_status: DagsterRunStatus) -> BackfillOutcome:
+    if run_status == DagsterRunStatus.SUCCESS:
+        return BackfillOutcome.SUCCEEDED
+    if run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        return BackfillOutcome.FAILED
+    return BackfillOutcome.RUNNING
+
+
+def _stale_run_outcome(run: DagsterRun | None) -> BackfillOutcome | None:
+    """How to resolve a row stuck in RUNNING, given its scheduler run — None means leave it alone.
+
+    Only a run's own process may declare it finished while it is still in flight, so a live (or
+    queued) run is never touched. A vanished run resolves to FAILED: there is no proof the data
+    landed, and re-running a partition is safe while trusting a ghost run is not.
+    """
+    if run is None:
+        return BackfillOutcome.FAILED
+    outcome = _outcome_from_run_status(run.status)
+    return None if outcome is BackfillOutcome.RUNNING else outcome
+
+
+# Bounds the run-storage lookups a single sensor tick spends resolving crashed runs.
+STALE_RUNNING_REPAIR_LIMIT = 25
+
+
+def _repair_stale_running_statuses(context: SensorEvaluationContext, dataset: str) -> None:
+    """Resolve status rows whose recording process died before writing a terminal state.
+
+    record_backfill_started/finished bracket the run in-process, so an OOM or pod eviction in
+    between leaves the row RUNNING forever — and the UI reporting "backfilling" indefinitely.
+    Each tick asks Dagster what actually happened to the oldest sufficiently stale RUNNING rows.
+    """
+    for row in stale_running_partitions(dataset=dataset, limit=STALE_RUNNING_REPAIR_LIMIT):
+        run = context.instance.get_run_by_id(row.run_id)
+        outcome = _stale_run_outcome(run)
+        if outcome is None:
+            continue
+        record_backfill_finished(
+            team_id=row.team_id,
+            dataset=dataset,
+            partition_key=row.partition_key,
+            run_id=row.run_id,
+            failure_reason=(
+                None if outcome is BackfillOutcome.SUCCEEDED else "RunLost" if run is None else "RunDidNotComplete"
+            ),
+        )
+
 
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
@@ -1537,6 +1610,395 @@ def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
         return [row[0] for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# DuckLake ducklake_file_partition_value post-write fix-up
+# ---------------------------------------------------------------------------
+# Workaround for a DuckLake bug in ducklake_add_data_files(): when a partition
+# spec applies multiple transforms to one source column (events: year/month/day
+# on `timestamp`; persons: year/month on `_timestamp`), every ducklake_file_partition_value row lands at
+# the HIGHEST partition_key_index instead of being spread across the spec's
+# columns. Tier-3 compaction then fails with "Files have different hive
+# partition path", and partition pruning silently misses files.
+#
+# Bug writeup: see PR #67168 (the workaround landing this fix-up).
+# Buggy code:  ducklake src/functions/ducklake_add_data_files.cpp — see the
+#              `field_partition_key_map` map keyed bare `field_id.index` and
+#              the loop in `MapPartitionColumns` (line numbers will rot).
+#
+# Failure semantics: this fix-up raises RuntimeError on any inconsistency
+# (catalog unreachable, spec drift, post-condition fail). _DuckgresSession.run
+# only retries _connection_dropped exceptions, so a ducklake_file_partition_value failure is terminal
+# for the partition — Dagster asset-level retry recovers, not the duckgres
+# replay loop. Failures are convergent if retried because DELETE-then-INSERT
+# of the same paths produces the same end state.
+
+_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR = "DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENABLED"
+
+# Catalog Postgres connect timeout. NOT shared with DUCKGRES_CONNECT_TIMEOUT —
+# duckgres needs minutes for a cold-start worker; plain Postgres connects in
+# under a second.
+_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT = 10
+
+# Bound for the per-batch fix-up: DML + post-condition (the advisory lock
+# acquisition is OUTSIDE the txn — see _acquire_*_session_advisory_lock).
+_DUCKLAKE_FILE_PARTITION_VALUE_STATEMENT_TIMEOUT = "60s"
+# Bound for any single row-lock wait inside the txn (defense in depth — the
+# session advisory lock already serializes us against other maintenance ops).
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_TIMEOUT = "5s"
+
+# pg_try_advisory_lock retry (session-scoped): bounded so a hung maintainer
+# can't block a backfill step forever. Sleeps happen OUTSIDE any open txn.
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS = 6
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_BASE_SECONDS = 1.0
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_MAX_SECONDS = 8.0
+
+# Per-table partition spec: (partition_key_index, transform name). Transform
+# names mirror the hive segment names in the S3 paths produced by the dagster
+# exports AND the live catalog (ducklake_partition_column.transform). Asserted
+# at runtime against the live catalog before any DML — drift fails loud.
+_DUCKLAKE_FILE_PARTITION_VALUE_SPEC: dict[str, tuple[tuple[int, str], ...]] = {
+    "events": ((0, "year"), (1, "month"), (2, "day")),
+    "persons": ((0, "year"), (1, "month")),
+}
+
+# Pre-flight: every registered path must carry the spec's hive segments. Fail
+# loud before any catalog DML — a NULL partition_value insert would produce a
+# third class of catalog rot worse than the bug itself.
+_DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES: dict[str, re.Pattern[str]] = {
+    # Persons "full" export writes year=0/month=0 (export_persons_full_to_duckling_s3),
+    # so accept any digit width on both tables.
+    "events": re.compile(r"/year=\d+/month=\d+/day=\d+/[^/]+\.parquet$"),
+    "persons": re.compile(r"/year=\d+/month=\d+/[^/]+\.parquet$"),
+}
+
+
+def _ducklake_file_partition_value_fixup_enabled() -> bool:
+    return os.environ.get(_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR, "true").lower() in ("1", "true", "yes", "on")
+
+
+def _open_catalog_conn(target: DucklingTarget) -> psycopg.Connection[Any]:
+    server = get_duckgres_server_for_organization(target.organization_id)
+    if server is None or not server.catalog_host:
+        raise RuntimeError(
+            f"DuckgresServer with catalog_* fields not found for organization_id={target.organization_id}; "
+            f"set {_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR}=false to skip the "
+            f"ducklake_file_partition_value fix-up (loses bug coverage)."
+        )
+    return psycopg.connect(
+        host=server.catalog_host,
+        port=server.catalog_port,
+        dbname=server.catalog_database,
+        user=server.catalog_username,
+        password=server.catalog_password,
+        autocommit=False,
+        connect_timeout=_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT,
+    )
+
+
+def _acquire_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> None:
+    # Bounded retry on the session-scoped pg_try_advisory_lock so a stuck
+    # maintainer can't hang a backfill step indefinitely (pg_advisory_lock would
+    # block forever). Session-scoped — not xact-scoped — so the retry backoffs
+    # happen OUTSIDE any open Postgres transaction; sleeping inside an open txn
+    # would leave the connection idle-in-transaction, which blocks vacuum and
+    # accumulates xid age. Caller must release via the matching `_release_*`
+    # helper, and must have set conn.autocommit=True before calling.
+    for attempt in range(_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS):
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext('millpond-ducklake-maintenance')::bigint)")
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("pg_try_advisory_lock returned no row — Postgres protocol invariant violated")
+        if row[0]:
+            return
+        backoff = min(
+            _DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_MAX_SECONDS,
+            _DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_BASE_SECONDS * (2**attempt),
+        )
+        time.sleep(backoff * (0.5 + random.random()))
+    raise RuntimeError(
+        f"ducklake_file_partition_value fix-up: could not acquire millpond-ducklake-maintenance advisory lock "
+        f"after {_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS} attempts"
+    )
+
+
+def _release_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> None:
+    # Best-effort: if the connection is already gone, Postgres releases the
+    # session-scoped lock on disconnect anyway. Caller must have set
+    # conn.autocommit=True before calling so the unlock SELECT doesn't
+    # implicitly start a transaction. We deliberately don't read the unlock
+    # return value — `false` (didn't hold the lock) would mean the connection
+    # is about to drop it anyway via `closing(...)`, so the extra roundtrip
+    # is noise.
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext('millpond-ducklake-maintenance')::bigint)")
+    except (psycopg.Error, OSError) as exc:
+        # Narrowed to the catalog/transport error classes that the unlock SELECT
+        # can actually raise. Anything else (programming bug, etc.) propagates.
+        logger.warning(
+            "duckling_ducklake_file_partition_value_fixup_release_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+
+def _assert_live_spec_matches(
+    cur: Any,
+    table_kind: Literal["events", "persons"],
+    table_name: str,
+    table_id: int,
+    partition_id: int,
+) -> None:
+    # The fix-up bakes _DUCKLAKE_FILE_PARTITION_VALUE_SPEC into the SQL it emits. If the live catalog spec
+    # drifts (someone runs ALTER ... SET PARTITIONED BY, or a future writer
+    # version reshapes things), we'd silently mis-index rows. Cheap one-SELECT
+    # defense against that whole class. table_kind ("events"/"persons") keys
+    # the spec; table_name is the actual catalog name and may carry a per-team
+    # suffix (events_<suffix> / persons_<suffix>) — the spec is the same for
+    # every suffix variant since the partition layout doesn't change.
+    cur.execute(
+        """
+        SELECT partition_key_index, transform
+        FROM public.ducklake_partition_column
+        WHERE partition_id = %s AND table_id = %s
+        ORDER BY partition_key_index
+        """,
+        (partition_id, table_id),
+    )
+    actual = tuple((int(idx), str(transform)) for idx, transform in cur.fetchall())
+    expected = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC[table_kind]
+    if actual != expected:
+        raise RuntimeError(
+            f"ducklake_file_partition_value fix-up: live catalog spec for posthog.{table_name} "
+            f"(kind={table_kind}, partition_id={partition_id}) is {actual}; expected {expected}. "
+            f"Update _DUCKLAKE_FILE_PARTITION_VALUE_SPEC and redeploy before re-enabling the fix-up."
+        )
+
+
+def _fixup_partition_values_for_added_files(
+    context: AssetExecutionContext,
+    target: DucklingTarget,
+    table_kind: Literal["events", "persons"],
+    table_name: str,
+    file_paths: list[str],
+) -> None:
+    # Repair ducklake_file_partition_value rows for files just registered via ducklake_add_data_files().
+    # table_kind is the logical kind ("events" or "persons") used to look up the
+    # spec + path regex; table_name is the actual catalog table the files were
+    # registered into and may carry a per-team suffix (events_<suffix> /
+    # persons_<suffix>) per DuckgresServerTeam.table_suffix. The dagster
+    # registration path writes files for the suffixed table while keeping the
+    # S3 prefix (backfill/events/.../) tied to the kind, not the suffix.
+    # Raises RuntimeError on any inconsistency; see module-level block for the
+    # failure-semantics contract. Convergent and idempotent.
+    if not file_paths:
+        return
+
+    spec = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC.get(table_kind)
+    path_regex = _DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES.get(table_kind)
+    if spec is None or path_regex is None:
+        raise ValueError(f"_DUCKLAKE_FILE_PARTITION_VALUE_SPEC has no entry for table_kind={table_kind!r}")
+
+    unparseable = [p for p in file_paths if not path_regex.search(p)]
+    if unparseable:
+        sample = ", ".join(unparseable[:3])
+        raise ValueError(
+            f"ducklake_file_partition_value fix-up: {len(unparseable)} of {len(file_paths)} "
+            f"{table_kind} (in {table_name}) path(s) do not match the expected hive layout (sample: {sample})"
+        )
+
+    expected_index_set = [idx for idx, _ in spec]
+
+    # closing(...) actually closes the connection on exit; psycopg3's Connection
+    # context manager only commits/rolls back the open txn. We acquire the
+    # session advisory lock OUTSIDE the main txn (autocommit=True during
+    # acquisition) so retry backoffs don't sit idle-in-transaction; switch to
+    # autocommit=False to drive the BEGIN→COMMIT (clean) or BEGIN→ROLLBACK
+    # (exception) via the inner `with conn:`; finally, switch back to
+    # autocommit=True to release the session lock (best-effort — PG releases
+    # it on disconnect anyway, so the `closing(...)` exit is the backstop).
+    with closing(_open_catalog_conn(target)) as catalog_conn:
+        catalog_conn.autocommit = True
+        _acquire_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
+        try:
+            catalog_conn.autocommit = False
+            with catalog_conn, catalog_conn.cursor() as cur:
+                # Bound any single statement so a misbehaving server can't hang
+                # the step. SET LOCAL is scoped to this txn — no global side effect.
+                cur.execute(
+                    psql.SQL("SET LOCAL statement_timeout = {}").format(
+                        psql.Literal(_DUCKLAKE_FILE_PARTITION_VALUE_STATEMENT_TIMEOUT)
+                    )
+                )
+                cur.execute(
+                    psql.SQL("SET LOCAL lock_timeout = {}").format(
+                        psql.Literal(_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_TIMEOUT)
+                    )
+                )
+
+                cur.execute(
+                    """
+                    SELECT t.table_id, pi.partition_id
+                    FROM public.ducklake_table t
+                    JOIN public.ducklake_schema s
+                      ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL
+                    JOIN public.ducklake_partition_info pi
+                      ON pi.table_id = t.table_id AND pi.end_snapshot IS NULL
+                    WHERE s.schema_name = 'posthog'
+                      AND t.table_name = %s
+                      AND t.end_snapshot IS NULL
+                    """,
+                    (table_name,),
+                )
+                rows = cur.fetchall()
+                if len(rows) != 1:
+                    raise RuntimeError(
+                        f"ducklake_file_partition_value fix-up: expected exactly one live partition_info "
+                        f"for posthog.{table_name}, got {len(rows)}"
+                    )
+                table_id, partition_id = rows[0]
+
+                _assert_live_spec_matches(cur, table_kind, table_name, table_id, partition_id)
+
+                # Single-statement DELETE + INSERT so no reader sees zero ducklake_file_partition_value rows.
+                # DELETE is scoped by table_id AND data_file_id (defense in depth).
+                # The INSERT runs unconditionally over `to_repair`. Do NOT add a
+                # defensive `WHERE EXISTS (... deleted)` or scalar-subquery
+                # reference — that filters out target files whose DELETE returned
+                # 0 rows (e.g., a file that arrived with no fpv rows at all),
+                # leaving them stuck. `deleted` is intentionally unreferenced:
+                # per PG docs §7.8.2, data-modifying CTEs in WITH execute exactly
+                # once "always to completion, independently of whether the
+                # primary query reads all (or indeed any) of their output."
+                insert_branches = psql.SQL(" UNION ALL ").join(
+                    psql.SQL(
+                        "SELECT t.data_file_id, {tid}, {idx}, "
+                        "(substring(t.path from {hive_re}))::INT::TEXT "
+                        "FROM targets t"
+                    ).format(
+                        tid=psql.Literal(table_id),
+                        idx=psql.Literal(key_index),
+                        hive_re=psql.Literal(f"{col_name}=([0-9]+)"),
+                    )
+                    for key_index, col_name in spec
+                )
+                stmt = psql.SQL(
+                    """
+                    WITH targets AS (
+                        SELECT data_file_id, path
+                        FROM public.ducklake_data_file
+                        WHERE table_id = {tid}
+                          AND end_snapshot IS NULL
+                          AND partition_id = {pid}
+                          AND path = ANY(%s)
+                    ),
+                    deleted AS (
+                        DELETE FROM public.ducklake_file_partition_value
+                        WHERE table_id = {tid}
+                          AND data_file_id IN (SELECT data_file_id FROM targets)
+                        RETURNING data_file_id
+                    )
+                    INSERT INTO public.ducklake_file_partition_value
+                        (data_file_id, table_id, partition_key_index, partition_value)
+                    {inserts}
+                    """
+                ).format(
+                    tid=psql.Literal(table_id),
+                    pid=psql.Literal(partition_id),
+                    inserts=insert_branches,
+                )
+                # file_paths bound via %s (not psql.Literal of a list) so the
+                # statement text stays small and statement-cache-friendly even for
+                # large batches. Keep file_paths a list — psycopg3 maps list[str]
+                # to PG text[]; a tuple would map to a record instead.
+                cur.execute(stmt, (list(file_paths),))
+
+                # Post-condition: every file's actual partition_key_index set equals
+                # the expected set, and no NULL partition_value rows landed. The
+                # set-equality catches the bug pattern (multiple rows at the
+                # highest index) that a naive count check would miss.
+                cur.execute(
+                    psql.SQL(
+                        """
+                        WITH file_partition_value_state AS (
+                            SELECT df.data_file_id,
+                                   COALESCE(
+                                       array_agg(file_partition_value.partition_key_index
+                                                 ORDER BY file_partition_value.partition_key_index)
+                                       FILTER (WHERE file_partition_value.partition_key_index IS NOT NULL),
+                                       '{{}}'::bigint[]
+                                   ) AS indexes,
+                                   COUNT(*) FILTER (WHERE file_partition_value.partition_value IS NULL) AS nulls
+                            FROM public.ducklake_data_file df
+                            LEFT JOIN public.ducklake_file_partition_value file_partition_value
+                              ON file_partition_value.data_file_id = df.data_file_id
+                             AND file_partition_value.table_id = {tid}
+                            WHERE df.table_id = {tid}
+                              AND df.end_snapshot IS NULL
+                              AND df.path = ANY(%s)
+                            GROUP BY df.data_file_id
+                        )
+                        SELECT
+                            COUNT(*) FILTER (WHERE indexes IS DISTINCT FROM %s::bigint[]) AS wrong_indexes,
+                            COUNT(*) FILTER (WHERE nulls > 0)                          AS null_values,
+                            COUNT(*) AS total
+                        FROM file_partition_value_state
+                        """
+                    ).format(tid=psql.Literal(table_id)),
+                    (list(file_paths), expected_index_set),
+                )
+                post_condition_row = cur.fetchone()
+                if post_condition_row is None:
+                    raise RuntimeError(
+                        "post-condition aggregate returned no row — Postgres protocol invariant violated"
+                    )
+                wrong_indexes, null_values, total = post_condition_row
+
+                if wrong_indexes != 0 or null_values != 0 or total != len(file_paths):
+                    # Raise inside the `with catalog_conn` block so the context
+                    # manager rolls back; no explicit rollback needed. logger.error
+                    # (not .exception) since we're not inside an except block — no
+                    # live exception to capture a traceback from.
+                    logger.error(
+                        "duckling_ducklake_file_partition_value_fixup_post_condition_failed",
+                        table_kind=table_kind,
+                        table_name=table_name,
+                        organization_id=target.organization_id,
+                        team_id=target.team_id,
+                        wrong_indexes=wrong_indexes,
+                        null_values=null_values,
+                        actual_total=total,
+                        expected_total=len(file_paths),
+                    )
+                    raise RuntimeError(
+                        f"ducklake_file_partition_value fix-up post-condition failed for {table_name}: "
+                        f"wrong_indexes={wrong_indexes}, null_values={null_values}, "
+                        f"total={total}, expected_total={len(file_paths)}"
+                    )
+        finally:
+            # Release the session-scoped lock. Skip if the conn has been closed
+            # mid-flight (e.g., transport drop during DML) — toggling autocommit
+            # on a closed conn raises InterfaceError, which would mask the
+            # original exception. PG releases session locks on disconnect
+            # anyway, so there's nothing to do.
+            if not catalog_conn.closed:
+                catalog_conn.autocommit = True
+                _release_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
+
+    context.log.info(
+        f"ducklake_file_partition_value fix-up: rebuilt partition values for {len(file_paths)} {table_name} file(s)"
+    )
+    logger.info(
+        "duckling_ducklake_file_partition_value_fixup_succeeded",
+        table_kind=table_kind,
+        table_name=table_name,
+        organization_id=target.organization_id,
+        team_id=target.team_id,
+        files_rewritten=len(file_paths),
+    )
+
+
 def register_files_with_duckling(
     context: AssetExecutionContext,
     target: DucklingTarget,
@@ -1599,6 +2061,9 @@ def register_files_with_duckling(
                     psql.Literal(s3_path),
                 )
             )
+
+        if _ducklake_file_partition_value_fixup_enabled():
+            _fixup_partition_values_for_added_files(context, target, "events", target.events_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
@@ -1866,6 +2331,9 @@ def register_persons_files_with_duckling(
                     psql.Literal(s3_path),
                 )
             )
+
+        if _ducklake_file_partition_value_fixup_enabled():
+            _fixup_partition_values_for_added_files(context, target, "persons", target.persons_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
@@ -1894,6 +2362,39 @@ def register_persons_files_with_duckling(
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    team_id, _ = parse_partition_key_dates(context.partition_key)
+    if config.dry_run:
+        _run_duckling_events_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    record_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_events_backfill(context, config)
+    except Exception as error:
+        record_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=context.partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    record_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
     Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
@@ -2064,6 +2565,42 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **PERSONS_CONCURRENCY_TAG},
 )
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    partition_key = context.partition_key
+    team_id = (
+        int(partition_key) if is_full_export_partition(partition_key) else parse_partition_key_dates(partition_key)[0]
+    )
+    if config.dry_run:
+        _run_duckling_persons_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    record_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_persons_backfill(context, config)
+    except Exception as error:
+        record_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            partition_key=partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    record_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
     Supports two partition formats with different export strategies:
@@ -2300,6 +2837,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             session.close()
 
 
+# Cap on current-month CATCH-UP partitions (every day older than yesterday) emitted in one
+# tick. Yesterday is always emitted on top of this so freshness never starves; the cap only
+# bounds the backlog a burst of newly enabled teams can create, which then drains over the
+# following hourly ticks. Execution is throttled independently by the duckling_events_v1
+# concurrency limit, so this only bounds sensor-eval work and Dagster queue depth.
+DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK = 1000
+
+
 @sensor(
     name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
@@ -2308,73 +2853,106 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily backfill partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and keep the current month's
+    daily backfill partitions filled.
 
-    This sensor runs periodically to:
-    1. Find all teams with backfills enabled (DuckgresServerTeam)
-    2. Create partitions for yesterday's data (if not already exists)
-    3. Trigger backfill runs for new partitions
-    4. Retry failed partitions that already exist
+    This sensor owns the CURRENT month; the full-backfill sensor owns every complete prior
+    month. The two are disjoint by day, so they never write the same team-day (which is what
+    used to make the current-month monthly partition race the daily runs).
+
+    Each tick it, per enabled team:
+    1. Creates a daily partition for every day from the 1st of the current month through
+       yesterday that doesn't exist yet. In steady state only yesterday is new; for a team
+       enabled partway through the month this catches up the earlier days the full-backfill
+       sensor won't touch, closing the gap between its history and daily coverage. Yesterday
+       is always emitted; the older catch-up days are bounded per tick
+       (DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK) so a burst of newly enabled teams
+       can't flood one tick — the remainder drains over the following ticks.
+    2. Retries yesterday's partition if its last run failed (bounding the per-tick run lookup
+       to one query per team — older caught-up days are left as-is once they've run).
+
+    On the 1st of the month there are no current-month days on or before yesterday, so the
+    sensor is a no-op; yesterday (last month's final day) is covered by last month's now-complete
+    monthly partition from the full-backfill sensor.
     """
-    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today = timezone.now().date()
+    yesterday_date = today - timedelta(days=1)
+    first_of_month = today.replace(day=1)
+
+    # Current-month days up to yesterday (empty on the 1st — see docstring).
+    current_month_dates: list[date] = []
+    day = first_of_month
+    while day <= yesterday_date:
+        current_month_dates.append(day)
+        day += timedelta(days=1)
 
     # Get existing partitions
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
     for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
-        partition_key = f"{backfill.team_id}_{yesterday}"
+        for partition_date in current_month_dates:
+            date_str = partition_date.strftime("%Y-%m-%d")
+            partition_key = f"{backfill.team_id}_{date_str}"
+            is_yesterday = partition_date == yesterday_date
 
-        if partition_key not in existing:
-            # New partition - create and trigger run
-            new_partitions.append(partition_key)
-            run_requests.append(
-                RunRequest(
-                    partition_key=partition_key,
-                    run_key=f"{partition_key}_new",
+            if partition_key not in existing:
+                # Yesterday is always emitted (freshness); older catch-up days are bounded per
+                # tick so a burst of newly enabled teams can't emit tens of thousands of run
+                # requests at once — the remainder drains over subsequent hourly ticks.
+                if not is_yesterday and catchup_emitted >= DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK:
+                    continue
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_new",
+                    )
                 )
-            )
-            context.log.info(f"Creating partition for team_id={backfill.team_id}, date={yesterday}")
-        else:
-            # Existing partition - check if the last run failed and needs retry
-            # Query for runs with this partition key (stored in dagster/partition tag)
-            runs = context.instance.get_runs(
-                filters=RunsFilter(
-                    job_name="duckling_events_backfill_job",
-                    tags={"dagster/partition": partition_key},
-                ),
-                limit=1,
-            )
-            if runs:
-                latest_run = runs[0]
-                # Only retry if failed - skip if in progress or succeeded
-                if latest_run.status == DagsterRunStatus.FAILURE:
-                    # Failed run - trigger retry with unique run_key
-                    run_requests.append(
-                        RunRequest(
-                            partition_key=partition_key,
-                            run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                if not is_yesterday:
+                    catchup_emitted += 1
+                context.log.info(f"Creating partition for team_id={backfill.team_id}, date={date_str}")
+            elif is_yesterday:
+                # Existing freshest partition - check if the last run failed and needs retry.
+                # Only yesterday is retried, so the run lookup stays at one query per team.
+                runs = context.instance.get_runs(
+                    filters=RunsFilter(
+                        job_name="duckling_events_backfill_job",
+                        tags={"dagster/partition": partition_key},
+                    ),
+                    limit=1,
+                )
+                if runs:
+                    latest_run = runs[0]
+                    # Only retry if failed - skip if in progress or succeeded
+                    if latest_run.status == DagsterRunStatus.FAILURE:
+                        # Failed run - trigger retry with unique run_key
+                        run_requests.append(
+                            RunRequest(
+                                partition_key=partition_key,
+                                run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                            )
                         )
-                    )
-                    context.log.info(
-                        f"Retrying failed partition team_id={backfill.team_id}, date={yesterday} "
-                        f"(previous run: {latest_run.run_id[:8]})"
-                    )
-                    logger.info(
-                        "duckling_sensor_retry_failed_partition",
-                        team_id=backfill.team_id,
-                        date=yesterday,
-                        previous_run_id=latest_run.run_id,
-                    )
-                elif latest_run.status in (
-                    DagsterRunStatus.STARTED,
-                    DagsterRunStatus.QUEUED,
-                ):
-                    context.log.debug(
-                        f"Skipping partition team_id={backfill.team_id}, date={yesterday} - run in progress"
-                    )
+                        context.log.info(
+                            f"Retrying failed partition team_id={backfill.team_id}, date={date_str} "
+                            f"(previous run: {latest_run.run_id[:8]})"
+                        )
+                        logger.info(
+                            "duckling_sensor_retry_failed_partition",
+                            team_id=backfill.team_id,
+                            date=date_str,
+                            previous_run_id=latest_run.run_id,
+                        )
+                    elif latest_run.status in (
+                        DagsterRunStatus.STARTED,
+                        DagsterRunStatus.QUEUED,
+                    ):
+                        context.log.debug(
+                            f"Skipping partition team_id={backfill.team_id}, date={date_str} - run in progress"
+                        )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new partitions to backfill")
@@ -2423,6 +3001,9 @@ EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
 # sensor op; it runs once per team ever, then the result is cached on the model row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
+# Existing installations predate the durable UI projection. Reconcile a bounded
+# number of historical partitions per tick so the sensor stays within its budget.
+EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 # Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
 # caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
 # that the generated months range is always empty.
@@ -2433,21 +3014,66 @@ _NO_HISTORY_SENTINEL = date(9999, 12, 31)
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def get_months_in_range(start_date: date, end_date: date) -> list[str]:
-    """Generate list of month strings (YYYY-MM) between start and end dates."""
-    months = []
-    current = date(start_date.year, start_date.month, 1)
-    end_month = date(end_date.year, end_date.month, 1)
+def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
+    """Backfill the status projection for partitions that ran before it existed.
 
-    while current <= end_month:
-        months.append(current.strftime("%Y-%m"))
-        # Move to next month
-        if current.month == 12:
-            current = date(current.year + 1, 1, 1)
-        else:
-            current = date(current.year, current.month + 1, 1)
+    TEMPORARY BRIDGE — the only part of this instrumentation that can't move off Dagster: it
+    reconstructs status by reading Dagster's own run storage. Everything else records status as
+    the run happens, through the scheduler-agnostic API in logic.backfill_status.
 
-    return months
+    Delete this (and its persons counterpart in the full-backfill sensor) once every live
+    partition has a row, which happens within a few ticks of deploy. Until then, a scheduler
+    migration would have to drop it rather than port it.
+    """
+    if not partition_keys:
+        return
+
+    team_ids = {int(partition_key.split("_", 1)[0]) for partition_key in partition_keys}
+    try:
+        projected = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
+            .filter(
+                team_id__in=team_ids,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        return
+
+    unprojected = [partition_key for partition_key in partition_keys if partition_key not in projected]
+    for partition_key in unprojected[:EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT]:
+        runs = context.instance.get_runs(
+            filters=RunsFilter(
+                job_name="duckling_events_backfill_job",
+                tags={"dagster/partition": partition_key},
+            ),
+            limit=1,
+        )
+        if not runs:
+            # A registered partition with no findable run offers no evidence its data ever
+            # landed (dropped run request, wiped run storage). Project it failed — re-running a
+            # partition is safe — rather than leaving it to occupy this budget on every tick.
+            record_backfill_outcome(
+                team_id=int(partition_key.split("_", 1)[0]),
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                partition_key=partition_key,
+                run_id="unknown",
+                outcome=BackfillOutcome.FAILED,
+                failure_reason="RunNotFound",
+            )
+            continue
+        latest_run = runs[0]
+        record_backfill_outcome(
+            team_id=int(partition_key.split("_", 1)[0]),
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=partition_key,
+            run_id=latest_run.run_id,
+            outcome=_outcome_from_run_status(latest_run.status),
+        )
 
 
 @sensor(
@@ -2462,7 +3088,9 @@ def duckling_events_full_backfill_sensor(
     """Full historical events backfill — monthly partitions, enqueued round-robin under a bounded queue.
 
     Monthly partitions (``{team_id}_{YYYY-MM}``) keep the partition count down; each one
-    backfills all days in its month.
+    backfills all days in its month. Only COMPLETE historical months are enqueued — the
+    current, in-progress month is left to the daily backfill sensor, so a team whose earliest
+    event is only in the current month gets no full-backfill partition at all.
 
     Enqueue strategy, decoupled from execution (which the duckling_events_v1 concurrency
     limit throttles to a handful of concurrent runs to protect ClickHouse):
@@ -2482,7 +3110,14 @@ def duckling_events_full_backfill_sensor(
     the partition key, so re-ticks and restarts never double-enqueue. Any cursor written by
     the previous serial implementation is simply ignored (safe rollback either way).
     """
-    yesterday = (timezone.now() - timedelta(days=1)).date()
+    # Full backfill covers only COMPLETE historical months, up to the end of last month. The
+    # current, in-progress month is owned by the daily backfill sensor (which fills it in
+    # day-by-day), so emitting a whole-month partition for it is redundant — it re-DELETEs and
+    # re-registers exactly the days the daily runs are handling, racing them under DuckLake's
+    # per-table OCC (that conflict is why the current-month monthly partition goes red while the
+    # daily partitions succeed).
+    today = timezone.now().date()
+    last_month_end = today.replace(day=1) - timedelta(days=1)
 
     backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
@@ -2509,15 +3144,22 @@ def duckling_events_full_backfill_sensor(
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
     per_team_remaining: list[list[str]] = []
+    existing_historical_partitions: list[str] = []
     for bf in backfills:
         earliest = bf.earliest_event_date
-        if earliest is None or earliest > yesterday:
-            # Unresolved this tick, or no-history sentinel / brand-new team (nothing historical yet).
+        if earliest is None or earliest > last_month_end:
+            # Unresolved this tick, no-history sentinel, or a team whose earliest event is only
+            # in the current month — no complete month to full-backfill (the daily sensor owns
+            # the current month), so skip it.
             continue
-        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, yesterday)]
+        keys = [f"{bf.team_id}_{m}" for m in historical_backfill_months(earliest, today=today)]
+        existing_historical_partitions.extend(key for key in keys if key in existing)
         remaining = [k for k in keys if k not in existing]
         if remaining:
             per_team_remaining.append(remaining)
+
+    _reconcile_events_backfill_statuses(context, existing_historical_partitions)
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.EVENTS)
 
     # 3. Round-robin interleave by month index: round r takes each team's r-th remaining
     #    month, so the queue order is team0-m0, team1-m0, ..., team0-m1, ... — fair under FIFO.
@@ -2709,6 +3351,22 @@ def duckling_persons_full_backfill_sensor(
 
     # Check existing partitions
     existing_partitions = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+    try:
+        projected_persons_partitions = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
+            .filter(
+                team_id__in=[backfill.team_id for backfill in backfills],
+                dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        projected_persons_partitions = existing_partitions
+
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.PERSONS)
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
@@ -2742,6 +3400,14 @@ def duckling_persons_full_backfill_sensor(
             )
             if runs:
                 latest_run = runs[0]
+                if partition_key not in projected_persons_partitions:
+                    record_backfill_outcome(
+                        team_id=team_id,
+                        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                        partition_key=partition_key,
+                        run_id=latest_run.run_id,
+                        outcome=_outcome_from_run_status(latest_run.status),
+                    )
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
                     run_requests.append(
@@ -2761,6 +3427,17 @@ def duckling_persons_full_backfill_sensor(
                     DagsterRunStatus.QUEUED,
                 ):
                     context.log.debug(f"Skipping team_id={team_id} - run in progress")
+            elif partition_key not in projected_persons_partitions:
+                # Registered partition with no findable run: no evidence the data ever landed,
+                # so project it failed rather than re-checking it every tick forever.
+                record_backfill_outcome(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    partition_key=partition_key,
+                    run_id="unknown",
+                    outcome=BackfillOutcome.FAILED,
+                    failure_reason="RunNotFound",
+                )
 
     if new_partitions:
         context.log.info(f"Creating {len(new_partitions)} full persons backfill partitions")

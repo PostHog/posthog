@@ -13,6 +13,8 @@ from posthog.schema import (
     CachedMCPToolDailyStatsQueryResponse,
     CachedMCPToolDescriptionsQueryResponse,
     CachedMCPToolFailuresQueryResponse,
+    CachedMCPToolNeighborsQueryResponse,
+    CachedMCPToolSampleIntentsQueryResponse,
     CachedMCPToolStatsQueryResponse,
     CachedMCPToolTopUsersQueryResponse,
     MCPToolDailyStatItem,
@@ -24,12 +26,19 @@ from posthog.schema import (
     MCPToolFailureItem,
     MCPToolFailuresQuery,
     MCPToolFailuresQueryResponse,
+    MCPToolNeighborItem,
+    MCPToolNeighborsQuery,
+    MCPToolNeighborsQueryResponse,
+    MCPToolSampleIntentItem,
+    MCPToolSampleIntentsQuery,
+    MCPToolSampleIntentsQueryResponse,
     MCPToolStatsItem,
     MCPToolStatsQuery,
     MCPToolStatsQueryResponse,
     MCPToolTopUserItem,
     MCPToolTopUsersQuery,
     MCPToolTopUsersQueryResponse,
+    NeighborDirection,
 )
 
 from posthog.hogql import ast
@@ -42,18 +51,17 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_TOOL_SQL,
+    NEW_SDK_SOURCE,
+    mcp_query_date_range,
+    tool_scope_exprs,
+    validate_mcp_analytics_access,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-# The new SDK source marker, and the *effective* tool name (the inner tool when the
-# call went through the single-exec wrapper, else the directly-registered tool name).
-# Mirrors EFFECTIVE_TOOL_HOGQL / NEW_SDK_FILTER in the tool-detail frontend logic.
-_NEW_SDK_SOURCE = "posthog_mcp_analytics"
-_EFFECTIVE_TOOL = (
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
-)
 # The description of the *effective* tool: for single-exec calls the inner tool's
 # $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
 # Without this, an inner tool's Descriptions table would show the exec wrapper's text
@@ -67,6 +75,21 @@ _EFFECTIVE_DESCRIPTION = (
 # token computed in the inner subquery. groupArray evaluates the label per row, so the
 # token only has to be materialized once as `h`.
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
+
+# Human-readable failure label for an errored $mcp_tool_call. There is no free-text error
+# message on tool-call events — the SDK stamps a semantic bucket ($mcp_error_type: internal,
+# validation, api_4xx, api_5xx, permission, timeout, rate_limited, missing_context) plus an
+# optional HTTP status ($mcp_error_status). We compose the two into one label, falling back to
+# "unknown" when neither is present (older SDKs / server paths that only set $mcp_is_error).
+# Both properties are event-supplied and unbounded, so the query caps the label at 200 chars
+# before grouping on it.
+_FAILURE_LABEL = (
+    "concat("
+    "coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), "
+    "if(empty(coalesce(toString(properties.$mcp_error_status), '')), '', "
+    "concat(' (HTTP ', coalesce(toString(properties.$mcp_error_status), ''), ')'))"
+    ")"
+)
 
 
 def _display_properties(*, email: str, name: str) -> str:
@@ -84,11 +107,7 @@ def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.E
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
-        parse_expr(
-            "{_EFFECTIVE_TOOL} = {tool}",
-            placeholders={"_EFFECTIVE_TOOL": parse_expr(_EFFECTIVE_TOOL), "tool": ast.Constant(value=tool)},
-        ),
-        parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=_NEW_SDK_SOURCE)}),
+        *tool_scope_exprs(tool),
     ]
     if extra:
         exprs.extend(extra)
@@ -193,23 +212,14 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        # $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name),
-        # so this matches the raw $mcp_tool_name rather than the effective tool name.
-        return ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value="$exception")}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "toString(properties.$mcp_tool_name) = {tool}",
-                    placeholders={"tool": ast.Constant(value=self.query.toolName)},
-                ),
-                parse_expr("notEmpty(toString(properties.$exception_message))"),
-            ]
+        # Failures share the tool-call source with every other tool-detail table, so they use the
+        # effective tool name and the same $mcp_source scoping as the stats/error-rate query — the
+        # two can never disagree. (Previously this read $exception events, which don't carry MCP
+        # tool markers, so the table was always empty while the error rate showed failures.)
+        return _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            extra=[parse_expr("toBool(properties.$mcp_is_error)")],
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -222,7 +232,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    substring(toString(properties.$exception_message), 1, 200) AS message,
+                    substring({_FAILURE_LABEL}, 1, 200) AS message,
                     timestamp,
                     {token} AS h
                 FROM events
@@ -234,6 +244,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             """,
             placeholders={
                 "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_FAILURE_LABEL": parse_expr(_FAILURE_LABEL),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -478,6 +489,188 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             for row in (response.results or [])
         ]
         return MCPToolDescriptionsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
+class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQueryResponse]):
+    query: MCPToolSampleIntentsQuery
+    cached_response: CachedMCPToolSampleIntentsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        where = _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            extra=[
+                parse_expr("notEmpty(toString(properties.$mcp_intent))"),
+                parse_expr("toString(properties.$mcp_intent) != '{}'"),
+            ],
+        )
+        return parse_select(
+            """
+            SELECT
+                toString(timestamp) AS timestamp,
+                intent,
+                intent_source,
+                {harness_label} AS harness
+            FROM (
+                SELECT
+                    timestamp,
+                    toString(properties.$mcp_intent) AS intent,
+                    toString(properties.$mcp_intent_source) AS intent_source,
+                    {token} AS h
+                FROM events
+                WHERE {where}
+            )
+            ORDER BY timestamp DESC
+            LIMIT 5
+            """,
+            placeholders={
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                "where": where,
+            },
+        )
+
+    def _calculate(self) -> MCPToolSampleIntentsQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_sample_intents_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="mcp_tool_sample_intents_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolSampleIntentItem(
+                timestamp=str(row[0] or ""),
+                intent=str(row[1] or ""),
+                intent_source=str(row[2] or ""),
+                harness=str(row[3] or ""),
+            )
+            for row in (response.results or [])
+        ]
+        return MCPToolSampleIntentsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+        )
+
+
+_WINDOW_FN: dict[NeighborDirection, str] = {
+    NeighborDirection.BEFORE: "lagInFrame",
+    NeighborDirection.AFTER: "leadInFrame",
+}
+
+
+class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResponse]):
+    query: MCPToolNeighborsQuery
+    cached_response: CachedMCPToolNeighborsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The CTE collects every tool call in qualifying conversations (not just the target
+        # tool) so the window function can see each call's neighbour; the target tool is
+        # selected in the outer WHERE. window_fn is chosen from a fixed map, never input.
+        window_fn = _WINDOW_FN[self.query.neighborDirection]
+        # Built from a fixed function name + hardcoded window, never user input; passed to
+        # parse_expr as a variable (not a literal f-string) so hogql-fstring-audit stays clean.
+        neighbor_expr = (
+            f"{window_fn}(tool) OVER ("
+            "PARTITION BY conv_id ORDER BY timestamp "
+            "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
+        )
+        cte_where = ast.And(
+            exprs=[
+                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+                parse_expr(
+                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
+                ),
+                parse_expr(
+                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
+                ),
+                parse_expr(
+                    "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
+                ),
+                parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(_CONVERSATION_ID)}),
+            ]
+        )
+        return parse_select(
+            """
+            WITH tool_calls AS (
+                SELECT
+                    {_CONVERSATION_ID} AS conv_id,
+                    timestamp,
+                    {effective_tool} AS tool
+                FROM events
+                WHERE {cte_where}
+            )
+            SELECT neighbor_tool, count() AS co_occurrences
+            FROM (
+                SELECT
+                    tool,
+                    {neighbor_expr} AS neighbor_tool
+                FROM tool_calls
+            )
+            WHERE tool = {tool} AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
+            GROUP BY neighbor_tool
+            ORDER BY co_occurrences DESC
+            LIMIT 5
+            """,
+            placeholders={
+                "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
+                "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
+                "neighbor_expr": parse_expr(neighbor_expr),
+                "cte_where": cte_where,
+                "tool": ast.Constant(value=self.query.toolName),
+            },
+        )
+
+    def _calculate(self) -> MCPToolNeighborsQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_neighbors_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="mcp_tool_neighbors_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolNeighborItem(neighbor_tool=str(row[0] or ""), co_occurrences=int(row[1] or 0))
+            for row in (response.results or [])
+        ]
+        return MCPToolNeighborsQueryResponse(
             results=results,
             timings=response.timings,
             hogql=response.hogql,

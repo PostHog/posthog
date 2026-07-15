@@ -1,13 +1,66 @@
+import json
 from typing import Literal, get_args
 
+import posthoganalytics
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
-BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG = "tasks-burstable-sandbox-resources"
+
+
+def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    """Origin products allowed on the Modal VM runtime, parsed from the flag's payload."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("origin_products") if isinstance(payload, dict) else payload
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
+def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
+    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
+    payload = posthoganalytics.get_feature_flag_payload(
+        MODAL_VM_SANDBOX_FEATURE_FLAG,
+        distinct_id=distinct_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+    return vm_sandbox_allowed_origin_products(payload)
+
+
+MAX_CUSTOM_IMAGES_PER_TEAM = 20
+MAX_CUSTOM_IMAGES_PER_USER = 10
+
+MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
+OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+# Kill switch: rtk command-output compression is on by default in cloud sandboxes;
+# enabling this flag disables it fleet-wide — over any per-run override — without
+# an image rebuild.
+RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
+
+SnapshotKind = Literal["filesystem", "directory"]
+SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
+SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
+DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
+# Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
+# REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
+# mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out
+# from under Modal's in-sandbox helpers and kills the sandbox on its first filesystem operation.
+# A snapshot's content layout matches the path it was captured from, so snapshots created for a
+# path outside this allowlist cannot be remapped — they must be invalidated on resume instead.
+DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
+ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS: frozenset[str] = frozenset({DEFAULT_SANDBOX_WORKING_DIR})
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
-CodexPermissionMode = Literal["auto", "read-only", "full-access"]
+CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
@@ -208,6 +261,7 @@ DEFAULT_TRUSTED_DOMAINS = [
 RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
     {
         "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_WIZARD_API_KEY",
         "POSTHOG_API_URL",
         "POSTHOG_PROJECT_ID",
         "JWT_PUBLIC_KEY",

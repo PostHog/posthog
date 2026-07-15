@@ -48,6 +48,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
 
@@ -195,6 +196,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -216,6 +218,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -224,7 +227,8 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0].status).toBe('failed')
             expect(rows[0].error_kind).toBe('timeout')
-            expect(rows[0].error_message).toContain('timed out')
+            // Exact match: the message only, never the stack trace.
+            expect(rows[0].error_message).toBe('Request timed out after 30s')
         })
 
         it('produces no row for an in-flight result that has not finished and has no error', async () => {
@@ -238,6 +242,7 @@ describe('HogInvocationResultsService', () => {
                     metrics: [],
                     capturedPostHogEvents: [],
                     warehouseWebhookPayloads: [],
+                    emailAssets: [],
                 } as any,
             ])
             await service.flush()
@@ -267,16 +272,22 @@ describe('HogInvocationResultsService', () => {
 
     describe('version monotonicity', () => {
         it('produces strictly increasing version values across successive rows for the same invocation', async () => {
+            // Queued back-to-back with no delay: both rows land in the same wall-clock
+            // millisecond, so this only passes if version is clamped to strictly exceed the
+            // last value issued — the property that keeps ReplacingMergeTree from dropping the
+            // terminal row. No sleep, so it can't flake on wall-clock jitter.
             const invocation = createExampleInvocation()
             service.queueLifecycleRow(invocation, 'running')
-            // Tick by 1 ms — version is now64(6) in microseconds.
-            await new Promise((r) => setTimeout(r, 2))
             service.queueLifecycleRow(invocation, 'succeeded')
             await service.flush()
 
+            // flush() produces rows concurrently (Promise.all), so their produce order is not
+            // the queue order — match by status rather than array index.
             const rows = parseProducedRows(outputs)
             expect(rows).toHaveLength(2)
-            expect(BigInt(rows[1].version)).toBeGreaterThan(BigInt(rows[0].version))
+            const running = rows.find((r) => r.status === 'running')!
+            const succeeded = rows.find((r) => r.status === 'succeeded')!
+            expect(BigInt(succeeded.version)).toBeGreaterThan(BigInt(running.version))
         })
     })
 
@@ -316,7 +327,33 @@ describe('HogInvocationResultsService', () => {
         })
     })
 
-    // Silence unused import linter noise — DateTime is imported for future tests
-    // that exercise queueScheduledAt explicitly.
-    void DateTime
+    describe('first_scheduled_at', () => {
+        it('stamps the original scheduled time onto invocation state on the first running row', async () => {
+            const invocation = createExampleInvocation()
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 0, 0)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            expect(rows[0].first_scheduled_at).toBe(rows[0].scheduled_at)
+            expect(invocation.state.firstScheduledAt).toBe(rows[0].scheduled_at)
+        })
+
+        it('keeps the original first_scheduled_at on the terminal row after a fetch retry reschedules', async () => {
+            const invocation = createExampleInvocation()
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 0, 0)
+            service.queueLifecycleRow(invocation, 'running')
+            const original = invocation.state.firstScheduledAt
+
+            // Simulate a cyclotron fetch retry: queueScheduledAt is overwritten
+            // with a later backoff time before the terminal row is produced.
+            invocation.queueScheduledAt = DateTime.utc(2026, 1, 1, 0, 5, 0)
+            service.queueLifecycleRow(invocation, 'succeeded')
+            await service.flush()
+
+            const terminal = parseProducedRows(outputs).find((r) => r.status === 'succeeded')!
+            expect(terminal.first_scheduled_at).toBe(original)
+            expect(terminal.scheduled_at).not.toBe(terminal.first_scheduled_at)
+        })
+    })
 })

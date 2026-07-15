@@ -1,6 +1,6 @@
 ---
 name: django-migrations
-description: Django migration patterns and safety workflow for PostHog. Use when creating, adjusting, or reviewing Django/Postgres migrations, including non-blocking index/constraint changes, multi-phase schema changes, data backfills, migration conflict rebasing, and product model moves that require SeparateDatabaseAndState.
+description: Django migration patterns and safety workflow for PostHog. Use when creating, adjusting, or reviewing Django/Postgres migrations, including non-blocking index/constraint changes, multi-phase schema changes, data backfills, migration conflict rebasing, and product model moves that require SeparateDatabaseAndState. Also use for any deletion or removal of a model, table, column, product, or app — including deleting migration files or retiring a feature — even when no migration is written.
 ---
 
 # Django migrations
@@ -13,6 +13,20 @@ Read these files first, before writing or editing a migration:
 - `products/README.md` (`## Adding or moving backend models and migrations`) when working in `products/*`
 
 If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
+
+## Never delete a migration file
+
+Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNNN_*.py` already on master, even an app's `0001_initial.py`, even to "undo" a schema change — is not.** Deleting the file undoes nothing: the table and its constraints stay in every database where the migration ran, fresh databases never recreate them, and the "Migration Risk Analysis" CI job re-flags the file as a phantom new migration on every open PR that predates the deletion. The deleted-migration check in the `repo-checks` CI job (the `hogli lint:migration-deletions` command) blocks this. Genuinely intentional, reviewed deletions — a product/app move, a revert, a squash — are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`, never by disabling the guard.
+
+**If a task asks you to delete a migration file, stop and flag it instead.**
+
+To retire a model/table:
+
+1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+2. Deploy, wait at least one full deploy cycle.
+3. Optionally `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
 ## Workflow
 

@@ -20,7 +20,10 @@ from posthog.models.user import User
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.services.attachments import save_file_to_uploaded_media
+from products.conversations.backend.services.attachments import (
+    sanitize_attachment_filename,
+    save_file_to_uploaded_media,
+)
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
@@ -31,17 +34,6 @@ _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
-MAX_FILENAME_LENGTH = 255
-_FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
-
-
-def _sanitize_filename(name: str) -> str:
-    """Strip potentially dangerous characters from an email attachment filename."""
-    name = name.strip().replace("/", "_").replace("\\", "_")
-    name = _FILENAME_STRIP_RE.sub("", name)
-    if len(name) > MAX_FILENAME_LENGTH:
-        name = name[:MAX_FILENAME_LENGTH]
-    return name or "attachment"
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -100,7 +92,7 @@ def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any
             continue
 
         file_bytes = uploaded_file.read()
-        safe_name = _sanitize_filename(uploaded_file.name or "attachment")
+        safe_name = sanitize_attachment_filename(uploaded_file.name)
         url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
         if url:
             attachments.append(
@@ -354,7 +346,8 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
     # 7b. Detect team member sender — only trust From when DKIM passes
     # AND the envelope-sender domain aligns with the From domain.
-    posthog_user = _resolve_team_member(sender_email, team) if _sender_authenticated(request, sender_email) else None
+    sender_authenticated = _sender_authenticated(request, sender_email)
+    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction
@@ -387,7 +380,19 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_from=sender_email,
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
+                    identity_verified=sender_authenticated,
                 )
+            elif (
+                sender_authenticated
+                and not ticket.identity_verified
+                and sender_email.lower() == (ticket.email_from or ticket.distinct_id or "").lower()
+            ):
+                # A later authenticated message promotes the thread to verified — but only when the
+                # authenticated sender matches the identity already on the ticket. Otherwise a different
+                # SPF-aligned sender could thread onto a ticket claiming someone else's identity and
+                # falsely mark it verified.
+                ticket.identity_verified = True
+                ticket.save(update_fields=["identity_verified", "updated_at"])
 
             assert ticket is not None
 

@@ -11,6 +11,7 @@ import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
@@ -38,7 +39,9 @@ from . import (
     event_schema,
     health_issue,
     hog,
+    identity_provider_config,
     ingestion_warnings,
+    ingestion_warnings_v2,
     instance_settings,
     instance_status,
     integration,
@@ -171,6 +174,14 @@ projects_router.register(
     "project_quota_limits",
     ["team_id"],
 )
+# Self-driving turns products ON (via the `products-enable` MCP tool) before enabling their
+# signal sources. Gated by the narrow `product_enablement` scope, never `project:write`.
+projects_router.register(
+    r"product_enablement",
+    ProductEnablementViewSet,
+    "project_product_enablement",
+    ["team_id"],
+)
 
 register_legacy_dual_route_team_nested_viewset(
     r"column_configurations",
@@ -208,6 +219,13 @@ register_legacy_dual_route_team_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "environment_ingestion_warnings",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"ingestion_warnings_v2",
+    ingestion_warnings_v2.IngestionWarningsV2ViewSet,
+    "project_ingestion_warnings_v2",
     ["team_id"],
 )
 
@@ -334,6 +352,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"identity_provider_configs",
+    identity_provider_config.IdentityProviderConfigViewSet,
+    "organization_identity_provider_configs",
+    ["organization_id"],
+)
+organizations_router.register(
     r"personal_api_keys",
     organization_personal_api_key.OrganizationPersonalAPIKeyViewSet,
     "organization_personal_api_keys",
@@ -381,7 +405,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
-router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(
+    r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
+)
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")

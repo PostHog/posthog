@@ -1,5 +1,5 @@
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 
@@ -46,7 +46,7 @@ describe('createOverflowLaneTTLRefreshStep', () => {
 
         await step(events)
 
-        expect(service.handleEventBatch).toHaveBeenCalledWith('events', [
+        expect(service.handleEventBatch).toHaveBeenCalledWith([
             { key: { token: 'token1', distinctId: 'user1' }, eventCount: 2, firstTimestamp: baseTime.getTime() },
             { key: { token: 'token1', distinctId: 'user2' }, eventCount: 1, firstTimestamp: baseTime.getTime() },
         ])

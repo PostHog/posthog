@@ -12,12 +12,33 @@ import type { MockResolverInfo } from '~/mocks/utils'
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
 type AccountNameCell = { name: string; external_id: string | null; id: string }
-type AccountRoleCell = [number, string] | null
-type AccountRow = [AccountNameCell, string[], number, AccountRoleCell, AccountRoleCell, AccountRoleCell]
+// Active assignee user ids from the relationships lazy join. Ids 178 and 202 match
+// the default org-members mock so the cells resolve to john.doe / jane.mcdoe.
+type AccountRelationshipCell = number[]
+type AccountRow = [
+    AccountNameCell,
+    string[],
+    number,
+    AccountRelationshipCell,
+    AccountRelationshipCell,
+    AccountRelationshipCell,
+]
+
+const RELATIONSHIP_DEFINITIONS = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
+        { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
+        { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+    ],
+}
 
 function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown> {
     return {
@@ -35,34 +56,13 @@ function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown>
 }
 
 const SAMPLE_ROWS: AccountRow[] = [
-    [
-        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
-        ['enterprise', 'priority'],
-        0,
-        [1, 'alice@posthog.com'],
-        [2, 'bob@posthog.com'],
-        null,
-    ],
-    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, null, null, null],
-    [
-        { name: 'Hooli', external_id: null, id: 'acc-3' },
-        ['scaleup'],
-        0,
-        [1, 'alice@posthog.com'],
-        null,
-        [3, 'carol@posthog.com'],
-    ],
+    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 0, [178], [202], []],
+    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, [], [], []],
+    [{ name: 'Hooli', external_id: null, id: 'acc-3' }, ['scaleup'], 0, [178], [], [202]],
 ]
 
 const SINGLE_ROW: AccountRow[] = [
-    [
-        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
-        ['enterprise', 'priority'],
-        1,
-        [1, 'alice@posthog.com'],
-        [2, 'bob@posthog.com'],
-        null,
-    ],
+    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 1, [178], [202], []],
 ]
 
 const ACCOUNT_WITH_LINKS = {
@@ -179,6 +179,19 @@ function billingTabDecorators(
     ]
 }
 
+// All expanded-row stories need the insights endpoint mocked (even if empty) because
+// AccountNotebooksExpansion eagerly mounts accountBillingLogic for usage & spend tabs.
+// Without this mock, the unhandled fetch can error-out and trigger a React re-render
+// that collapses the expansion — making [data-attr="account-expansion"] disappear and
+// the post-play waitForSelector time out.
+const EXPANDED_ROW_DECORATORS_BASE = [
+    mswDecorator({
+        get: {
+            [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+        },
+    }),
+]
+
 // Expanding a row mounts UsefulLinks (loads the account async) and the notes table
 // (loads notebooks async). Both start as skeletons and resolve later, which changes
 // the expansion's width and height. Awaiting the settled content here keeps the
@@ -199,6 +212,14 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
     await canvas.findByText('Useful links')
     await canvas.findByText('Organization')
     await userEvent.click(await canvas.findByRole('tab', { name: tab }))
+}
+
+// The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
+// and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
+// expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
+const EXPANDED_ROW_TEST_OPTIONS = {
+    waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
+    waitForSelectorTimeout: 60000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -225,13 +246,15 @@ const meta: Meta = {
             waitForSelector: '[data-attr="accounts-refresh"]',
         },
     },
+    // NB: no QUERY_ENDPOINT mock here — every story registers exactly one query handler.
+    // Meta- and story-level decorators both worker.use() the same path, and their precedence
+    // can flip mid-story, so a meta-level query mock intermittently shadows the story's and
+    // answers billing/chart queries with an empty 200 (breaking the Usage tab canvas).
     decorators: [
         mswDecorator({
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+                [RELATIONSHIP_DEFINITIONS_ENDPOINT]: RELATIONSHIP_DEFINITIONS,
             },
         }),
     ],
@@ -242,6 +265,13 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const Empty: Story = {
@@ -265,11 +295,20 @@ export const FeatureGateOff: Story = {
             waitForSelector: '[data-attr="not-found-page"]',
         },
     },
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const RowExpandedEmpty: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -287,7 +326,9 @@ export const RowExpandedEmpty: Story = {
 
 export const RowExpandedWithNote: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -337,7 +378,9 @@ export const RowExpandedWithNote: Story = {
 
 export const RowExpandedLinksDisabled: Story = {
     render: () => <App />,
+    parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITHOUT_LINKS,
@@ -355,6 +398,12 @@ export const RowExpandedLinksDisabled: Story = {
 
 export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
+    parameters: {
+        testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
+            waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
+        },
+    },
     decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
@@ -366,7 +415,15 @@ export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
-            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
+            ...EXPANDED_ROW_TEST_OPTIONS,
+            // Wait for the canvas to render before snapshotting — the chart is async and can
+            // take a while in CI. Using waitForSelector (60s budget) instead of a play-function
+            // waitFor avoids exceeding the 60s Jest test timeout.
+            waitForSelector: [
+                '[data-attr="accounts-refresh"]',
+                '[data-attr="account-expansion"]',
+                '.DataVisualization canvas',
+            ],
         },
     },
     decorators: billingTabDecorators(
@@ -374,6 +431,13 @@ export const RowExpandedUsagePopulated: Story = {
         mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
     ),
     play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
+        // Minimal play: expand row and switch tab without waiting for sidebar links.
+        // The sidebar waits in expandAndOpenTab can take 20-30s under CI load, which
+        // combined with the postVisit waitForSelector for the canvas exceeds the 60s
+        // Jest timeout. We only need the tab switch here — the canvas is verified by
+        // waitForSelector in testOptions above.
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }))
     },
 }
