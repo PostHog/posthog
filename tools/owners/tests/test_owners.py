@@ -547,6 +547,24 @@ def test_fmt_frozen_file_blocks_carry_up(tmp_path: Path) -> None:
     assert "d/sub/owners.yaml" not in plan.deletions
 
 
+def test_fmt_proof_rejects_plans_that_drop_status(tmp_path: Path) -> None:
+    # Folding the child appends an owner-only '/gen/' rule after the parent's
+    # status-only '/gen/' rule; last-match-wins then loses `generated` while
+    # owners stay identical. The proof must refuse such a plan, not print it.
+    with pytest.raises(AssertionError, match="fmt bug"):
+        _fmt_plan(
+            tmp_path,
+            {
+                "owners.yaml": "version: 1\nowners: []\n",
+                "a/owners.yaml": ("version: 1\nowners: [team-a]\nrules:\n  - match: '/gen/'\n    status: generated\n"),
+                "a/gen/owners.yaml": "version: 1\nowners: [team-g]\n",
+                "a/gen/f.py": "x",
+                "a/f.py": "x",
+                "r1.py": "x",
+            },
+        )
+
+
 def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
     # Relocation only preserves match+owners, so a rule carrying status/inherit
     # must pin its file exactly like a glob does — otherwise folding this child

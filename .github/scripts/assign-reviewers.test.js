@@ -148,16 +148,24 @@ test('computeOwnerFootprints: skips resolutions with generated/vendored status',
         'some/generated/tree/file.ts': { ...resolved(['team-devex'], 'some/generated/owners.yaml'), status: 'generated' },
         'vendor/lib/thing.js': { ...resolved(['team-devex'], 'vendor/owners.yaml'), status: 'vendored' },
     }
+    // An ownership file inside a generated tree resolves with that status too,
+    // but editing it changes future routing — it must not be skipped.
+    resolution['some/generated/owners.yaml'] = {
+        ...resolved(['team-devex'], 'owners.yaml'),
+        status: 'generated',
+    }
     const files = [
         file('posthog/api/survey.py', 40, 10),
         file('some/generated/tree/file.ts', 500, 500),
         file('vendor/lib/thing.js', 300, 0),
+        file('some/generated/owners.yaml', 3, 0),
     ]
 
     const footprints = computeOwnerFootprints(resolution, files)
 
-    assert.equal(footprints.length, 1)
+    assert.equal(footprints.length, 2)
     assertMatchObject(footprints[0], { owner: '@PostHog/team-surveys', fileCount: 1, lines: 50 })
+    assertMatchObject(footprints[1], { owner: '@PostHog/team-devex', fileCount: 1, lines: 3 })
 })
 
 test('computeOwnerFootprints: accumulates files and sources per owner, and requests @handle individuals as users', () => {

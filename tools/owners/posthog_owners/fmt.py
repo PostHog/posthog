@@ -385,12 +385,15 @@ class CanonicalPlacer:
 
         tracked = self.resolver.tracked_files()
         code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in (OWNERS_FILENAME, PRODUCT_FILENAME)]
-        all_owners: dict[str, OwnerSet] = {}  # every file — used to prove equivalence
+        # Every file's (owners, status) — the proof compares both: placement only
+        # models owners, so a fold that reorders past a status rule must fail the
+        # proof rather than silently drop generated/vendored from a subtree.
+        all_owners: dict[str, tuple[OwnerSet, str]] = {}
         label_owners: dict[str, OwnerSet] = {}  # excludes glob-painted files, which stay frozen
         for p in code_files:
             r = self.resolver.resolve(p)
             owners = _resolution_owner_set(r.owners, r.unowned_by_design)
-            all_owners[p] = owners
+            all_owners[p] = (owners, r.status)
             # A file whose owners come from a glob in a frozen file stays frozen — keep
             # it out of labeling. Unowned files (no source) are never glob-served.
             glob_served = False
@@ -553,15 +556,15 @@ class CanonicalPlacer:
 
     # --- equivalence proof ----------------------------------------------
 
-    def _prove(self, proposed: dict[str, OwnersFile], file_owners: dict[str, OwnerSet]) -> None:
+    def _prove(self, proposed: dict[str, OwnersFile], file_owners: dict[str, tuple[OwnerSet, str]]) -> None:
         """Re-resolve every tracked path against the proposed layout; raises on any
-        mismatch with the current resolution."""
+        owners or status mismatch with the current resolution."""
         sim = _InMemoryResolver(self.repo_root, proposed)
-        for path, owners in file_owners.items():
+        for path, expected in file_owners.items():
             got = sim.resolve(path)
-            got_owners = _resolution_owner_set(got.owners, got.unowned_by_design)
-            if got_owners != owners:
-                raise AssertionError(f"fmt bug: canonical layout resolves {path} to {got_owners}, expected {owners}")
+            got_pair = (_resolution_owner_set(got.owners, got.unowned_by_design), got.status)
+            if got_pair != expected:
+                raise AssertionError(f"fmt bug: canonical layout resolves {path} to {got_pair}, expected {expected}")
 
 
 class _InMemoryResolver(OwnersResolver):

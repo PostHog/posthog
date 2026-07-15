@@ -239,19 +239,27 @@ def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> li
 
 
 def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
-    """Aggregate per-file team ownership, unioning each source's owners per file."""
+    """Aggregate per-file ownership, unioning each source's owners per file.
+
+    Individuals (`@handle`) count toward owned/unowned but live in their own
+    bucket: `teams` feeds team-membership checks and the cross-team calculus
+    downstream, and a raw handle there would fail membership lookups and inflate
+    the team count."""
     all_teams: set[str] = set()
+    all_individuals: set[str] = set()
     owned_files = 0
     unowned_files = 0
     team_file_counts: Counter = Counter()
 
     for f in files:
-        teams: set[str] = set()
+        owners: set[str] = set()
         for resolver in resolvers:
-            teams |= resolver.owners(f)
-        if teams:
+            owners |= resolver.owners(f)
+        teams = {o for o in owners if o.startswith("@PostHog/")}
+        if owners:
             owned_files += 1
             all_teams.update(teams)
+            all_individuals.update(owners - teams)
             for t in teams:
                 team_file_counts[t] += 1
         else:
@@ -259,6 +267,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
 
     return {
         "teams": sorted(all_teams),
+        "individuals": sorted(all_individuals),
         "team_count": len(all_teams),
         "owned_files": owned_files,
         "unowned_files": unowned_files,

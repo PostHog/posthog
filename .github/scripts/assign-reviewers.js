@@ -196,8 +196,16 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
         const resolution = resolutionByPath[file.filename]
         // status: generated/vendored is the structured form of the excluded
         // patterns above — such trees have owners for lookup, but shouldn't
-        // pull reviewers in or count toward substantive thresholds.
-        if (resolution && (resolution.status === 'generated' || resolution.status === 'vendored')) {
+        // pull reviewers in or count toward substantive thresholds. Ownership
+        // metadata files are exempt: an owners.yaml edit inside a generated
+        // tree still changes future routing and must reach a reviewer.
+        const basename = file.filename.split('/').pop()
+        const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
+        if (
+            !isOwnershipFile &&
+            resolution &&
+            (resolution.status === 'generated' || resolution.status === 'vendored')
+        ) {
             continue
         }
         const owners = (resolution && resolution.owners) || []

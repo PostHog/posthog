@@ -510,14 +510,22 @@ _HOGLI_RESOLVER = (OwnershipSource(format="hogli-resolver", path="."),)
 
 
 @pytest.mark.parametrize(
-    "owners_yaml, expected_teams",
+    "owners_yaml, expected_teams, expected_individuals, expected_owned",
     [
-        pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], id="plain-slug-prefixed"),
-        pytest.param("owners:\n  - '@handle'\n", ["@handle"], id="individual-passthrough"),
-        pytest.param("name: foo\n", [], id="ownerless"),
+        pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], [], 1, id="plain-slug-prefixed"),
+        # Individuals count as owned but stay out of `teams`, which feeds
+        # team-membership checks and the cross-team calculus downstream.
+        pytest.param("owners:\n  - '@handle'\n", [], ["@handle"], 1, id="individual-own-bucket"),
+        pytest.param("name: foo\n", [], [], 0, id="ownerless"),
     ],
 )
-def test_resolver_owner_normalization(tmp_path: Path, owners_yaml: str, expected_teams: list[str]) -> None:
+def test_resolver_owner_normalization(
+    tmp_path: Path,
+    owners_yaml: str,
+    expected_teams: list[str],
+    expected_individuals: list[str],
+    expected_owned: int,
+) -> None:
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
@@ -526,6 +534,9 @@ def test_resolver_owner_normalization(tmp_path: Path, owners_yaml: str, expected
     ownership = detect_ownership(["products/foo/backend/models.py"], resolvers)
 
     assert ownership["teams"] == expected_teams
+    assert ownership["individuals"] == expected_individuals
+    assert ownership["owned_files"] == expected_owned
+    assert ownership["cross_team"] is False
 
 
 def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
