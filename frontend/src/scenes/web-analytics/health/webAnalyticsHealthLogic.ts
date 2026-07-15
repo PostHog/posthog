@@ -141,6 +141,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     actions({
         refreshHealthChecks: (isManual: boolean = true) => ({ isManual }),
+        refreshHealthChecksIfDue: true,
         trackTabViewed: true,
         trackSectionToggled: (category: HealthCheckCategory, isExpanded: boolean) => ({ category, isExpanded }),
         trackActionClicked: (
@@ -363,6 +364,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 throw error
             }
         },
+        refreshHealthChecksIfDue: () => {
+            const { nextRefreshAvailableAt } = values
+            if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+                actions.refreshHealthChecks(false)
+            }
+        },
         loadHealthIssuesSuccess: () => {
             const { activeIssuesByKind, overallHealthStatus } = values
             if (overallHealthStatus.status !== 'loading') {
@@ -402,12 +409,10 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
+        // Only the read-only GET runs on mount, since this logic is mounted app-wide by the tab
+        // label to render its urgent-issues badge. The throttled background refresh POST is
+        // triggered from HealthStatusTab, so it fires only when the health tab is actually viewed.
         actions.loadHealthIssues()
-
-        const { nextRefreshAvailableAt } = values
-        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
-            actions.refreshHealthChecks(false)
-        }
     }),
 ])
