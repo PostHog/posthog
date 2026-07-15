@@ -1481,13 +1481,17 @@ describe('slack trigger: real e2e', () => {
                 expect(res.status).toBe(200)
                 await cc.drain()
 
-                // While working: a "working on it" status is posted, then removed
-                // before the real reply lands so the reply is the latest message.
-                const statusPosts = slackCalls.filter(
-                    (c) => c.url.endsWith('chat.postMessage') && String(c.body.text).includes('Working on it')
-                )
-                expect(statusPosts).toHaveLength(1)
-                expect(slackCalls.filter((c) => c.url.endsWith('chat.delete'))).toHaveLength(1)
+                // While working: the native thinking indicator is set via
+                // assistant.threads.setStatus (it auto-clears when the reply
+                // lands, so there's no simulated "Working on it" post to delete).
+                const statusCalls = slackCalls.filter((c) => c.url.endsWith('assistant.threads.setStatus'))
+                expect(statusCalls.length).toBeGreaterThanOrEqual(1)
+                expect(
+                    slackCalls.filter(
+                        (c) => c.url.endsWith('chat.postMessage') && String(c.body.text).includes('Working on it')
+                    )
+                ).toHaveLength(0)
+                expect(slackCalls.filter((c) => c.url.endsWith('chat.delete'))).toHaveLength(0)
 
                 const replyPosts = slackCalls.filter(
                     (c) => c.url.endsWith('chat.postMessage') && c.body.text === 'the valuable answer'
