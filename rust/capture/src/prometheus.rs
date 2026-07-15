@@ -31,7 +31,11 @@ pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 ///   instead of the scoped one.
 /// - **Hard limits override grace.** A token present in both the hard-limit
 ///   and suspended Redis sets (a transient skew while the billing writer
-///   updates them) is treated as limited, not in grace, and is not counted.
+///   updates them) is treated as limited, not in grace, and is not counted
+///   (modulo the limiter refresh window — grace and hard-limit membership
+///   are read from separate DashMaps refreshed by independent pollers, so a
+///   both-sets token can transiently read as grace=true/limited=false and
+///   get counted during a refresh).
 /// - **Fails toward stale counts, not toward silence.** The underlying
 ///   Redis reader fails open: if Redis is unreachable past a grace-period
 ///   expiry, pods keep counting that org's traffic as grace-admitted using

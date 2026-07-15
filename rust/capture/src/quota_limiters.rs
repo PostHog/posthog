@@ -314,11 +314,11 @@ impl CaptureQuotaLimiter {
     }
 
     /// Reports grace-period admissions for pre-built `EventInfo`s against a
-    /// `scoped_in_grace` set and global-grace snapshot the caller already
+    /// `scoped_in_grace` set and global-grace value the caller already
     /// computed (e.g. via `scoped_limiters_in_grace_period` and
     /// `is_in_global_grace_period`) — callers that also need those for a
     /// skip-guard should compute them once and pass both here, so the same
-    /// snapshot drives the guard and the counting rather than triggering a
+    /// values drive the guard and the counting rather than triggering a
     /// second, possibly-inconsistent lookup per report.
     pub(crate) async fn report_grace_period_admission_for_event_infos(
         &self,

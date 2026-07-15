@@ -17,7 +17,9 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::prometheus::CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
+use capture::prometheus::{
+    CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL, CAPTURE_EVENTS_DROPPED_TOTAL,
+};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
@@ -272,6 +274,30 @@ fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> 
         })
 }
 
+fn dropped_events_count(snapshotter: &Snapshotter, cause: &str) -> Option<u64> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| {
+            if key.key().name() != CAPTURE_EVENTS_DROPPED_TOTAL {
+                return None;
+            }
+            let metric_cause = key
+                .key()
+                .labels()
+                .find(|label| label.key() == "cause")
+                .map(|label| label.value());
+            if metric_cause != Some(cause) {
+                return None;
+            }
+            match value {
+                DebugValue::Counter(count) => Some(count),
+                _ => None,
+            }
+        })
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn test_recording_grace_period_counts_admitted_snapshots() {
     let token = "test_token_recording_grace_period";
@@ -320,6 +346,15 @@ async fn test_global_limit_takes_precedence_over_global_grace_period() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(sink.events().len(), 1);
+    // Positive control: the global limit's drop-accounting pass in
+    // `check_and_filter` does observe this request (it counts the event
+    // toward `events_over_quota` even though the event survives via
+    // `retained_indices`), so `None` above provably means "suppressed by
+    // the grace-period logic", not "the recorder never saw this request".
+    assert_eq!(
+        dropped_events_count(&snapshotter, "events_over_quota"),
+        Some(1)
+    );
     assert_eq!(grace_period_count(&snapshotter, "events"), None);
 }
 
