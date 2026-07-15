@@ -2,10 +2,10 @@
 
 Two queries share a fingerprint when they do the same work with different
 values: literals (including the length of literal lists), alias and CTE
-names, formatting, table-alias qualification, bracket vs dot property
-access, count(*) vs count(), and positional GROUP BY / ORDER BY references
-are canonicalized away, while tables, columns, functions, and operators
-are kept. Tagged into query_log
+names, formatting, single-source table-alias qualification, bracket vs dot
+property access, count(*) vs count(), and positional GROUP BY / ORDER BY
+references are canonicalized away, while tables, columns, functions,
+operators, and which join source a column comes from are kept. Tagged into query_log
 so query patterns can be grouped for performance triage regardless of how
 each caller happened to write the SQL.
 """
@@ -25,7 +25,7 @@ FINGERPRINT_VERSION = "v1"
 class _Canonicalizer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=True, clear_locations=True)
-        self._from_names: list[set[str]] = []
+        self._from_scopes: list[tuple[dict[str, str], int]] = []
         # Grows for the whole visit and is never popped: CTEs parse onto the
         # first UNION branch but are referenced from later branches too.
         self._cte_renames: dict[str, str] = {}
@@ -60,11 +60,11 @@ class _Canonicalizer(CloningVisitor):
         if node.ctes:
             for name in node.ctes:
                 self._cte_renames.setdefault(name, f"cte{len(self._cte_renames)}")
-        self._from_names.append(_collect_from_names(node))
+        self._from_scopes.append(_collect_from_scope(node))
         try:
             cloned = super().visit_select_query(node)
         finally:
-            self._from_names.pop()
+            self._from_scopes.pop()
         if cloned.ctes:
             cloned.ctes = {
                 self._cte_renames[name]: replace(cte, name=self._cte_renames[name]) for name, cte in cloned.ctes.items()
@@ -74,15 +74,29 @@ class _Canonicalizer(CloningVisitor):
     def visit_join_expr(self, node: ast.JoinExpr):
         cloned = super().visit_join_expr(node)
         cloned.alias = None
+        if self._from_scopes:
+            renames, source_count = self._from_scopes[-1]
+            if source_count > 1:
+                name = node.alias or (
+                    str(node.table.chain[-1]) if isinstance(node.table, ast.Field) and node.table.chain else None
+                )
+                cloned.alias = renames.get(name) if name else None
         return cloned
 
     def visit_field(self, node: ast.Field):
         chain = list(node.chain)
-        # `e.event` and `events.event` mean `event` once the qualifier names a
-        # FROM/JOIN source of the current select; lazy-join hops like
-        # `person.properties` are untouched because `person` is not in FROM.
-        if len(chain) > 1 and self._from_names and str(chain[0]) in self._from_names[-1]:
-            chain = chain[1:]
+        # A qualifier naming the only FROM source adds nothing: `e.event` and
+        # `events.event` mean `event`. With multiple sources the qualifier says
+        # which source a column comes from, so it is renamed positionally
+        # instead of stripped (a.id = b.id must not merge with a.id = a.id).
+        # Lazy-join hops like `person.properties` are untouched because
+        # `person` is not in FROM.
+        if len(chain) > 1 and self._from_scopes and str(chain[0]) in self._from_scopes[-1][0]:
+            renames, source_count = self._from_scopes[-1]
+            if source_count == 1:
+                chain = chain[1:]
+            else:
+                chain[0] = renames[str(chain[0])]
         elif chain and str(chain[0]) in self._cte_renames:
             chain[0] = self._cte_renames[str(chain[0])]
         return ast.Field(chain=chain)
@@ -115,16 +129,21 @@ def _collapse_constant_collection(cloned: ast.Tuple | ast.Array) -> ast.Expr:
     return cloned
 
 
-def _collect_from_names(node: ast.SelectQuery) -> set[str]:
-    names: set[str] = set()
+def _collect_from_scope(node: ast.SelectQuery) -> tuple[dict[str, str], int]:
+    # Maps every name a FROM/JOIN source answers to (alias and table name)
+    # to a positional identity, in join order.
+    renames: dict[str, str] = {}
+    source_count = 0
     join = node.select_from
     while join is not None:
+        positional = f"t{source_count}"
         if join.alias:
-            names.add(join.alias)
+            renames.setdefault(join.alias, positional)
         if isinstance(join.table, ast.Field) and join.table.chain:
-            names.add(str(join.table.chain[-1]))
+            renames.setdefault(str(join.table.chain[-1]), positional)
+        source_count += 1
         join = join.next_join
-    return names
+    return renames, source_count
 
 
 def _resolve_positional_refs(node: ast.SelectQuery) -> ast.SelectQuery:
@@ -157,5 +176,5 @@ def _resolve_positional_refs(node: ast.SelectQuery) -> ast.SelectQuery:
 
 def fingerprint_hogql_query(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
     canonical = _Canonicalizer().visit(query)
-    digest = hashlib.sha1(f"{FINGERPRINT_VERSION}:{canonical.to_hogql()}".encode()).hexdigest()[:16]
+    digest = hashlib.sha256(f"{FINGERPRINT_VERSION}:{canonical.to_hogql()}".encode()).hexdigest()[:16]
     return f"{FINGERPRINT_VERSION}:{digest}"

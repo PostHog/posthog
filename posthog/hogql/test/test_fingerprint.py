@@ -73,6 +73,11 @@ class TestHogQLFingerprint(BaseTest):
                 "SELECT count() FROM events WHERE distinct_id IN {ids}",
                 "SELECT count() FROM events WHERE distinct_id IN ('a', 'b')",
             ),
+            (
+                "join_alias_names",
+                "SELECT e.event, g.key FROM events e JOIN groups g ON e.$group_0 = g.key",
+                "SELECT a.event, b.key FROM events a JOIN groups b ON a.$group_0 = b.key",
+            ),
         ]
     )
     def test_equivalent_queries_share_a_fingerprint(self, _name, query_a, query_b):
@@ -109,6 +114,16 @@ class TestHogQLFingerprint(BaseTest):
                 "bracket_property_name",
                 "SELECT properties['foo'] FROM events",
                 "SELECT properties['bar'] FROM events",
+            ),
+            (
+                "join_source_of_column",
+                "SELECT a.event FROM events a JOIN events b ON a.person_id = b.person_id",
+                "SELECT b.event FROM events a JOIN events b ON a.person_id = b.person_id",
+            ),
+            (
+                "self_join_condition_sources",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = b.person_id",
+                "SELECT count() FROM events a JOIN events b ON a.person_id = a.person_id",
             ),
         ]
     )
