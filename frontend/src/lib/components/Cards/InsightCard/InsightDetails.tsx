@@ -710,7 +710,11 @@ export function DateRangeSummary({
         : null
     return (
         <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
-            {override && <OverrideNote source={override.source}>date range replaced with:</OverrideNote>}
+            {override && (
+                <OverrideNote source={override.source}>
+                    {override.replaced ? 'date range replaced with:' : 'date range:'}
+                </OverrideNote>
+            )}
             <div className="font-medium">{dateFilterText}</div>
             {replacedText && (
                 <div className="text-muted-alt text-xs mt-0.5">
