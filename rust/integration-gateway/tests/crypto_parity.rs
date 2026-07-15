@@ -1,17 +1,13 @@
 //! Crypto tests for the Fernet decryptor + per-leaf JSON walk.
 //!
-//! These are round-trip tests: they encrypt with a Fernet key derived the SAME way the decryptor
-//! derives its keys, then assert the decryptor recovers the plaintext. They lock the derivation
-//! math (url-safe base64 of a 32-byte salt key; PBKDF2-HMAC-SHA256 100k for legacy) and the
-//! JSON-walk semantics.
-//!
-//! TODO (before enabling any consumer — highest-risk item in the plan): add a cross-implementation
-//! parity test that decrypts ciphertext produced by Django's `EncryptedJSONField`, like
-//! `flag_payload_decryptor.rs`'s hardcoded `TOK_*` fixtures. Generate with, in a Django shell:
-//!     from posthog.models.integration import Integration
-//!     i = Integration(team_id=1, kind="slack", sensitive_config={"access_token": "hello"})
-//!     i.save(); print(get_db_field_value("sensitive_config", i.id))
-//! then paste the emitted Fernet token(s) here and assert they decrypt to "hello".
+//! Two flavours of test:
+//!   1. Round-trip: encrypt with a Fernet key derived the SAME way the decryptor derives its keys,
+//!      then assert the decryptor recovers the plaintext. Locks the derivation math (url-safe base64
+//!      of a 32-byte salt key; PBKDF2-HMAC-SHA256 100k for legacy) and the JSON-walk semantics.
+//!   2. Cross-implementation parity: decrypt ciphertext produced by Python's `cryptography` Fernet
+//!      — the exact library + key derivation Django's `EncryptedJSONField` uses — proving the Rust
+//!      `fernet` crate reads Django-written tokens byte-for-byte. This is the highest-risk guarantee
+//!      before any consumer reads through the gateway.
 
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::Fernet;
@@ -78,4 +74,43 @@ fn walks_nested_and_passes_through_undecryptable() {
 #[test]
 fn build_requires_a_primary_key() {
     assert!(IntegrationDecryptor::build(&[], &["s".to_string()], &["salt".to_string()]).is_err());
+}
+
+// Cross-implementation parity fixture. Produced by Python's `cryptography` Fernet (the exact
+// library + key derivation Django's EncryptedJSONField uses) under the dev ENCRYPTION_SALT_KEYS
+// default, then pasted here. Fernet tokens carry a timestamp but no TTL is enforced on decrypt, so
+// these stay valid indefinitely. Regenerate under the same salt key with:
+//   python3 -c "import base64; from cryptography.fernet import Fernet, MultiFernet; \
+//     f=MultiFernet([Fernet(base64.urlsafe_b64encode(b'00beef0000beef0000beef0000beef00'))]); \
+//     print(f.encrypt(b'django-produced-access-token').decode())"
+const DJANGO_ACCESS_TOKEN_CIPHERTEXT: &str =
+    "gAAAAABqV056wiDg4SFg1WMXPi0eSlEqDSqNapKDGEOjxStwnQdRnt2XsLu-lfRiXBq3Y3WZUtpKmjDJp8xPkMVh-iZyUGbSf8Q24WUeLApdA4ilqpLjUSY=";
+const DJANGO_REFRESH_TOKEN_CIPHERTEXT: &str =
+    "gAAAAABqV056405em_3t-Gy4hfqS4x7PqxbufIr5T5sUaNHRBHVU5pl0rTcL-V06r0Bb1bO2FXLbCe8_EMoAKjGh1veSsDvsyXC7BsCGorv61P2cQDYV_m8=";
+
+#[test]
+fn decrypts_django_produced_ciphertext() {
+    let d = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
+    assert_eq!(
+        d.decrypt_leaf(DJANGO_ACCESS_TOKEN_CIPHERTEXT).unwrap(),
+        "django-produced-access-token"
+    );
+    assert_eq!(
+        d.decrypt_leaf(DJANGO_REFRESH_TOKEN_CIPHERTEXT).unwrap(),
+        "django-produced-refresh-token"
+    );
+}
+
+#[test]
+fn walks_django_produced_sensitive_config() {
+    let d = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
+    let encrypted = json!({
+        "access_token": DJANGO_ACCESS_TOKEN_CIPHERTEXT,
+        "nested": { "refresh_token": DJANGO_REFRESH_TOKEN_CIPHERTEXT },
+        "not_encrypted": "plain",
+    });
+    let out = decrypt_sensitive_config(&d, &encrypted);
+    assert_eq!(out["access_token"], json!("django-produced-access-token"));
+    assert_eq!(out["nested"]["refresh_token"], json!("django-produced-refresh-token"));
+    assert_eq!(out["not_encrypted"], json!("plain"));
 }

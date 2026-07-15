@@ -1,4 +1,16 @@
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
+
+# integration-gateway (Rust credential service). URL Django/consumers call, and the dedicated
+# scoped-JWT signing secret (see posthog/integration_gateway_jwt.py). The secret defaults to a known
+# dev value in DEBUG/TEST so local mint/verify lines up with bin/start-rust-service, and is empty in
+# prod so only a provisioned deployment can mint (fail closed) — mirrors RECORDING_API_JWT_SECRET.
+INTEGRATION_GATEWAY_URL = get_from_env("INTEGRATION_GATEWAY_URL", "http://localhost:3350" if DEBUG else "")
+LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET = "integration-gateway-dev-secret"
+INTEGRATION_GATEWAY_JWT_SECRET = get_from_env(
+    "INTEGRATION_GATEWAY_JWT_SECRET",
+    LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET if DEBUG or TEST else "",
+)
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")

@@ -448,6 +448,7 @@ always_required:
     - capture
     - feature-flags
     - hypercache-server
+    - integration-gateway
     - property-defs-rs
     - personhog-replica
     - personhog-router

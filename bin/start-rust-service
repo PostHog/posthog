@@ -366,6 +366,21 @@ case "$RS_SVC" in
     export METRICS_PORT=9103
     ;;
 
+  integration-gateway)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=3350
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    # Match the Django dev defaults so locally-minted tokens verify and decryption lines up:
+    # ENCRYPTION_SALT_KEYS (posthog/settings/access.py) + the gateway JWT secret
+    # (posthog/settings/integrations.py LOCAL_DEV_INTEGRATION_GATEWAY_JWT_SECRET).
+    export ENCRYPTION_SALT_KEYS="${ENCRYPTION_SALT_KEYS:-00beef0000beef0000beef0000beef00}"
+    export INTEGRATION_GATEWAY_JWT_SECRET="${INTEGRATION_GATEWAY_JWT_SECRET:-integration-gateway-dev-secret}"
+    export DEBUG=1
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1

@@ -33,5 +33,10 @@ common-alloc = { path = "../common/alloc" }
 common-metrics = { path = "../common/metrics" }
 serve-metrics = { path = "../common/serve_metrics" }
 
+[dev-dependencies]
+# HTTP client for the seeded-DB integration test (tests/api.rs). tokio (full), sqlx (postgres),
+# serde, serde_json, jsonwebtoken, fernet, base64, uuid are already normal deps and usable in tests.
+reqwest = { workspace = true }
+
 [lints]
 workspace = true

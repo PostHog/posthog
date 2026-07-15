@@ -360,6 +360,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    integration-gateway:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service integration-gateway
+        # no capability: always_required via intent-map.yaml
+        ready_pattern: 'HTTP server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
     livestream:
         shell: |-
             bin/wait-for-docker redis-cluster && \
