@@ -6,6 +6,8 @@ from django.utils.timezone import now
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from products.feature_flags.backend.facade.api import update_flag
+from products.feature_flags.backend.facade.filters import set_first_release_condition_rollout
 from products.surveys.backend.models import Survey
 
 
@@ -31,8 +33,16 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
         internal_response_sampling_flag = survey.internal_response_sampling_flag
         # groups[0] is guaranteed to exist — survey flags are always created with groups in filters
         # (see SurveySerializer._add_internal_response_sampling_filters)
-        internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"] = today_entry["rollout_percentage"]
-        internal_response_sampling_flag.save(update_fields=["filters"])
+        update_flag(
+            internal_response_sampling_flag,
+            {
+                "filters": set_first_release_condition_rollout(
+                    internal_response_sampling_flag.get_filters(), today_entry["rollout_percentage"]
+                )
+            },
+            team=survey.team,
+            user=None,
+        )
 
     # this also doubles as a way to check that we're processing the final entry in the current sequence.
     if today_entry["rollout_percentage"] == 100:
