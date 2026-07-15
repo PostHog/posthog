@@ -673,10 +673,11 @@ class IsolationChainCheck(ProductCheck):
         # facade/** stays byte-identical and turbo-discover skips the Django suite.
         if status.leaked_facade_names:
             message = (
-                f"facade/api.py re-exports {_join(status.leaked_facade_names)} from logic/models — their "
-                "behavior lives outside the contract-check inputs (facade/**, presentation/**), so a change "
-                "core can observe would skip the Django suite. Move constants to facade/enums.py, data and "
-                "error types to facade/contracts.py, and give behavioral classes a facade-owned entry point"
+                f"facade/api.py re-exports the class(es) {_join(status.leaked_facade_names)} from logic/models "
+                "— callers reach every method on them, while the methods live outside the contract-check "
+                "inputs (facade/**, presentation/**), so a change core can observe would skip the Django "
+                "suite. Wrap them in facade-owned functions, or move a pure data/error type to "
+                "facade/contracts.py"
             )
             if has_script:
                 result.issues.append(f"has 'backend:contract-check' but {message}")

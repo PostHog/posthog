@@ -133,14 +133,50 @@ def get_public_function_names(file_path: Path) -> list[str]:
     return names
 
 
-def _get_dunder_all(tree: ast.Module) -> list[str]:
-    """Return the string entries of a module-level `__all__`, or [] if it has none."""
+def _module_assignment(tree: ast.Module, name: str) -> ast.expr | None:
+    """Return the value assigned to a module-level `name`, or None."""
     for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.List):
-            continue
-        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
-            return [e.value for e in node.value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
-    return []
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return node.value
+    return None
+
+
+def _str_dict(node: ast.expr | None) -> dict[str, str]:
+    """Read a dict literal of string keys to string values, or {} for anything else."""
+    if not isinstance(node, ast.Dict):
+        return {}
+    return {
+        k.value: v.value
+        for k, v in zip(node.keys, node.values)
+        if isinstance(k, ast.Constant) and isinstance(k.value, str) and isinstance(v, ast.Constant)
+        if isinstance(v.value, str)
+    }
+
+
+def _facade_exports(tree: ast.Module) -> tuple[list[str], dict[str, str]]:
+    """Read a facade's `__all__` into (exported names, lazily-mapped name -> source module).
+
+    Two shapes are in use. An eager facade assigns a list literal and imports each name at the
+    top, so the source map comes from its ImportFrom nodes and this returns none. A lazy facade
+    (PEP 562) assigns `__all__ = sorted(_LAZY)` and resolves names in `__getattr__`, which keeps
+    heavy logic modules off the django.setup() path and breaks import cycles — there the `_LAZY`
+    dict is the import map, so it answers what ImportFrom answers for the eager shape.
+    """
+    value = _module_assignment(tree, "__all__")
+    if isinstance(value, ast.List):
+        names = [e.value for e in value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        return names, {}
+    # __all__ = sorted(_LAZY) / list(_LAZY)
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in {"sorted", "list"}
+        and len(value.args) == 1
+        and isinstance(value.args[0], ast.Name)
+    ):
+        lazy = _str_dict(_module_assignment(tree, value.args[0].id))
+        return sorted(lazy), lazy
+    return [], {}
 
 
 def _is_product_owned(source: str) -> bool:
@@ -153,8 +189,26 @@ def _is_product_owned(source: str) -> bool:
     return source.startswith(".") or source.startswith("products.")
 
 
+def _class_kind(node: ast.ClassDef) -> str:
+    """ "class" if the class carries behavior callers can reach, else "type".
+
+    The concern is a caller driving methods the product never treated as its API. A class with
+    public methods hands them over, and so does one inheriting a base that has them. An error
+    marker or a plain data/result class carries none — its shape belongs in facade/contracts.py,
+    but it is not a behavioral surface.
+    """
+    if any(isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and not m.name.startswith("_") for m in node.body):
+        return "class"
+    # An exception hierarchy stays inert however deep it goes, so match the name rather than
+    # only the builtin roots — a subclass of a product's own FooError is still a marker.
+    bases = [ast.unparse(b) for b in node.bases]
+    if bases and not all(b.endswith(("Error", "Exception")) for b in bases):
+        return "class"
+    return "type"
+
+
 def _definition_kinds(backend_dir: Path, wanted: set[str]) -> dict[str, str]:
-    """Classify each wanted name by how it is defined outside facade/ — class or function.
+    """Classify each wanted name by how it is defined outside facade/.
 
     One pass over the tree, dropping names as they're found. A name that is never found is a
     module-level assignment, which this walk cannot see — the caller reads it as a constant.
@@ -173,7 +227,7 @@ def _definition_kinds(backend_dir: Path, wanted: set[str]) -> dict[str, str]:
             if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if node.name in remaining:
-                kinds[node.name] = "class" if isinstance(node, ast.ClassDef) else "function"
+                kinds[node.name] = _class_kind(node) if isinstance(node, ast.ClassDef) else "function"
                 remaining.discard(node.name)
     return kinds
 
@@ -181,17 +235,15 @@ def _definition_kinds(backend_dir: Path, wanted: set[str]) -> dict[str, str]:
 def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
     """Names advertised in facade/api.py's `__all__` whose implementation lives outside facade/.
 
-    Returns (name, kind) pairs sorted by name, kind being "class", "function" or "constant".
+    Returns (name, kind) pairs sorted by name, kind being "class" (carries behavior), "type"
+    (an error marker or plain data class), "function" or "constant".
 
-    A re-exported name puts behavior outside the contract-check inputs (facade/**,
-    presentation/**): the object is defined under logic/ or models/, so its behavior can
-    change while facade/** stays byte-identical and turbo-discover skips the Django suite on
-    a change core can still observe. contracts/enums re-exports are fine — those files are
-    contract-check inputs themselves.
+    A re-exported name puts its implementation outside the contract-check inputs (facade/**,
+    presentation/**): it is defined under logic/ or models/, so it can change while facade/**
+    stays byte-identical and turbo-discover skips the Django suite on a change core can still
+    observe. contracts/enums re-exports are fine — those files are contract-check inputs.
 
-    Classes are the worst case. A function export is one entry point with one signature, so
-    "keep behavior tests in-product" is checkable; a class hands callers every method,
-    including ones no in-product test pins.
+    Only "class" is load-bearing for the skip; see IsolationStatus.leaked_facade_names.
 
     Keyed on `__all__`, which is the product's *advertised* surface. A facade with no `__all__`
     reads as clean here even though Python would still let a caller import its internals — the
@@ -203,7 +255,7 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
     if not tree:
         return []
 
-    exported = _get_dunder_all(tree)
+    exported, lazy_sources = _facade_exports(tree)
     if not exported:
         return []
 
@@ -218,6 +270,9 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str]]:
         if isinstance(node, ast.ImportFrom)
         for alias in node.names
     }
+    # A lazy facade resolves against its own backend package, so those entries are owned by
+    # construction — mark them relative so they read the same as an eager relative import.
+    sources.update({name: "." + module for name, module in lazy_sources.items()})
 
     candidates = set()
     for name in exported:

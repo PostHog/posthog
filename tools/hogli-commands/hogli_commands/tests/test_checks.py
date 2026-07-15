@@ -109,13 +109,13 @@ class TestFacadeReexports:
             (
                 "from products.p.backend.logic.matrix import Thing",
                 "Thing",
-                "class Thing:\n    pass\n",
+                "class Thing:\n    def run(self):\n        pass\n",
                 [("Thing", "class")],
             ),
             (
                 "from ..logic.matrix import Thing",
                 "Thing",
-                "class Thing:\n    pass\n",
+                "class Thing:\n    def run(self):\n        pass\n",
                 [("Thing", "class")],
             ),
             (
@@ -145,6 +145,38 @@ class TestFacadeReexports:
         )
         assert get_facade_reexports(backend_dir) == expected
 
+    @pytest.mark.parametrize(
+        "logic_source, expected_kind",
+        [
+            ("class Thing:\n    def run(self):\n        pass\n", "class"),
+            ("class Thing(Base):\n    pass\n", "class"),
+            ("class Thing:\n    def _hidden(self):\n        pass\n", "type"),
+            ("class Thing(Exception):\n    pass\n", "type"),
+            ("class Thing(AppRuntimeError):\n    pass\n", "type"),
+        ],
+    )
+    def test_only_classes_carrying_methods_count_as_behavioral(
+        self, tmp_path: Path, logic_source: str, expected_kind: str
+    ) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import Thing\n\n__all__ = ["Thing"]\n',
+            logic_source=logic_source,
+        )
+        assert get_facade_reexports(backend_dir) == [("Thing", expected_kind)]
+
+    def test_lazy_facade_exports_are_read_from_the_lazy_map(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source=(
+                '_LAZY = {"Thing": "logic.matrix", "go": "logic.matrix"}\n\n'
+                "__all__ = sorted(_LAZY)\n\n\n"
+                "def __getattr__(name):\n    pass\n"
+            ),
+            logic_source="class Thing:\n    def run(self):\n        pass\n\n\ndef go():\n    pass\n",
+        )
+        assert get_facade_reexports(backend_dir) == [("Thing", "class"), ("go", "function")]
+
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
             tmp_path,
@@ -157,7 +189,8 @@ class TestFacadeReexports:
         "reexports, expected",
         [
             ((("Thing", "class"),), True),
-            ((("MAX_SIZE", "constant"),), True),
+            ((("Err", "type"),), False),
+            ((("MAX_SIZE", "constant"),), False),
             ((("make_thing", "function"),), False),
             ((), False),
         ],

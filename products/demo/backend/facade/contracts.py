@@ -8,7 +8,7 @@
 #   An empty contracts.py does NOT make a product isolated. is_isolated_product()    #
 #   only checks that this file exists, so an empty one still satisfies the           #
 #   precondition that eligible_for_isolated_tests builds on. That is a gap in the    #
-#   gate, not a licence to leave the file empty.                                     #
+#   gate, not a license to leave the file empty.                                     #
 #                                                                                    #
 #   This facade is behavioral: it re-exports `MatrixManager`, `Matrix`,              #
 #   `HedgeboxMatrix` and `SpikeGPTMatrix` from logic/. A re-exported class hands     #

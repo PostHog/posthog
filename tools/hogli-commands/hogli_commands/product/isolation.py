@@ -427,17 +427,18 @@ class IsolationStatus:
     def leaked_facade_names(self) -> tuple[str, ...]:
         """Advertised facade names that disqualify the contract-check skip.
 
-        tach proves no caller imports past the facade, but a re-exported name is handed to
-        callers through that one legal import, and its behavior lives under logic/ or models/ —
-        outside the contract-check inputs. It can then change while facade/** stays
+        tach proves no caller imports past the facade, but a re-exported class is handed to
+        callers through that one legal import, and its methods live under logic/ or models/ —
+        outside the contract-check inputs. They can then change while facade/** stays
         byte-identical, so turbo-discover skips the Django suite on a change core can observe.
 
-        Functions are excluded: one bounded entry point with one signature keeps "behavior tests
-        live in-product" checkable. A class hands callers every method, including ones no
-        in-product test pins. A constant belongs in facade/enums.py, which is a contract-check
-        input already.
+        Only behavioral classes count. A function is one bounded entry point with one signature,
+        so "keep behavior tests in-product" stays checkable. An error marker, a plain data class
+        or a constant carries no methods to drive — each belongs in facade/contracts.py or
+        facade/enums.py, but misplacing it does not put behavior outside the inputs, so it earns
+        a warning rather than the full Django suite.
         """
-        return tuple(name for name, kind in self.facade_reexports if kind != "function")
+        return tuple(name for name, kind in self.facade_reexports if kind == "class")
 
     @property
     def facade_leaks_implementation(self) -> bool:
