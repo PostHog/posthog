@@ -27,12 +27,10 @@ describe('createCommitOffsetsStep', () => {
         const step = createCommitOffsetsStep(createOffsetManager(), promiseScheduler)
 
         const input = {
-            state: {
-                offsets: new Map([
-                    [0, 3],
-                    [1, 10],
-                ]),
-            },
+            offsets: new Map([
+                [0, 3],
+                [1, 10],
+            ]),
         }
         const result = await step(input)
 
@@ -61,7 +59,7 @@ describe('createCommitOffsetsStep', () => {
             promiseScheduler
         )
 
-        const stepPromise = step({ state: { offsets: new Map([[0, 1]]) } })
+        const stepPromise = step({ offsets: new Map([[0, 1]]) })
         // The step is parked on the scheduler until the produce settles.
         await new Promise((resolve) => setImmediate(resolve))
         expect(order).toEqual([])
@@ -74,7 +72,7 @@ describe('createCommitOffsetsStep', () => {
     it('commits nothing for an empty cycle', async () => {
         const step = createCommitOffsetsStep(createOffsetManager(), promiseScheduler)
 
-        await step({ state: { offsets: new Map() } })
+        await step({ offsets: new Map() })
 
         expect(committed).toEqual([])
     })

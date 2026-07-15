@@ -8,30 +8,28 @@
  * or old enough. That boundary — an accumulation **cycle** — spans many Kafka
  * polls, so no earlier shape fits: a batching pipeline's batch (chapter 14) is
  * exactly one feed() call. `newAccumulatingPipeline` owns the cycle instead:
- * it keeps an external accumulator (the cycle context), folds every fed
- * element into it through your record pipeline, and pushes the accumulator
- * through your flush pipeline when a size or age trigger fires.
+ * it drives a plain per-message pipeline, folds every result the pipeline
+ * emits into an explicit cycle state, and pushes that state through your
+ * flush pipeline when a size or age trigger fires.
  *
  * ## How to use it
  *
- * Give `newAccumulatingPipeline(config)` five things:
+ * Give `newAccumulatingPipeline(config)` four things:
  *
- * - **`beforeCycle`** — mints a fresh accumulator (e.g. a session batch
- *   recorder) at the start of each cycle: before the first feed, and again
- *   after every flush. The pipeline tags the accumulator onto every element
- *   it feeds through, so record steps fold into it without shared lookups.
  * - **`pipeline`** — a plain chunk pipeline of steps (chapters 2–13) that
- *   folds each element into the accumulator. It knows nothing about cycles
- *   or flushes.
- * - **`initialState` / `reduce`** — the explicit cycle state. The reducer
- *   runs on every result the pipeline emits, one element at a time — OK and
- *   non-OK alike, with the context still attached — so this is the
- *   per-message bookkeeping point: session replay folds each message's
- *   partition and offset into the state (drops and DLQs too, so the flush's
- *   commit advances past them). Extract what the flush needs and let the
- *   element go; nothing is retained after the reduce.
+ *   takes messages in and emits the data to accumulate. It never sees the
+ *   cycle.
+ * - **`initialState` / `reduce`** — the cycle state and how results fold into
+ *   it. `initialState` mints the state (e.g. a fresh session batch recorder
+ *   plus the offsets to commit) lazily and again after every flush. The
+ *   reducer runs on every result the pipeline emits, one element at a time —
+ *   OK and non-OK alike, with the context still attached — so this is the
+ *   per-message bookkeeping point: session replay records OK results into
+ *   the state's recorder and folds every message's offset in (drops and DLQs
+ *   too, so the flush's commit advances past them). Extract what the flush
+ *   needs and let the element go; nothing is retained after the reduce.
  * - **`flush`** — the pipeline that persists the cycle. It receives ONE
- *   element per flush: the cycle context plus the reduced cycle state.
+ *   element per flush: the cycle state.
  * - **`shouldFlush` / `maxCycleAgeMs`** — the size and age triggers.
  *
  * Then drive it the way a Kafka consumer does: feed() every poll, loop next()
@@ -46,18 +44,15 @@
  * - Side effects still on an element's context when it drains are lifted into
  *   that turn — they surface exactly once, and the pipeline never schedules
  *   them; the caller makes them durable. The pipeline never commits offsets
- *   either — that belongs in a flush step, read off the reduced state.
+ *   either — that belongs in a flush step, read off the cycle state.
+ * - Elements bind to a cycle when they are reduced, not when they are fed —
+ *   a feed that races a flush simply lands in the next cycle.
  * - The age timer only marks a flush due; a later next() call executes it, so
  *   something must keep calling next() while idle (for Kafka consumers,
  *   `callEachBatchWhenEmpty: true`). See the LIVENESS INVARIANT note in
  *   `accumulating-pipeline.ts`.
  */
-import {
-    AccumulatingResult,
-    BeforeCycleInput,
-    CycleContext,
-    CycleFlushInput,
-} from '~/ingestion/framework/accumulating-pipeline'
+import { AccumulatingResult } from '~/ingestion/framework/accumulating-pipeline'
 import { newAccumulatingPipeline, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { OkResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -67,26 +62,21 @@ interface Event {
     id: number
 }
 
-// The cycle context is the accumulator, like session replay's batch recorder.
-type Batch = { records: number[] }
-
-// The cycle state the reducer folds every drained result into — here the ids that came out, like
-// session replay's per-partition offsets.
-type State = { seen: number[] }
+// The cycle state is the one accumulator, like session replay's recorder plus its offsets.
+type State = { records: number[] }
 
 type NoCtx = Record<string, never>
 
 /**
- * The record pipeline is a plain chunk pipeline: its fold step reads the accumulator straight off
- * each element — the accumulating pipeline tagged it on — and folds into it. `recordSideEffect`,
- * when set, is attached to each result so tests can show the accumulating pipeline lifting element
- * side effects into the turn.
+ * The record pipeline is a plain chunk pipeline that never sees the cycle: it processes each
+ * message and emits the data the reducer folds into the state. `recordSideEffect`, when set, is
+ * attached to each result so tests can show the accumulating pipeline lifting element side effects
+ * into the turn.
  */
 function buildRecordPipeline(recordSideEffect?: () => Promise<unknown>) {
-    return newChunkPipelineBuilder<Event & Batch & CycleContext, NoCtx>()
+    return newChunkPipelineBuilder<Event, NoCtx>()
         .sequentially((b) =>
-            b.pipe(function foldIntoAccumulator(input) {
-                input.records.push(input.id)
+            b.pipe(function processEvent(input) {
                 return Promise.resolve(ok({ id: input.id }, recordSideEffect ? [recordSideEffect()] : []))
             })
         )
@@ -98,32 +88,27 @@ function buildPipeline(options: {
     maxCycleAgeMs?: number
     recordSideEffect?: () => Promise<unknown>
 }) {
-    return newAccumulatingPipeline<Event, Event, NoCtx, NoCtx, Batch, State, number[], NoCtx>({
-        // Mints the accumulator for each cycle — runs before the first feed and after every flush.
-        beforeCycle: (builder) =>
-            builder.pipe(function mintAccumulator(input: BeforeCycleInput) {
-                const cycleContext: Batch & CycleContext = { records: [], cycleId: input.cycleId }
-                return Promise.resolve(ok({ cycleContext }))
-            }),
+    return newAccumulatingPipeline<Event, Event, NoCtx, NoCtx, State, number[], NoCtx>({
         pipeline: buildRecordPipeline(options.recordSideEffect),
-        // The reducer sees every drained result exactly once; here it collects the ids.
-        initialState: () => ({ seen: [] }),
+        // Mints the cycle's accumulator — lazily for the first result, and again after every flush.
+        initialState: () => ({ records: [] }),
+        // The reducer sees every drained result exactly once; here it folds the ids in.
         reduce: (state, element) => {
             if (isOkResult(element.result)) {
-                state.seen.push(element.result.value.id)
+                state.records.push(element.result.value.id)
             }
             return state
         },
-        // The flush pipeline receives ONE element: the cycle context plus the reduced state. Here
-        // it "persists" by emitting the state's ids; session replay writes the recorder to S3 and
-        // commits the offsets read off the state.
+        // The flush pipeline receives ONE element: the cycle state. Here it "persists" by emitting
+        // the accumulated records; session replay writes the state's recorder to S3 and commits the
+        // offsets read off the state.
         flush: (builder) =>
             builder.sequentially((b) =>
-                b.pipe(function writeRecords(input: CycleFlushInput<State, Batch>) {
-                    return Promise.resolve(ok(input.state.seen))
+                b.pipe(function writeRecords(state: State) {
+                    return Promise.resolve(ok(state.records))
                 })
             ),
-        shouldFlush: (cycleContext) => cycleContext.records.length >= options.flushAt,
+        shouldFlush: (state) => state.records.length >= options.flushAt,
         maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
     })
 }
@@ -142,16 +127,16 @@ function flushedValues(result: AccumulatingResult<number[], NoCtx> | null): (num
 
 describe('Accumulating Pipelines', () => {
     /**
-     * The accumulation cycle spans feeds: two feeds fold into the same cycle
-     * context, each drains as a `flushed: false` turn, and while the size
+     * The accumulation cycle spans feeds: two feeds reduce into the same cycle
+     * state, each drains as a `flushed: false` turn, and while the size
      * threshold is not reached next() finds nothing to flush.
      */
     it('accumulates across multiple feeds without flushing under the size threshold', async () => {
         const pipeline = buildPipeline({ flushAt: 10 })
 
-        await pipeline.feed(feedEvents([1, 2]))
+        pipeline.feed(feedEvents([1, 2]))
         const first = await pipeline.next()
-        await pipeline.feed(feedEvents([3]))
+        pipeline.feed(feedEvents([3]))
         const second = await pipeline.next()
 
         expect(first).toMatchObject({ flushed: false })
@@ -162,38 +147,37 @@ describe('Accumulating Pipelines', () => {
 
     /**
      * Crossing the size threshold makes the next() after the record drain a
-     * `flushed: true` turn carrying the flush pipeline's output — here the
-     * reduced state, which the reducer folded one element at a time across
-     * both feeds of the cycle. The flush also re-mints the accumulator and
-     * the state, so the following cycle starts empty.
+     * `flushed: true` turn carrying the flush pipeline's output — the reduced
+     * state, folded one element at a time across both feeds of the cycle. The
+     * next cycle starts from a fresh state.
      */
     it('flushes on the size trigger and starts the next cycle with fresh state', async () => {
         const pipeline = buildPipeline({ flushAt: 3 })
 
-        await pipeline.feed(feedEvents([1, 2, 3]))
+        pipeline.feed(feedEvents([1, 2, 3]))
         expect(await pipeline.next()).toMatchObject({ flushed: false })
 
         expect(flushedValues(await pipeline.next())).toEqual([[1, 2, 3]])
 
         // The next cycle reduces independently of the flushed one.
-        await pipeline.feed(feedEvents([4, 5, 6]))
+        pipeline.feed(feedEvents([4, 5, 6]))
         await pipeline.next()
         expect(flushedValues(await pipeline.next())).toEqual([[4, 5, 6]])
     })
 
     /**
      * The age timer only marks a flush due — the flush itself executes inside a
-     * later next() call. This is the liveness invariant: an idle accumulator
-     * flushes only because something keeps calling next() (for Kafka consumers,
-     * the empty-batch tick).
+     * later next() call. This is the liveness invariant: an idle cycle flushes
+     * only because something keeps calling next() (for Kafka consumers, the
+     * empty-batch tick).
      */
-    it('flushes an idle accumulator on the age trigger, executed by the next caller', async () => {
+    it('flushes an idle cycle on the age trigger, executed by the next caller', async () => {
         jest.useFakeTimers()
         try {
             const pipeline = buildPipeline({ flushAt: 100, maxCycleAgeMs: 1_000 })
             pipeline.start()
 
-            await pipeline.feed(feedEvents([7]))
+            pipeline.feed(feedEvents([7]))
             expect(await pipeline.next()).toMatchObject({ flushed: false })
             // Under the size threshold and not yet old enough: nothing happens.
             expect(await pipeline.next()).toBeNull()
@@ -225,7 +209,7 @@ describe('Accumulating Pipelines', () => {
             },
         })
 
-        await pipeline.feed(feedEvents([1]))
+        pipeline.feed(feedEvents([1]))
 
         // The canonical consumer drain loop.
         let result = await pipeline.next()
@@ -251,11 +235,11 @@ describe('Accumulating Pipelines', () => {
     it('flush() and stop() drain and flush the partial cycle on demand', async () => {
         const pipeline = buildPipeline({ flushAt: 100 })
 
-        await pipeline.feed(feedEvents([8, 9]))
+        pipeline.feed(feedEvents([8, 9]))
         // No next() calls yet: flush() drains the record phase itself, then flushes.
         expect(flushedValues(await pipeline.flush())).toEqual([[8, 9]])
 
-        await pipeline.feed(feedEvents([10]))
+        pipeline.feed(feedEvents([10]))
         expect(flushedValues(await pipeline.stop())).toEqual([[10]])
     })
 })

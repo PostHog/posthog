@@ -1,6 +1,7 @@
 /** Types carried across the session replay pipeline steps (step-to-step data contracts). */
 import { Message } from 'node-rdkafka'
 
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionKey } from './shared/types'
 
 /** The per-message context threaded through every stage of the session replay pipeline. */
@@ -9,11 +10,13 @@ export interface MessageContext {
 }
 
 /**
- * The cycle state the accumulating pipeline reduces every drained result into: the highest offset
- * seen per partition. Every message counts — recorded, dropped, or DLQ'd — so the flush's commit
- * advances past dropped messages too.
+ * The cycle state — the one accumulator the reducer folds every drained result into: the recorder
+ * that OK results are recorded into, plus the highest offset seen per partition. Every message's
+ * offset counts — recorded, dropped, or DLQ'd — so the flush's commit advances past dropped
+ * messages too.
  */
 export interface ReplayCycleState {
+    sessionBatchRecorder: SessionBatchRecorder
     offsets: Map<number, number>
 }
 

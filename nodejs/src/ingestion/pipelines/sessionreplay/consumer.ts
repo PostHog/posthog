@@ -275,7 +275,7 @@ export class SessionRecordingIngester {
         // The pipeline decides when to flush (size or age) and its flush steps write to storage and
         // commit the offsets the cycle covers; the consumer only drives feed()/next().
         await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () => {
-            await this.pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
+            this.pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
             await this.drainPipeline()
         })
     }
@@ -335,6 +335,8 @@ export class SessionRecordingIngester {
             sessionBatchManager: this.sessionBatchManager,
             offsetManager: this.offsetManager,
             promiseScheduler: this.promiseScheduler,
+            topHog: this.topHog,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
             maxBatchSizeBytes: this.maxBatchSizeBytes,
             maxBatchAgeMs: this.maxBatchAgeMs,
         })

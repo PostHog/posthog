@@ -27,9 +27,8 @@ import { ReplayCycleState } from './pipeline-types'
 import {
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineOutput,
+    createReplayCycleReducer,
     createSessionReplayInnerPipeline,
-    initialReplayCycleState,
-    reduceReplayCycleState,
 } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
@@ -198,26 +197,23 @@ describe('session-replay-pipeline', () => {
         })
     }
 
-    // Feeds messages through the inner pipeline with the batch recorder tagged on each element,
-    // drains it, and folds every drained result through the replay reducer — exactly what the
-    // accumulating pipeline does. Returns the OK outputs; the reduced state lands in `cycleState`.
+    // Feeds messages through the inner pipeline, drains it, and folds every drained result through
+    // the replay cycle reducer — exactly what the accumulating pipeline does. OK results get
+    // recorded into the state's (mock) recorder; the reduced state lands in `cycleState`.
     async function runPipeline(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
         messages: Message[]
     ): Promise<SessionReplayPipelineOutput[]> {
         // The accumulating pipeline skips empty feeds; mirror that.
         if (messages.length > 0) {
-            pipeline.feed(
-                messages.map((message) =>
-                    createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, cycleId: 0 }, { message })
-                )
-            )
+            pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         }
+        const reduce = createReplayCycleReducer({ topHog, isDebugLoggingEnabled })
         const recorded: SessionReplayPipelineOutput[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
             for (const element of batch) {
-                cycleState = reduceReplayCycleState(cycleState, element)
+                cycleState = await reduce(cycleState, element)
                 if (isOkResult(element.result)) {
                     recorded.push(element.result.value)
                 }
@@ -228,7 +224,7 @@ describe('session-replay-pipeline', () => {
     }
 
     // The session ids recorded into the batch, in call order — the observable effect of a message
-    // reaching the record step (the trimmed output no longer carries the parsed message).
+    // reaching the reducer's record.
     function recordedSessionIds(): string[] {
         return mockBatchRecorder.record.mock.calls.map((call) => call[0].message.session_id)
     }
@@ -250,7 +246,7 @@ describe('session-replay-pipeline', () => {
         } as unknown as TeamService
 
         mockBatchRecorder = createMockBatchRecorder()
-        cycleState = initialReplayCycleState()
+        cycleState = { sessionBatchRecorder: mockBatchRecorder, offsets: new Map() }
         topHog = createMockTopHog()
 
         promiseScheduler = new PromiseScheduler()

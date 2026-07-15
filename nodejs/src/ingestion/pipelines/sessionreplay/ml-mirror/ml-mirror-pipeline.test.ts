@@ -11,6 +11,8 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
+import { ReplayCycleState } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
+import { createReplayCycleReducer } from '~/ingestion/pipelines/sessionreplay/session-replay-pipeline'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -145,19 +147,22 @@ describe('ml-mirror-pipeline', () => {
         })
     }
 
-    // Feeds messages through the inner pipeline with the batch recorder tagged on each element
-    // (as the accumulating pipeline does), then drains it.
+    // Feeds messages through the inner pipeline, drains it, and folds every drained result through
+    // the replay cycle reducer (as the accumulating pipeline does) — which records OK results into
+    // the state's (mock) recorder.
     async function runPipeline(
         pipeline: ReturnType<typeof createMlMirrorReplayPipeline>,
         messages: Message[]
     ): Promise<void> {
-        pipeline.feed(
-            messages.map((message) =>
-                createOkContext({ message, sessionBatchRecorder: recorder, cycleId: 0 }, { message })
-            )
-        )
-        while ((await pipeline.next()) !== null) {
-            // drain
+        pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
+        const reduce = createReplayCycleReducer({ topHog, isDebugLoggingEnabled: () => false })
+        let state: ReplayCycleState = { sessionBatchRecorder: recorder, offsets: new Map() }
+        let batch = await pipeline.next()
+        while (batch !== null) {
+            for (const element of batch) {
+                state = await reduce(state, element)
+            }
+            batch = await pipeline.next()
         }
     }
 

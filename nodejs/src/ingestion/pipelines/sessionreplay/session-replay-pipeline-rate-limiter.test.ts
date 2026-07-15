@@ -50,7 +50,6 @@ import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/inge
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
-import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
@@ -144,14 +143,6 @@ class FakePipeline {
     }
 }
 
-function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
-    return {
-        record: jest.fn().mockResolvedValue(undefined),
-        getRetention: jest.fn().mockReturnValue(undefined),
-        size: 0,
-    } as unknown as jest.Mocked<SessionBatchRecorder>
-}
-
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
 
@@ -172,7 +163,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     let sessionTracker: SessionTracker
     let sessionFilter: SessionFilter
     let keyStore: jest.Mocked<KeyStore>
-    let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
@@ -264,7 +254,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
     async function runBatch(sessionId: string, offset: number): Promise<void> {
         const message = createMessage(sessionId, offset)
         const pipeline = buildPipeline()
-        pipeline.feed([createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, cycleId: 0 }, { message })])
+        pipeline.feed([createOkContext({ message }, { message })])
         let batch = await pipeline.next()
         while (batch !== null) {
             batch = await pipeline.next()
@@ -319,7 +309,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             deleteKey: jest.fn(),
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
-        mockBatchRecorder = createMockBatchRecorder()
         outputs = createMockIngestionOutputs()
 
         countedSessions = []

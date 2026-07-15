@@ -7,10 +7,8 @@ import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shar
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'
-import { SessionBatchContext } from './session-batch-context'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { SessionBatchMetrics } from './sessions/metrics'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 
 jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
 jest.mock('./sessions/metrics', () => ({
@@ -19,19 +17,13 @@ jest.mock('./sessions/metrics', () => ({
 
 describe('createResolveRetentionStep', () => {
     let mockRetentionService: jest.Mocked<RetentionService>
-    let mockBatch: jest.Mocked<Pick<SessionBatchRecorder, 'getRetention'>>
 
-    // Minimal element carrying just what the step reads (team id, session_id header, the recorder).
-    const element = (
-        teamId: number,
-        sessionId: string
-    ): { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext =>
+    // Minimal element carrying just what the step reads (team id, session_id header).
+    const element = (teamId: number, sessionId: string): { team: TeamForReplay; headers: SessionReplayHeaders } =>
         ({
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
             headers: { token: 'token', session_id: sessionId, distinct_id: 'distinct-1' },
-            // The cycle's recorder, tagged onto every element by the accumulating pipeline.
-            sessionBatchRecorder: mockBatch,
-        }) as unknown as { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext
+        }) as unknown as { team: TeamForReplay; headers: SessionReplayHeaders }
 
     const createStep = () => createResolveRetentionStep(mockRetentionService)
 
@@ -40,10 +32,6 @@ describe('createResolveRetentionStep', () => {
         mockRetentionService = {
             resolveSessionRetentions: jest.fn().mockResolvedValue(new SessionMap<RetentionResolution>()),
         } as unknown as jest.Mocked<RetentionService>
-        // Default: no session is already in the batch, so everything is resolved via the service.
-        mockBatch = { getRetention: jest.fn().mockReturnValue(undefined) } as unknown as jest.Mocked<
-            Pick<SessionBatchRecorder, 'getRetention'>
-        >
     })
 
     it('resolves the batch in one call (keyed on the session_id header) and attaches retention', async () => {
@@ -77,32 +65,6 @@ describe('createResolveRetentionStep', () => {
         expect(results.map((r) => (isOkResult(r) ? r.value.retentionPeriod : null))).toEqual(['30d', '30d', '30d'])
     })
 
-    it('reuses retention already held in the batch and only resolves the unseen sessions', async () => {
-        // Session 'a' (team 1) is already in the batch; 'b' (team 2) is not.
-        mockBatch.getRetention.mockImplementation((teamId: number) => (teamId === 1 ? '90d' : undefined))
-        mockRetentionService.resolveSessionRetentions.mockResolvedValue(
-            new SessionMap<RetentionResolution>().set(2, 'b', { resolved: true, retentionPeriod: '1y' })
-        )
-        const step = createStep()
-
-        const results = await step([element(1, 'a'), element(2, 'b')])
-
-        // Only the unseen session is sent to the service.
-        expect(mockRetentionService.resolveSessionRetentions).toHaveBeenCalledWith(new SessionSet().add(2, 'b'))
-        expect(results.map((r) => (isOkResult(r) ? r.value.retentionPeriod : null))).toEqual(['90d', '1y'])
-    })
-
-    it('sends nothing to the service when every session is already in the batch', async () => {
-        mockBatch.getRetention.mockReturnValue('30d')
-        const step = createStep()
-
-        const results = await step([element(1, 'a'), element(2, 'b')])
-
-        // Everything came from the batch, so the resolve set is empty (the service no-ops on it).
-        expect(mockRetentionService.resolveSessionRetentions).toHaveBeenCalledWith(new SessionSet())
-        expect(results.map((r) => (isOkResult(r) ? r.value.retentionPeriod : null))).toEqual(['30d', '30d'])
-    })
-
     it('drops an unresolvable session and keeps the rest', async () => {
         mockRetentionService.resolveSessionRetentions.mockResolvedValue(
             new SessionMap<RetentionResolution>()
@@ -116,8 +78,8 @@ describe('createResolveRetentionStep', () => {
         expect(mockRetentionService.resolveSessionRetentions).toHaveBeenCalledWith(
             new SessionSet().add(999, 'gone').add(2, 'ok')
         )
-        // The unresolvable session becomes a DROP; its Kafka offset is tracked downstream by the
-        // record pipeline's afterBatch, not here.
+        // The unresolvable session becomes a DROP; its Kafka offset is still covered — the cycle
+        // reducer folds every result's offset into the state the flush commits.
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(isOkResult(results[1]) ? results[1].value.retentionPeriod : null).toBe('90d')
         expect(SessionBatchMetrics.incrementSessionsDroppedMissingRetention).toHaveBeenCalledTimes(1)
