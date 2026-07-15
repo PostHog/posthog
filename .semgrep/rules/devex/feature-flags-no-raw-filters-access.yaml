@@ -54,9 +54,10 @@ rules:
                 - pattern: $FLAG.filters.pop(...)
                 - pattern: $FLAG.filters.update(...)
                 - pattern: $FLAG.filters = $V
+                - pattern: $FLAG.filters |= $V
           - metavariable-regex:
                 metavariable: $FLAG
-                regex: (?i)^(.*flag.*|ff)$
+                regex: (?i)^(.*flag.*|(?:.*[._])?ff(?:_.*)?)$
       metadata:
           category: best-practice
           subcategory:

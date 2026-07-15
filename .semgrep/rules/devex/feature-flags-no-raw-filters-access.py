@@ -10,7 +10,16 @@ class FeatureFlag:
 feature_flag = FeatureFlag()
 flag = FeatureFlag()
 existing_targeting_flag = FeatureFlag()
+ff_record = FeatureFlag()
+some_ff = FeatureFlag()
 dashboard = object()
+
+
+class FlagContainer:
+    ff = FeatureFlag()
+
+
+instance = FlagContainer()
 
 # ruleid: feature-flags-no-raw-filters-access
 groups = feature_flag.filters["groups"]
@@ -26,6 +35,14 @@ feature_flag.filters = {"groups": []}
 flag.filters["groups"][0]["rollout_percentage"] = 100
 # ruleid: feature-flags-no-raw-filters-access
 flag.filters.update({"payloads": {}})
+# ruleid: feature-flags-no-raw-filters-access
+ff_record.filters.get("groups")
+# ruleid: feature-flags-no-raw-filters-access
+some_ff.filters["groups"]
+# ruleid: feature-flags-no-raw-filters-access
+instance.ff.filters["groups"]
+# ruleid: feature-flags-no-raw-filters-access
+flag.filters |= {"groups": []}
 
 # Public model accessors are fine
 # ok: feature-flags-no-raw-filters-access
