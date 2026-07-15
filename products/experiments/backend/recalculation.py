@@ -270,9 +270,9 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             ).values_list("id", flat=True)
         )
         if stale_ids:
-            ExperimentMetricsRecalculation.objects.filter(id__in=stale_ids).update(
-                status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now()
-            )
+            ExperimentMetricsRecalculation.objects.filter(
+                team=experiment.team, experiment=experiment, id__in=stale_ids
+            ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
             _recalculation_stale_cleanup_counter.inc(len(stale_ids))
             transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
