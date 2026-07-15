@@ -2,6 +2,22 @@ from dataclasses import dataclass, field
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# The regional clusters the query API lives on (the `domain` select options in source.py).
+# Enforced at request time: the generated config's Literal type is NOT validated when parsing
+# job inputs, so without this allowlist a crafted `domain` would redirect the credentialed
+# request to an arbitrary host (SSRF / API-key exfiltration).
+CORALOGIX_DOMAINS = frozenset(
+    {
+        "coralogix.us",
+        "cx498.coralogix.com",
+        "coralogix.com",
+        "eu2.coralogix.com",
+        "coralogix.in",
+        "coralogixsg.com",
+        "ap3.coralogix.com",
+    }
+)
+
 # Rows requested per DataPrime query. Both tiers accept more (12,000 frequent search / 50,000
 # archive), but a whole window is held in memory for sorting before it is yielded, so the limit
 # doubles as the memory bound. Windows that hit this cap are bisected (see coralogix.py).

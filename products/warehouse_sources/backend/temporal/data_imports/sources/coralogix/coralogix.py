@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.settings import (
+    CORALOGIX_DOMAINS,
     CORALOGIX_ENDPOINTS,
     DEFAULT_LOOKBACK_DAYS,
     QUERY_LIMIT,
@@ -46,6 +47,8 @@ class CoralogixResumeConfig:
 
 
 def _query_url(domain: str) -> str:
+    if domain not in CORALOGIX_DOMAINS:
+        raise ValueError(f"Unknown Coralogix domain: {domain}")
     return f"https://api.{domain}/api/v1/dataprime/query"
 
 
@@ -199,6 +202,11 @@ def _run_query(
         result = message.get("result")
         if result is not None:
             rows.extend(_normalize_row(item) for item in result.get("results") or [])
+            # The server honors the requested limit; stop reading defensively once we have it so
+            # a misbehaving response can't grow memory unboundedly. Reaching the limit already
+            # means the window gets bisected (or warned about) by the caller.
+            if len(rows) >= QUERY_LIMIT:
+                break
         elif "error" in message:
             raise Exception(f"Coralogix query error: {message['error']}")
         elif "warning" in message:

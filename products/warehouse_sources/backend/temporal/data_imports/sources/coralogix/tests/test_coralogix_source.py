@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -52,6 +52,18 @@ class TestCoralogixSource:
         api_key_field = config.fields[1]
         assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.secret is True
+
+    def test_domain_options_match_the_transport_allowlist(self) -> None:
+        # The transport rejects domains outside CORALOGIX_DOMAINS, so an option added to the
+        # form without extending the allowlist would break that region at sync time (and an
+        # allowlist entry without an option would be unreachable).
+        from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.settings import (
+            CORALOGIX_DOMAINS,
+        )
+
+        domain_field = CoralogixSource().get_source_config.fields[0]
+        assert isinstance(domain_field, SourceFieldSelectConfig)
+        assert {option.value for option in domain_field.options} == CORALOGIX_DOMAINS
 
     def test_domain_is_a_connection_host_field(self) -> None:
         # `domain` picks the cluster the stored API key is sent to, so retargeting it must force

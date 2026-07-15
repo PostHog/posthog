@@ -211,8 +211,46 @@ class TestRunQuery:
         with pytest.raises(requests.HTTPError, match="403 Client Error"):
             self._query(_ndjson_response([], status=403))
 
+    def test_stops_reading_a_misbehaving_stream_at_the_row_cap(self) -> None:
+        # The request asks the server for at most QUERY_LIMIT rows; a response that keeps
+        # streaming past it must not be accumulated unboundedly into memory.
+        response = _ndjson_response(
+            [_result_item("2026-01-15T10:00:00.000Z", "log-1")],
+            extra_lines=[
+                {"result": {"results": [_result_item("2026-01-15T10:01:00.000Z", "log-2")]}},
+                {"result": {"results": [_result_item("2026-01-15T10:02:00.000Z", "log-3")]}},
+            ],
+        )
+        with patch.object(coralogix_module, "QUERY_LIMIT", 2):
+            rows = self._query(response)
+        assert [row["logid"] for row in rows] == ["log-1", "log-2"]
+
 
 class TestGetRows:
+    def test_rejects_domains_outside_the_allowlist(self) -> None:
+        # The generated config's Literal type is not validated when job inputs are parsed, so
+        # the transport allowlist is what stops a crafted domain from redirecting the
+        # credentialed request (SSRF / API-key exfiltration). It must fail before any HTTP.
+        session = MagicMock()
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix.make_tracked_session",
+                return_value=session,
+            ),
+            pytest.raises(ValueError, match="Unknown Coralogix domain"),
+        ):
+            list(
+                get_rows(
+                    api_key="k",
+                    domain="coralogix.us@attacker.example",
+                    tier="frequent_search",
+                    endpoint="logs",
+                    logger=MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+        session.post.assert_not_called()
+
     @freeze_time(NOW)
     def test_walks_windows_without_double_counting_boundaries(self) -> None:
         watermark = NOW - timedelta(hours=2)
