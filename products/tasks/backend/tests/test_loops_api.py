@@ -10,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, PersonalAPIKey, ProjectSecretAPIKey, Team, User
+from posthog.models import FileSystem, Organization, PersonalAPIKey, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
@@ -277,6 +277,70 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["instructions"], "new plan")
         self.assertEqual(response.json()["created_by_id"], self.peer.id)
+
+
+class LoopContextVisibilityAPITest(LoopsAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.folder = FileSystem.objects.create(team=self.team, path="Growth Team", type="folder", surface="desktop")
+
+    def _context_target(self) -> dict:
+        return {"folder_id": str(self.folder.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
+
+    @parameterized.expand(
+        [
+            ("personal", status.HTTP_400_BAD_REQUEST),
+            ("team", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_with_context_requires_team_visibility(self, visibility, expected_status):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(visibility=visibility, context_target=self._context_target()),
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+    @parameterized.expand(
+        [
+            ("attach_only", {}, status.HTTP_400_BAD_REQUEST),
+            ("attach_and_upgrade", {"visibility": "team"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_attaching_context_to_personal_loop(self, _name, extra_fields, expected_status):
+        loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]
+
+        response = self.owner_client.patch(
+            self._loop_url(loop_id), {"context_target": self._context_target(), **extra_fields}, format="json"
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+        current = self.owner_client.get(self._loop_url(loop_id)).json()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(current["context_target"]["folder_id"], str(self.folder.id))
+        else:
+            self.assertIsNone(current["context_target"])
+
+    @parameterized.expand(
+        [
+            ("downgrade_only", {}, status.HTTP_400_BAD_REQUEST),
+            ("downgrade_and_detach", {"context_target": None}, status.HTTP_200_OK),
+        ]
+    )
+    def test_downgrading_attached_team_loop(self, _name, extra_fields, expected_status):
+        loop_id = self._create_loop(self.owner_client, visibility="team", context_target=self._context_target())["id"]
+
+        response = self.owner_client.patch(
+            self._loop_url(loop_id), {"visibility": "personal", **extra_fields}, format="json"
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+        current = self.owner_client.get(self._loop_url(loop_id)).json()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(current["visibility"], "personal")
+            self.assertIsNone(current["context_target"])
+        else:
+            self.assertEqual(current["visibility"], "team")
 
 
 class LoopTriggerSyncAPITest(LoopsAPITestCase):

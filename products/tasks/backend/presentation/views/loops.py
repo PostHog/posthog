@@ -5,7 +5,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -183,6 +183,8 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             loop = loops_facade.create_loop(self.team_id, request.user, dict(serializer.validated_data))
         except loops_facade.LoopLimitError as exc:
             return _loop_limit_response(exc)
+        except loops_facade.LoopValidationError as exc:
+            raise ValidationError(str(exc))
         return Response(LoopSerializer(loop).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -208,6 +210,8 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _loop_limit_response(exc)
         except loops_facade.LoopPermissionError as exc:
             raise PermissionDenied(str(exc))
+        except loops_facade.LoopValidationError as exc:
+            raise ValidationError(str(exc))
         if loop is None:
             raise NotFound()
         return Response(LoopSerializer(loop).data)

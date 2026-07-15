@@ -189,6 +189,7 @@ The publish contract (folder id, canvas id, which tool to call) is appended to t
 Write outputs widen the run's PostHog MCP scopes by exactly `file_system:read` + `file_system:write` on top of whatever the loop already carries, rather than promoting it to the broad `full` write surface.
 A feed-only attachment grants no extra scope.
 `folder_id` and `canvas_id` are validated against the team's desktop file system on write; the resolved feed channel is always team-scoped, so no cross-team id can be attached.
+A context-attached loop must have `team` visibility: its runs are filed into the context's public feed channel (team-readable regardless of loop visibility) and maintain team-shared artifacts, so `personal` would leak the loop's output while hiding the loop itself. Enforced on the effective post-write state in the facade (`create_loop` / `update_loop`), surfaced as a 400; detaching and downgrading in the same PATCH is allowed.
 
 ## Access control
 

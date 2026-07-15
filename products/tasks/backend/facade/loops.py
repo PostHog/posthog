@@ -111,7 +111,9 @@ class LoopValidationError(Exception):
     """Raised when a facade-level write fails a cross-team or shape check. The DRF serializer
     catches these cases first for API callers; this is the backstop for in-code facade callers
     (internal products) that don't re-run serializer validation, so they can't create a loop that
-    references another team's resources or explodes at fire time."""
+    references another team's resources or explodes at fire time. Cross-field checks that need
+    the loop's current state (context attachment vs visibility) live only here, so the view
+    layer translates this to a 400."""
 
 
 class LoopLimitError(Exception):
@@ -633,9 +635,18 @@ def validate_loop_write(team_id: int, data: dict) -> None:
             raise LoopValidationError("Sandbox environment not found for this team.")
 
 
+def _validate_context_visibility(visibility: str, context_target: dict | None) -> None:
+    """A context-attached loop must be team-visible: its runs land in the context's public feed
+    channel and maintain team-shared artifacts, so `personal` would leak the loop's output to
+    the whole team while hiding the loop that produces it."""
+    if context_target and visibility != Loop.Visibility.TEAM:
+        raise LoopValidationError("A loop attached to a context must have team visibility.")
+
+
 def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDTO:
     data = dict(validated_data)
     validate_loop_write(team_id, data)
+    _validate_context_visibility(data.get("visibility", Loop.Visibility.PERSONAL), data.get("context_target"))
     trigger_payloads = data.pop("triggers", None) or []
 
     if len(trigger_payloads) > MAX_TRIGGERS_PER_LOOP:
@@ -723,6 +734,13 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     # Detaching from a context sends `context_target: null`; the column is NOT NULL, so store {}.
     if "context_target" in data and data["context_target"] is None:
         data["context_target"] = {}
+
+    # Judged on the effective post-update state: attaching a context to a personal loop and
+    # downgrading an attached loop to personal must both be rejected.
+    _validate_context_visibility(
+        data.get("visibility", loop.visibility),
+        data["context_target"] if "context_target" in data else loop.context_target,
+    )
 
     enabled_before = loop.enabled
     with transaction.atomic():
