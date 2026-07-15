@@ -124,6 +124,22 @@ def test_parse_args_rejects_non_positive_case_timeout(case_timeout: int) -> None
     assert error.value.code == 2
 
 
+@parameterized.expand(
+    [
+        ("local", {}, 1),
+        ("coder", {"CODER": "true"}, 4),
+        ("ci", {"CI": ""}, 4),
+    ]
+)
+def test_parse_args_resolves_team_setup_concurrency(
+    _environment_name: str, environment: dict[str, str], expected_concurrency: int
+) -> None:
+    with patch.dict(os.environ, environment, clear=True):
+        options = parse_args([])
+
+    assert options.team_setup_concurrency == expected_concurrency
+
+
 @pytest.mark.asyncio
 async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)

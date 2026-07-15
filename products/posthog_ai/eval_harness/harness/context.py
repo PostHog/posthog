@@ -56,7 +56,7 @@ class EvalContext:
     suite. ``None`` when no selected suite is sandboxed."""
 
     team_setup_slots: asyncio.Semaphore
-    """Serializes team cloning and case seeders to protect local ClickHouse RAM."""
+    """Bounds concurrent team cloning and case seeders to protect ClickHouse RAM."""
 
     one_shot_slots: asyncio.Semaphore
     """The one global limiter on concurrently running one-shot cases, shared by

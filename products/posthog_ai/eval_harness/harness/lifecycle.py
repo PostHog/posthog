@@ -21,7 +21,7 @@ from products.tasks.backend.temporal.process_task.utils import get_reasoning_eff
 
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
-from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, TEAM_SETUP_CONCURRENCY, HarnessOptions
+from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, HarnessOptions
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
@@ -297,7 +297,7 @@ class SandboxedEvalHarness:
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,
             sandbox_slots=asyncio.Semaphore(self.options.max_sandboxes) if Infra.SANDBOX in required else None,
-            team_setup_slots=asyncio.Semaphore(TEAM_SETUP_CONCURRENCY),
+            team_setup_slots=asyncio.Semaphore(self.options.team_setup_concurrency),
             one_shot_slots=asyncio.Semaphore(DEFAULT_ONE_SHOT_CONCURRENCY),
             reporter=reporter,
             engine=self._engine,

@@ -83,7 +83,7 @@ One `asyncio.Semaphore` on `EvalContext` bounds live sandboxes across every suit
 Two consequences worth internalizing:
 
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
-- A second `team_setup_slots` semaphore has one permit and covers the full demo-data clone plus optional case seeder. This prevents setup-time ClickHouse queries from overlapping even when Modal sandbox capacity is unbounded.
+- A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It has one permit on ordinary local machines and four when `CODER` or `CI` is set, so managed environments prepare cases faster without making setup concurrency follow Modal's unbounded sandbox capacity.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
 - One-shot suites never touch the sandbox semaphore; a separate global `one_shot_slots` semaphore bounds their concurrently running cases under the same acquire-once, budget-inside rules.
 

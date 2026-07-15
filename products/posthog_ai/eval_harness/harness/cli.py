@@ -20,9 +20,10 @@ DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAUL
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
-TEAM_SETUP_CONCURRENCY = 1
-"""Per-case team setups allowed at once. Setup copies ClickHouse data and some
-case seeders write there directly, so overlapping setups can exhaust local RAM."""
+DEFAULT_TEAM_SETUP_CONCURRENCY = 1
+MANAGED_TEAM_SETUP_CONCURRENCY = 4
+"""Per-case team setups allowed at once. Managed Coder and CI environments can
+absorb parallel ClickHouse copies; ordinary local machines stay conservative."""
 
 DEFAULT_ONE_SHOT_CONCURRENCY = 8
 """Concurrently running one-shot cases across all suites — bounds LLM API and
@@ -41,6 +42,9 @@ class HarnessOptions:
     agent_runtime: str
     reasoning_effort: str | None
     max_sandboxes: int
+    team_setup_concurrency: int
+    """Concurrent team-cloning and case-seeding phases for this run."""
+
     keep_sandbox_containers: bool
     rebuild_sandbox_image: bool
     create_db: bool
@@ -57,6 +61,12 @@ def _default_case_timeout() -> int:
     if os.getenv("EVAL_MODE") == "offline":
         return OFFLINE_CASE_TIMEOUT_SECONDS
     return DEFAULT_CASE_TIMEOUT_SECONDS
+
+
+def _default_team_setup_concurrency() -> int:
+    if os.getenv("CODER") is not None or os.getenv("CI") is not None:
+        return MANAGED_TEAM_SETUP_CONCURRENCY
+    return DEFAULT_TEAM_SETUP_CONCURRENCY
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -203,6 +213,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         agent_runtime=agent_runtime,
         reasoning_effort=args.reasoning_effort,
         max_sandboxes=max_sandboxes,
+        team_setup_concurrency=_default_team_setup_concurrency(),
         keep_sandbox_containers=args.keep_sandbox_containers,
         rebuild_sandbox_image=args.rebuild_sandbox_image,
         create_db=args.create_db,

@@ -21,6 +21,7 @@ The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORT
 - **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that the harness's own semaphores are the only limiters.
 - **Acquire `ctx.sandbox_slots` exactly once per case**, around only the sandbox-owning window. It is not reentrant; a second acquisition inside the first deadlocks. `ctx.one_shot_slots` follows the same rules for one-shot cases: acquired once, `wait_for` budget inside, never both semaphores in one case.
 - Hold `ctx.team_setup_slots` across both the demo-data clone and optional case setup hook. Some setup hooks write directly to ClickHouse, so releasing it between those phases defeats the RAM guard.
+- Resolve the team-setup limit once through `HarnessOptions`: one permit normally and four when `CODER` or `CI` is set. Do not read those environment variables inside a case or make setup concurrency follow the sandbox limit.
 - Keep scoring, log parsing, and span building _outside_ the slot. A sandbox that is being scored is a sandbox that someone else could be using.
 - Every sync Django ORM call reached from async code goes through `asyncio.to_thread`. Do not set `DJANGO_ALLOW_ASYNC_UNSAFE` to make an error go away.
 

@@ -89,6 +89,10 @@ Experiment names don't change with the runtime — each Braintrust experiment re
 
 ## Providers
 
+Prefer Modal for multi-case sandboxed evals when its prerequisites are available.
+Remote sandboxes can run in parallel without consuming local Docker memory, so they usually finish faster.
+Use Docker for small smoke tests or when remote access is unavailable.
+
 **docker** (default) runs sandboxes as local containers, so a Docker daemon must be reachable.
 Each container defaults to 16 GB, so host RAM is what bounds concurrency: the default cap is 4, and raising `--max-sandboxes` needs a big host.
 
@@ -122,10 +126,11 @@ The sweep is scoped to this run's own tasks (matched by the `task_id` sandbox ta
 Every selected suite runs concurrently on one event loop, and a global semaphore bounds the number of live sandboxes across all of them.
 Selecting more suites therefore increases throughput without increasing peak load.
 
-A separate one-at-a-time queue covers the full per-case team setup, including the demo-data clone and optional setup hook.
-These phases can issue large ClickHouse copies or direct inserts, so serializing them protects local ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded.
+A separate semaphore covers the full per-case team setup, including the demo-data clone and optional setup hook.
+It allows one setup at a time on ordinary local machines and four when either `CODER` or `CI` is set.
+These phases can issue large ClickHouse copies or direct inserts, so the independent limit protects ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded while letting managed environments prepare cases faster.
 When object storage is enabled, setup also validates the master warehouse and clones team-scoped warehouse metadata for each case while reusing the master's immutable CSV files.
-Once setup completes, the queue advances to the next case while the prepared case runs its agent.
+When a setup completes, its slot becomes available to the next case while the prepared case runs its agent.
 
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
 Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.

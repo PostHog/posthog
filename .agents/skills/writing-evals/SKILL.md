@@ -142,6 +142,11 @@ Rules that apply to both:
 
 ## Running
 
+Read [references/running-evals.md](references/running-evals.md) when setting up the local Docker provider or the remote Modal provider for the first time.
+It covers shared credentials, provider authentication, first-run commands, concurrency limits, and common setup failures.
+Prefer remote Modal for sandboxed suites when its prerequisites are available.
+It runs agent sandboxes in parallel without the local Docker memory ceiling, so multi-case evals finish faster; keep Docker for small smoke tests or when remote access is unavailable.
+
 ```bash
 hogli evals --list                      # suite ids, no infra
 hogli evals eval_my_thing --eval my_case  # one case, docker
@@ -153,6 +158,7 @@ hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
 - Run from a flox shell (or wrap in `flox activate -- bash -c "..."`): the personhog build needs flox's Rust toolchain, and outside it the preflight `cargo build` dies on a missing `pkg-config`/OpenSSL.
 - Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
 - `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
+- Team cloning and case seeding use one setup slot on ordinary local machines and four when `CODER` or `CI` is set.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
 - `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-5.5`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the Braintrust experiment metadata, so compare scores within one runtime.
 - Every real eval invocation mirrors its complete stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`. The ending label identifies it as the full run transcript, the last terminal line is its absolute path, and `logs/harness/latest.log` points to the newest transcript. `--list` and argument errors do not create one.

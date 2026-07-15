@@ -358,9 +358,9 @@ class _SandboxedEvalRun(_BaseEvalRun):
         ctx = self.ctx
         seed_result: dict[str, Any] = {}
         async with self._sandbox_slots:
-            # Team cloning and some case seeders both write to ClickHouse. Keep
-            # the full setup phase serial even when Modal makes sandbox capacity
-            # effectively unbounded.
+            # Team cloning and some case seeders both write to ClickHouse. Bound
+            # the full setup phase separately even when Modal makes sandbox
+            # capacity effectively unbounded.
             async with ctx.team_setup_slots:
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
