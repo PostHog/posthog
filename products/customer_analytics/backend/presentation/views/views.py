@@ -34,7 +34,6 @@ from posthog.permissions import is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.logic.person_property_projection import person_properties_flag_enabled
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
@@ -255,7 +254,7 @@ class CustomPropertyDefinitionViewSet(
         serializer = CustomPropertyDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.target_type == "person" and not person_properties_flag_enabled(self.team_id):
+        if data.target_type == "person" and not api.person_properties_flag_enabled(self.team_id):
             raise ValidationError({"target_type": "Person properties from warehouse data are not enabled yet."})
         try:
             definition = api.create_custom_property_definition(
