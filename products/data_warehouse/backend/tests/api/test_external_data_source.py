@@ -2133,6 +2133,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
+                    "masked_columns": None,
                     "row_filters": None,
                     "available_columns": [],
                     "source": None,
@@ -3877,6 +3878,181 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
         assert schema.enabled_columns == expected_persisted
+
+    @parameterized.expand(
+        [
+            ("omitted_means_no_masks", "omitted", None),
+            ("null_means_no_masks", None, None),
+            # Unlike enabled_columns, `[]` and `None` mean the same thing for masks (nothing masked).
+            ("empty_list_means_no_masks", [], None),
+            # The wizard's mask selections must survive creation — dropping them here means the
+            # first sync lands the sensitive column in plaintext.
+            ("subset_passes_through", ["email"], ["email"]),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_persists_masked_columns_payload(
+        self,
+        _name: str,
+        payload_value: list[str] | None | str,
+        expected_persisted: list[str] | None,
+        mock_get_source,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True), ("name", "text", True)],
+                foreign_keys=[],
+            ),
+        ]
+
+        schema_payload: dict[str, t.Any] = {"name": "events", "should_sync": True, "sync_type": None}
+        if payload_value != "omitted":
+            schema_payload["masked_columns"] = payload_value
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [schema_payload],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        assert schema.masked_columns == expected_persisted
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_masking_the_primary_key(self, mock_get_source):
+        # resolve_masked_columns drops a PK mask at sync time, so accepting it here would report the
+        # column as masked while it syncs in plaintext. Mirror the PATCH endpoint and reject at creation.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=False,
+                columns=[("id", "integer", False), ("ts", "timestamp", False), ("email", "text", True)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "ts",
+                            "incremental_field_type": "timestamp",
+                            "primary_key_columns": ["id"],
+                            "masked_columns": ["id"],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "can't be masked" in response.json()["message"]
+        assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="events").exists()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_masking_a_column_that_collides_after_normalization(self, mock_get_source):
+        # `email` and `Email` both fold to `email`; masking `Email` can't be disambiguated, so the
+        # intended column would sync plaintext. Reject at creation rather than mask the wrong one.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True), ("Email", "text", True)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {"name": "events", "should_sync": True, "sync_type": None, "masked_columns": ["Email"]}
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "collide after normalization" in response.json()["message"]
+        assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="events").exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):

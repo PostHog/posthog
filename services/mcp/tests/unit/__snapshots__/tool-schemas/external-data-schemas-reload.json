@@ -69,6 +69,20 @@
             ],
             "description": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid"
         },
+        "masked_columns": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
+        },
         "primary_key_columns": {
             "anyOf": [
                 {

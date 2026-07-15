@@ -59,6 +59,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
+    fold_column_name,
+    get_masking_key,
+    mask_value,
+    resolve_masked_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -192,6 +198,10 @@ class CDCExtractActivity:
         self.pk_columns_by_table: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Missing/empty entry = no masking; otherwise the set is the columns to mask (never PK/incremental).
+        self.masked_columns_by_table: dict[str, set[str]] = {}
+        # HMAC key derived once per activity run — never per cell in the WAL hot loop.
+        self._masking_key: bytes | None = None
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -945,6 +955,16 @@ class CDCExtractActivity:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
 
+            # Masking is independent of column selection: a schema may mask columns it still syncs.
+            # Names are folded to the normalized namespace so a cased mask entry (e.g. "ID") still
+            # protects a PK stored as "id" instead of slipping through and hashing the merge key.
+            if isinstance(schema.masked_columns, list) and schema.masked_columns:
+                self.masked_columns_by_table[schema.name] = resolve_masked_columns(
+                    schema.masked_columns,
+                    self.pk_columns_by_table.get(schema.name, []),
+                    schema.incremental_field,
+                )
+
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
         retained = self.enabled_columns_by_table.get(event.table_name)
         if retained is None:
@@ -960,6 +980,19 @@ class CDCExtractActivity:
             columns=filtered,
             column_types=event.column_types,
         )
+
+    def _mask_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        masked = self.masked_columns_by_table.get(event.table_name)
+        if not masked:
+            return event
+        if self._masking_key is None:
+            self._masking_key = get_masking_key()
+        key = self._masking_key
+        columns = {
+            name: (mask_value(self.inputs.team_id, value, key=key) if fold_column_name(name) in masked else value)
+            for name, value in event.columns.items()
+        }
+        return dataclasses.replace(event, columns=columns)
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
@@ -1030,6 +1063,7 @@ class CDCExtractActivity:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
                 event = self._project_event_columns(event)
+                event = self._mask_event_columns(event)
                 self.batcher.add(event)
 
                 # A change in position_serialized proves the previous transaction fully

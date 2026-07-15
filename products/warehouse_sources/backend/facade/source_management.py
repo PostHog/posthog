@@ -36,6 +36,8 @@ _LAZY = {
     "OAuthMixin": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",
+    "ambiguous_masked_columns": "pipelines.pipeline.masking",
+    "fold_column_name": "pipelines.pipeline.masking",
     "RowFilterValidationError": "sources.common.sql",
     "filter_dwh_columns_by_enabled_columns": "sources.common.sql",
     "sql_schema_metadata": "sources.common.sql",

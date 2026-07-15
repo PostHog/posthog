@@ -60,7 +60,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
+    ambiguous_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    fold_column_name,
     get_cdc_adapter,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
@@ -314,6 +316,19 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "even if not listed here."
         ),
     )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at "
+            "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
+            "Primary-key columns and the active incremental field can't be masked, and direct query "
+            "sources don't support masking. Any change to this list triggers a full resync of the "
+            "table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since "
+            "their data can't be re-fetched."
+        ),
+    )
     row_filters = RowFiltersField(
         required=False,
         allow_null=True,
@@ -363,6 +378,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "primary_key_columns",
             "cdc_table_mode",
             "enabled_columns",
+            "masked_columns",
             "row_filters",
             "available_columns",
             "source",
@@ -602,6 +618,87 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+
+        if "masked_columns" in validated_data:
+            masked_columns = validated_data["masked_columns"]
+            if masked_columns is not None:
+                # Masking is applied by the sync pipeline; direct-query sources never sync, so a
+                # persisted mask would silently protect nothing. Mirrors the row_filters rejection.
+                if instance.source.is_direct_query:
+                    raise ValidationError(
+                        "Column masking is not supported for direct query sources — they query the "
+                        "source live and never sync data to mask."
+                    )
+                metadata = instance.schema_metadata or {}
+                metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
+                known = (
+                    {col.get("name") for col in metadata_columns if isinstance(col, dict)}
+                    if isinstance(metadata_columns, list)
+                    else set()
+                )
+                if known:
+                    # Fold both sides so a normalized name (e.g. `email` for Snowflake's `EMAIL`)
+                    # isn't falsely rejected — the masking engine matches folded names at runtime.
+                    known_folded = {fold_column_name(name) for name in known if isinstance(name, str)}
+                    unknown = [c for c in masked_columns if fold_column_name(c) not in known_folded]
+                    if unknown:
+                        raise ValidationError(
+                            f"Unknown columns in masked_columns: {sorted(unknown)}. "
+                            "Run `Pull new schemas` to refresh available columns."
+                        )
+                    # Two source columns that normalize to the same name (e.g. `email` + `Email`) can't
+                    # be masked unambiguously — the engine would hit the wrong one. Fail closed.
+                    ambiguous = ambiguous_masked_columns(masked_columns, known)
+                    if ambiguous:
+                        raise ValidationError(
+                            f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
+                            "Rename the source columns to differ by more than case."
+                        )
+                # Fold names the same way the masking engine does (NamingConvention, via
+                # `fold_column_name`) so validation and runtime protection agree — `casefold` alone is a
+                # strict subset and would pass entries that normalize onto a PK/incremental name.
+                protected = {fold_column_name(c) for c in (instance.primary_key_columns or [])}
+                if instance.incremental_field:
+                    protected.add(fold_column_name(instance.incremental_field))
+                conflicting = [c for c in masked_columns if fold_column_name(c) in protected]
+                if conflicting:
+                    raise ValidationError(
+                        f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)}."
+                    )
+            # Mask changes rebuild the table via a full resync, but webhook data is pushed to us and
+            # can't be re-fetched — the reset would wipe the table and the resync restores nothing.
+            # Fail closed rather than destroy the table (masks can still be set before first sync).
+            mask_set_changed = {fold_column_name(c) for c in (instance.masked_columns or [])} != {
+                fold_column_name(c) for c in (masked_columns or [])
+            }
+            if mask_set_changed and instance.is_webhook and instance.table is not None:
+                raise ValidationError(
+                    "Can't change masked columns on a synced webhook schema: webhook data can't be "
+                    "re-fetched from the source, so the required table rebuild would destroy it. "
+                    "Delete and recreate the schema to change masking."
+                )
+            # Mask changes force a full rebuild (resync or CDC re-snapshot) — same billing gate as
+            # the sibling resync/reload endpoints.
+            if mask_set_changed and is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Cannot change masked columns while sync is paused (usually a billing limit) — "
+                    "mask changes require a full resync."
+                )
+
+        # Moving the incremental cursor onto a masked column would read HMAC digests as cursor
+        # values — a nonsense watermark. Reject the same conflict from the other direction.
+        incoming_incremental_field = data.get("incremental_field")
+        if isinstance(incoming_incremental_field, str) and incoming_incremental_field:
+            effective_masks = (
+                validated_data["masked_columns"]
+                if "masked_columns" in validated_data and validated_data["masked_columns"] is not None
+                else instance.masked_columns
+            ) or []
+            if fold_column_name(incoming_incremental_field) in {fold_column_name(c) for c in effective_masks}:
+                raise ValidationError(
+                    f"Can't use masked column '{incoming_incremental_field}' as the incremental field — "
+                    "its stored values are one-way hashes, not orderable source values."
+                )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
@@ -897,6 +994,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
+        # Masking rewrites a column's values as string digests, so its stored type flips to string, and
+        # already-synced rows still hold plaintext. Newly-*added* masked columns can be fixed in place by
+        # the re-mask job (re-hash the existing Delta data, no source re-fetch). *Removing* a column
+        # (unmask) needs the original values back from the source, i.e. a full re-sync. Names are folded so
+        # a re-cased entry isn't mistaken for a change.
+        # Only diff when the request actually carries the field — PATCH semantics say an omitted
+        # field is unchanged. Without this guard, a should_sync/frequency-only PATCH on a masked
+        # schema would read as "all masks removed" and fire a spurious full resync.
+        if "masked_columns" in validated_data:
+            old_masked = {fold_column_name(c) for c in (instance.masked_columns or [])}
+            new_masked = {fold_column_name(c) for c in (validated_data.get("masked_columns") or [])}
+            masked_columns_changed = old_masked != new_masked
+        else:
+            masked_columns_changed = False
+
         if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
@@ -949,7 +1061,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
+        # Any mask change rebuilds the table via the tested resync path: adds must rewrite the
+        # already-synced plaintext (and flip the column's stored type to string), removals must
+        # restore original values from the source. CDC re-snapshots through its own path below.
+        if masked_columns_changed and not is_cdc:
+            # Billing-paused mask changes were already rejected in validate(). Don't fire a workflow
+            # for a disabled schema — reset_pipeline stays set, so the rebuild happens on next enable.
+            effective_should_sync = should_sync if should_sync is not None else instance.should_sync
+            if effective_should_sync:
+                trigger_refresh = True
+            else:
+                validated_data.setdefault("sync_type_config", instance.sync_type_config)
+                instance.sync_type_config.update({"reset_pipeline": True})
+                validated_data["sync_type_config"].update({"reset_pipeline": True})
+
         if trigger_refresh:
+            # A mask-only PATCH never populates sync_type_config, so seed it before setting the flag.
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
@@ -1004,12 +1132,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
         # automatically once the snapshot completes via `run_post_load_operations`.
-        if is_cdc and "cdc_table_mode" in data:
+        if is_cdc:
             new_cdc_table_mode = data.get("cdc_table_mode")
-            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
+            cdc_table_mode_needs_resnapshot = "cdc_table_mode" in data and _cdc_table_mode_change_needs_resnapshot(
+                previous_cdc_table_mode, new_cdc_table_mode
+            )
+            if cdc_table_mode_needs_resnapshot or masked_columns_changed:
                 logger.info(
                     "cdc_table_mode_changed_resnapshot_triggered",
                     schema_id=str(updated_instance.id),
+                    cdc_table_mode_changed=cdc_table_mode_needs_resnapshot,
+                    masked_columns_changed=masked_columns_changed,
                     old_cdc_table_mode=previous_cdc_table_mode,
                     new_cdc_table_mode=new_cdc_table_mode,
                 )

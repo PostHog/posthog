@@ -155,12 +155,14 @@ from products.warehouse_sources.backend.facade.source_management import (
     SQLSource,
     SSLRequiredError,
     WebhookSource,
+    ambiguous_masked_columns,
     build_default_schemas,
     cdc_pg_connection,
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     filter_integration_accounts,
+    fold_column_name,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
@@ -2227,6 +2229,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 payload_row_filters if isinstance(payload_row_filters, list) and payload_row_filters else None
             )
 
+            payload_masked_columns = schema.get("masked_columns")
+            masked_columns: list[str] | None = (
+                [str(column) for column in payload_masked_columns if isinstance(column, str)]
+                if isinstance(payload_masked_columns, list) and payload_masked_columns
+                else None
+            )
+
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
@@ -2388,6 +2397,44 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
+            # Validate masked_columns at creation, mirroring the PATCH endpoint. Silently accepting
+            # (or dropping) a mask would report a column as masked while it syncs in plaintext.
+            if masked_columns:
+                if is_direct_query:
+                    # Direct-query sources query live and never sync, so a mask protects nothing.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Column masking is not supported for direct query sources (schema '{schema_name}')."
+                        },
+                    )
+                known_columns = [c[0] for c in (source_schema.columns if source_schema else [])]
+                # Two source columns that normalize to the same name (e.g. `email` + `Email`) can't be
+                # masked unambiguously — the engine would hit the wrong one. Fail closed.
+                ambiguous = ambiguous_masked_columns(masked_columns, known_columns)
+                if ambiguous:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)} for schema '{schema_name}'."
+                        },
+                    )
+                # PKs resolved into sync_type_config above (provided, discovered, or CDC-queried).
+                protected = {fold_column_name(c) for c in (sync_type_config.get("primary_key_columns") or [])}
+                if incremental_field:
+                    protected.add(fold_column_name(incremental_field))
+                conflicting = [c for c in masked_columns if fold_column_name(c) in protected]
+                if conflicting:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)} for schema '{schema_name}'."
+                        },
+                    )
+
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
             # and the value prop is near-real-time. Other sync types use the 6h default.
             schema_sync_frequency_interval = (
@@ -2407,6 +2454,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
                 enabled_columns=enabled_columns,
+                # Masking never applies to direct-query sources (they query live, nothing syncs);
+                # the runtime engine additionally drops PK/incremental names defensively.
+                masked_columns=None if is_direct_query else masked_columns,
                 row_filters=row_filters,
             )
 
