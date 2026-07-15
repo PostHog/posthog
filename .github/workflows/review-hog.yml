@@ -14,6 +14,8 @@
 # fork PRs, so the `if:` hard-gates forks — safe because this job never checks out or runs PR code.
 name: ReviewHog
 
+# Sanctioned use — no job checks out or runs PR code; see the Safety note above.
+# nosemgrep: github-actions-pull-request-target
 on:
     pull_request_target:
         types: [labeled]
