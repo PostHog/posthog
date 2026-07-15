@@ -17,10 +17,18 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.temporal.ai_observability.eval_reports.output_types import (
+    EvaluationReportOutcomeDefinition,
+    get_outcome_definition,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
     ReportSection,
+    calculate_boolean_pass_rate,
+    calculate_result_rates,
+    normalize_metrics_payload,
+    normalize_report_content_payload,
 )
 
 if TYPE_CHECKING:
@@ -51,6 +59,48 @@ def _ch_ts(iso_str: str) -> datetime:
 
 _WIDENED_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
 _WIDENED_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
+
+
+def _resolve_output_type(output_type: str | None) -> tuple[str, EvaluationReportOutcomeDefinition]:
+    normalized_output_type = output_type or "boolean"
+    return normalized_output_type, get_outcome_definition(normalized_output_type)
+
+
+def _summary_select_sql(definition: EvaluationReportOutcomeDefinition) -> str:
+    count_columns = [
+        f"countIf({definition.outcome_predicates[outcome]}) as {outcome}_count" for outcome in definition.outcomes
+    ]
+    return ",\n            ".join([*count_columns, "count() as total"])
+
+
+def _parse_summary_row(
+    definition: EvaluationReportOutcomeDefinition,
+    row: list[int | float | str | None] | tuple[int | float | str | None, ...] | None,
+) -> tuple[dict[str, int], int]:
+    values = row or ()
+    counts = {
+        outcome: _summary_value_as_int(values[index]) if index < len(values) else 0
+        for index, outcome in enumerate(definition.outcomes)
+    }
+    total_index = len(definition.outcomes)
+    total = _summary_value_as_int(values[total_index]) if total_index < len(values) else 0
+    return counts, total
+
+
+def _summary_value_as_int(value: int | float | str | None) -> int:
+    return int(value) if value is not None else 0
+
+
+def _outcome_for_result(output_type: str, result: object, applicable: object = None) -> str | None:
+    if output_type == "sentiment":
+        return result if isinstance(result, str) and result in ("positive", "neutral", "negative") else None
+    if applicable is False:
+        return "na"
+    outcomes_by_result: dict[object, str] = {True: "pass", False: "fail"}
+    try:
+        return outcomes_by_result.get(result)
+    except TypeError:
+        return None
 
 
 def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
@@ -130,26 +180,25 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     return result.results or []
 
 
-def _fetch_period_counts(
-    team_id: int, evaluation_id: str, ts_start: datetime, ts_end: datetime
-) -> tuple[int, int, int, int]:
-    """Fetch pass/fail/NA/total counts for a single time window.
-
-    Returns (pass_count, fail_count, na_count, total).
-    """
+def _fetch_period_summary(
+    team_id: int,
+    evaluation_id: str,
+    ts_start: datetime,
+    ts_end: datetime,
+    definition: EvaluationReportOutcomeDefinition,
+) -> tuple[dict[str, int], int]:
+    """Fetch trusted outcome counts and total runs for one time window."""
     rows = _execute_hogql(
         team_id,
-        """
+        f"""
         SELECT
-            countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
-            countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
-            countIf(properties.$ai_evaluation_applicable = false) as na_count,
-            count() as total
+            {_summary_select_sql(definition)}
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = {evaluation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
         """,
         placeholders={
             "evaluation_id": ast.Constant(value=evaluation_id),
@@ -157,15 +206,32 @@ def _fetch_period_counts(
             "ts_end": ast.Constant(value=ts_end),
         },
     )
-    row = rows[0] if rows else [0, 0, 0, 0]
-    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
+    return _parse_summary_row(definition, rows[0] if rows else None)
+
+
+def _period_summary_dict(
+    output_type: str,
+    result_counts: dict[str, int],
+    total_runs: int,
+    *,
+    empty_rates_as_none: bool = False,
+) -> dict:
+    result_rates = calculate_result_rates(output_type, result_counts, empty_as_none=empty_rates_as_none)
+    summary: dict = {
+        "total_runs": total_runs,
+        "result_counts": result_counts,
+        "result_rates": result_rates,
+    }
+    if output_type == "boolean":
+        summary["pass_rate"] = calculate_boolean_pass_rate(result_counts, empty_as_none=empty_rates_as_none)
+    return summary
 
 
 @tool
 def get_summary_metrics(
     state: Annotated[dict, InjectedState],
 ) -> str:
-    """Get pass/fail/NA counts and pass rate for the current period AND the previous period.
+    """Get outcome counts and rates for the current and previous periods.
 
     Returns current and previous period statistics for comparison. Call this first
     to understand the baseline. Note: these numbers are also computed mechanically
@@ -177,40 +243,29 @@ def get_summary_metrics(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
     ts_prev_start = _ch_ts(state["previous_period_start"])
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
-    pass_count, fail_count, na_count, total = _fetch_period_counts(team_id, evaluation_id, ts_start, ts_end)
-    prev_pass, prev_fail, prev_na, prev_total = _fetch_period_counts(team_id, evaluation_id, ts_prev_start, ts_start)
-
-    applicable = pass_count + fail_count
-    pass_rate = round(pass_count / applicable * 100, 2) if applicable > 0 else 0.0
-    prev_applicable = prev_pass + prev_fail
-    previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
+    result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, definition)
+    previous_result_counts, previous_total = _fetch_period_summary(
+        team_id, evaluation_id, ts_prev_start, ts_start, definition
+    )
 
     result = {
-        "current_period": {
-            "total_runs": total,
-            "pass_count": pass_count,
-            "fail_count": fail_count,
-            "na_count": na_count,
-            "pass_rate": pass_rate,
-        },
-        "previous_period": {
-            "total_runs": prev_total,
-            "pass_count": prev_pass,
-            "fail_count": prev_fail,
-            "na_count": prev_na,
-            "pass_rate": previous_pass_rate,
-        },
+        "output_type": output_type,
+        "current_period": _period_summary_dict(output_type, result_counts, total),
+        "previous_period": _period_summary_dict(
+            output_type, previous_result_counts, previous_total, empty_rates_as_none=True
+        ),
     }
     return json.dumps(result, indent=2)
 
 
 @tool
-def get_pass_rate_over_time(
+def get_result_distribution_over_time(
     state: Annotated[dict, InjectedState],
     bucket: str = "hour",
 ) -> str:
-    """Get time-series pass rate data bucketed by hour or day.
+    """Get time-series outcome counts and rates bucketed by hour or day.
 
     Use this to spot trends, anomalies, or degradations over the report period.
 
@@ -221,6 +276,7 @@ def get_pass_rate_over_time(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
     # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
     # from a fixed set rather than interpolating arbitrary identifiers into SQL.
@@ -231,12 +287,11 @@ def get_pass_rate_over_time(
         f"""
         SELECT
             {trunc_fn}(timestamp) as bucket,
-            countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
-            countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
-            count() as total
+            {_summary_select_sql(definition)}
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
         GROUP BY bucket
@@ -251,18 +306,8 @@ def get_pass_rate_over_time(
 
     result = []
     for row in rows:
-        passes = int(row[1])
-        fails = int(row[2])
-        applicable = passes + fails
-        result.append(
-            {
-                "bucket": str(row[0]),
-                "pass_count": passes,
-                "fail_count": fails,
-                "total": int(row[3]),
-                "pass_rate": round(passes / applicable * 100, 2) if applicable > 0 else None,
-            }
-        )
+        result_counts, total = _parse_summary_row(definition, row[1:])
+        result.append({"bucket": str(row[0]), **_period_summary_dict(output_type, result_counts, total)})
 
     return json.dumps(result, indent=2)
 
@@ -277,7 +322,7 @@ def list_all_eval_results(
 ) -> str:
     """Get a compact overview of evaluation results in the period.
 
-    Returns up to 500 results as condensed rows: verdict, generation_id, and
+    Returns up to 500 results as condensed rows: outcome, generation_id, and
     truncated reasoning. When there are more than 500 results, returns a random
     sample. Use this as your first scan to spot patterns before drilling into
     specific examples with sample_generation_details.
@@ -289,6 +334,7 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
     shared_placeholders = {
         "evaluation_id": ast.Constant(value=evaluation_id),
@@ -299,13 +345,14 @@ def list_all_eval_results(
     # First get total count to know if we need to sample.
     count_rows = _execute_hogql(
         team_id,
-        """
+        f"""
         SELECT count() as cnt
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = {evaluation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
         """,
         placeholders=shared_placeholders,
     )
@@ -321,12 +368,14 @@ def list_all_eval_results(
         f"""
         SELECT
             properties.$ai_target_event_id as generation_id,
-            properties.$ai_evaluation_result as result,
-            properties.$ai_evaluation_applicable as applicable,
+            {definition.result_expression} as result,
+            {definition.applicable_expression} as applicable,
+            {definition.score_expression} as score,
             properties.$ai_evaluation_reasoning as reasoning
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
         {order_clause}
@@ -339,19 +388,12 @@ def list_all_eval_results(
     lines = []
     for row in rows:
         gen_id = str(row[0]) if row[0] else "?"
-        applicable = row[2]
-        if applicable is False:
-            verdict = "na"
-        elif row[1] is True:
-            verdict = "pass"
-        elif row[1] is False:
-            verdict = "fail"
-        else:
-            verdict = "?"
-        reasoning = (row[3] or "")[:max_reasoning_length]
-        if row[3] and len(row[3]) > max_reasoning_length:
+        outcome = _outcome_for_result(output_type, row[1], row[2]) or "?"
+        score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
+        reasoning = (row[4] or "")[:max_reasoning_length]
+        if row[4] and len(row[4]) > max_reasoning_length:
             reasoning += "..."
-        lines.append(f"{verdict} | {gen_id} | {reasoning}")
+        lines.append(f"{outcome}{score} | {gen_id} | {reasoning}")
 
     if is_sampled:
         header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
@@ -363,15 +405,15 @@ def list_all_eval_results(
 @tool
 def sample_eval_results(
     state: Annotated[dict, InjectedState],
-    filter: str = "all",
+    outcome: str = "all",
     limit: int = 50,
 ) -> str:
-    """Sample evaluation runs with generation_id, result, and reasoning.
+    """Sample evaluation runs with generation ID, outcome, score, and reasoning.
 
     Call multiple times with different filters to understand patterns.
 
     Args:
-        filter: "all", "pass", "fail", or "na"
+        outcome: "all" or one of the output type's supported outcomes
         limit: Maximum number of results to return (default 50)
     """
     limit = min(max(1, limit), 500)
@@ -379,28 +421,30 @@ def sample_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
-    # Whitelisted filter fragment — `filter` is an LLM-controlled arg; pick
-    # from a fixed set rather than interpolating arbitrary SQL.
+    # Whitelisted filter fragment: outcome predicates come only from the trusted
+    # outcome definition, never directly from the LLM-controlled argument.
     filter_clause = ""
-    if filter == "pass":
-        filter_clause = "AND properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)"
-    elif filter == "fail":
-        filter_clause = "AND properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)"
-    elif filter == "na":
-        filter_clause = "AND properties.$ai_evaluation_applicable = false"
+    if outcome != "all":
+        outcome_predicate = definition.outcome_predicates.get(outcome)
+        if outcome_predicate is None:
+            return json.dumps({"error": f"Unsupported {output_type} outcome: {outcome}"})
+        filter_clause = f"AND {outcome_predicate}"
 
     rows = _execute_hogql(
         team_id,
         f"""
         SELECT
             properties.$ai_target_event_id as generation_id,
-            properties.$ai_evaluation_result as result,
+            {definition.result_expression} as result,
             properties.$ai_evaluation_reasoning as reasoning,
-            properties.$ai_evaluation_applicable as applicable
+            {definition.applicable_expression} as applicable,
+            {definition.score_expression} as score
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
             {filter_clause}
@@ -417,15 +461,14 @@ def sample_eval_results(
 
     result = []
     for row in rows:
-        applicable = row[3]
-        eval_result = None if applicable is False else row[1]
-        result.append(
-            {
-                "generation_id": str(row[0]) if row[0] else "",
-                "result": eval_result,
-                "reasoning": row[2] or "",
-            }
-        )
+        entry = {
+            "generation_id": str(row[0]) if row[0] else "",
+            "outcome": _outcome_for_result(output_type, row[1], row[3]),
+            "reasoning": row[2] or "",
+        }
+        if output_type == "sentiment":
+            entry["score"] = row[4]
+        result.append(entry)
 
     return json.dumps(result, indent=2)
 
@@ -636,7 +679,10 @@ def get_generation_detail(
         """
         SELECT
             properties.$ai_evaluation_id as eval_id,
+            properties.$ai_evaluation_result_type as result_type,
             properties.$ai_evaluation_result as result,
+            properties.$ai_sentiment_label as sentiment_label,
+            properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable
         FROM events
@@ -652,14 +698,21 @@ def get_generation_detail(
 
     evals = []
     for er in eval_rows:
-        applicable = er[3]
-        evals.append(
-            {
-                "evaluation_id": str(er[0]) if er[0] else "",
-                "result": None if applicable is False else er[1],
-                "reasoning": er[2] or "",
-            }
-        )
+        output_type = str(er[1]) if er[1] else "boolean"
+        try:
+            get_outcome_definition(output_type)
+        except ValueError:
+            continue
+        raw_result = er[3] if output_type == "sentiment" else er[2]
+        entry = {
+            "evaluation_id": str(er[0]) if er[0] else "",
+            "output_type": output_type,
+            "outcome": _outcome_for_result(output_type, raw_result, er[6]),
+            "reasoning": er[5] or "",
+        }
+        if output_type == "sentiment":
+            entry["score"] = er[4]
+        evals.append(entry)
 
     result: dict = {
         "generation_id": str(row[0]) if row[0] else "",
@@ -788,7 +841,7 @@ def list_recent_report_runs(
 ) -> str:
     """List metadata for previous report runs of this evaluation.
 
-    Returns a compact index: run_id, period, title, pass rate, total runs.
+    Returns a compact index: run_id, period, title, outcome rates, total runs.
     No full content — use this to discover which past runs look interesting,
     then call `get_report_run(run_id)` to pull the full narrative for the ones
     worth reading. This two-step pattern keeps context small when scanning a
@@ -828,17 +881,22 @@ def list_recent_report_runs(
         # `metadata` mirror is maintained in the store activity for legacy consumers.
         # Prefer content so this tool stays correct even if the mirror is removed.
         metrics = content.get("metrics", {}) if isinstance(content.get("metrics"), dict) else {}
-        result.append(
-            {
-                "run_id": str(run.id),
-                "period_start": str(run.period_start),
-                "period_end": str(run.period_end),
-                "title": content.get("title", ""),
-                "pass_rate": metrics.get("pass_rate", metadata.get("pass_rate")),
-                "total_runs": metrics.get("total_runs", metadata.get("total_runs")),
-                "delivery_status": run.delivery_status,
-            }
-        )
+        normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
+        output_type = normalized_metrics["output_type"]
+        entry = {
+            "run_id": str(run.id),
+            "period_start": str(run.period_start),
+            "period_end": str(run.period_end),
+            "title": content.get("title", ""),
+            "output_type": output_type,
+            "total_runs": normalized_metrics["total_runs"],
+            "delivery_status": run.delivery_status,
+        }
+        if "result_rates" in normalized_metrics:
+            entry["result_rates"] = normalized_metrics["result_rates"]
+        if output_type == "boolean" and "pass_rate" in normalized_metrics:
+            entry["pass_rate"] = normalized_metrics["pass_rate"]
+        result.append(entry)
 
     return json.dumps(result, indent=2, default=str)
 
@@ -869,13 +927,16 @@ def get_report_run(
     except EvaluationReportRun.DoesNotExist:
         return json.dumps({"error": f"Run {run_id} not found for this evaluation"})
 
+    content = normalize_report_content_payload(run.content) if isinstance(run.content, dict) else run.content
+    metadata = normalize_metrics_payload(run.metadata) if isinstance(run.metadata, dict) else run.metadata
+
     return json.dumps(
         {
             "run_id": str(run.id),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
-            "content": run.content,
-            "metadata": run.metadata,
+            "content": content,
+            "metadata": metadata,
             "delivery_status": run.delivery_status,
         },
         indent=2,
@@ -884,37 +945,44 @@ def get_report_run(
 
 
 @tool
-def get_top_failure_reasons(
+def get_top_outcome_reasons(
     state: Annotated[dict, InjectedState],
+    outcome: str = "",
     limit: int = 10,
 ) -> str:
-    """Get grouped failure reasoning strings for quick failure mode overview.
+    """Get grouped reasoning strings for one output-type-specific outcome.
 
     Args:
-        limit: Maximum number of failure reason groups to return (default 10)
+        outcome: Outcome to analyze. Defaults to fail for boolean or negative for sentiment.
+        limit: Maximum number of reason groups to return (default 10)
     """
     limit = min(max(1, limit), 500)
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
+    output_type, definition = _resolve_output_type(state.get("output_type"))
+    selected_outcome = outcome or ("negative" if output_type == "sentiment" else "fail")
+    outcome_predicate = definition.outcome_predicates.get(selected_outcome)
+    if outcome_predicate is None:
+        return json.dumps({"error": f"Unsupported {output_type} outcome: {selected_outcome}"})
 
     rows = _execute_hogql(
         team_id,
-        """
+        f"""
         SELECT
             properties.$ai_evaluation_reasoning as reasoning,
             count() as cnt
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = {evaluation_id}
-            AND properties.$ai_evaluation_result = false
-            AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
+            AND {outcome_predicate}
+            AND timestamp >= {{ts_start}}
+            AND timestamp < {{ts_end}}
         GROUP BY reasoning
         ORDER BY cnt DESC
-        LIMIT {limit}
+        LIMIT {{limit}}
         """,
         placeholders={
             "evaluation_id": ast.Constant(value=evaluation_id),
@@ -949,7 +1017,7 @@ def set_title(
     titles like "Evaluation report" or "Analysis summary".
 
     Good examples:
-      - "Pass rate steady at 94%, dip at 14:00 UTC bucket"
+      - "Outcome distribution steady, dip at 14:00 UTC bucket"
       - "Volume dropped to zero — likely pipeline issue"
       - "Cost regression: gpt-5-mini 3x more expensive than last week"
 
@@ -978,8 +1046,8 @@ def add_section(
     over many with filler. By convention, the FIRST section you add should be the
     executive summary / TL;DR — it's what lands in the Slack main message.
 
-    Don't restate raw counts like "total_runs: 53, pass_count: 50" in prose — the
-    viewer renders a separate metrics block. Focus on analysis, comparisons,
+    Don't restate raw counts like "total_runs: 53" in prose. The viewer renders
+    a separate metrics block. Focus on analysis, comparisons,
     hypotheses, and concrete recommendations.
 
     Reference specific traces by calling add_citation separately with the
@@ -1042,7 +1110,7 @@ def add_citation(
 EVAL_REPORT_TOOLS = [
     # Query tools (read-only, agent calls as needed)
     get_summary_metrics,
-    get_pass_rate_over_time,
+    get_result_distribution_over_time,
     list_all_eval_results,
     sample_eval_results,
     sample_generation_details,
@@ -1050,7 +1118,7 @@ EVAL_REPORT_TOOLS = [
     get_generation_text_repr,
     list_recent_report_runs,
     get_report_run,
-    get_top_failure_reasons,
+    get_top_outcome_reasons,
     # Output tools (mutate state["report"])
     set_title,
     add_section,
