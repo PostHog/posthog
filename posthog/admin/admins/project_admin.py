@@ -8,6 +8,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.models import Project
@@ -114,9 +115,10 @@ class ProjectAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
-        # Staff access alone must not authorize a destructive delete; require Django's
-        # delete permission for the model (superusers pass automatically).
-        if not self.has_delete_permission(request, project):
+        # Staff access alone must not authorize a destructive delete; require explicit
+        # membership in the deletion-authorized group (Django's model permissions are not a
+        # real gate here — User.is_superuser mirrors is_staff, so every staff user passes).
+        if not can_trigger_admin_deletion(request):
             messages.error(request, "You do not have permission to delete this project.")
             return redirect(change_url)
 

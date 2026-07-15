@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
@@ -366,9 +367,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
-        # Staff access alone must not authorize a destructive delete; require Django's
-        # delete permission for the model (superusers pass automatically).
-        if not self.has_delete_permission(request, organization):
+        # Staff access alone must not authorize a destructive delete; require explicit
+        # membership in the deletion-authorized group (Django's model permissions are not a
+        # real gate here — User.is_superuser mirrors is_staff, so every staff user passes).
+        if not can_trigger_admin_deletion(request):
             messages.error(request, "You do not have permission to delete this organization.")
             return redirect(change_url)
 

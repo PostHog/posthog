@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
@@ -9,6 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.project_admin import ProjectAdmin
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.models import Organization, Project
 
 
@@ -27,8 +29,8 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
-        self.user.is_superuser = True
         self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = OrganizationAdmin(Organization, AdminSite())
 
@@ -77,9 +79,8 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         self.organization.refresh_from_db()
         self.assertFalse(self.organization.is_pending_deletion)
 
-    def test_staff_without_delete_permission_cannot_dispatch(self):
-        self.user.is_superuser = False
-        self.user.save()
+    def test_staff_outside_deletion_group_cannot_dispatch(self):
+        self.user.groups.clear()
 
         response, mock_start = self._call("POST")
 
@@ -118,8 +119,8 @@ class TestProjectAdminTriggerDeletion(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
-        self.user.is_superuser = True
         self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
@@ -168,9 +169,8 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_without_delete_permission_cannot_dispatch(self):
-        self.user.is_superuser = False
-        self.user.save()
+    def test_staff_outside_deletion_group_cannot_dispatch(self):
+        self.user.groups.clear()
 
         response, mock_start = self._call("POST")
 
