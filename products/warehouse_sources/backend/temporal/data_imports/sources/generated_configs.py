@@ -564,7 +564,7 @@ class BrowseAISourceConfig(config.Config):
 
 @config.config
 class BrowserUseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
