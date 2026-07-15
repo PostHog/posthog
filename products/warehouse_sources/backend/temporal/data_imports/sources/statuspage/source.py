@@ -52,7 +52,6 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
             ),
             iconPath="/static/services/statuspage.png",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

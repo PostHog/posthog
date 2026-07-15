@@ -17,6 +17,8 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
@@ -29,6 +31,12 @@ COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
     "posthog_cohort_dependency_cache_requests_total",
     "Total number of cohort dependency cache requests",
     labelnames=["cache_type", "result"],
+)
+
+COHORT_REALTIME_STATE_ORPHANED_COUNTER = Counter(
+    "posthog_cohort_realtime_state_orphaned_total",
+    "Realtime cohort edits that changed the Stage 1 LeafStateKey input set",
+    labelnames=["reason"],
 )
 
 
@@ -309,6 +317,11 @@ def _has_person_property_filters(cohort: Cohort) -> bool:
     return bool(_extract_person_property_filters(cohort))
 
 
+def _has_behavioral_filters(cohort: Cohort) -> bool:
+    properties = (cohort.filters or {}).get("properties")
+    return any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties))
+
+
 def _person_property_filters_changed(cohort: Cohort) -> bool:
     """
     Check if person property filters have changed by comparing current filters
@@ -442,6 +455,61 @@ def _trigger_cohort_backfill(cohort: Cohort) -> None:
         )
 
 
+def _trigger_cohort_events_backfill(cohort: Cohort, trigger_kind: str) -> None:
+    try:
+        from posthog.tasks.calculate_cohort import (
+            trigger_cohort_events_backfill_task,  # noqa: PLC0415 — avoids task import during model loading
+        )
+
+        redis_client = get_redis_client()
+        lock_key = f"cohort_backfill_events_pending:{cohort.pk}"
+        if redis_client.set(lock_key, 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+            logger.info(
+                "triggering_cohort_events_backfill",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                trigger_kind=trigger_kind,
+                debounce_seconds=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            )
+            try:
+                trigger_cohort_events_backfill_task.apply_async(
+                    args=[cohort.team_id, cohort.pk, trigger_kind],
+                    countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+                )
+            except Exception:
+                redis_client.delete(lock_key)
+                raise
+        else:
+            logger.info(
+                "cohort_events_backfill_already_pending",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
+    except Exception as error:
+        logger.exception(
+            "failed_to_trigger_cohort_events_backfill",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+            error=str(error),
+        )
+
+
+def _supersede_cohort_events_backfills(cohort: Cohort) -> None:
+    try:
+        from products.cohorts.backend.backfill.runs import (
+            supersede_active_runs,  # noqa: PLC0415 — avoids a model-load cycle
+        )
+
+        supersede_active_runs(cohort.team_id, [cohort.id])
+    except Exception as error:
+        logger.exception(
+            "failed_to_supersede_cohort_events_backfills",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+            error=str(error),
+        )
+
+
 @receiver(pre_save, sender=Cohort)
 def cohort_pre_save(sender, instance, **kwargs):
     """
@@ -540,6 +608,51 @@ def cohort_conditions_changed_backfill(sender, instance, **kwargs):
 
     # Use transaction.on_commit to ensure backfill runs after the current transaction
     transaction.on_commit(lambda: _trigger_cohort_backfill(instance))
+
+
+@receiver(post_save, sender=Cohort)
+def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
+    try:
+        if is_cohort_recalculation_only_save(kwargs):
+            return
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "filters" not in update_fields:
+            return
+        if not is_realtime_cohort_team(instance.team_id):
+            return
+        if instance.cohort_type != CohortType.REALTIME or instance.is_static or instance.deleted:
+            return
+        if not _has_behavioral_filters(instance):
+            return
+
+        created = kwargs.get("created", False)
+        if not created and not getattr(instance, "_leaf_shape_changed", False):
+            return
+
+        if created:
+            trigger_kind = "cohort_created"
+        else:
+            trigger_kind = "cohort_edited"
+            COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed").inc()
+            transaction.on_commit(lambda: _supersede_cohort_events_backfills(instance))
+
+        if not posthoganalytics.feature_enabled(
+            "behavioral-cohort-backfill-runs",
+            str(instance.team_id),
+            groups={"team": str(instance.team_id)},
+            send_feature_flag_events=False,
+        ):
+            return
+
+        transaction.on_commit(lambda: _trigger_cohort_events_backfill(instance, trigger_kind))
+    except Exception as error:
+        logger.exception(
+            "failed_to_handle_cohort_behavioral_shape_change",
+            cohort_id=instance.pk,
+            team_id=instance.team_id,
+            error=str(error),
+        )
 
 
 @receiver(post_delete, sender=Cohort)

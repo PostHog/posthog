@@ -372,6 +372,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "key for the table in its sync settings, or switch it to full table replication, then "
                 "re-enable the sync."
             ),
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `_build_query`/`_build_count_query`
+            # raise this before emitting any SQL. The stored config is fixed until the customer
+            # changes it, so every retry re-hits the same wall — non-retryable, like the missing
+            # primary key above. Reset doesn't clear `incremental_field`, so this isn't a transient
+            # reset artifact.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field configured, so "
+                "PostHog can't build its sync query. Choose an incremental field for the table in its "
+                "sync settings, or switch it to full table replication, then re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle

@@ -44,7 +44,6 @@ class TestBreezometerSource:
         assert config.name.value == "Breezometer"
         assert config.label == "BreezoMeter"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/breezometer.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/breezometer"
 
