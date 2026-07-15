@@ -178,6 +178,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 </div>
                                 <TestAccountFilterSwitch
                                     size="xsmall"
+                                    explainWhenNoFilters
                                     checked={universal.filter_test_accounts ?? false}
                                     onChange={(checked) =>
                                         applyUniversal({ ...universal, filter_test_accounts: checked })
