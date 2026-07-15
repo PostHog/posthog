@@ -436,19 +436,11 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 ].filter((product): product is QuickstartProduct => product !== null)
             },
         ],
-        featuredProducts: [
-            (s) => [s.products],
-            (products): QuickstartProduct[] => products.filter((product) => product.featured),
-        ],
         activeProductCount: [
             (s) => [s.products],
             (products): number => products.filter((product) => product.status === 'active').length,
         ],
         totalProductCount: [(s) => [s.products], (products): number => products.length],
-        moreProducts: [
-            (s) => [s.products],
-            (products): QuickstartProduct[] => products.filter((product) => !product.featured),
-        ],
         setupModalProduct: [
             (s) => [s.setupModalProductKey, s.products],
             (setupModalProductKey, products): QuickstartProduct | null =>

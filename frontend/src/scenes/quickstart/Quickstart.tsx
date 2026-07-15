@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     IconApps,
     IconArrowLeft,
     IconBook,
     IconBuilding,
-    IconChevronDown,
     IconFolder,
     IconGear,
     IconGraduationCap,
@@ -18,7 +17,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -61,7 +60,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -80,16 +78,6 @@ export const scene: SceneExport = {
     component: Quickstart,
     logic: quickstartLogic,
 }
-
-const HERO_IMAGES = [
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/logs_hogs_5d5e98d9e6.png',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/dogfooding_73ff8d08f4.jpg',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/Untitled_Artwork_83_1_4f4ca95c68.png',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/Session_Summaries_escher_draft_f87a1b6f17.png',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/ramen_hog_4fd2715196.jpg',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/american_football_hogs_e16746858b.jpg',
-    'https://res.cloudinary.com/dmukukwp6/image/upload/w_800,c_limit,q_auto,f_auto/fast_n_furious_92a9838d40.png',
-]
 
 function captureQuickstartAction(action: string, productKey?: string): void {
     posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
@@ -147,27 +135,6 @@ function LiveUsersRightNow(): JSX.Element | null {
                     : `${humanFriendlyLargeNumber(liveUserCount)} live ${liveUserCount === 1 ? 'user' : 'users'}`}
             </span>
         </Link>
-    )
-}
-
-function HeroImageCycler(): JSX.Element {
-    const [imageIndex, setImageIndex] = useState(0)
-
-    return (
-        <Tooltip title="Click for another hog" delayMs={0}>
-            <button
-                type="button"
-                className="w-56 @5xl/main-content:w-72 aspect-[4/3] shrink-0 hidden @3xl/main-content:block p-0 border-0 cursor-pointer rounded-lg overflow-hidden shadow-sm"
-                onClick={() => {
-                    setImageIndex((imageIndex + 1) % HERO_IMAGES.length)
-                    captureQuickstartAction('cycle_hero_image')
-                }}
-                aria-label="Show another hedgehog illustration"
-                data-attr="quickstart-hero-image"
-            >
-                <img src={HERO_IMAGES[imageIndex]} alt="" className="w-full h-full object-cover" />
-            </button>
-        </Tooltip>
     )
 }
 
@@ -863,13 +830,11 @@ function PublicationsSection(): JSX.Element | null {
 }
 
 export function Quickstart(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { featuredProducts, moreProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
+    const { products, activeProductCount, totalProductCount } = useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
-    const [showAllTools, setShowAllTools] = useState(false)
 
     const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
     useEffect(() => {
@@ -892,15 +857,15 @@ export function Quickstart(): JSX.Element {
             {/* Workspace chrome hugs the hero: tighter within the zone than between zones */}
             <div className="flex flex-col gap-4">
                 <WorkspaceStrip />
-                <section className="flex items-center justify-between gap-8">
-                    <div className="flex flex-col gap-4 min-w-0 flex-1">
-                        <div>
-                            <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
-                                Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
-                            </h1>
+                {/* Standard scene header: title left, actions right. This page is a recurring
+                    homepage, so it gets utility, not a one-time welcome ceremony. */}
+                <section>
+                    <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold mb-1">Quickstart</h1>
                             <p className="text-secondary mb-0 max-w-140">
                                 Every tool here runs on the same events. Get data flowing once, then turn things on as
-                                you need them. No extra installs.
+                                you need them.
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -939,9 +904,12 @@ export function Quickstart(): JSX.Element {
                                 Change homepage
                             </LemonButton>
                         </div>
-                        {installationComplete && <ProjectToken inline />}
                     </div>
-                    <HeroImageCycler />
+                    {installationComplete && (
+                        <div className="mt-3">
+                            <ProjectToken inline />
+                        </div>
+                    )}
                 </section>
             </div>
 
@@ -958,29 +926,9 @@ export function Quickstart(): JSX.Element {
                     </HeaderStat>
                 </div>
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
-                    {featuredProducts.map((product) => (
+                    {products.map((product) => (
                         <ProductCard key={product.key} product={product} />
                     ))}
-                </div>
-                {showAllTools && (
-                    <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4 gap-4 mt-4">
-                        {moreProducts.map((product) => (
-                            <ProductCard key={product.key} product={product} />
-                        ))}
-                    </div>
-                )}
-                <div className="mt-4">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronDown className={showAllTools ? 'rotate-180' : undefined} />}
-                        onClick={() => {
-                            captureQuickstartAction('toggle_more_tools')
-                            setShowAllTools(!showAllTools)
-                        }}
-                        data-attr="quickstart-toggle-more-tools"
-                    >
-                        {showAllTools ? 'Show fewer tools' : `Show ${moreProducts.length} more tools`}
-                    </LemonButton>
                 </div>
             </section>
 
