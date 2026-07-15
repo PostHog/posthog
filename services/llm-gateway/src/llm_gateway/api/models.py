@@ -78,12 +78,21 @@ async def _caller_confirmed_free_tier(request: Request) -> bool:
 
     The listing is advisory — enforcement happens per-request, with auth — and
     shipped desktop builds fetch it with no credentials. Anonymous callers and
-    resolution failures therefore get the FULL list: filtering them would
-    collapse the model picker to the free list for every caller the moment the
-    gate flips, silently downgrading billed orgs' sessions (clients fall back to
-    their default model when the configured one disappears from the listing).
-    A free-tier caller who sees premium ids just gets the enforcement 403 with
+    auth failures (the except below) get the FULL list: an unidentifiable
+    caller may well be a billed org, and filtering it would collapse the model
+    picker to the free list for every caller the moment the gate flips,
+    silently downgrading billed orgs' sessions (clients fall back to their
+    default model when the configured one disappears from the listing). A
+    free-tier caller who sees premium ids just gets the enforcement 403 with
     the upgrade message when they try one.
+
+    Quota-fetch failures deliberately do NOT fall open: resolve_quota_status
+    never raises — on upstream failure it reports the team's last-known
+    billing bit, False when there is none (a billed team first seen
+    mid-outage) — and enforcement 403s premium models off that same bit in
+    that same state. Filtering here keeps the picker consistent with what
+    requests will actually do; falling open would advertise models every
+    attempt rejects.
     """
     try:
         user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)

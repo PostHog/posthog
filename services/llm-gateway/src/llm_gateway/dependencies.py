@@ -95,6 +95,11 @@ async def get_model_from_request(request: Request) -> str | None:
     model=None while the handler routes the caller-chosen form value upstream.
     Starlette caches the parsed form on the request, so the endpoint's own
     Form()/File() parameters reuse it rather than re-reading the stream.
+
+    A None return is safe for the checks that allow a missing model: every
+    route declares `model` required (JSON schemas and the transcription Form
+    field alike), so such a request fails the endpoint's own validation
+    instead of reaching an upstream with a model nobody checked.
     """
     content_type = request.headers.get("content-type", "").lower()
     if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):

@@ -617,3 +617,30 @@ class TestUnsupportedModelRejection:
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "model_not_supported"
         mock_completion.assert_not_called()
+
+
+class TestAudioTranscriptionsEndpoint:
+    @pytest.mark.parametrize(
+        "path",
+        ["/v1/audio/transcriptions", "/llm_gateway/v1/audio/transcriptions"],
+    )
+    @patch("llm_gateway.api.openai.litellm.atranscription")
+    def test_omitted_model_is_rejected_not_defaulted(
+        self,
+        mock_transcription: MagicMock,
+        authenticated_client: TestClient,
+        path: str,
+    ) -> None:
+        # `model` must stay a required form field. A server-side default used to
+        # fill in gpt-4o-transcribe AFTER the access checks ran with model=None,
+        # routing a model upstream that neither the product allowlist nor the
+        # free-tier gate ever saw.
+        response = authenticated_client.post(
+            path,
+            files={"file": ("a.mp3", b"audio-bytes", "audio/mpeg")},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 422
+        assert "model" in str(response.json())
+        mock_transcription.assert_not_called()

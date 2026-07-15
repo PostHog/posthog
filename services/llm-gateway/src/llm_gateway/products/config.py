@@ -308,6 +308,9 @@ def check_free_tier_model_access(
         return True, None
     if resolve_product_alias(product) != "posthog_code":
         return True, None
+    # model=None passes only because every route requires a model at request
+    # validation (JSON schemas and the transcription Form field alike), so such
+    # a request 422s at the endpoint before any upstream call.
     if code_usage_billed or usage_unlimited or model is None:
         return True, None
 

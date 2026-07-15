@@ -245,7 +245,9 @@ async def audio_transcriptions(
     user: RateLimitedUser,
     request: Request,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "gpt-4o-transcribe",
+    # Required, like OpenAI's API: a server-side default would fill in a model
+    # the access checks never saw (they read the form before binding).
+    model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     apply_posthog_context_from_headers(request)
@@ -258,7 +260,7 @@ async def audio_transcriptions_with_product(
     product: str,
     request: Request,
     file: Annotated[UploadFile, File()],
-    model: Annotated[str, Form()] = "gpt-4o-transcribe",
+    model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     validate_product(product)
