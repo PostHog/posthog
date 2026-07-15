@@ -13,7 +13,7 @@ from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
-from gateway import gateway_env, resolve_gateway_config
+from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
 from github import PRData, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path
 from version import STAMPHOG_VERSION
@@ -308,8 +308,11 @@ class Reviewer:
         )
 
         # Shared by both routes; the full set is always on the separate
-        # stamphog_review_completed event.
+        # stamphog_review_completed event. Extras first so the base props win:
+        # the hosted server stamps runtime/team context via STAMPHOG_EXTRA_PROPERTIES,
+        # absent in the Action.
         attribution = {
+            **analytics_extra_properties(),
             "stamphog_pr_number": pr.number,
             "stamphog_repo": pr.repo,
             "stamphog_author": pr.author,
@@ -333,7 +336,9 @@ class Reviewer:
             trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
+                # Same extras-first merge as `attribution` above, for the traced route.
                 "posthog_properties": {
+                    **analytics_extra_properties(),
                     "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
                     "stamphog_version": STAMPHOG_VERSION,

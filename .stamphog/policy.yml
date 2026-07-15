@@ -123,6 +123,7 @@ deny:
                 - '\.stamphog/'
                 - 'AGENT_APPROVALS\.md'
                 - 'tools/pr-approval-agent/'
+                - 'products/stamphog/backend/policy_defaults/'
                 - 'CODEOWNERS'
                 - 'product\.yaml'
 allow:

@@ -63,7 +63,7 @@ from github import (
     is_bot_author,
 )
 from policy import FamiliarityPolicy
-from review_pr import REPO_ROOT, GateResult, Pipeline
+from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
 
 
@@ -303,6 +303,10 @@ def main() -> None:
         result = run(context)
     except Exception as exc:  # never let a crash become a silent non-verdict
         result = _escalate_result(context, exc)
+
+    # Flush BEFORE the final line: batched capture events are dropped at process exit otherwise,
+    # and any client noise the flush prints must stay above the machine-readable line.
+    flush_analytics()
 
     # The single machine-readable line the server parses — always last on stdout.
     print(json.dumps(result), flush=True)
