@@ -52,7 +52,7 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Hyperspell API key to pull your app's memories, connections, and extracted entities into the PostHog Data warehouse.
 
-Create an API key in the [Hyperspell dashboard](https://dashboard.hyperspell.com/). Keys are region-specific, so pick the region your Hyperspell app lives in.
+Create an API key in the [Hyperspell dashboard](https://app.hyperspell.com/). Keys are region-specific, so pick the region your Hyperspell app lives in.
 
 Memories and connections are scoped to individual users of your Hyperspell app. To sync them, list the user IDs to sync as a comma-separated list — each is fetched via Hyperspell's `X-As-User` header. Leaving it empty syncs app-level data only.
 """,
