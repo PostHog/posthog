@@ -173,7 +173,7 @@ function ProjectToken(): JSX.Element | null {
 
     return (
         <div
-            className="flex flex-col gap-1 min-w-0 max-w-full"
+            className="flex flex-col gap-1 w-fit max-w-full min-w-0"
             onClick={() => captureQuickstartAction('copy_project_token')}
             data-attr="quickstart-copy-project-token"
         >
@@ -846,6 +846,7 @@ export function Quickstart(): JSX.Element {
                         </LemonButton>
                         <LiveUsersRightNow />
                     </div>
+                    <ProjectToken />
                 </div>
                 <HeroImageCycler />
             </section>
@@ -853,13 +854,10 @@ export function Quickstart(): JSX.Element {
             {!installationComplete && <InstallHeroCard />}
 
             <section>
-                <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-2">
-                    <SectionHeader
-                        title="Turn on your tools"
-                        subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
-                    />
-                    <ProjectToken />
-                </div>
+                <SectionHeader
+                    title="Turn on your tools"
+                    subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
+                />
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
                         <ProductCard key={product.key} product={product} />
