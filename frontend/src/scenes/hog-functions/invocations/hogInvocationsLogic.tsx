@@ -378,6 +378,9 @@ export const buildSearchClause = (
     const levelClause = levels.length
         ? `AND lower(level) IN (${levels.map((level) => escapeHogQLString(level.toLowerCase())).join(',')})`
         : ''
+    // Escape ILIKE wildcards for the message arm so a term with % or _ (e.g. "50%") matches literally
+    // (ClickHouse ILIKE uses backslash as its escape char); the exact-id arms use the raw term.
+    const likeTerm = search.replace(/[\\%_]/g, '\\$&')
     return hogql.raw(
         `AND (` +
             `invocation_id = ${escapeHogQLString(search)} ` +
@@ -388,7 +391,7 @@ export const buildSearchClause = (
             `SELECT instance_id FROM log_entries ` +
             `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
             `AND log_source_id = ${escapeHogQLString(props.id)} ` +
-            `AND message ILIKE concat('%', ${escapeHogQLString(search)}, '%') ` +
+            `AND message ILIKE concat('%', ${escapeHogQLString(likeTerm)}, '%') ` +
             `${levelClause}))`
     )
 }

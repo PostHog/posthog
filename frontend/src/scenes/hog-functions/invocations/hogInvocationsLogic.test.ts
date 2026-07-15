@@ -34,4 +34,13 @@ describe('buildSearchClause', () => {
         expect(clause).toContain("message ILIKE concat('%', 'bounce', '%')")
         expect(clause).toContain("lower(level) IN ('warn','error')")
     })
+
+    it('escapes ILIKE wildcards in the message arm but not the id arms', () => {
+        // Typing "a%b" must match that literal text in messages, not "a<anything>b". The % is
+        // backslash-escaped only for the ILIKE arm (then doubled by escapeHogQLString for the SQL
+        // literal); the exact-id arms keep the raw term.
+        const clause = buildSearchClause(props, { date_from: '-24h', search: 'a%b' }).raw
+        expect(clause).toContain("invocation_id = 'a%b'")
+        expect(clause).toContain("message ILIKE concat('%', 'a\\\\%b', '%')")
+    })
 })
