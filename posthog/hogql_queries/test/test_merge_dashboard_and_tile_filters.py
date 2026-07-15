@@ -116,7 +116,6 @@ class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
 
         stripped = remove_query_properties_overridden_by_tile(query, tile)
 
-        # $browser removed (tile overrides it); $country untouched.
         assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
     def test_no_op_when_tile_has_no_properties(self):

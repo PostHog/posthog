@@ -4269,14 +4269,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
-        # Tile overrides only the date range; the dashboard's person filter must still apply.
         DashboardTile.objects.create(
             dashboard=dashboard,
             insight=insight,
             filters_overrides={"date_from": "-7d"},
         )
 
-        # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
         person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
         dashboard_filters = {"properties": [person_filter]}
 
@@ -4290,8 +4288,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ).json()
 
         source = response["query"]["source"]
-        # Tile date wins over the dashboard's, but the dashboard's person filter is merged in — not
-        # discarded. The compute path merges the same way, so the persons modal still matches the chart.
         assert source["dateRange"]["date_from"] == "-7d"
         merged_properties = source.get("properties") or []
         assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
@@ -4299,9 +4295,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     def test_tile_filters_replace_dashboard_filters_wholesale_when_flag_off(self) -> None:
-        # Same setup as test_tile_filters_merge_with_dashboard_filters_in_returned_query, but with the
-        # DASHBOARD_TILE_FILTER_MERGE flag off: the tile's date override should replace the dashboard's
-        # filters wholesale (pre-merge behavior), dropping the dashboard's person filter entirely.
         insight = Insight.objects.create(
             filters={},
             query={
