@@ -101,14 +101,25 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
                 return
             }
             const projectId = values.currentProjectId
-            if (projectId == null || values.activeCloudRun) {
-                // Never clobber a fresher local handle — server hydration is a fallback only.
+            if (projectId == null) {
                 return
             }
             try {
+                // The server owns the "is there an active run" truth (it drops terminal/stale runs),
+                // so we reconcile the persisted handle against it — not just seed when empty. Without
+                // this a finished or abandoned run leaves a stale handle in localStorage that keeps
+                // the install progress card and FAB claiming setup is still in flight forever.
                 const handle = await tasksActiveWizardRunRetrieve(String(projectId))
-                // 204 → void; nothing to surface.
-                if (!handle || values.activeCloudRun) {
+                if (!handle) {
+                    // 204 → no active run. Clear any stale local handle so we stop showing progress.
+                    if (values.activeCloudRun) {
+                        actions.clearActiveCloudRun()
+                    }
+                    return
+                }
+                if (values.activeCloudRun) {
+                    // Server confirms a run and we already hold a handle — keep the local one, it's at
+                    // least as fresh (client kickoff writes it before the server round-trip resolves).
                     return
                 }
                 actions.setActiveCloudRun(

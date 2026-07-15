@@ -1,5 +1,26 @@
 version: 1
 owners: []
+# Slack channel per team, declared once for the whole repo (root-only registry).
+# A team only needs an entry where the derived '#<slug>' is wrong or missing; the
+# other 24 slugs in use derive correctly and are deliberately absent.
+teams:
+    # GitHub team slugs that predate the 'team-' convention: the slug is right,
+    # the channel just doesn't match it.
+    batch-exports:
+        slack: '#team-batch-exports'
+    clickhouse:
+        slack: '#team-clickhouse'
+    conversations:
+        slack: '#team-conversations'
+    # The 'logs' and 'apm' GitHub teams have identical membership: APM ("Logs,
+    # Metrics and Traces") absorbed logs, and #team-apm is where it lives.
+    logs:
+        slack: '#team-apm'
+    team-data-stack:
+        slack: '#group-data-stack'
+    # PostHog Code's channel kept the name it was created under.
+    team-posthog-code:
+        slack: '#team-desktop'
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability
