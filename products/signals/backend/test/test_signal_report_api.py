@@ -1033,6 +1033,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_include_all_statuses_is_ignored_on_by_id_actions(self):
+        # The flag is list-only: it must not widen reachability for mutating-by-ID actions.
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/?include_all_statuses=true"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- legacy choice removal ---
 
     def test_actionability_null_for_legacy_choice_artefact(self):

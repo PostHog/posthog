@@ -783,6 +783,11 @@ class SignalReportViewSet(
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
     def _include_all_statuses_requested(self) -> bool:
+        # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
+        # actions ignore it entirely, so mutating actions like delete/reingest keep their existing
+        # contract of 404ing on suppressed reports.
+        if self.action != "list":
+            return False
         raw = self.request.query_params.get("include_all_statuses")
         if raw is None or not raw.strip():
             return False
