@@ -66,6 +66,14 @@ WEB_ANALYTICS_NO_JOIN_SERVED = Counter(
     ["family"],
 )
 
+# Ceiling on the number of matching session ids a session-id-set fast path may ship
+# to shards via GLOBAL IN. Cross-team prod validation: memory scales ~linearly at
+# ~190 MiB per million ids on the sessions side; the id-set shape beats the join at
+# 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated crossover where
+# the shipped set stops paying is ~20M. 10M caps session-id-set memory at ~2 GiB —
+# under half the join's typical footprint — with margin before the crossover.
+SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
+
 WebQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -247,6 +255,76 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # Deterministic per-team bucketing: query results must come from one code
         # path for everyone on a team, so the rollout unit is the team, not the user.
         return percent > 0 and self.team.pk % 100 < percent
+
+    def _session_id_set_common_eligibility(self) -> bool:
+        """Shared gates for the session-id-set fast paths (filtered two-scan shape).
+
+        A filter is only evaluable events-side when it's an event property filter
+        (user filters) or an event/person test-account filter (person props via
+        person-on-events). Session/cohort filters can't feed the id collection
+        and keep the join path. Runners add their own shape-specific gates on top.
+        """
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS:
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        properties = getattr(self.query, "properties", None) or []
+        if not properties and not self._test_account_filters:
+            return False
+        if not all(isinstance(p, EventPropertyFilter) for p in properties):
+            return False
+        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
+            return False
+        sampling_factor = getattr(self.query, "samplingFactor", None)
+        if sampling_factor and sampling_factor != 1:
+            return False
+        sampling = getattr(self.query, "sampling", None)
+        if sampling and (sampling.enabled or sampling.forceSamplingRate):
+            return False
+        return True
+
+    def _run_session_id_set_preflight(self, filters: ast.Expr, query_type: str) -> bool:
+        """Preflight: is the filtered session-id set small enough to ship to shards?
+
+        A cheap count over the filtered events (materialized columns only) — the
+        events scan is work the id collection does anyway, so this bounds the
+        worst case at one extra sub-second query for eligible teams. Fails closed
+        to the join path on error.
+        """
+        count_query = parse_select(
+            """
+SELECT uniq(events.$session_id_uuid) AS matching_sessions
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    {event_type_expr},
+    {inside_timestamp_period},
+    {filters},
+)
+            """,
+            placeholders={
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "filters": filters,
+            },
+        )
+        try:
+            response = execute_hogql_query(
+                query_type=query_type,
+                query=count_query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            matching = response.results[0][0] if response.results else None
+            if matching is None:
+                return False
+            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
+        except Exception as e:
+            logger.exception("web_analytics_session_id_set_preflight_failed", error=e, query_type=query_type)
+            return False
 
     @cached_property
     def filters_eligibility_hash(self) -> Optional[str]:

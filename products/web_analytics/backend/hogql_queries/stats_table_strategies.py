@@ -226,9 +226,10 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
 
     QUERY = NO_JOIN_PATH_BOUNCE_QUERY
     TIMING_KEY = "stats_table_no_join_path_bounce"
+    COUNTER_FAMILY = "stats_table_paths"
 
     def build_query(self) -> ast.SelectQuery:
-        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_paths").inc()
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family=self.COUNTER_FAMILY).inc()
         with self.runner.timings.measure(self.TIMING_KEY):
             query = parse_select(
                 self.QUERY,
@@ -249,6 +250,8 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
             "current_session_period": self.runner._current_period_expression("$start_timestamp"),
             "previous_session_period": self.runner._previous_period_expression("$start_timestamp"),
             "inside_session_periods": self.runner._periods_expression("$start_timestamp"),
+            "event_filters": ast.Constant(value=True),
+            "bounce_sessions_filter": ast.Constant(value=True),
         }
 
 
@@ -266,6 +269,48 @@ class NoJoinPathBounceAvgTimeStrategy(NoJoinPathBounceStrategy):
         return {
             **super()._placeholders(),
             "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "time_on_page_filters": ast.Constant(value=True),
+        }
+
+
+class SessionIdSetPathBounceStrategy(NoJoinPathBounceStrategy):
+    """PAGE breakdown with bounce rate for filtered queries, join-free.
+
+    Same two-scan shape as the no-join strategy, linked by a session-id set:
+    counts apply the events-side filters directly; the bounce side aggregates
+    only sessions whose ids appear in a `SELECT DISTINCT $session_id_uuid`
+    subquery over events matching the pathname-excluded filters (mirroring the
+    join path's `_event_properties_for_bounce_rate` semantics — a session's
+    entry-path bounce rate must not be restricted by which pathname is being
+    viewed). The id filter is rewritten below the per-session GROUP BY by
+    `build_direct_session_id_in_pushdown` (GLOBAL IN, executed once) when the
+    runner flips the `sessionIdPushdown` modifier at execution. When the only
+    filter is `$pathname`, the bounce side has nothing to filter by and stays
+    unfiltered — no id set, no preflight.
+    """
+
+    TIMING_KEY = "stats_table_session_id_set_path_bounce"
+    COUNTER_FAMILY = "stats_table_paths_session_id_set"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "event_filters": self.runner._event_properties(),
+            "bounce_sessions_filter": self.runner._session_id_set_bounce_filter(),
+        }
+
+
+class SessionIdSetPathBounceAvgTimeStrategy(SessionIdSetPathBounceStrategy):
+    """PAGE breakdown with average time on page and bounce rate, filtered, join-free."""
+
+    QUERY = NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY
+    TIMING_KEY = "stats_table_session_id_set_path_bounce_and_avg_time"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "time_on_page_filters": self.runner._event_properties_for_scroll(),
         }
 
 

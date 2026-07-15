@@ -1340,9 +1340,17 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(self.QUERY_TIMESTAMP):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
-                with patch(
-                    "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
-                    side_effect=fail_preflight,
+                # The preflight executes from the shared base module; the main
+                # query from the runner module — both must be intercepted.
+                with (
+                    patch(
+                        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.execute_hogql_query",
+                        side_effect=fail_preflight,
+                    ),
+                    patch(
+                        "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                        side_effect=fail_preflight,
+                    ),
                 ):
                     runner = self._make_runner()
                     fallback_results = runner.calculate().results
@@ -1368,11 +1376,20 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         with freeze_time(self.QUERY_TIMESTAMP):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 with patch(
-                    "products.web_analytics.backend.hogql_queries.web_overview.SESSION_ID_SET_MAX_MATCHING_SESSIONS", 0
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_ID_SET_MAX_MATCHING_SESSIONS",
+                    0,
                 ):
-                    with patch(
-                        "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
-                        side_effect=record_calls,
+                    # The preflight executes from the shared base module; the main
+                    # query from the runner module — record both.
+                    with (
+                        patch(
+                            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.execute_hogql_query",
+                            side_effect=record_calls,
+                        ),
+                        patch(
+                            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                            side_effect=record_calls,
+                        ),
                     ):
                         runner = self._make_runner()
                         gated_results = runner.calculate().results

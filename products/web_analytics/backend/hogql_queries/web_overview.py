@@ -1,13 +1,10 @@
 import math
 from typing import Optional, Union
 
-from django.conf import settings
-
 import structlog
 
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
@@ -34,13 +31,6 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 )
 
 logger = structlog.get_logger(__name__)
-
-# Ceiling on the phase-1 id set for the session-id-set fast path. Cross-team production
-# benchmarks (findings-10): session-id-set memory scales ~190 MiB per million ids and still
-# beats the join at 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated
-# crossover where the shipped set stops paying is ~20M. 10M caps session-id-set memory at
-# ~2 GiB — under half the join's typical footprint — with margin before the crossover.
-SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
@@ -70,79 +60,23 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         return self.outer_select
 
     def _check_session_id_set_selectivity(self) -> bool:
-        """Preflight: is the filtered session-id set small enough to ship to shards?
-
-        A cheap count over the filtered events (materialized columns only) — the
-        events scan is work phase 1 does anyway, so this bounds the worst case at
-        one extra sub-second query for eligible teams. Fails closed to the join
-        path on error.
-        """
-        count_query = parse_select(
-            """
-SELECT uniq(events.$session_id_uuid) AS matching_sessions
-FROM events
-WHERE and(
-    events.$session_id_uuid IS NOT NULL,
-    {event_type_expr},
-    {inside_timestamp_period},
-    {filters},
-)
-            """,
-            placeholders={
-                "event_type_expr": self.event_type_expr,
-                "inside_timestamp_period": self._periods_expression("timestamp"),
-                "filters": property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team),
-            },
+        return self._run_session_id_set_preflight(
+            filters=property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team),
+            query_type="web_overview_session_id_set_preflight",
         )
-        try:
-            response = execute_hogql_query(
-                query_type="web_overview_session_id_set_preflight",
-                query=count_query,
-                team=self.team,
-                user=self.user,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-            matching = response.results[0][0] if response.results else None
-            if matching is None:
-                return False
-            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
-        except Exception as e:
-            logger.exception("web_overview_session_id_set_preflight_failed", error=e)
-            return False
 
     @cached_property
     def should_use_session_id_set(self) -> bool:
         """Whether a filtered query can run as two independent scans linked by an id set.
 
-        Applies when every filter is an event property filter: the events side
-        evaluates the filters directly, and the sessions side aggregates only the
-        sessions whose ids appear in a `SELECT DISTINCT $session_id` subquery over
-        the filtered events (rewritten below the per-session GROUP BY by
+        Applies when every filter is evaluable events-side (see
+        `_session_id_set_common_eligibility`): the events side evaluates the
+        filters directly, and the sessions side aggregates only the sessions
+        whose ids appear in a `SELECT DISTINCT $session_id` subquery over the
+        filtered events (rewritten below the per-session GROUP BY by
         `build_direct_session_id_in_pushdown`, executing once via GLOBAL IN).
-        Session/person/cohort filters can't be evaluated events-side and keep the
-        join path.
         """
-        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS:
-            return False
-        if self.query.conversionGoal:
-            return False
-        if not self.query.properties and not self._test_account_filters:
-            return False
-        if not all(isinstance(p, EventPropertyFilter) for p in self.query.properties):
-            return False
-        # Test-account filters are raw dicts off the team model; event- and
-        # person-property ones are evaluable on the events side of the id
-        # collection (person props via person-on-events), so they ride the
-        # session-id-set shape. Cohort test filters can't, and keep the join.
-        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
-            return False
-        if self.query.samplingFactor and self.query.samplingFactor != 1:
-            return False
-        if self.query.sampling and (self.query.sampling.enabled or self.query.sampling.forceSamplingRate):
-            return False
-        return True
+        return self._session_id_set_common_eligibility()
 
     @cached_property
     def session_id_set_select(self) -> ast.SelectQuery:
