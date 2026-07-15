@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { type DependencyList, useCallback, useMemo } from 'react'
+import { type DependencyList, useCallback, useMemo, useSyncExternalStore } from 'react'
 
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
@@ -33,17 +33,35 @@ export function useChartStyleRefreshEnabled(): boolean {
     return !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 }
 
-/** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. Behind `QUILL_CHART_STYLE_REFRESH` it
+function subscribeToBodyTheme(callback: () => void): () => void {
+    if (typeof MutationObserver !== 'function') {
+        return () => {}
+    }
+    const observer = new MutationObserver(callback)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['theme'] })
+    return () => observer.disconnect()
+}
+
+function getBodyTheme(): string | null {
+    return document.body.getAttribute('theme')
+}
+
+/** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo re-reads
+ *  them when the theme flips. Darkness is tracked via the `<body theme>` attribute rather than
+ *  themeLogic alone: storybook snapshots flip that attribute directly on a mounted page without
+ *  going through themeLogic, and canvas colors would otherwise stay stale (the app sets the same
+ *  attribute via useThemedHtml, so both paths are covered). Behind `QUILL_CHART_STYLE_REFRESH` it
  *  also applies the refreshed chart colors (faint dashed grid, muted axis lines); caller `overrides`
  *  win over both. Pass a stable (memoized or module-level) `overrides` object — a fresh object every
  *  render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
+    const bodyTheme = useSyncExternalStore(subscribeToBodyTheme, getBodyTheme)
     const refreshEnabled = useChartStyleRefreshEnabled()
+    const isDark = bodyTheme != null ? bodyTheme === 'dark' : isDarkModeOn
     return useMemo(
-        () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDarkModeOn) : {}), ...overrides }),
-        [isDarkModeOn, refreshEnabled, overrides]
+        () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDark) : {}), ...overrides }),
+        [isDark, refreshEnabled, overrides]
     )
 }
 
