@@ -11772,6 +11772,7 @@ class TestGithubMultiRepoPatch(APIBaseTest):
         # Mapping is rewritten, pruning the removed repo — a merge would leave its key routing
         # events into a disabled schema forever.
         hog_function.refresh_from_db()
+        assert hog_function.inputs is not None
         mapping = hog_function.inputs["schema_mapping"]["value"]
         assert mapping == {"workflow_run": str(legacy_webhook_row.id)}
 
