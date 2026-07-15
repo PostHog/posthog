@@ -99,7 +99,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
     def test_expired_code_is_rejected(self):
         with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
             code = self._trigger(mock_send)
-            frozen.move_to("2024-01-01T10:10:01")  # > 10 minute TTL
+            frozen.move_to("2024-01-01T10:30:01")  # > 30 minute TTL
             response = self.client.post(VERIFY_URL, {"code": code})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.json()["code"], "invalid_code")

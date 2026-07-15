@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef, useState } from 'react'
 

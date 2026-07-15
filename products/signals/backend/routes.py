@@ -32,7 +32,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"signals/processing", signals.SignalProcessingViewSet, "environment_signal_processing", ["team_id"]
     )
-    # Signals agent HTTP surface — exposed via MCP as `signals-scout-*` tools. Most reads (runs,
+    # Signals agent HTTP surface — exposed via MCP as `scout-*` tools. Most reads (runs,
     # memory, project profile) are public-grantable via `signal_scout:read`; writes — and the member
     # roster read — are sandbox-scope only via the internal `signal_scout_internal` scope object.
     routers.projects.register(
