@@ -16,31 +16,101 @@ import type { OnboardingProduct, TeamPublicType, TeamType } from '~/types'
 import { PublicationFeedKey, QuickstartPublication, fetchPublicationsPage } from './publications'
 import type { quickstartLogicType } from './quickstartLogicType'
 
-export type QuickstartProductStatus = 'active' | 'ready' | 'enableable' | 'needs_install' | 'needs_setup'
+/** How far along the activation ladder a tool is. Quality lives past 'live', not as extra levels. */
+export type QuickstartToolLevel = 'needs_setup' | 'ready' | 'live'
 
-/** Event-derived proof-of-life counters for the last 30 days */
+/** Which primary action the card should offer */
+export type QuickstartToolCta = 'install' | 'enable' | 'setup' | 'open'
+
+/** Event-derived counters for the last 30 days */
 export interface QuickstartToolSignals {
     totalEvents: number
     prodEvents: number
     customEvents: number
+    distinctCustomEvents: number
+    identifyCalls: number
     exceptions: number
+    serverExceptions: number
     backendEvents: number
     flagCalls: number
+    prodFlagCalls: number
     pageviews: number
+    prodPageviews: number
     surveyResponses: number
     aiGenerations: number
+    aiTraceEvents: number
+    mcpInitialize: number
+    mcpToolCalls: number
 }
 
 const EMPTY_TOOL_SIGNALS: QuickstartToolSignals = {
     totalEvents: 0,
     prodEvents: 0,
     customEvents: 0,
+    distinctCustomEvents: 0,
+    identifyCalls: 0,
     exceptions: 0,
+    serverExceptions: 0,
     backendEvents: 0,
     flagCalls: 0,
+    prodFlagCalls: 0,
     pageviews: 0,
+    prodPageviews: 0,
     surveyResponses: 0,
     aiGenerations: 0,
+    aiTraceEvents: 0,
+    mcpInitialize: 0,
+    mcpToolCalls: 0,
+}
+
+/** Non-event facts: resource counts and dedicated proof-of-life checks. Null while unknown. */
+export interface QuickstartResources {
+    replayRecordings: number | null
+    hasLogs: boolean | null
+    sourcesCount: number | null
+    workflowsCount: number | null
+    eventTriggeredWorkflows: number | null
+}
+
+const EMPTY_RESOURCES: QuickstartResources = {
+    replayRecordings: null,
+    hasLogs: null,
+    sourcesCount: null,
+    workflowsCount: null,
+    eventTriggeredWorkflows: null,
+}
+
+export interface QuickstartActivationData {
+    signals: QuickstartToolSignals | null
+    resources: QuickstartResources
+}
+
+interface StatusContext {
+    team: TeamType
+    signals: QuickstartToolSignals
+    resources: QuickstartResources
+}
+
+/**
+ * One rung of a tool's ladder. Activation rungs take the tool from nothing to live;
+ * quality rungs deepen the data past that. The label doubles as the card's next step.
+ */
+interface ToolMilestone {
+    key: string
+    label: string
+    achieved: (ctx: StatusContext) => boolean
+}
+
+export interface QuickstartToolStatus {
+    level: QuickstartToolLevel
+    /** Quality rungs achieved / total, meaningful once live. Total 0 hides the meter. */
+    qualityAchieved: number
+    qualityTotal: number
+    /** The next rung worth climbing, activation first, then quality. Null when topped out. */
+    nextStep: string | null
+    /** The tool's headline number, e.g. sources connected or custom events captured */
+    stat: { value: number; label: string } | null
+    cta: QuickstartToolCta
 }
 
 export interface QuickstartProduct {
@@ -51,15 +121,14 @@ export interface QuickstartProduct {
     iconColor: string
     /** Short audience hint rendered as "Best for …" on the card */
     bestFor: string
-    status: QuickstartProductStatus
-    /** Nudge toward the next signal worth chasing, shown on the card */
-    signalHint?: string
-    /** Where "Open" points once the product is in use */
+    status: QuickstartToolStatus
+    /** Whether the setup dialog with SDK instructions applies */
+    requiresEvents: boolean
+    /** Where "Open" points */
     url: string
-    /** Where "Set up" points when the product needs an install step */
+    /** Where "Set up" points when the tool has a setup flow */
     setupUrl: string
     docsUrl?: string
-    featured: boolean
 }
 
 interface QuickstartProductDefinition {
@@ -67,51 +136,70 @@ interface QuickstartProductDefinition {
     docsUrl?: string
     /** Overrides the onboarding metadata copy when the quickstart card needs different framing */
     description?: string
-    /** Team settings patched to turn the product on in one click. Absent means the product needs a setup flow. */
+    /** Team settings patched to turn the tool on in one click, with the predicate proving it's on */
     optInPayload?: Partial<TeamType>
-    /** The tool is pointless without SDK events, so it asks for an install before anything else */
+    enabled?: (team: TeamType) => boolean
+    /** The tool is pointless without SDK events, so its setup dialog shows install instructions */
     requiresEvents?: boolean
-    /** Proof the tool is delivering value. Without it, being usable is enough to count as active. */
-    hasSignal?: (signals: QuickstartToolSignals) => boolean
-    /** Whether setup or enablement is done, independent of any signal */
-    isUsable: (team: TeamType) => boolean
-    /** Nudge toward the next signal, shown while the tool is ready or active */
-    getSignalHint?: (signals: QuickstartToolSignals) => string | null
+    /** Usable from day one with nothing configured (workflows, warehouse) — never below 'ready' */
+    usableByDefault?: boolean
+    /** Ordered rungs from nothing to live. The LAST rung is the proof-of-life signal. */
+    activation: ToolMilestone[]
+    /** Ordered rungs that deepen the data once live */
+    quality: ToolMilestone[]
+    stat?: (ctx: StatusContext) => { value: number; label: string } | null
 }
 
-function deriveStatus(
-    definition: QuickstartProductDefinition,
-    team: TeamType,
-    signals: QuickstartToolSignals
-): QuickstartProductStatus {
-    if (definition.requiresEvents && !team.ingested_event) {
-        return 'needs_install'
+function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusContext): QuickstartToolStatus {
+    const signalRung = definition.activation[definition.activation.length - 1]
+    const earlierRungs = definition.activation.slice(0, -1)
+    // The signal always wins: real data proves the tool works even if a setup rung
+    // looks incomplete (e.g. server-side exceptions without the browser opt-in)
+    const live = signalRung.achieved(ctx)
+
+    let level: QuickstartToolLevel
+    if (live) {
+        level = 'live'
+    } else if (earlierRungs.every((rung) => rung.achieved(ctx))) {
+        level = 'ready'
+    } else {
+        level = definition.usableByDefault ? 'ready' : 'needs_setup'
     }
-    // A signal always wins: exceptions from a server SDK count even if the frontend opt-in is off
-    if (definition.hasSignal?.(signals)) {
-        return 'active'
+
+    const qualityAchieved = definition.quality.filter((rung) => rung.achieved(ctx)).length
+    const nextStep = live
+        ? (definition.quality.find((rung) => !rung.achieved(ctx))?.label ?? null)
+        : (definition.activation.find((rung) => !rung.achieved(ctx))?.label ?? null)
+
+    let cta: QuickstartToolCta
+    if (definition.requiresEvents && !ctx.team.ingested_event) {
+        cta = 'install'
+    } else if (definition.optInPayload && definition.enabled && !definition.enabled(ctx.team)) {
+        cta = 'enable'
+    } else if (level === 'needs_setup') {
+        cta = 'setup'
+    } else {
+        cta = 'open'
     }
-    if (definition.optInPayload && !definition.isUsable(team)) {
-        return 'enableable'
+
+    const stat = definition.stat?.(ctx) ?? null
+    return {
+        level,
+        qualityAchieved,
+        qualityTotal: definition.quality.length,
+        nextStep,
+        stat: stat && stat.value > 0 ? stat : null,
+        cta,
     }
-    if (!definition.isUsable(team)) {
-        return 'needs_setup'
-    }
-    return definition.hasSignal ? 'ready' : 'active'
 }
 
-const hasOnboarded = (team: TeamType, key: ProductKey): boolean => !!team.has_completed_onboarding_for?.[key]
-
-/** The five products every new project should see first. Order is display order. */
-export const QUICKSTART_FEATURED_PRODUCTS: ProductKey[] = [
+/** Display order: the tools most teams start with come first. */
+export const QUICKSTART_PRODUCT_ORDER: ProductKey[] = [
     ProductKey.PRODUCT_ANALYTICS,
     ProductKey.WEB_ANALYTICS,
     ProductKey.SESSION_REPLAY,
     ProductKey.ERROR_TRACKING,
     ProductKey.FEATURE_FLAGS,
-]
-
-export const QUICKSTART_MORE_PRODUCTS: ProductKey[] = [
     ProductKey.SURVEYS,
     ProductKey.EXPERIMENTS,
     ProductKey.AI_OBSERVABILITY,
@@ -122,25 +210,70 @@ export const QUICKSTART_MORE_PRODUCTS: ProductKey[] = [
     ProductKey.CONVERSATIONS,
 ]
 
+// Shared rungs. Each is a plain predicate over the context, so ladders can reuse them freely.
+const installAnySdk: ToolMilestone = {
+    key: 'install_sdk',
+    label: 'Install a PostHog SDK',
+    achieved: ({ team }) => !!team.ingested_event,
+}
+const installWebSdk: ToolMilestone = {
+    key: 'install_web_sdk',
+    label: 'Install posthog-js on your site',
+    achieved: ({ team }) => !!team.ingested_event,
+}
+const productionTraffic: ToolMilestone = {
+    key: 'production_traffic',
+    label: 'Deploy your instrumentation to production',
+    achieved: ({ signals }) => signals.prodEvents > 0,
+}
+const firstCustomEvent: ToolMilestone = {
+    key: 'first_custom_event',
+    label: 'Capture your first custom event',
+    achieved: ({ signals }) => signals.customEvents > 0,
+}
+
 const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProductDefinition>> = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         bestFor: 'understanding user behavior',
         docsUrl: 'https://posthog.com/docs/product-analytics',
         requiresEvents: true,
-        isUsable: () => true,
-        hasSignal: (signals) => signals.totalEvents > 0,
-        getSignalHint: (signals) =>
-            signals.totalEvents > 0 && signals.customEvents === 0
-                ? 'Autocapture only so far. Add custom events for deeper insights.'
-                : null,
+        activation: [
+            installAnySdk,
+            { key: 'events', label: 'Capture your first event', achieved: ({ signals }) => signals.totalEvents > 0 },
+        ],
+        quality: [
+            productionTraffic,
+            firstCustomEvent,
+            {
+                key: 'custom_breadth',
+                label: 'Track 5+ distinct custom events',
+                achieved: ({ signals }) => signals.distinctCustomEvents >= 5,
+            },
+            {
+                key: 'identify',
+                label: 'Identify your users to unlock person-level analysis',
+                achieved: ({ signals }) => signals.identifyCalls > 0,
+            },
+        ],
+        stat: ({ signals }) => ({ value: signals.distinctCustomEvents, label: 'custom events' }),
     },
     [ProductKey.WEB_ANALYTICS]: {
         bestFor: 'marketing & traffic',
         docsUrl: 'https://posthog.com/docs/web-analytics',
         requiresEvents: true,
-        isUsable: () => true,
-        // Web analytics runs off autocaptured pageviews, so it's live as soon as they flow
-        hasSignal: (signals) => signals.pageviews > 0,
+        activation: [
+            installWebSdk,
+            { key: 'pageviews', label: 'Get pageviews flowing', achieved: ({ signals }) => signals.pageviews > 0 },
+        ],
+        quality: [
+            {
+                key: 'prod_pageviews',
+                label: 'Deploy to production to see real visitors',
+                achieved: ({ signals }) => signals.prodPageviews > 0,
+            },
+            { ...firstCustomEvent, label: 'Capture custom events to measure conversions' },
+        ],
+        stat: ({ signals }) => ({ value: signals.pageviews, label: 'pageviews · 30d' }),
     },
     [ProductKey.SESSION_REPLAY]: {
         bestFor: 'debugging UX issues',
@@ -152,86 +285,243 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
             capture_console_log_opt_in: true,
             capture_performance_opt_in: true,
         },
-        isUsable: (team) => !!team.session_recording_opt_in,
+        enabled: (team) => !!team.session_recording_opt_in,
+        activation: [
+            installWebSdk,
+            {
+                key: 'opt_in',
+                label: 'Turn on session recordings',
+                achieved: ({ team }) => !!team.session_recording_opt_in,
+            },
+            {
+                key: 'recordings',
+                label: 'Record your first session',
+                achieved: ({ resources }) => (resources.replayRecordings ?? 0) > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'console_logs',
+                label: 'Capture console logs with recordings',
+                achieved: ({ team }) => !!team.capture_console_log_opt_in,
+            },
+            {
+                key: 'performance',
+                label: 'Capture network performance with recordings',
+                achieved: ({ team }) => !!team.capture_performance_opt_in,
+            },
+            productionTraffic,
+        ],
+        stat: ({ resources }) => ({ value: resources.replayRecordings ?? 0, label: 'recordings · 30d' }),
     },
     [ProductKey.ERROR_TRACKING]: {
         bestFor: 'catching bugs early',
         docsUrl: 'https://posthog.com/docs/error-tracking',
         requiresEvents: true,
+        // Browser autocapture only: server SDKs capture exceptions without this opt-in
         optInPayload: { autocapture_exceptions_opt_in: true },
-        isUsable: (team) => !!team.autocapture_exceptions_opt_in,
-        hasSignal: (signals) => signals.exceptions > 0,
-        getSignalHint: (signals) =>
-            signals.exceptions === 0
-                ? 'No exceptions captured yet. They show up here the moment your code throws.'
-                : signals.backendEvents === 0
-                  ? 'Frontend only so far. Add a server SDK to catch backend errors too.'
-                  : null,
+        enabled: (team) => !!team.autocapture_exceptions_opt_in,
+        activation: [
+            installAnySdk,
+            {
+                key: 'exceptions',
+                label: 'Capture your first exception',
+                achieved: ({ signals }) => signals.exceptions > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'web_autocapture',
+                label: 'Turn on exception autocapture for the web',
+                achieved: ({ team }) => !!team.autocapture_exceptions_opt_in,
+            },
+            {
+                key: 'server_exceptions',
+                label: 'Capture exceptions from a server SDK too',
+                achieved: ({ signals }) => signals.serverExceptions > 0,
+            },
+            productionTraffic,
+        ],
+        stat: ({ signals }) => ({ value: signals.exceptions, label: 'exceptions · 30d' }),
     },
     [ProductKey.FEATURE_FLAGS]: {
         bestFor: 'safe rollouts',
         docsUrl: 'https://posthog.com/docs/feature-flags',
         requiresEvents: true,
-        isUsable: () => true,
-        hasSignal: (signals) => signals.flagCalls > 0,
-        getSignalHint: (signals) =>
-            signals.flagCalls === 0 ? 'Create a flag, then check it from your code to see it evaluated here.' : null,
+        activation: [
+            installAnySdk,
+            {
+                key: 'flag_called',
+                label: 'Create a flag and call it from your code',
+                achieved: ({ signals }) => signals.flagCalls > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'prod_flag_calls',
+                label: 'Evaluate flags in production',
+                achieved: ({ signals }) => signals.prodFlagCalls > 0,
+            },
+        ],
+        stat: ({ signals }) => ({ value: signals.flagCalls, label: 'flag calls · 30d' }),
     },
     [ProductKey.SURVEYS]: {
         bestFor: 'user feedback',
         docsUrl: 'https://posthog.com/docs/surveys',
         requiresEvents: true,
         optInPayload: { surveys_opt_in: true },
-        isUsable: (team) => !!team.surveys_opt_in,
-        hasSignal: (signals) => signals.surveyResponses > 0,
-        getSignalHint: (signals) =>
-            signals.surveyResponses === 0 ? 'Launch your first survey to start collecting responses.' : null,
+        enabled: (team) => !!team.surveys_opt_in,
+        activation: [
+            installWebSdk,
+            { key: 'opt_in', label: 'Turn on surveys', achieved: ({ team }) => !!team.surveys_opt_in },
+            {
+                key: 'responses',
+                label: 'Launch a survey and collect your first response',
+                achieved: ({ signals }) => signals.surveyResponses > 0,
+            },
+        ],
+        quality: [],
+        stat: ({ signals }) => ({ value: signals.surveyResponses, label: 'responses · 30d' }),
     },
     [ProductKey.EXPERIMENTS]: {
         bestFor: 'A/B testing',
         docsUrl: 'https://posthog.com/docs/experiments',
         requiresEvents: true,
-        isUsable: () => true,
-        // Experiments ride on feature flag evaluations from the SDK
-        hasSignal: (signals) => signals.flagCalls > 0,
-        getSignalHint: (signals) =>
-            signals.flagCalls === 0 ? 'Experiments run on feature flags. Wire the SDK flag check first.' : null,
+        activation: [
+            installAnySdk,
+            // Experiments require a feature flag: exposure rides on flag evaluations
+            {
+                key: 'flag_called',
+                label: 'Call a feature flag from your code',
+                achieved: ({ signals }) => signals.flagCalls > 0,
+            },
+        ],
+        quality: [
+            { ...firstCustomEvent, label: 'Track your goal metric with a custom event' },
+            {
+                key: 'prod_flag_calls',
+                label: 'Run experiments on production traffic',
+                achieved: ({ signals }) => signals.prodFlagCalls > 0,
+            },
+        ],
     },
     [ProductKey.AI_OBSERVABILITY]: {
         bestFor: 'LLM-powered apps',
         docsUrl: 'https://posthog.com/docs/llm-analytics',
-        isUsable: () => true,
-        hasSignal: (signals) => signals.aiGenerations > 0,
-        getSignalHint: (signals) =>
-            signals.aiGenerations === 0 ? 'Instrument your LLM calls to see traces, costs, and latency.' : null,
+        activation: [
+            {
+                key: 'server_sdk',
+                label: 'Install a server SDK',
+                achieved: ({ signals }) => signals.backendEvents > 0,
+            },
+            {
+                key: 'ai_events',
+                label: 'Wrap your LLM calls to capture generations',
+                achieved: ({ signals }) => signals.aiGenerations + signals.aiTraceEvents > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'traces',
+                label: 'Capture full traces, not just generations',
+                achieved: ({ signals }) => signals.aiTraceEvents > 0,
+            },
+        ],
+        stat: ({ signals }) => ({
+            value: signals.aiGenerations + signals.aiTraceEvents,
+            label: 'AI events · 30d',
+        }),
     },
     [ProductKey.DATA_WAREHOUSE]: {
         bestFor: 'joining external data',
         docsUrl: 'https://posthog.com/docs/data-warehouse',
-        isUsable: (team) => hasOnboarded(team, ProductKey.DATA_WAREHOUSE),
+        usableByDefault: true,
+        activation: [
+            {
+                key: 'first_source',
+                label: 'Connect your first source',
+                achieved: ({ resources }) => (resources.sourcesCount ?? 0) > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'second_source',
+                label: 'Connect a second source to join across systems',
+                achieved: ({ resources }) => (resources.sourcesCount ?? 0) >= 2,
+            },
+        ],
+        stat: ({ resources }) => ({ value: resources.sourcesCount ?? 0, label: 'sources connected' }),
     },
     [ProductKey.WORKFLOWS]: {
         bestFor: 'automations & messaging',
         description: 'Automate messages and actions. No install needed, though it works best with events flowing.',
-        // Workflows run without any SDK install, so the tool is usable from day one
-        isUsable: () => true,
-        hasSignal: (signals) => signals.customEvents > 0,
-        getSignalHint: (signals) =>
-            signals.customEvents === 0 ? 'Works now. Custom events unlock smarter triggers.' : null,
+        usableByDefault: true,
+        activation: [
+            {
+                key: 'first_workflow',
+                label: 'Create your first workflow',
+                achieved: ({ resources }) => (resources.workflowsCount ?? 0) > 0,
+            },
+        ],
+        quality: [
+            {
+                key: 'event_trigger',
+                label: 'Trigger a workflow from an event',
+                achieved: ({ resources }) => (resources.eventTriggeredWorkflows ?? 0) > 0,
+            },
+            { ...firstCustomEvent, label: 'Capture custom events for smarter triggers' },
+        ],
+        stat: ({ resources }) => ({ value: resources.workflowsCount ?? 0, label: 'workflows' }),
     },
     [ProductKey.LOGS]: {
         bestFor: 'backend debugging',
         docsUrl: 'https://posthog.com/docs/logs',
-        isUsable: (team) => hasOnboarded(team, ProductKey.LOGS),
+        activation: [
+            {
+                key: 'logs_flowing',
+                label: 'Point your OpenTelemetry logs at PostHog',
+                achieved: ({ resources }) => resources.hasLogs === true,
+            },
+        ],
+        quality: [],
     },
     [ProductKey.MCP_ANALYTICS]: {
         bestFor: 'MCP server owners',
-        isUsable: (team) => hasOnboarded(team, ProductKey.MCP_ANALYTICS),
+        activation: [
+            {
+                key: 'instrumented',
+                label: 'Instrument your MCP server',
+                achieved: ({ signals }) => signals.mcpInitialize > 0 || signals.mcpToolCalls > 0,
+            },
+            {
+                key: 'tool_calls',
+                label: 'See real tool calls come in',
+                achieved: ({ signals }) => signals.mcpToolCalls > 0,
+            },
+        ],
+        quality: [
+            {
+                // The product's own dashboard graduates to its metrics view around this volume
+                key: 'volume',
+                label: 'Reach 300 tool calls to unlock usage metrics',
+                achieved: ({ signals }) => signals.mcpToolCalls >= 300,
+            },
+        ],
+        stat: ({ signals }) => ({ value: signals.mcpToolCalls, label: 'tool calls · 30d' }),
     },
     [ProductKey.CONVERSATIONS]: {
         bestFor: 'customer support',
+        // Admin-gated team field: members see setup guidance instead of a dead button
         optInPayload: { conversations_enabled: true },
-        isUsable: (team) => !!team.conversations_enabled,
+        enabled: (team) => !!team.conversations_enabled,
+        activation: [
+            {
+                key: 'enabled',
+                label: 'Turn on Support',
+                achieved: ({ team }) => !!team.conversations_enabled,
+            },
+        ],
+        quality: [],
     },
 }
 
@@ -241,33 +531,24 @@ const isFullTeam = (team: TeamType | TeamPublicType | null): team is TeamType =>
 // The scene is many users' homepage, so it can remount on every "Home" click. The signals
 // query aggregates 30 days of events — too expensive to re-run per mount, and statuses
 // don't need to be fresher than a few minutes.
-const TOOL_SIGNALS_CACHE_TTL_MS = 5 * 60 * 1000
-let toolSignalsCache: { teamId: number; fetchedAt: number; signals: QuickstartToolSignals | null } | null = null
+const ACTIVATION_DATA_CACHE_TTL_MS = 5 * 60 * 1000
+let activationDataCache: { teamId: number; fetchedAt: number; data: QuickstartActivationData } | null = null
 
-function buildProduct(
-    key: ProductKey,
-    featured: boolean,
-    team: TeamType,
-    signals: QuickstartToolSignals
-): QuickstartProduct | null {
+function buildProduct(key: ProductKey, ctx: StatusContext): QuickstartProduct | null {
     const definition = QUICKSTART_PRODUCT_DEFINITIONS[key]
     const meta = (availableOnboardingProducts as Partial<Record<ProductKey, OnboardingProduct>>)[key]
     if (!definition || !meta) {
         return null
     }
-    const status = deriveStatus(definition, team, signals)
-    const signalHint =
-        status === 'ready' || status === 'active' ? (definition.getSignalHint?.(signals) ?? undefined) : undefined
     return {
-        signalHint,
         key,
-        featured,
         name: toSentenceCase(meta.name),
         description: definition.description ?? meta.userCentricDescription ?? meta.description,
         icon: meta.icon,
         iconColor: meta.iconColor,
         bestFor: definition.bestFor,
-        status,
+        status: deriveToolStatus(definition, ctx),
+        requiresEvents: !!definition.requiresEvents,
         url: meta.url,
         setupUrl: urls.onboarding({ productKey: key }),
         docsUrl: definition.docsUrl,
@@ -314,66 +595,140 @@ export const quickstartLogic = kea<quickstartLogicType>([
             }
         }
         return {
-            toolSignals: [
-                null as QuickstartToolSignals | null,
+            activationData: [
+                { signals: null, resources: EMPTY_RESOURCES } as QuickstartActivationData,
                 {
-                    // Errors leave signals null: statuses fall back to enablement-only semantics
-                    loadToolSignals: async (): Promise<QuickstartToolSignals | null> => {
+                    // Every sub-fetch is best-effort: a failure leaves its facts null and the
+                    // affected rungs simply read as unachieved
+                    loadActivationData: async (): Promise<QuickstartActivationData> => {
                         const teamId = values.currentTeam?.id
-                        const cached = toolSignalsCache
+                        const cached = activationDataCache
                         if (
                             teamId &&
                             cached &&
                             cached.teamId === teamId &&
-                            Date.now() - cached.fetchedAt < TOOL_SIGNALS_CACHE_TTL_MS
+                            Date.now() - cached.fetchedAt < ACTIVATION_DATA_CACHE_TTL_MS
                         ) {
-                            return cached.signals
+                            return cached.data
                         }
-                        try {
-                            const query = hogql`
+
+                        const queryTags = { scene: 'Quickstart', productKey: 'platform_and_support' } as const
+                        // Approximates posthog/models/team/production_event_activation.py: hostless
+                        // events count as production only when they come from a server SDK, and
+                        // dev hosts include tunnels and reserved TLDs, not just localhost
+                        const signalsQuery = hogql`
+                            SELECT
+                                count() AS total_events,
+                                countIf(is_prod) AS prod_events,
+                                countIf(is_custom) AS custom_events,
+                                uniqIf(event, is_custom) AS distinct_custom_events,
+                                countIf(event = '$identify') AS identify_calls,
+                                countIf(event = '$exception') AS exceptions,
+                                countIf(event = '$exception' AND is_backend) AS server_exceptions,
+                                countIf(is_backend) AS backend_events,
+                                countIf(event = '$feature_flag_called') AS flag_calls,
+                                countIf(event = '$feature_flag_called' AND is_prod) AS prod_flag_calls,
+                                countIf(event = '$pageview') AS pageviews,
+                                countIf(event = '$pageview' AND is_prod) AS prod_pageviews,
+                                countIf(event = 'survey sent') AS survey_responses,
+                                countIf(event = '$ai_generation') AS ai_generations,
+                                countIf(event IN ('$ai_trace', '$ai_span', '$ai_embedding')) AS ai_trace_events,
+                                countIf(event = '$mcp_initialize') AS mcp_initialize,
+                                countIf(event = '$mcp_tool_call') AS mcp_tool_calls
+                            FROM (
                                 SELECT
-                                    count() AS total_events,
-                                    countIf(properties.$host IS NOT NULL AND NOT (
-                                        properties.$host LIKE 'localhost%'
-                                        OR properties.$host LIKE '127.0.0.1%'
-                                        OR properties.$host LIKE '0.0.0.0%'
-                                        OR properties.$host LIKE '%.local'
-                                        OR properties.$host LIKE '%.local:%'
-                                    )) AS prod_events,
-                                    countIf(event NOT LIKE '$%' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')) AS custom_events,
-                                    countIf(event = '$exception') AS exceptions,
-                                    countIf(properties.$lib IN ('posthog-node', 'posthog-python', 'posthog-go', 'posthog-ruby', 'posthog-php', 'posthog-java', 'posthog-dotnet', 'posthog-elixir')) AS backend_events,
-                                    countIf(event = '$feature_flag_called') AS flag_calls,
-                                    countIf(event = '$pageview') AS pageviews,
-                                    countIf(event = 'survey sent') AS survey_responses,
-                                    countIf(event = '$ai_generation') AS ai_generations
+                                    event,
+                                    properties.$lib IN ('posthog-node', 'posthog-python', 'posthog-go', 'posthog-ruby', 'posthog-php', 'posthog-java', 'posthog-dotnet', 'posthog-elixir', 'posthog-rs') AS is_backend,
+                                    event NOT LIKE '$%' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AS is_custom,
+                                    if(
+                                        properties.$host IS NULL,
+                                        properties.$lib IN ('posthog-node', 'posthog-python', 'posthog-go', 'posthog-ruby', 'posthog-php', 'posthog-java', 'posthog-dotnet', 'posthog-elixir', 'posthog-rs'),
+                                        NOT (
+                                            properties.$host LIKE 'localhost%'
+                                            OR properties.$host LIKE '127.0.0.1%'
+                                            OR properties.$host LIKE '0.0.0.0%'
+                                            OR properties.$host LIKE '192.168.%'
+                                            OR properties.$host LIKE '%.local'
+                                            OR properties.$host LIKE '%.local:%'
+                                            OR properties.$host LIKE '%.test'
+                                            OR properties.$host LIKE '%.test:%'
+                                            OR properties.$host LIKE '%.internal'
+                                            OR properties.$host LIKE '%.internal:%'
+                                            OR properties.$host LIKE '%.example'
+                                            OR properties.$host LIKE '%.example:%'
+                                            OR properties.$host LIKE '%.ngrok%'
+                                            OR properties.$host LIKE '%.nip.io%'
+                                            OR properties.$host LIKE '%.ts.net%'
+                                            OR properties.$host LIKE '%.trycloudflare.com%'
+                                            OR properties.$host LIKE '%.loca.lt%'
+                                        )
+                                    ) AS is_prod
                                 FROM events
-                                WHERE timestamp >= now() - INTERVAL 30 DAY AND timestamp <= now()`
-                            const res = await api.queryHogQL(query, {
-                                scene: 'Quickstart',
-                                productKey: 'platform_and_support',
-                            })
-                            const row = res.results?.[0]
-                            const signals: QuickstartToolSignals | null = row
-                                ? {
-                                      totalEvents: Number(row[0]) || 0,
-                                      prodEvents: Number(row[1]) || 0,
-                                      customEvents: Number(row[2]) || 0,
-                                      exceptions: Number(row[3]) || 0,
-                                      backendEvents: Number(row[4]) || 0,
-                                      flagCalls: Number(row[5]) || 0,
-                                      pageviews: Number(row[6]) || 0,
-                                      surveyResponses: Number(row[7]) || 0,
-                                      aiGenerations: Number(row[8]) || 0,
-                                  }
-                                : null
-                            if (teamId) {
-                                toolSignalsCache = { teamId, fetchedAt: Date.now(), signals }
+                                WHERE timestamp >= now() - INTERVAL 30 DAY AND timestamp <= now()
+                            )`
+                        const replayQuery = hogql`
+                            SELECT count(DISTINCT session_id)
+                            FROM raw_session_replay_events
+                            WHERE min_first_timestamp >= now() - INTERVAL 30 DAY`
+
+                        const [signalsResult, replayResult, hasLogsResult, sourcesResult, flowsResult] =
+                            await Promise.allSettled([
+                                api.queryHogQL(signalsQuery, queryTags),
+                                api.queryHogQL(replayQuery, queryTags),
+                                api.logs.hasLogs(),
+                                api.externalDataSources.list(),
+                                api.hogFlows.getHogFlows(),
+                            ])
+
+                        let signals: QuickstartToolSignals | null = null
+                        if (signalsResult.status === 'fulfilled') {
+                            const row = signalsResult.value.results?.[0]
+                            if (row) {
+                                signals = {
+                                    totalEvents: Number(row[0]) || 0,
+                                    prodEvents: Number(row[1]) || 0,
+                                    customEvents: Number(row[2]) || 0,
+                                    distinctCustomEvents: Number(row[3]) || 0,
+                                    identifyCalls: Number(row[4]) || 0,
+                                    exceptions: Number(row[5]) || 0,
+                                    serverExceptions: Number(row[6]) || 0,
+                                    backendEvents: Number(row[7]) || 0,
+                                    flagCalls: Number(row[8]) || 0,
+                                    prodFlagCalls: Number(row[9]) || 0,
+                                    pageviews: Number(row[10]) || 0,
+                                    prodPageviews: Number(row[11]) || 0,
+                                    surveyResponses: Number(row[12]) || 0,
+                                    aiGenerations: Number(row[13]) || 0,
+                                    aiTraceEvents: Number(row[14]) || 0,
+                                    mcpInitialize: Number(row[15]) || 0,
+                                    mcpToolCalls: Number(row[16]) || 0,
+                                }
                             }
-                            return signals
-                        } catch {
-                            return null
                         }
+
+                        const workflows = flowsResult.status === 'fulfilled' ? flowsResult.value.results : null
+                        const activeWorkflows = workflows?.filter((flow) => flow.status !== 'archived') ?? null
+                        const resources: QuickstartResources = {
+                            replayRecordings:
+                                replayResult.status === 'fulfilled'
+                                    ? Number(replayResult.value.results?.[0]?.[0]) || 0
+                                    : null,
+                            hasLogs: hasLogsResult.status === 'fulfilled' ? hasLogsResult.value : null,
+                            sourcesCount:
+                                sourcesResult.status === 'fulfilled'
+                                    ? (sourcesResult.value.results?.length ?? 0)
+                                    : null,
+                            workflowsCount: activeWorkflows ? activeWorkflows.length : null,
+                            eventTriggeredWorkflows: activeWorkflows
+                                ? activeWorkflows.filter((flow) => flow.trigger?.type === 'event').length
+                                : null,
+                        }
+
+                        const data: QuickstartActivationData = { signals, resources }
+                        if (teamId) {
+                            activationDataCache = { teamId, fetchedAt: Date.now(), data }
+                        }
+                        return data
                     },
                 },
             ],
@@ -424,21 +779,24 @@ export const quickstartLogic = kea<quickstartLogicType>([
     selectors({
         hasIngestedEvent: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.ingested_event],
         products: [
-            (s) => [s.currentTeam, s.toolSignals],
-            (currentTeam, toolSignals): QuickstartProduct[] => {
+            (s) => [s.currentTeam, s.activationData],
+            (currentTeam, activationData): QuickstartProduct[] => {
                 if (!isFullTeam(currentTeam)) {
                     return []
                 }
-                const signals = toolSignals ?? EMPTY_TOOL_SIGNALS
-                return [
-                    ...QUICKSTART_FEATURED_PRODUCTS.map((key) => buildProduct(key, true, currentTeam, signals)),
-                    ...QUICKSTART_MORE_PRODUCTS.map((key) => buildProduct(key, false, currentTeam, signals)),
-                ].filter((product): product is QuickstartProduct => product !== null)
+                const ctx: StatusContext = {
+                    team: currentTeam,
+                    signals: activationData.signals ?? EMPTY_TOOL_SIGNALS,
+                    resources: activationData.resources,
+                }
+                return QUICKSTART_PRODUCT_ORDER.map((key) => buildProduct(key, ctx)).filter(
+                    (product): product is QuickstartProduct => product !== null
+                )
             },
         ],
         activeProductCount: [
             (s) => [s.products],
-            (products): number => products.filter((product) => product.status === 'active').length,
+            (products): number => products.filter((product) => product.status.level === 'live').length,
         ],
         totalProductCount: [(s) => [s.products], (products): number => products.length],
         setupModalProduct: [
@@ -469,16 +827,16 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
             })
         },
-        // Fires after signals settle so active_products reflects real data, not the empty fallback
-        loadToolSignalsSuccess: () => {
+        // Fires after signals settle so the payload reflects real data, not the empty fallback
+        loadActivationDataSuccess: () => {
             posthog.capture('quickstart viewed', {
                 has_ingested_event: values.hasIngestedEvent,
-                active_products: values.products.filter((product) => product.status === 'active').map((p) => p.key),
+                live_products: values.products.filter((product) => product.status.level === 'live').map((p) => p.key),
             })
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadToolSignals()
+        actions.loadActivationData()
         actions.loadBlogPublications()
         actions.loadNewsletterPublications()
     }),

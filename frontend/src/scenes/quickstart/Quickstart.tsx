@@ -17,7 +17,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -72,7 +72,7 @@ import {
     QUICKSTART_NEWSLETTER_URL,
     QuickstartPublication,
 } from './publications'
-import { QuickstartProduct, quickstartLogic } from './quickstartLogic'
+import { QuickstartProduct, QuickstartToolStatus, quickstartLogic } from './quickstartLogic'
 
 export const scene: SceneExport = {
     component: Quickstart,
@@ -331,25 +331,74 @@ function SubsectionHeader({ title }: { title: string }): JSX.Element {
     return <h3 className="text-sm font-semibold mb-3">{title}</h3>
 }
 
-function ProductStatusTag({ status }: { status: QuickstartProduct['status'] }): JSX.Element {
-    if (status === 'active') {
-        return <LemonTag type="success">Active</LemonTag>
+function ProductStatusTag({ level }: { level: QuickstartToolStatus['level'] }): JSX.Element {
+    if (level === 'live') {
+        return <LemonTag type="success">Live</LemonTag>
     }
-    if (status === 'ready') {
+    if (level === 'ready') {
         return <LemonTag type="highlight">Ready</LemonTag>
     }
-    if (status === 'enableable') {
-        return <LemonTag type="completion">1-click enable</LemonTag>
-    }
-    if (status === 'needs_install') {
-        return <LemonTag type="muted">Needs install</LemonTag>
-    }
     return <LemonTag type="muted">Needs setup</LemonTag>
+}
+
+function QualityMeter({ achieved, total }: { achieved: number; total: number }): JSX.Element {
+    return (
+        <Tooltip title={`Instrumentation quality: ${achieved} of ${total} steps done`} delayMs={0}>
+            <div className="flex items-center gap-1 w-fit">
+                {Array.from({ length: total }, (_, index) => (
+                    <span
+                        key={index}
+                        className={`h-1 w-4 rounded-full ${index < achieved ? 'bg-success' : 'bg-fill-tertiary'}`}
+                    />
+                ))}
+            </div>
+        </Tooltip>
+    )
 }
 
 function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
     const { enablingProducts } = useValues(quickstartLogic)
     const { enableProduct, openToolSetupModal } = useActions(quickstartLogic)
+    const { status } = product
+
+    const setUpButton = (
+        <LemonButton
+            type="primary"
+            size="small"
+            to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
+            onClick={() => {
+                captureQuickstartAction('set_up_product', product.key)
+                if (PRODUCT_SDK_SETUP[product.key]) {
+                    openToolSetupModal(product.key)
+                }
+            }}
+            data-attr={`quickstart-setup-${product.key}`}
+        >
+            {status.cta === 'install' ? 'Install' : 'Set up'}
+        </LemonButton>
+    )
+    const enableButton = (type: 'primary' | 'secondary'): JSX.Element => (
+        <LemonButton
+            type={type}
+            size="small"
+            loading={!!enablingProducts[product.key]}
+            onClick={() => enableProduct(product.key)}
+            data-attr={`quickstart-enable-${product.key}`}
+        >
+            Enable
+        </LemonButton>
+    )
+    const openButton = (
+        <LemonButton
+            type="primary"
+            size="small"
+            to={product.url}
+            onClick={() => captureQuickstartAction('open_product', product.key)}
+            data-attr={`quickstart-open-${product.key}`}
+        >
+            Open
+        </LemonButton>
+    )
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
@@ -357,27 +406,39 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                 <span className="text-2xl leading-none">
                     {getProductIcon(product.icon, { iconColor: product.iconColor })}
                 </span>
-                <ProductStatusTag status={product.status} />
+                <ProductStatusTag level={status.level} />
             </div>
             <div>
                 <h3 className="font-semibold text-base mb-0">{product.name}</h3>
                 <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
             </div>
             <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
-            {product.signalHint && <p className="text-xs text-tertiary mb-0">{product.signalHint}</p>}
+            {(status.stat || status.nextStep || (status.level === 'live' && status.qualityTotal > 0)) && (
+                <div className="flex flex-col gap-1">
+                    {status.stat && (
+                        <div className="text-sm font-medium">
+                            {humanFriendlyLargeNumber(status.stat.value)} {status.stat.label}
+                        </div>
+                    )}
+                    {status.level === 'live' && status.qualityTotal > 0 && (
+                        <QualityMeter achieved={status.qualityAchieved} total={status.qualityTotal} />
+                    )}
+                    {status.nextStep && <p className="text-xs text-tertiary mb-0">Next: {status.nextStep}</p>}
+                </div>
+            )}
             <div className="flex items-center gap-2 mt-1">
-                {product.status === 'active' || product.status === 'ready' ? (
+                {status.level === 'live' ? (
                     <>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={product.url}
-                            onClick={() => captureQuickstartAction('open_product', product.key)}
-                            data-attr={`quickstart-open-${product.key}`}
-                        >
-                            Open
-                        </LemonButton>
-                        {product.status === 'ready' && PRODUCT_SDK_SETUP[product.key] && (
+                        {openButton}
+                        {/* e.g. error tracking live from a server SDK can still turn on web autocapture */}
+                        {status.cta === 'enable' && enableButton('secondary')}
+                    </>
+                ) : status.cta === 'enable' ? (
+                    enableButton('primary')
+                ) : status.cta === 'open' ? (
+                    <>
+                        {openButton}
+                        {PRODUCT_SDK_SETUP[product.key] && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -391,46 +452,8 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                             </LemonButton>
                         )}
                     </>
-                ) : product.status === 'enableable' ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        loading={!!enablingProducts[product.key]}
-                        onClick={() => enableProduct(product.key)}
-                        data-attr={`quickstart-enable-${product.key}`}
-                    >
-                        Enable
-                    </LemonButton>
-                ) : product.status === 'needs_install' ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
-                        onClick={() => {
-                            captureQuickstartAction('install_tool', product.key)
-                            if (PRODUCT_SDK_SETUP[product.key]) {
-                                openToolSetupModal(product.key)
-                            }
-                        }}
-                        data-attr={`quickstart-install-${product.key}`}
-                    >
-                        Install
-                    </LemonButton>
                 ) : (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        to={PRODUCT_SDK_SETUP[product.key] ? undefined : product.setupUrl}
-                        onClick={() => {
-                            captureQuickstartAction('set_up_product', product.key)
-                            if (PRODUCT_SDK_SETUP[product.key]) {
-                                openToolSetupModal(product.key)
-                            }
-                        }}
-                        data-attr={`quickstart-setup-${product.key}`}
-                    >
-                        Set up
-                    </LemonButton>
+                    setUpButton
                 )}
                 {product.docsUrl && (
                     <LemonButton
@@ -922,7 +945,7 @@ export function Quickstart(): JSX.Element {
                         subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
                     />
                     <HeaderStat icon={<IconApps />}>
-                        {activeProductCount} of {totalProductCount} active
+                        {activeProductCount} of {totalProductCount} live
                     </HeaderStat>
                 </div>
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">

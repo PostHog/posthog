@@ -37,9 +37,11 @@ const BLOG_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     </channel>
 </rss>`
 
-// One row of the tool-signals HogQL aggregate: total, prod, custom, exceptions,
-// backend, flag calls, pageviews, survey responses, AI generations
-const TOOL_SIGNALS_ROW = [54210, 32480, 1800, 42, 5400, 1200, 27904, 12, 0]
+// One row of the tool-signals HogQL aggregate: total, prod, custom, distinct custom,
+// identify, exceptions, server exceptions, backend, flag calls, prod flag calls, pageviews,
+// prod pageviews, survey responses, AI generations, AI trace events, MCP init, MCP tool calls.
+// The replay-count query shares this mock, so its count reads the first column.
+const TOOL_SIGNALS_ROW = [54210, 32480, 1800, 8, 900, 42, 3, 5400, 1200, 800, 27904, 21000, 12, 0, 0, 0, 0]
 
 const meta: Meta = {
     component: App,
@@ -65,6 +67,11 @@ const meta: Meta = {
                 '/api/billing/': billingJson,
                 // liveEventsHostOrigin() points at the Storybook origin, so the live users chip gets a count
                 '/stats': { users_on_product: 342 },
+                '/api/environments/:team_id/logs/has_logs': { hasLogs: false },
+                '/api/environments/:team_id/external_data_sources/': { results: [{ id: '1' }, { id: '2' }] },
+                '/api/environments/:team_id/hog_flows/': {
+                    results: [{ id: '1', status: 'active', trigger: { type: 'event' } }],
+                },
                 'https://posthog.com/rss.xml': () =>
                     new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
             },
