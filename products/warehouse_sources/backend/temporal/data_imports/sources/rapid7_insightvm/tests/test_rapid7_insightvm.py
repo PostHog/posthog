@@ -1,10 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm import rapid7_insightvm
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.rapid7_insightvm import (
     Rapid7InsightvmResumeConfig,
@@ -41,7 +42,7 @@ def _response(status: int, body: dict[str, Any]) -> mock.MagicMock:
     resp.json.return_value = body
     resp.text = str(body)
     if not resp.ok:
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} error")
+        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} error", response=resp)
     return resp
 
 
@@ -60,7 +61,7 @@ class TestGetRowsPagination:
                     region="us",
                     endpoint="assets",
                     logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
+                    resumable_source_manager=cast(ResumableSourceManager[Rapid7InsightvmResumeConfig], manager),
                 )
             )
         return batches, session
