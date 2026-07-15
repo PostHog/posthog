@@ -466,6 +466,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             "updated_existing": False,
         }
@@ -563,6 +564,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             "updated_existing": True,
         }
@@ -705,6 +707,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "is_eligible_for_experiment": False,
             "team_id": target_project.id,
             # A soft-deleted flag doesn't count as existing: the copy replaces it with a fresh flag
             "updated_existing": False,
