@@ -105,6 +105,7 @@ describe('HogFlowManager', () => {
     })
 
     describe('cache staleness bounds', () => {
+        // Own timeout: the polling window below plus DB round-trips can exceed the suite's 2s default
         it('picks up an edit without a reload notification once the background refresh age passes', async () => {
             const baseNow = Date.now()
             try {
@@ -141,7 +142,7 @@ describe('HogFlowManager', () => {
             } finally {
                 jest.spyOn(Date, 'now').mockReturnValue(baseNow)
             }
-        })
+        }, 10000)
     })
 
     describe('getHogFlowIdsForTeam', () => {
