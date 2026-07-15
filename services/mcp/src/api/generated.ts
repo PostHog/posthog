@@ -40543,6 +40543,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - Default
      * * `onboarding` - Onboarding
      * * `product_intent` - Product Intent
      * * `used_by_colleagues` - Used by Colleagues
@@ -40556,6 +40557,7 @@ export namespace Schemas {
 
 
     export const UserProductListReasonEnum = {
+      Default: 'default',
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
