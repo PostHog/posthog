@@ -10,8 +10,9 @@ import { NotebookNodeType } from '../types'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 
 describe('notebookNodeStalenessLogic', () => {
-    // A three-cell chain: sql cell `a` exports sql_df, python cell `b` reads it and exports
-    // new_events, sql cell `c` joins new_events. Document order is dependency order.
+    // A three-cell chain plus one independent cell: sql cell `a` exports sql_df, python cell
+    // `b` reads it and exports new_events, sql cell `c` joins new_events, and `x` references
+    // nothing. Document order is dependency order.
     const content: JSONContent = {
         type: 'doc',
         content: [
@@ -24,6 +25,7 @@ describe('notebookNodeStalenessLogic', () => {
                 type: NotebookNodeType.SQLV2,
                 attrs: { nodeId: 'c', returnVariable: 'joined', code: 'select * from new_events' },
             },
+            { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'x', returnVariable: 'other_df', code: 'select 2' } },
         ],
     }
     const getContent = (): JSONContent => content
@@ -77,6 +79,26 @@ describe('notebookNodeStalenessLogic', () => {
         await expectLogic(stalenessLogic).toFinishAllListeners()
         // b reads a directly; c reads b, so staleness must propagate transitively.
         expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
+        // The finished cell is remembered as the last run with its still-stale downstream,
+        // which is what surfaces the "run downstream cells" button on it.
+        expect(stalenessLogic.values.lastRunNodeId).toEqual('a')
+        expect(stalenessLogic.values.lastRunStaleDownstreamNodeIds).toEqual(['b', 'c'])
+    })
+
+    it('a rooted chain runs only cells downstream of the root, leaving unrelated stale cells flagged', async () => {
+        // The "run downstream cells" button must not run stale cells its run did not affect;
+        // without the root scope, x would be re-run by a chain rooted at a.
+        mountNode('b')
+        mountNode('c')
+        mountNode('x')
+        stalenessLogic.actions.markStaleNodeIds(['b', 'c', 'x'])
+
+        stalenessLogic.actions.runStaleChain(content, 'a')
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b', 'c'])
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ x: true })
+        expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
     it('runStaleChain runs stale cells in document order and clears them all', async () => {
