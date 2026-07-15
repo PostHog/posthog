@@ -1,9 +1,21 @@
-import { evaluationSupportsReports } from './evaluationCapabilities'
+import { evaluationSupportsReports, evaluationSupportsRunSummary } from './evaluationCapabilities'
+import type { EvaluationOutputType, EvaluationTarget } from './types'
 
 describe('evaluationCapabilities', () => {
-    it('supports reports only for boolean generation-target evaluations', () => {
-        expect(evaluationSupportsReports({ output_type: 'boolean', target: 'generation' })).toBe(true)
-        expect(evaluationSupportsReports({ output_type: 'boolean', target: 'trace' })).toBe(false)
-        expect(evaluationSupportsReports({ output_type: 'sentiment', target: 'generation' })).toBe(false)
-    })
+    it.each<
+        [outputType: EvaluationOutputType, target: EvaluationTarget, supportsReports: boolean, supportsSummary: boolean]
+    >([
+        ['boolean', 'generation', true, true],
+        ['sentiment', 'generation', true, false],
+        ['boolean', 'trace', false, false],
+        ['sentiment', 'trace', false, false],
+    ])(
+        'supports the expected capabilities for %s %s evaluations',
+        (outputType, target, supportsReports, supportsSummary) => {
+            const evaluation = { output_type: outputType, target }
+
+            expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
+            expect(evaluationSupportsRunSummary(evaluation)).toBe(supportsSummary)
+        }
+    )
 })

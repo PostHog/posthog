@@ -1087,7 +1087,7 @@ export interface PatchedSignalScoutConfigApi {
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
  * row yet at response time — the bridge row is created once the run's first turn starts.
- * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
  */
 export interface SignalScoutManualRunApi {
     /** The `signals-scout-*` skill that was dispatched. */
@@ -1902,11 +1902,11 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
 }
 
@@ -1969,7 +1969,7 @@ export const AutonomyPriorityEnumApi = {
 
 /**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
- * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
  * back into the underlying signal store.
  */

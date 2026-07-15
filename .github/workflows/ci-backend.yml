@@ -622,7 +622,7 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
         if: >-
             always() &&
             (github.event.pull_request.draft != true ||
@@ -663,7 +663,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -729,7 +729,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
@@ -842,6 +842,29 @@ jobs:
               if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
               run: exit 1
+
+            # Feeds the django_tests gate's per-test failure rollup. Rename each file to carry
+            # its product so the name survives upload-artifact's least-common-ancestor path
+            # collapse (same trick as "Stage product coverage" below).
+            - name: Stage product JUnit
+              if: always()
+              shell: bash
+              run: |
+                  mkdir -p junit-staging
+                  for f in products/*/junit-product.xml; do
+                      [ -f "$f" ] || continue
+                      cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
+                  done
+            # Separate prefix from junit-results-backend-* on purpose: those are consumed by
+            # test-selection-verdict (snob shadow) and report-test-timings, not product tests.
+            - name: Upload product test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: product-junit-results-${{ strategy.job-index }}
+                  path: junit-staging/junit-product-*.xml
+                  if-no-files-found: ignore
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -2776,6 +2799,8 @@ jobs:
         outputs:
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
+            # Local dev / hobby image, mirrored from clickhouse-versions.json `local`
+            local_image: ${{ steps.read-versions.outputs.local_image }}
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
@@ -2797,6 +2822,15 @@ jobs:
                   fi
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
+
+                  # Local dev / hobby image — the version product (turbo) tests run against.
+                  local_image=$(jq -r '.local' .github/clickhouse-versions.json)
+                  if [ -z "$local_image" ] || [ "$local_image" = "null" ]; then
+                    echo "::error::No local version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "local_image=$local_image" >> $GITHUB_OUTPUT
+                  echo "Local dev/hobby image for product tests: $local_image"
 
                   # Read all unique versions so we can derive compat coverage.
                   all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
@@ -2919,7 +2953,8 @@ jobs:
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # Headroom for downloading every shard's JUnit for the failure rollup.
+        timeout-minutes: 8
         if: always()
         steps:
             - name: Summarize dependency results
@@ -2948,8 +2983,82 @@ jobs:
                     fi
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
+            # Per-test failure rollup: only when a test job actually failed, download that
+            # shard's JUnit so "Check dependency results" can list the failing tests. Skipped
+            # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
+            # continue-on-error so a flaky fetch can't fail this required gate.
+            - name: Download shard JUnit results
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: '{junit-results-backend,product-junit-results}-*'
+                  path: /tmp/junit-gate/
             - name: Check dependency results
               run: |
+                  # Per-test failure rollup, emitted from THIS step because GitHub only
+                  # auto-expands the failed step in the log view. Best-effort via `|| true`
+                  # so a parser hiccup never changes the verdict computed below.
+                  python3 <<'PY' || true
+                  import glob, os, xml.etree.ElementTree as ET
+
+                  ROOT = "/tmp/junit-gate"
+                  rows = []  # (shard, nodeid, repo_file, message)
+
+                  def clean(s):
+                      # Collapse newlines so PR-authored test names can't inject ::workflow-commands::
+                      return " ".join((s or "").split())
+
+                  for path in glob.glob(os.path.join(ROOT, "**", "junit-*.xml"), recursive=True):
+                      artifact = os.path.relpath(path, ROOT).split(os.sep)[0]
+                      base = os.path.basename(path)
+                      # Product JUnit is staged as junit-product-<name>.xml; backend keeps its key.
+                      product = base[len("junit-product-"):-len(".xml")] if base.startswith("junit-product-") else ""
+                      shard = f"products/{product}" if product else artifact.removeprefix("junit-results-backend-")
+                      with open(path, "rb") as fh:
+                          raw = fh.read()
+                      # Refuse DTD/entity payloads (XXE, billion-laughs). pytest JUnit has neither,
+                      # so real failures are never dropped; a crafted file is simply skipped.
+                      if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
+                          continue
+                      try:
+                          tree = ET.fromstring(raw)
+                      except ET.ParseError:
+                          continue
+                      for tc in tree.iter("testcase"):
+                          bad = tc.find("failure")
+                          if bad is None:
+                              bad = tc.find("error")
+                          if bad is None:
+                              continue
+                          name = tc.get("name", "")
+                          file_ = tc.get("file", "") or tc.get("classname", "")
+                          repo_file = f"products/{product}/{file_}" if product and file_ else file_
+                          nodeid = clean("::".join(p for p in (repo_file, name) if p))
+                          msg = clean(bad.get("message") or bad.text or "")[:200]
+                          rows.append((clean(shard), nodeid, clean(repo_file), msg))
+
+                  # Print only when something failed; on a green gate this stays silent.
+                  if rows:
+                      out = ["### Failing backend & product tests", "", f"{len(rows)} failing test(s):",
+                             "", "| Shard | Test | Message |", "| --- | --- | --- |"]
+                      for shard, nodeid, _f, msg in rows[:100]:
+                          out.append(f"| {shard} | `{nodeid.replace('|', r'\|')}` | {msg.replace('|', r'\|')} |")
+                      if len(rows) > 100:
+                          out += ["", f"…and {len(rows) - 100} more."]
+                      text = "\n".join(out) + "\n"
+                      summary = os.environ.get("GITHUB_STEP_SUMMARY")
+                      if summary:
+                          with open(summary, "a") as fh:
+                              fh.write(text)
+                      print(text)
+                      for shard, nodeid, repo_file, msg in rows[:30]:
+                          title = f"Backend test failed ({shard})"
+                          body = f"{nodeid}: {msg}" if msg else nodeid
+                          loc = f"file={repo_file}," if repo_file else ""
+                          print(f"::error {loc}title={title}::{body}")
+                  PY
+
                   deterministic_failure=false
                   failed=false
 

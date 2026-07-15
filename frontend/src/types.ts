@@ -5429,6 +5429,7 @@ export const INTEGRATION_KINDS = [
     'postgresql',
     'aws-s3',
     's3-compatible',
+    'snowflake',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6158,12 +6159,6 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSourceConnectionOption {
-    id: string
-    prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
-}
-
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -6491,6 +6486,7 @@ export type BatchExportServicePostgres = {
 
 export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
+    integration?: number
     config: {
         account: string
         database: string
