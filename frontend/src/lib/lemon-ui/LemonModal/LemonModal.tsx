@@ -81,6 +81,11 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
     const textNodeWalker = document.createTreeWalker(titleElement, NodeFilter.SHOW_TEXT)
 
     while (textNodeWalker.nextNode()) {
+        const ariaHiddenAncestor = textNodeWalker.currentNode.parentElement?.closest('[aria-hidden="true"]')
+        if (ariaHiddenAncestor && titleElement.contains(ariaHiddenAncestor)) {
+            continue
+        }
+
         const text = textNodeWalker.currentNode.textContent?.trim()
         if (text) {
             textSegments.push(text)
