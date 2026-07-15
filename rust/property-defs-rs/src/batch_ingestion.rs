@@ -16,7 +16,7 @@ use crate::{
         V2_EVENT_PROPS_BATCH_SIZE, V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_EVENT_PROPS_CACHE_REMOVED,
         V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_CACHE_TIME,
         V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_SIZE, V2_PROP_DEFS_BATCH_WRITE_TIME,
-        V2_PROP_DEFS_CACHE_REMOVED,
+        V2_PROP_DEFS_CACHE_REMOVED, V2_PROP_DEFS_DROPPED_UNCACHED,
     },
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
@@ -156,6 +156,10 @@ pub struct PropertyDefinitionsBatch {
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
     pub cached: Vec<Update>,
+    // Group propdefs dropped for an unresolved group_type_index. They're never written, but
+    // the producer already inserted them (as Unresolved) into the shared dedup cache, so we
+    // evict them post-batch to avoid poisoning the cache against a later resolvable retry.
+    pub dropped_unresolved: Vec<Update>,
 }
 
 impl PropertyDefinitionsBatch {
@@ -171,6 +175,7 @@ impl PropertyDefinitionsBatch {
             event_types: Vec::with_capacity(batch_size),
             group_type_indices: Vec::with_capacity(batch_size),
             cached: Vec::with_capacity(batch_size),
+            dropped_unresolved: Vec::new(),
         }
     }
 
@@ -195,6 +200,11 @@ impl PropertyDefinitionsBatch {
             // during the transaction (which we do if we don't have a group-type index for a
             // group property), the entire transaction is aborted, so instead we just warn
             // loudly about this (above, and at resolve time), and drop the update.
+            //
+            // Record it so we can evict the producer's (Unresolved) shared-cache entry after
+            // the batch: without this, a transient resolution miss (new group type not yet
+            // visible to personhog) permanently blocks the def from ever persisting.
+            self.dropped_unresolved.push(Update::Property(pd));
             return;
         }
 
@@ -221,7 +231,19 @@ impl PropertyDefinitionsBatch {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        // Dropped-unresolved entries carry no write, but they still need a flush so their
+        // shared-cache entries get evicted, so a batch with only drops is not "empty".
+        self.len() == 0 && self.dropped_unresolved.is_empty()
+    }
+
+    // Evict the shared-cache entries for group propdefs we dropped for an unresolved
+    // group_type_index. The producer inserted them as Unresolved and the resolver preserves
+    // that form on a miss, so these keys match the originals directly (no revert needed).
+    pub fn uncache_dropped(&self, cache: &Arc<Cache>) {
+        for update in &self.dropped_unresolved {
+            cache.remove(update);
+            metrics::counter!(V2_PROP_DEFS_DROPPED_UNCACHED).increment(1);
+        }
     }
 
     pub fn uncache_batch(&self, cache: &Arc<Cache>) {
@@ -422,6 +444,17 @@ async fn write_property_definitions_batch(
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
 
+    // A batch may contain only dropped-unresolved entries (nothing to write). Skip the empty
+    // INSERT but still evict those poisoned shared-cache entries so they can be retried.
+    // Not `is_empty()`: that intentionally returns false when only drops are present (they
+    // still need a flush to evict); here we specifically mean "no writable rows".
+    #[allow(clippy::len_zero)]
+    if batch.len() == 0 {
+        batch.uncache_dropped(&cache);
+        total_time.fin();
+        return Ok(());
+    }
+
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
         //
@@ -482,6 +515,7 @@ async fn write_property_definitions_batch(
                     // remove all entries from cache so they get another shot
                     // at persisting on future event submissions
                     batch.uncache_batch(&cache);
+                    batch.uncache_dropped(&cache);
 
                     return Err(e);
                 }
@@ -506,6 +540,10 @@ async fn write_property_definitions_batch(
                     batch.len(),
                     count
                 );
+
+                // Dropped group propdefs were never written; evict their (Unresolved) shared-cache
+                // entries so a later, now-resolvable $groupidentify is not filtered out.
+                batch.uncache_dropped(&cache);
 
                 return Ok(());
             }
@@ -609,5 +647,69 @@ async fn write_event_definitions_batch(
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{GroupType, PropertyDefinition, PropertyParentType};
+
+    fn group_pd(team_id: i32, group_name: &str, prop: &str) -> PropertyDefinition {
+        PropertyDefinition {
+            team_id,
+            project_id: team_id as i64,
+            name: prop.to_string(),
+            is_numerical: false,
+            property_type: None,
+            event_type: PropertyParentType::Group,
+            group_type_index: Some(GroupType::Unresolved(group_name.to_string())),
+            property_type_format: None,
+            volume_30_day: None,
+            query_usage_30_day: None,
+        }
+    }
+
+    #[test]
+    fn unresolved_group_pd_is_dropped_and_recorded_for_eviction() {
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(group_pd(1, "org", "seats"));
+
+        // Nothing to write (the CHECK constraint forbids a NULL group_type_index)...
+        assert_eq!(batch.len(), 0);
+        assert!(batch.cached.is_empty());
+        // ...but it's recorded so its shared-cache entry gets evicted, and a drop-only batch
+        // must still flush.
+        assert_eq!(batch.dropped_unresolved.len(), 1);
+        assert!(!batch.is_empty());
+    }
+
+    #[test]
+    fn uncache_dropped_evicts_the_producer_inserted_key() {
+        let cache = Arc::new(Cache::new(10, 10, 10));
+        let pd = group_pd(1, "org", "seats");
+
+        // The producer inserts the Unresolved form before resolution runs.
+        cache.insert(Update::Property(pd.clone()));
+        assert!(cache.contains_key(&Update::Property(pd.clone())));
+
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(pd.clone());
+        batch.uncache_dropped(&cache);
+
+        // The poisoned entry is gone, so a later resolvable $groupidentify won't be filtered.
+        assert!(!cache.contains_key(&Update::Property(pd)));
+    }
+
+    #[test]
+    fn resolved_group_pd_is_written_not_dropped() {
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        let mut pd = group_pd(1, "org", "seats");
+        pd.group_type_index = Some(GroupType::Resolved("org".to_string(), 2));
+        batch.append(pd);
+
+        assert_eq!(batch.len(), 1);
+        assert!(batch.dropped_unresolved.is_empty());
+        assert_eq!(batch.group_type_indices, vec![Some(2)]);
     }
 }
