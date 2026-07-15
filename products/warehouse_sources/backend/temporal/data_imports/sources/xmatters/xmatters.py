@@ -1,3 +1,4 @@
+import re
 import base64
 import dataclasses
 from collections.abc import Iterator
@@ -20,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.s
 # xMatters is per-instance: every account lives at a customer-specific subdomain.
 BASE_URL_TEMPLATE = "https://{subdomain}.xmatters.com/api/xm/1"
 
+# A single DNS label: letters, digits, and internal hyphens only. Anything else (slashes, dots,
+# `@`, etc.) could redirect worker requests to an attacker-controlled host (SSRF).
+SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
+
 # xMatters caps `limit` at 1000; using the max reduces round-trips.
 PAGE_SIZE = 1000
 
@@ -37,7 +42,13 @@ class XmattersResumeConfig:
     offset: int
 
 
+def is_valid_subdomain(subdomain: str) -> bool:
+    return bool(SUBDOMAIN_REGEX.match(subdomain))
+
+
 def _base_url(subdomain: str) -> str:
+    if not is_valid_subdomain(subdomain):
+        raise ValueError("xMatters subdomain is invalid")
     return BASE_URL_TEMPLATE.format(subdomain=subdomain)
 
 

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.xmatters import (
     XmattersResumeConfig,
+    is_valid_subdomain,
     validate_credentials as validate_xmatters_credentials,
     xmatters_source,
 )
@@ -122,6 +123,9 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
     def validate_credentials(
         self, config: XmattersSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        if not is_valid_subdomain(config.subdomain):
+            return False, "xMatters subdomain is invalid"
+
         ok, status, error = validate_xmatters_credentials(
             config.subdomain, config.username, config.password, schema_name
         )

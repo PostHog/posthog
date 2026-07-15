@@ -11,10 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.xmatters import (
     PAGE_SIZE,
     XmattersResumeConfig,
+    _base_url,
     _build_params,
     _format_incremental_value,
     _get_headers,
     get_rows,
+    is_valid_subdomain,
     validate_credentials,
     xmatters_source,
 )
@@ -79,6 +81,35 @@ class TestFormatIncrementalValue:
     )
     def test_format(self, value: Any, expected: str) -> None:
         assert _format_incremental_value(value) == expected
+
+
+class TestSubdomainValidation:
+    @pytest.mark.parametrize("subdomain", ["acme", "acme-corp", "a", "acme123", "123acme"])
+    def test_valid_subdomains(self, subdomain: str) -> None:
+        assert is_valid_subdomain(subdomain) is True
+        assert _base_url(subdomain) == f"https://{subdomain}.xmatters.com/api/xm/1"
+
+    # An editor-controlled subdomain like `attacker.example/` would make the worker send its
+    # requests (and Basic auth header) to an arbitrary host instead of *.xmatters.com (SSRF).
+    @pytest.mark.parametrize(
+        "subdomain",
+        [
+            "attacker.example/",
+            "user@evil.example",
+            "acme.evil.example",
+            "acme/path",
+            "acme?x=",
+            "acme#frag",
+            "",
+            "-acme",
+            "acme-",
+            "a" * 64,
+        ],
+    )
+    def test_hostile_subdomains_rejected(self, subdomain: str) -> None:
+        assert is_valid_subdomain(subdomain) is False
+        with pytest.raises(ValueError):
+            _base_url(subdomain)
 
 
 class TestHeaders:
