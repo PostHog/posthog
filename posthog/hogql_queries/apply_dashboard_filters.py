@@ -9,22 +9,29 @@ from posthog.models import Team
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
 # Fields where a tile override replaces the dashboard value outright when set.
-# Property filters are handled separately (AND-combined, not replaced).
+# Property filters are handled separately (merged per key).
 _TILE_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+
+
+def _property_identity(prop: dict) -> tuple[str, Any]:
+    """The (type, key) a property filter targets — the unit at which a tile takes precedence.
+    `type` defaults to "event" to match how untyped property filters are interpreted downstream."""
+    return (prop.get("type") or "event", prop.get("key"))
 
 
 def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filters: dict | None) -> dict | None:
     """Merge a tile's filter overrides on top of the dashboard-level filters.
 
-    The tile wins per field, but the dashboard value is kept where the tile leaves a field unset,
-    and property filters from both layers are AND-combined rather than replaced — a tile narrows the
-    dashboard's filters instead of discarding them. The date range is treated as one unit: a tile that
-    sets either bound supplies both bounds (and explicitDate), so a tile date_from is never paired with
-    a stale dashboard date_to.
-    """
-    dashboard_filters = dashboard_filters or {}
-    tile_filters = tile_filters or {}
+    The tile wins per field. Scalars (breakdown, interval, test-account filtering) are replaced outright
+    when the tile sets them. Property filters merge per (type, key): a tile property replaces the
+    dashboard's filter on the same key, while non-overlapping keys from both layers are kept and
+    AND-combined. The date range is treated as one unit — a tile that sets either bound supplies both
+    bounds and explicitDate, so a tile date_from is never paired with a stale dashboard date_to or a
+    stale dashboard explicitDate.
 
+    Overriding the insight's own base filters (not just the dashboard's) is handled separately by
+    `remove_query_properties_overridden_by_tile`, which the tile-aware call sites apply to the query.
+    """
     if not tile_filters:
         return dashboard_filters or None
     if not dashboard_filters:
@@ -39,14 +46,60 @@ def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filter
     if tile_filters.get("date_from") is not None or tile_filters.get("date_to") is not None:
         merged["date_from"] = tile_filters.get("date_from")
         merged["date_to"] = tile_filters.get("date_to")
+        # The date range is one unit — drop the dashboard's explicitDate before adopting the tile's.
+        merged.pop("explicitDate", None)
         if tile_filters.get("explicitDate") is not None:
             merged["explicitDate"] = tile_filters["explicitDate"]
 
-    combined_properties = [*(dashboard_filters.get("properties") or []), *(tile_filters.get("properties") or [])]
+    tile_props = tile_filters.get("properties") or []
+    dashboard_props = dashboard_filters.get("properties") or []
+    tile_keys = {_property_identity(p) for p in tile_props}
+    combined_properties = [p for p in dashboard_props if _property_identity(p) not in tile_keys] + tile_props
     if combined_properties:
         merged["properties"] = combined_properties
 
     return merged
+
+
+def _without_keys(properties: Any, keys: set[tuple[str, Any]]) -> Any:
+    """Drop leaf property filters whose (type, key) is in `keys` from a query's `properties`, which is
+    either a flat list of leaves or a `PropertyGroupFilter` dict (a group of `PropertyGroupFilterValue`
+    subgroups). Emptied subgroups are pruned."""
+    if isinstance(properties, list):
+        return [p for p in properties if _property_identity(p) not in keys]
+    if isinstance(properties, dict) and isinstance(properties.get("values"), list):
+        new_values = []
+        for value in properties["values"]:
+            if isinstance(value, dict) and isinstance(value.get("values"), list):
+                kept = [p for p in value["values"] if _property_identity(p) not in keys]
+                if kept:
+                    new_values.append({**value, "values": kept})
+            elif not (isinstance(value, dict) and _property_identity(value) in keys):
+                new_values.append(value)
+        return {**properties, "values": new_values}
+    return properties
+
+
+def _strip_query_properties(query: dict, keys: set[tuple[str, Any]]) -> dict:
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        return {**query, "source": _strip_query_properties(query["source"], keys)}
+    if query.get("properties") is not None:
+        query = {**query, "properties": _without_keys(query["properties"], keys)}
+    filters = query.get("filters")
+    if isinstance(filters, dict) and filters.get("properties") is not None:
+        query = {**query, "filters": {**filters, "properties": _without_keys(filters["properties"], keys)}}
+    return query
+
+
+def remove_query_properties_overridden_by_tile(query: dict, tile_filters: dict | None) -> dict:
+    """Drop the insight's own property filters that a tile override replaces on the same (type, key),
+    so a tile filter takes precedence over the insight's base filter instead of merely AND-ing with it.
+    Only the tile layer gets this precedence — dashboard-level filters still stack onto the insight."""
+    tile_props = (tile_filters or {}).get("properties") or []
+    keys = {_property_identity(p) for p in tile_props}
+    if not keys:
+        return query
+    return _strip_query_properties(query, keys)
 
 
 # Apply the filters from the django-style Dashboard object

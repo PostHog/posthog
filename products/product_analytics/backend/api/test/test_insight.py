@@ -4290,6 +4290,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
         )
 
+    def test_tile_property_override_replaces_insight_and_dashboard_on_same_key(self) -> None:
+        # Insight, dashboard, and tile all filter $browser. The tile must win outright on that key —
+        # over both the insight's own filter and the dashboard's — instead of AND-ing all three (which
+        # would be an impossible intersection and return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}]
+            },
+        )
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome", "Safari"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Firefox"]], f"Tile $browser should replace all others. Got: {browser_values}"
+
+    @staticmethod
+    def _collect_property_values(properties: object, key: str) -> list:
+        """Flatten a query's properties (flat list or nested PropertyGroupFilter) to the values set for one key."""
+        found: list = []
+        if isinstance(properties, list):
+            for prop in properties:
+                found.extend(TestInsight._collect_property_values(prop, key))
+        elif isinstance(properties, dict):
+            if isinstance(properties.get("values"), list):
+                found.extend(TestInsight._collect_property_values(properties["values"], key))
+            elif properties.get("key") == key:
+                found.append(properties.get("value"))
+        return found
+
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,

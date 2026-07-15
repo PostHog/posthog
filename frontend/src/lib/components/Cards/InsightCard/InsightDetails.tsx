@@ -107,13 +107,23 @@ interface EffectiveFilterOverrides {
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
 }
 
+// The (type, key) a property filter targets — the unit at which a tile takes precedence.
+// Mirrors backend `_property_identity`.
+function propertyIdentity(property: AnyPropertyFilter): string {
+    const type = 'type' in property ? property.type : 'event'
+    const key = 'key' in property ? property.key : ''
+    return `${type}::${key}`
+}
+
 // Tile and dashboard overrides merge per field (matches backend `merge_dashboard_and_tile_filters`).
+// Property filters merge per key: a tile filter replaces the dashboard's on the same key.
 function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveFilterOverrides {
-    const dashboardProperties = filtersOverride?.properties ?? []
     const tileProperties = tileFiltersOverride?.properties ?? []
+    const tileKeys = new Set(tileProperties.map(propertyIdentity))
+    const dashboardProperties = (filtersOverride?.properties ?? []).filter((p) => !tileKeys.has(propertyIdentity(p)))
     const propertyGroups: EffectiveFilterOverrides['propertyGroups'] = []
     if (dashboardProperties.length > 0) {
         propertyGroups.push({ properties: dashboardProperties, source: 'dashboard' })
@@ -469,8 +479,8 @@ export function PropertiesSummary({
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
             {/* overrideFound means we removed the overrides from the list above, so show them once here. */}
             {overrideFound &&
-                overrideGroups.map((group, index) => (
-                    <React.Fragment key={index}>
+                overrideGroups.map((group) => (
+                    <React.Fragment key={group.source}>
                         <OverrideNote source={group.source}>filters added on top:</OverrideNote>
                         <CompactUniversalFiltersDisplay
                             groupFilter={convertPropertiesToPropertyGroup(group.properties)}
