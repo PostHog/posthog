@@ -1381,16 +1381,11 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
 class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
     """Cached recent-contributor map for one (repository, area) pair.
 
-    Backs recency-aware reviewer suggestion (`report_generation/repo_activity.py`): blame
-    resolution alone routes reports to whoever *once* wrote the relevant lines, so a person
-    who hasn't touched an area in months collects every assign. This row caches who has
-    actually committed to the area recently, so scoring can prefer active owners.
-
-    An *area* is a path prefix (see `area_for_path`); `""` means the repository root.
-    Rows are created on demand the first time a report needs an area, refreshed lazily when
-    stale, and kept warm by the weekly `refresh_signal_repository_activity` task (Mondays).
-    `last_used_at` marks the last time reviewer resolution read the row — the weekly refresh
-    only re-fetches rows that are still being used, so abandoned areas age out of the warm set.
+    Backs recency-aware reviewer suggestion (`report_generation/repo_activity.py`). An
+    *area* is a path prefix (see `area_for_path`); `""` means the repository root. Rows are
+    created on demand, refreshed lazily when stale, and kept warm by the weekly
+    `refresh_signal_repository_activity` task — which only re-fetches rows read recently
+    (`last_used_at`), so abandoned areas age out of the warm set.
     """
 
     team = models.ForeignKey(
@@ -1398,15 +1393,13 @@ class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_repo_area_activities",
     )
-    # Normalized "owner/repo", lowercase — same normalization as report repo selection.
+    # Normalized "owner/repo", lowercase.
     repository = models.CharField(max_length=400)
     area = models.CharField(max_length=400, blank=True)
-    # [{login, name, commit_count, last_commit_at, last_commit_sha, last_commit_url}] — written
-    # whole by the refresh, read whole by scoring; never field-queried, hence jsonb.
+    # [{login, name, commit_count, last_commit_at, last_commit_sha, last_commit_url}]
     contributors = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    # Null until the first successful GitHub fetch; stale/never-refreshed rows degrade scoring
-    # to neutral rather than blocking reviewer resolution.
+    # Null until the first successful GitHub fetch.
     refreshed_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(default=timezone.now)
 

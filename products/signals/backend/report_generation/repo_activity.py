@@ -1,16 +1,10 @@
 """Recent-contributor activity per repository area, cached for reviewer routing.
 
-Blame resolution alone (`resolve_reviewers.py`) routes a report to whoever *once* authored
-the relevant lines — a person who hasn't touched that part of the product in months still
-collects every assign. This module supplies the missing recency signal: for each *area* (a
-path prefix like ``products/signals``) it knows who actually committed there in the last
-``ACTIVITY_WINDOW_DAYS`` days.
-
-The map is demand-driven and cached in ``SignalRepositoryAreaActivity`` rows — one row per
-(team, repository, area). Rows are created the first time a report needs an area, refreshed
-lazily when older than ``ACTIVITY_STALE_AFTER``, and kept warm by the weekly
-``refresh_signal_repository_activity`` Celery task (Mondays), so report generation almost
-always reads a warm cache instead of hitting GitHub.
+Supplies the recency signal blame resolution lacks: for each *area* (a path prefix like
+``products/signals``) it knows who actually committed there in the last
+``ACTIVITY_WINDOW_DAYS`` days. Cached in ``SignalRepositoryAreaActivity`` — rows are
+created on demand, refreshed lazily when stale, and kept warm by the weekly
+``refresh_signal_repository_activity`` Celery task.
 """
 
 from __future__ import annotations
@@ -29,16 +23,12 @@ from ..models import SignalRepositoryAreaActivity
 
 logger = logging.getLogger(__name__)
 
-# How far back a contributor's commits count as "recent activity".
 ACTIVITY_WINDOW_DAYS = 90
-# Cached rows older than this are re-fetched lazily at read time; the weekly task keeps
-# actively-used rows fresher than this so lazy refreshes stay rare.
 ACTIVITY_STALE_AFTER = timedelta(days=7)
-# The weekly refresh only keeps rows warm that reviewer resolution read recently.
+# The weekly refresh only keeps rows warm that reviewer resolution read this recently.
 ACTIVITY_KEEP_WARM_WINDOW = timedelta(days=45)
-# Path segments that make up an area: `products/signals/backend/x.py` → `products/signals`.
 AREA_PATH_DEPTH = 2
-# Reports rarely span more than a handful of areas; the cap bounds GitHub calls per report.
+# Bounds GitHub calls per report on a cold cache.
 MAX_AREAS_PER_RESOLUTION = 6
 
 
@@ -80,11 +70,9 @@ def get_area_activity(
 ) -> dict[str, list[ContributorActivity]]:
     """Recent contributors per area, read through the ``SignalRepositoryAreaActivity`` cache.
 
-    Missing or stale rows are refreshed from GitHub inline (bounded: one listing call per
-    area, at most ``MAX_AREAS_PER_RESOLUTION`` areas). Areas whose refresh fails — including
-    rate limits — are returned from whatever the cache holds; an area that has never been
-    refreshed successfully is simply absent from the result, which scoring treats as
-    "no signal" rather than "nobody is active".
+    Missing or stale rows are refreshed from GitHub inline; a failed refresh falls back to
+    cached data. An area never refreshed successfully is absent from the result — callers
+    must treat that as "no signal", not "nobody is active".
     """
     if not areas:
         return {}

@@ -38,18 +38,10 @@ logger = logging.getLogger(__name__)
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
 
-# Recency shaping for blame-derived candidates, based on their latest commit in the
-# report's areas: fully recent keeps the whole blame weight, then the multiplier decays
-# linearly down to the floor at the edge of the activity window. A blame author with no
-# recent activity in the relevant areas at all drops to the stale floor — the exact case
-# this exists for: someone who once wrote the code but moved on months ago should not
-# collect every assign.
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
 STALE_BLAME_MULTIPLIER = 0.15
-# Contributors who are active in the report's areas but authored none of the blame commits
-# enter as fallback candidates. Their score is capped at this fraction of the strongest
-# blame weight, so they only outrank blame authors when every blame author is stale.
+# Caps activity-only fallbacks below blame candidates: they only win when every blame author is stale.
 ACTIVITY_ONLY_SCORE_CAP = 0.25
 ACTIVITY_BONUS_SATURATION_COMMITS = 10
 GitHubLoginFieldLookup = Literal[
@@ -140,19 +132,10 @@ def resolve_suggested_reviewers(
 ) -> list[_ResolvedReviewer]:
     """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
 
-    Two candidate sources, blended:
-
-    - **Blame**: authors of the findings' relevant commits, weighted by finding position
-      (earlier commits come from higher-priority findings). Historically the only source —
-      which routed reports to people who hadn't touched the area in months.
-    - **Recent area activity**: who actually committed to the touched areas within the
-      activity window (cached in ``SignalRepositoryAreaActivity``, kept warm weekly).
-      Blame weights are recency-shaped (a stale author keeps only a fraction), and active
-      area contributors enter as capped fallback candidates so a report never lands solely
-      on someone long gone from the area.
-
-    When no activity data is available (no areas derivable, cold cache and GitHub
-    unavailable), scoring degrades to the original blame-only behavior.
+    Blame candidates (commit authors, weighted by finding position) are recency-shaped
+    against cached area activity, and recently-active area contributors enter as capped
+    fallbacks — see ``_score_candidates``. With no activity data available at all, scoring
+    degrades to blame-only.
     """
     if not commit_hashes_with_reasons or not repository:
         return []
@@ -205,7 +188,6 @@ def resolve_suggested_reviewers(
             if login not in login_names:
                 login_names[login] = author_info.name
 
-    # Who is recently active in the areas the finding commits touched?
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(github, team_id, repository, touched_paths)
 
@@ -216,7 +198,6 @@ def resolve_suggested_reviewers(
     for login, score in ranked:
         commits = list(login_commits.get(login, []))
         if not commits:
-            # Activity-only candidate: surface their latest commit in the area as the evidence.
             activity = activity_by_login[login]
             commits = [
                 RelevantCommit(
@@ -313,7 +294,6 @@ def _recency_multiplier(days_since_last_commit: float | None) -> float:
         return 1.0
     if days_since_last_commit >= ACTIVITY_WINDOW_DAYS:
         return STALE_BLAME_MULTIPLIER
-    # Linear decay from 1.0 at the full-weight edge to the floor at the window edge.
     span = ACTIVITY_WINDOW_DAYS - RECENCY_FULL_WEIGHT_DAYS
     progress = (days_since_last_commit - RECENCY_FULL_WEIGHT_DAYS) / span
     return 1.0 - progress * (1.0 - RECENCY_DECAY_FLOOR)

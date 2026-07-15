@@ -226,8 +226,6 @@ def sync_pending_signals_refund_credits() -> None:
         logger.info("signals refund credit sweeper re-enqueued pending refunds", count=len(pending_ids))
 
 
-# Cached area-activity rows nobody has read for this long are deleted by the weekly refresh
-# instead of being kept warm — the next report touching the area recreates them on demand.
 _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
 
 
@@ -239,10 +237,6 @@ _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
 @skip_team_scope_audit
 def refresh_signal_repository_activity() -> None:
     """Weekly (Monday) warm-up of the repository area-activity cache.
-
-    Re-fetches recent-contributor maps for every (team, repository, area) row that reviewer
-    resolution has read within the keep-warm window, so report generation reads a warm cache
-    instead of blocking on GitHub. Rows idle past ``_ACTIVITY_ROW_MAX_IDLE`` are dropped.
 
     Best-effort per row; a rate limit or exhausted egress budget skips the rest of that
     (team, repository) group — the rows stay stale and lazily refresh on next use.
@@ -271,8 +265,7 @@ def refresh_signal_repository_activity() -> None:
                     row.team_id, row.repository, source="signals_activity_refresh"
                 )
                 if github is not None:
-                    # Background warm-up is the definition of sheddable — let the egress
-                    # limiter drop these calls first when the installation budget runs hot.
+                    # Sheddable: the egress limiter drops BATCH calls first when the installation budget runs hot.
                     github.priority = Priority.BATCH
                 github_by_repo[key] = github
             except (GitHubRateLimitError, GitHubEgressBudgetExhausted):

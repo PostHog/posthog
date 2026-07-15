@@ -53,8 +53,7 @@ class GitHubCommitAuthor:
     login: str
     name: str | None
     commit_url: str
-    # Paths changed by the commit (GitHub caps the listing at 300 files; enough for
-    # area attribution, not a faithful diff).
+    # GitHub caps the file listing at 300 entries.
     file_paths: tuple[str, ...] = ()
 
 
@@ -698,7 +697,7 @@ class GitHubIntegrationBase:
                         html_url=entry.get("html_url") or f"https://github.com/{repository}/commit/{sha}",
                     )
                 )
-            if len(body) < params["per_page"]:  # short page — nothing further
+            if len(body) < params["per_page"]:
                 break
         return commits
 
