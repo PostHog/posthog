@@ -97,9 +97,10 @@ export class KafkaConsumerV2 {
     private fatalError: unknown | undefined
 
     // Optional async hook invoked with the partitions being revoked, after the in-flight
-    // drain and while the partitions are still assigned, before the unassign. Bounded by
-    // drainTimeoutMs — a hook outliving it is abandoned and the rebalance proceeds. Not invoked
-    // for the final revoke during disconnect — callers flush explicitly before disconnecting.
+    // drain and while the partitions are still assigned, before the unassign. The drain and
+    // the hook share one budget (drainTimeoutMs): the hook gets whatever the drain left, and
+    // a hook outliving it is abandoned so the rebalance proceeds. Not invoked for the final
+    // revoke during disconnect — callers flush explicitly before disconnecting.
     private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     // Tunables (resolved at construction)
@@ -440,23 +441,26 @@ export class KafkaConsumerV2 {
                 generation: this.generation,
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
+            // One budget for the whole revoke path: the drain spends what it needs and the
+            // hook gets the remainder, so CONSUMER_REBALANCE_TIMEOUT_MS bounds the total hold
+            // on the rebalance — not each phase separately.
+            const revokeDeadline = Date.now() + this.drainTimeoutMs
             await this.drainAll('revoke')
 
             if (this.onPartitionsRevoked) {
+                const hookBudgetMs = Math.max(revokeDeadline - Date.now(), 0)
                 try {
-                    // Bounded by the same budget as the drain: a wedged flush (e.g. a produce
-                    // stuck until its delivery timeout) must not hold the group's rebalance
-                    // hostage until max.poll.interval.ms fences the member. On timeout the
-                    // partitions are given up without the flush's offsets — the new owner
-                    // replays from the last commit, exactly as with a failed flush.
-                    const { timedOut } = await raceWithTimeout(
-                        this.onPartitionsRevoked(event.partitions),
-                        this.drainTimeoutMs
-                    )
+                    // A wedged flush (e.g. a produce stuck until its delivery timeout) must not
+                    // hold the group's rebalance hostage until max.poll.interval.ms fences the
+                    // member. On timeout the partitions are given up without the flush's
+                    // offsets — the new owner replays from the last commit, exactly as with a
+                    // failed flush.
+                    const { timedOut } = await raceWithTimeout(this.onPartitionsRevoked(event.partitions), hookBudgetMs)
                     if (timedOut) {
                         consumerDrainTimeouts.labels(this.config.topic, this.config.groupId, 'revoke_hook').inc()
                         logger.error('🔁', 'kafka_consumer_v2_revoke_handler_timeout', {
-                            drainTimeoutMs: this.drainTimeoutMs,
+                            hookBudgetMs,
+                            rebalanceTimeoutMs: this.drainTimeoutMs,
                         })
                     }
                 } catch (error) {

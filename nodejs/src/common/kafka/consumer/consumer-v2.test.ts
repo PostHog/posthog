@@ -408,6 +408,28 @@ describe('KafkaConsumerV2', () => {
         hookGate.resolve()
     })
 
+    it('Revoke budget is total: a stuck drain leaves no extra budget for the hook', async () => {
+        ;(consumer as any).drainTimeoutMs = 150
+        ;(consumer as any).maxBackgroundTasks = 5
+        const hookGate = triggerablePromise<void>()
+        const hook = jest.fn(() => hookGate.promise)
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch, [{ topic: 'test-topic', partition: 0 }], hook)
+
+        // A never-settling task forces the drain to spend the entire budget.
+        const stuck = triggerablePromise()
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], stuck.promise)
+
+        fireRevoke()
+        // The hook shares the drain's budget rather than getting its own: with the budget
+        // exhausted, it is abandoned immediately and the total hold stays ~one budget, not two.
+        await delay(220)
+        expect(hook).toHaveBeenCalled()
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
+        hookGate.resolve()
+        stuck.resolve()
+    })
+
     it('ASSIGN after REVOKE: state transitions back to CONSUMING and resumes fetching', async () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)
