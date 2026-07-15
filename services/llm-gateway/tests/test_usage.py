@@ -425,7 +425,7 @@ class TestUsageEndpoint:
         assert resolver_mock.call_args.args[0] == "ai_credits"
 
     @pytest.mark.parametrize("billing_active", [True, False])
-    def test_code_usage_billed_reflects_billing_bit(
+    def test_code_usage_subscribed_reflects_billing_bit(
         self, authenticated_usage_client: TestClient, billing_active: bool
     ) -> None:
         """Clients pick billing copy and hide the free-tier meter off this
@@ -442,7 +442,7 @@ class TestUsageEndpoint:
             headers={"Authorization": "Bearer phx_test"},
         )
         assert response.status_code == 200
-        assert response.json()["code_usage_billed"] is billing_active
+        assert response.json()["code_usage_subscribed"] is billing_active
 
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
