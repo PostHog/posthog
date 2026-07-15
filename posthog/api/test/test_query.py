@@ -13,8 +13,11 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ParseError
 
 from posthog.schema import (
     CachedEventsQueryResponse,
@@ -34,7 +37,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE, _parse_query_request
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -44,6 +47,32 @@ from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+
+class TestQueryRequestParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_kind", {"query": {"kind": "Tomato Soup"}}),
+            (
+                "hogql_date_range",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select 1",
+                        "dateRange": {"date_from": "-30d", "explicitDate": False},
+                    }
+                },
+            ),
+        ]
+    )
+    def test_invalid_query_is_rejected_without_capture(self, _name: str, data: dict[str, object]) -> None:
+        with (
+            patch("posthog.api.mixins.capture_exception") as capture_exception,
+            self.assertRaises(ParseError),
+        ):
+            _parse_query_request(data)
+
+        capture_exception.assert_not_called()
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -845,7 +874,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.columns, ["event"])
 
     def test_invalid_query_kind(self):
-        api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
+        with patch("posthog.api.mixins.capture_exception") as capture_exception:
+            api_response = self.client.post(
+                f"/api/environments/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}}
+            )
+
         self.assertEqual(api_response.status_code, 400)
         self.assertEqual(api_response.json()["code"], "parse_error")
         self.assertIn("1 validation error for QueryRequest", api_response.json()["detail"], api_response.content)
@@ -854,6 +887,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response.json()["detail"],
             api_response.content,
         )
+        capture_exception.assert_not_called()
 
     def test_missing_query(self):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {}})

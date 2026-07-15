@@ -11,9 +11,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from opentelemetry import trace
 from prometheus_client import Counter
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, ParseError, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -35,7 +38,6 @@ from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
-from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import (
     Feature as MonitoringFeature,
     monitor,
@@ -72,6 +74,14 @@ from posthog.schema_migrations.upgrade import upgrade
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+
+
+def _parse_query_request(data: object) -> QueryRequest:
+    try:
+        return QueryRequest.model_validate(data)
+    except PydanticValidationError as exc:
+        raise ParseError(f"JSON parse error - {exc}") from exc
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -165,7 +175,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
 }
 
 
-class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer
@@ -225,7 +235,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         start_time = perf_counter()
         with tracer.start_as_current_span("posthog.query.upgrade"):
             upgraded_query = upgrade(request.data)
-        data = self.get_model(upgraded_query, QueryRequest)
+        data = _parse_query_request(upgraded_query)
 
         query = None
         try:
