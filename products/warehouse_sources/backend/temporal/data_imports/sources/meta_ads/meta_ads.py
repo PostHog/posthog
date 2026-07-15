@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
@@ -368,16 +371,23 @@ AD_ACCOUNT_PAGE_LIMIT = 100
 # This listing runs in the web request path, not a Temporal worker, so a cursor that never resolves
 # would pin a worker. Bound it rather than trusting Meta to end the chain.
 MAX_AD_ACCOUNT_PAGES = 100
+# Per-request timeout for the listing path. Without it a hung Meta connection pins the web worker
+# for the life of the request, since these calls run inline in `oauth_accounts`, not in a worker.
+AD_ACCOUNT_LISTING_TIMEOUT_SECONDS = 10
 
 
 def list_ad_accounts(integration: Integration) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
-    session = make_tracked_session()
+    # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
+    # param here and echoes it back inside each `paging.next` URL, so without this the credential would
+    # be recorded in the logged/sampled request URLs.
+    session = make_tracked_session(redact_values=(access_token,))
     accounts: list[dict] = []
     response = session.get(
         f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me/adaccounts",
         params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
+        timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     )
 
     for _ in range(MAX_AD_ACCOUNT_PAGES):
@@ -397,10 +407,16 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
         if not next_url or not page:
             return accounts
 
-        response = _fetch_paging_url(_strip_access_token(next_url), access_token)
+        response = session.get(
+            _strip_access_token(next_url),
+            params={"access_token": access_token},
+            timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+        )
 
-    logger.warning("meta_ads_list_ad_accounts_page_limit_hit", pages=MAX_AD_ACCOUNT_PAGES)
-    return accounts
+    # Hitting the cap means Meta kept returning a fresh, non-empty `next` cursor past the bound. Returning
+    # `accounts` here would present a truncated (and possibly duplicated) list as the complete set, so the
+    # picker would silently hide accounts. Fail closed with an actionable message instead.
+    raise IntegrationAccountListingError("Meta returned too many pages while listing ad accounts. Please try again.")
 
 
 def _iter_simple_pagination(
