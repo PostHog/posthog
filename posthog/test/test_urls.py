@@ -1,14 +1,16 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.db import OperationalError
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.instance_setting import override_instance_config
-from posthog.urls import region_host_from_current_instance
+from posthog.urls import handler500, region_host_from_current_instance
 
 
 class TestUrls(APIBaseTest):
@@ -180,6 +182,27 @@ class TestUrls(APIBaseTest):
         #     response,
         #     "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
         # )
+
+
+class TestHandler500(SimpleTestCase):
+    @patch("posthog.urls.loader.get_template")
+    def test_survives_render_failure_from_dead_db_connection(self, mock_get_template) -> None:
+        # Rendering the 500 page runs template context processors — including loginas'
+        # session lookup, which on the async request path can hit an already-closed DB
+        # connection and raise. The handler must not let that mask the original 500.
+        template = MagicMock()
+        template.render.side_effect = [
+            OperationalError("the connection is closed"),
+            "<html>error</html>",
+        ]
+        mock_get_template.return_value = template
+
+        response = handler500(RequestFactory().get("/"))
+
+        assert response.status_code == 500
+        # The fallback render skips context processors by rendering without the request.
+        assert template.render.call_count == 2
+        assert template.render.call_args.args == ({},)
 
 
 class TestRegionHostFromCurrentInstance(SimpleTestCase):

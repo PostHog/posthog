@@ -165,7 +165,16 @@ def handler500(request):
     Context: request
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request}, request))
+    try:
+        return HttpResponseServerError(template.render({"request": request}, request))
+    except Exception:
+        # Rendering with the request runs the template context processors — including
+        # loginas' session lookup, which hits the DB. On the async request path the DB
+        # connection may already be closed, so that lookup can itself throw and mask the
+        # original 500. Fall back to rendering without the request context (no context
+        # processors) so the error page can never be the thing that fails.
+        logger.exception("handler500_render_failed")
+        return HttpResponseServerError(template.render({}))
 
 
 APP_POSTHOG_HOST = "app.posthog.com"
