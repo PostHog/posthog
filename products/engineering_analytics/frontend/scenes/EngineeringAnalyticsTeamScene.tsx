@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -15,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EntityHeader } from '../components/EntityHeader'
 import { DeltaBadge, percentChange } from '../components/MetricTile'
 import { Section } from '../components/Section'
+import { compactHoursLabel } from '../lib/format'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import { TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
 
@@ -31,18 +33,12 @@ const WINDOW_LABELS: Record<TeamsWindow, { prior: string; current: string }> = {
     '-30d': { prior: 'Previous 30 days', current: 'Last 30 days' },
 }
 
-// The two merge-trend lines, defined once for the series and the static legend (identity is
-// never color-alone). Both are the team's own merges: the median carries the accent, the
-// average is the skew tell beside it.
-const MERGE_SERIES = [
-    { label: 'Median', color: 'data-color-1', colorVar: 'var(--data-color-1)' },
-    { label: 'Average', color: 'muted', colorVar: 'var(--muted)' },
-]
-
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
-    const { activity, activityLoading, mergeTrend, mergeTrendLoading, filledMergePoints, window, ownerTeam } =
+    const { activity, activityLoading, mergeTrend, mergeTrendLoading, mergeTrendSeries, window, ownerTeam } =
         useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
+    const { timezone } = useValues(teamLogic)
+    const chartTheme = useChartTheme()
 
     const labels = WINDOW_LABELS[window]
     const isUnowned = ownerTeam === UNOWNED_TEAM
@@ -127,45 +123,22 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
             {!isUnowned && (
                 <Section id="team-merge-trend" title="Time to merge" busy={mergeTrendLoading}>
-                    {filledMergePoints.length ? (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-4 text-xs text-secondary">
-                                {MERGE_SERIES.map(({ label, colorVar }) => (
-                                    <span key={label} className="flex items-center gap-1.5">
-                                        <span
-                                            className="inline-block size-2 rounded-full"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ backgroundColor: colorVar }}
-                                        />
-                                        {label}
-                                    </span>
-                                ))}
-                            </div>
-                            <Sparkline
-                                className="h-32 w-full"
-                                type="line"
-                                data={[
-                                    {
-                                        name: MERGE_SERIES[0].label,
-                                        color: MERGE_SERIES[0].color,
-                                        // NaN gaps the line on days the team merged nothing — zero would read as instant merges.
-                                        values: filledMergePoints.map((p) =>
-                                            p.medianSeconds !== null ? p.medianSeconds / 3600 : NaN
-                                        ),
-                                    },
-                                    {
-                                        name: MERGE_SERIES[1].label,
-                                        color: MERGE_SERIES[1].color,
-                                        values: filledMergePoints.map((p) =>
-                                            p.averageSeconds !== null ? p.averageSeconds / 3600 : NaN
-                                        ),
-                                    },
+                    {mergeTrendSeries ? (
+                        // Flex column: the quill chart root is flex-1 and only gets height from a flex parent.
+                        <div className="flex h-48 w-full flex-col">
+                            <TimeSeriesLineChart
+                                series={[
+                                    { key: 'median', label: 'Median', data: mergeTrendSeries.median },
+                                    { key: 'average', label: 'Average', data: mergeTrendSeries.average },
                                 ]}
-                                labels={filledMergePoints.map((p) => dayjs(p.day).format('MMM D'))}
-                                renderLabel={(label) => label}
-                                renderTooltipValue={(value) =>
-                                    Number.isNaN(value) ? 'no merges' : `${humanFriendlyNumber(value, 1)} h`
-                                }
+                                labels={mergeTrendSeries.labels}
+                                theme={chartTheme}
+                                config={{
+                                    xAxis: { timezone, interval: 'day' },
+                                    yAxis: { format: 'duration' },
+                                    tooltip: { valueFormatter: (value) => compactHoursLabel(value) },
+                                    legend: { show: true },
+                                }}
                             />
                         </div>
                     ) : mergeTrend && !mergeTrend.hasMembershipData ? (

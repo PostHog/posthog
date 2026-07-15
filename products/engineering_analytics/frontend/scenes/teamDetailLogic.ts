@@ -100,22 +100,39 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     })),
     selectors({
         ownerTeam: [(_, p) => [p.ownerTeam], (ownerTeam: string) => ownerTeam],
-        /** Merge-trend points across every day in the window; a day without merges keeps null medians
-         *  so the lines gap honestly instead of dropping to zero. */
-        filledMergePoints: [
+        /** Quill-ready daily series in seconds. Same carry-forward + leading trim as the repo
+         *  overview's open-to-merge trend: a day without merges means "nothing merged", not
+         *  instant merges, so zero-filling would draw a false dip. Null when nothing merged
+         *  in the whole window. */
+        mergeTrendSeries: [
             (s) => [s.mergeTrend, s.window],
-            (mergeTrend: TeamMergeTrendData | null, window: TeamsWindow): TeamMergePoint[] => {
-                if (!mergeTrend?.hasMembershipData) {
-                    return []
+            (
+                mergeTrend: TeamMergeTrendData | null,
+                window: TeamsWindow
+            ): { labels: string[]; median: number[]; average: number[] } | null => {
+                if (!mergeTrend?.hasMembershipData || !mergeTrend.points.length) {
+                    return null
                 }
                 const byDay = new Map(mergeTrend.points.map((p) => [dayjs(p.day).format('YYYY-MM-DD'), p]))
-                const points: TeamMergePoint[] = []
                 const start = dayjs().subtract(WINDOW_DAYS[window] - 1, 'day')
+                const labels: string[] = []
+                const median: number[] = []
+                const average: number[] = []
+                let lastMedian: number | null = null
+                let lastAverage: number | null = null
                 for (let i = 0; i < WINDOW_DAYS[window]; i++) {
-                    const day = start.add(i, 'day').format('YYYY-MM-DD')
-                    points.push(byDay.get(day) ?? { day, medianSeconds: null, averageSeconds: null, mergedCount: 0 })
+                    const day = start.add(i, 'day')
+                    const point = byDay.get(day.format('YYYY-MM-DD'))
+                    lastMedian = point?.medianSeconds ?? lastMedian
+                    lastAverage = point?.averageSeconds ?? lastAverage
+                    if (lastMedian === null || lastAverage === null) {
+                        continue // Leading trim: no data yet to carry forward.
+                    }
+                    labels.push(day.startOf('day').toISOString())
+                    median.push(lastMedian)
+                    average.push(lastAverage)
                 }
-                return points
+                return labels.length ? { labels, median, average } : null
             },
         ],
     }),
