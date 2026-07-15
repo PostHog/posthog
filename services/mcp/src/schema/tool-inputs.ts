@@ -312,9 +312,35 @@ export const AIObservabilityGetCostsSchema = z.object({
     days: z.number().optional(),
 })
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
+// Accept both `orgId` and its `id` alias. `organizations-list` and
+// `organization-get` return/accept the organization under an `id` key, so agents
+// naturally reach for `id` here too. Requiring `orgId` alone made this the odd
+// tool out and drove a stream of validation failures in exec mode. Normalize to
+// `orgId` so the handler stays simple.
+export const OrganizationSetActiveSchema = z
+    .object({
+        orgId: z
+            .string()
+            .optional()
+            .describe(
+                'The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.'
+            ),
+        id: z
+            .string()
+            .optional()
+            .describe('Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'),
+    })
+    .transform((data, ctx) => {
+        const orgId = data.orgId ?? data.id
+        if (!orgId) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'provide the organization id via "orgId" (get it from organizations-list)',
+            })
+            return z.NEVER
+        }
+        return { orgId }
+    })
 
 export const ProjectGetAllSchema = z.object({})
 
