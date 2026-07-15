@@ -13407,22 +13407,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `new` - new
-     * * `rate_shift` - rate_shift
-     * * `gone` - gone
-     * * `unchanged` - unchanged
-     */
-    export type ClassificationEnum = typeof ClassificationEnum[keyof typeof ClassificationEnum];
-
-
-    export const ClassificationEnum = {
-      New: 'new',
-      RateShift: 'rate_shift',
-      Gone: 'gone',
-      Unchanged: 'unchanged',
-    } as const;
-
-    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -27996,7 +27980,7 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-/**
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED
@@ -28015,10 +27999,10 @@ export namespace Schemas {
      * * `consider_quarantine` - CONSIDER_QUARANTINE
      * * `investigate_regression` - INVESTIGATE_REGRESSION
      */
-    export type FlakyTestItemRecommendationEnum = typeof FlakyTestItemRecommendationEnum[keyof typeof FlakyTestItemRecommendationEnum];
+    export type RecommendationEnum = typeof RecommendationEnum[keyof typeof RecommendationEnum];
 
 
-    export const FlakyTestItemRecommendationEnum = {
+    export const RecommendationEnum = {
       Deflake: 'deflake',
       ConsiderQuarantine: 'consider_quarantine',
       InvestigateRegression: 'investigate_regression',
@@ -28040,7 +28024,7 @@ export namespace Schemas {
        * * `deflake` - DEFLAKE
        * * `consider_quarantine` - CONSIDER_QUARANTINE
        * * `investigate_regression` - INVESTIGATE_REGRESSION */
-      recommendation: FlakyTestItemRecommendationEnum;
+      recommendation: RecommendationEnum;
       /** Distinct GitHub run attempts with a failure, pass-on-retry, or xfail signal. */
       affected_run_count: number;
       /** Distinct GitHub run attempts whose final recorded outcome was failed or error. */
@@ -62264,6 +62248,22 @@ export namespace Schemas {
       match_literal: string | null;
     }
 
+    /**
+     * * `new` - new
+     * * `rate_shift` - rate_shift
+     * * `gone` - gone
+     * * `unchanged` - unchanged
+     */
+    export type _LogPatternDiffEntryClassificationEnum = typeof _LogPatternDiffEntryClassificationEnum[keyof typeof _LogPatternDiffEntryClassificationEnum];
+
+
+    export const _LogPatternDiffEntryClassificationEnum = {
+      New: 'new',
+      RateShift: 'rate_shift',
+      Gone: 'gone',
+      Unchanged: 'unchanged',
+    } as const;
+
     export interface _LogPatternDiffEntry {
       /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.
        *
@@ -62271,7 +62271,7 @@ export namespace Schemas {
        * * `rate_shift` - rate_shift
        * * `gone` - gone
        * * `unchanged` - unchanged */
-      classification: ClassificationEnum;
+      classification: _LogPatternDiffEntryClassificationEnum;
       /**
          * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
          * @nullable
@@ -71165,11 +71165,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * Failures without recorded recovery become a suspected regression once they affect this many distinct pull requests. Minimum 1. Defaults to 3.
      */
     min_failed_prs?: number;
     /**
-     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     * Pass-on-retry recovery is confirmed once it appears in at least this many distinct GitHub run attempts. Minimum 1. Defaults to 1.
      */
     min_rerun_passes?: number;
     /**

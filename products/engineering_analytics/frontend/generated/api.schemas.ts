@@ -186,10 +186,9 @@ export const FlakyTestItemClassificationEnumApi = {
  * * `consider_quarantine` - CONSIDER_QUARANTINE
  * * `investigate_regression` - INVESTIGATE_REGRESSION
  */
-export type FlakyTestItemRecommendationEnumApi =
-    (typeof FlakyTestItemRecommendationEnumApi)[keyof typeof FlakyTestItemRecommendationEnumApi]
+export type RecommendationEnumApi = (typeof RecommendationEnumApi)[keyof typeof RecommendationEnumApi]
 
-export const FlakyTestItemRecommendationEnumApi = {
+export const RecommendationEnumApi = {
     Deflake: 'deflake',
     ConsiderQuarantine: 'consider_quarantine',
     InvestigateRegression: 'investigate_regression',
@@ -211,7 +210,7 @@ export interface FlakyTestItemApi {
      * * `deflake` - DEFLAKE
      * * `consider_quarantine` - CONSIDER_QUARANTINE
      * * `investigate_regression` - INVESTIGATE_REGRESSION */
-    recommendation: FlakyTestItemRecommendationEnumApi
+    recommendation: RecommendationEnumApi
     /** Distinct GitHub run attempts with a failure, pass-on-retry, or xfail signal. */
     affected_run_count: number
     /** Distinct GitHub run attempts whose final recorded outcome was failed or error. */

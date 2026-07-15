@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -55,8 +56,6 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
-
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
     projectId: string,

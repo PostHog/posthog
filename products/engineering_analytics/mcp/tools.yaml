@@ -81,8 +81,8 @@ tools:
             recommendation to choose Deflake, Consider quarantine, or Investigate regression. Signals expire from the
             active queue after three days; date_from (default -7d, maximum 30 days) controls the supporting evidence
             window. Counts are absolute, never rates, because fast passing runs are not emitted. For the same reason,
-            last_recorded_execution_at is the last recorded run, not guaranteed to be the test's latest fast pass.
-            Use selector to run or quarantine the test; nodeid is only the stable grouping key.
+            last_recorded_execution_at is the last recorded run, not guaranteed to be the test's latest fast pass. Use
+            selector to run or quarantine the test; nodeid is only the stable grouping key.
         feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates

@@ -2642,9 +2642,7 @@
         "feature": "engineering_analytics",
         "summary": "Active test health queue",
         "title": "Active test health queue",
-        "required_scopes": [
-            "engineering_analytics:read"
-        ],
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
