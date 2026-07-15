@@ -509,4 +509,8 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        return get_content_response(instance, request.query_params.get("download") == "true")
+        return get_content_response(
+            instance,
+            download=request.query_params.get("download") == "true",
+            direct=request.query_params.get("direct") == "true",
+        )

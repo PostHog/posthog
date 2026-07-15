@@ -240,8 +240,10 @@ def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
     return asset, info.get("purpose")
 
 
-def get_content_response(asset: ExportedAsset, download: bool = False):
-    if asset.content_location:
+def get_content_response(asset: ExportedAsset, download: bool = False, direct: bool = False):
+    # direct=True streams the bytes instead of redirecting to a presigned object-storage URL,
+    # for API clients (e.g. sandboxed agents) that can reach PostHog but not the storage host.
+    if asset.content_location and not direct:
         content_disposition = f'attachment; filename="{asset.filename}"' if download else None
         presigned_url = object_storage.get_presigned_url(
             asset.content_location,
@@ -252,6 +254,8 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
             return HttpResponseRedirect(presigned_url)
 
     content = asset.content
+    if not content and asset.content_location:
+        content = object_storage.read_bytes(asset.content_location)
     if not content:
         raise NotFound()
 
