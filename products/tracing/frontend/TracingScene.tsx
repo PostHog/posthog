@@ -196,7 +196,9 @@ function TracingSceneContents(): JSX.Element {
                         rows={aggregation.current}
                         loading={aggregationLoading}
                         windowMs={operationsWindowMs}
-                        onRowClick={(row) => router.actions.push(urls.tracingOperation(row.service_name, row.name))}
+                        onRowClick={(row) =>
+                            router.actions.push(urls.tracingOperation(row.service_name, row.name, filters.dateRange))
+                        }
                     />
                 ) : (
                     <>
