@@ -135,7 +135,7 @@ export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'ch
 export type LemonInputSelectProps<T = string> = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus' | 'autoWidth' | 'fullWidth' | 'status'
+    'autoFocus' | 'autoWidth' | 'disabledReason' | 'fullWidth' | 'status'
 > & {
     options?: LemonInputSelectOption<T>[]
     value?: T[] | null
@@ -190,6 +190,7 @@ export function LemonInputSelect<T = string>({
     onBlur,
     mode,
     disabled,
+    disabledReason,
     disableFiltering = false,
     formatCreateLabel,
     inputTransform,
@@ -1044,6 +1045,7 @@ export function LemonInputSelect<T = string>({
                 onClick={_onClick}
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
+                disabledReason={disabledReason}
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(

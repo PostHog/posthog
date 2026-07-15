@@ -9,7 +9,6 @@ import {
     LemonSelect,
     LemonSwitch,
     SpinnerOverlay,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -254,25 +253,21 @@ export const MetricsViewer = (): JSX.Element => {
                     data-attr="metrics-viewer-aggregation"
                     disabledReason={metricsViewerDisabledReason}
                 />
-                <Tooltip title={metricsViewerDisabledReason}>
-                    <span>
-                        <LemonInputSelect
-                            mode="multiple"
-                            size="small"
-                            allowCustomValues
-                            value={groupByKeys}
-                            onChange={setGroupByKeys}
-                            options={attributeKeyOptions}
-                            loading={attributeKeyOptionsLoading}
-                            onInputChange={setGroupBySearch}
-                            onFocus={() => loadAttributeKeyOptions({})}
-                            placeholder="Group by attribute…"
-                            className="min-w-[12rem]"
-                            data-attr="metrics-viewer-group-by"
-                            disabled={!!metricsViewerDisabledReason}
-                        />
-                    </span>
-                </Tooltip>
+                <LemonInputSelect
+                    mode="multiple"
+                    size="small"
+                    allowCustomValues
+                    value={groupByKeys}
+                    onChange={setGroupByKeys}
+                    options={attributeKeyOptions}
+                    loading={attributeKeyOptionsLoading}
+                    onInputChange={setGroupBySearch}
+                    onFocus={() => loadAttributeKeyOptions({})}
+                    placeholder="Group by attribute…"
+                    className="min-w-[12rem]"
+                    data-attr="metrics-viewer-group-by"
+                    disabledReason={metricsViewerDisabledReason}
+                />
                 <UniversalFilters
                     rootKey="metrics-viewer-filters"
                     group={filterGroup.values[0] as UniversalFiltersGroup}
