@@ -90,6 +90,12 @@ import {
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
+  buildApprovedPlanContinuationPrompt,
+  extractPlanMarkdownFromPermission,
+  resolveClearAndContinueExecutionMode,
+  shouldContinueFromApprovedPlan,
+} from "./planContinuation";
+import {
   convertStoredEntriesToEvents,
   createUserShellExecuteEvent,
   extractPromptText,
@@ -5390,6 +5396,66 @@ export class SessionService {
   }
 
   /**
+   * After plan approval, discard the planning conversation and continue
+   * implementation on a fresh local task run seeded with the approved plan.
+   * Leaves `resetSession` untouched (same-run error recovery).
+   *
+   * Cloud runs are skipped until cloud session lifecycle supports this path.
+   */
+  async continueFromApprovedPlan(
+    taskId: string,
+    repoPath: string,
+    planMarkdown: string,
+    executionMode: ExecutionMode,
+  ): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session) {
+      throw new Error("No active session for task");
+    }
+    if (session.isCloud) {
+      this.d.log.info("Skipping plan continuation on cloud session", {
+        taskId,
+      });
+      return;
+    }
+
+    const { taskRunId, taskTitle, adapter, model, reasoningLevel } = session;
+
+    // Interrupt like Stop (cancelPrompt), not hard-kill (cancel). Hard-kill
+    // closes ACP under the in-flight prompt and surfaces "ACP connection closed".
+    // Keep the store entry until createNewLocalSession swaps it — otherwise the
+    // connect effect resumes the stale run.
+    try {
+      await this.d.trpc.agent.cancelPrompt.mutate({ sessionId: taskRunId });
+    } catch {
+      // best-effort: the turn may already be idle
+    }
+    this.unsubscribeFromChannel(taskRunId);
+    this.localRepoPaths.set(taskId, repoPath);
+
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind === "restoring") {
+      throw new Error("Authentication is still restoring. Please wait.");
+    }
+    if (authStatus.kind !== "ready") {
+      throw new Error("Unable to reach server. Please check your connection.");
+    }
+
+    const initialPrompt = buildApprovedPlanContinuationPrompt(planMarkdown);
+    await this.createNewLocalSession(
+      taskId,
+      taskTitle,
+      repoPath,
+      authStatus.auth,
+      initialPrompt,
+      executionMode,
+      adapter,
+      model,
+      reasoningLevel,
+    );
+  }
+
+  /**
    * Cancel the current backend agent and reconnect under the same taskRunId.
    * Does NOT remove the session from the store (avoids connect effect loop).
    * Overwrites the store session in place via reconnectToLocalSession.
@@ -7160,8 +7226,43 @@ export class SessionService {
     modeOption: SessionConfigOption | undefined,
     customInput?: string,
     answers?: Record<string, string>,
+    repoPath?: string | null,
   ): Promise<PermissionSelectionPlan> {
     const plan = planPermissionResponse(permission, optionId, customInput);
+
+    // Clear-and-continue: rebuild on a fresh run instead of answering the
+    // planning turn. Sending "allow" here would let the old session start
+    // generating the implementation reply in the stale (full planning) context;
+    // cancelling that mid-stream is what closes the ACP connection for ~2s and
+    // logs "Upstream fetch aborted after client disconnect". So resolve the
+    // pending-permission card locally and let continueFromApprovedPlan cancel
+    // the turn and reseed with the plan — no backend "allow" is sent.
+    const clearAndContinuePlan =
+      repoPath && shouldContinueFromApprovedPlan(permission, optionId)
+        ? extractPlanMarkdownFromPermission(permission)
+        : null;
+
+    if (repoPath && clearAndContinuePlan) {
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (session) {
+        this.resolvePermission(session, permission.toolCallId);
+      }
+      try {
+        await this.continueFromApprovedPlan(
+          taskId,
+          repoPath,
+          clearAndContinuePlan,
+          resolveClearAndContinueExecutionMode(answers),
+        );
+      } catch (error) {
+        this.d.log.error("Failed to continue from approved plan", {
+          taskId,
+          error,
+        });
+        throw error;
+      }
+      return plan;
+    }
 
     if (plan.applyAllowAlwaysUpgrade) {
       this.applyAllowAlwaysUpgrade(taskId, modeOption);

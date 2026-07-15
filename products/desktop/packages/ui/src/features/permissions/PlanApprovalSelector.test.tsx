@@ -28,6 +28,15 @@ const DEFAULT_MODE: PermissionOption = {
   name: "Yes, and manually approve edits",
   optionId: "default",
 };
+const CLEAR_AND_CONTINUE: PermissionOption = {
+  kind: "allow_once",
+  name: "Yes, clear history and continue from plan",
+  optionId: "clearAndContinue",
+  _meta: {
+    description:
+      "Discard planning conversation tokens and start implementation with a fresh context seeded by this plan",
+  },
+};
 const REJECT: PermissionOption = {
   kind: "reject_once",
   name: "No, and tell the agent what to do differently",
@@ -66,13 +75,13 @@ describe("PlanApprovalSelector", () => {
     {
       label: "there is no prior or remembered mode",
       lastMode: null,
-      options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE, REJECT],
+      options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE, CLEAR_AND_CONTINUE, REJECT],
       expected: "auto",
     },
     {
       label: "a last choice is remembered",
       lastMode: "acceptEdits",
-      options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE],
+      options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE, CLEAR_AND_CONTINUE],
       expected: "acceptEdits",
     },
   ] as const)(
@@ -91,7 +100,13 @@ describe("PlanApprovalSelector", () => {
 
   it("remembers the chosen mode on approve", async () => {
     const user = userEvent.setup();
-    renderSelector([AUTO, ACCEPT_EDITS, DEFAULT_MODE, REJECT]);
+    renderSelector([
+      AUTO,
+      ACCEPT_EDITS,
+      DEFAULT_MODE,
+      CLEAR_AND_CONTINUE,
+      REJECT,
+    ]);
 
     await user.click(screen.getByText("Approve and proceed"));
 
@@ -183,12 +198,46 @@ describe("PlanApprovalSelector", () => {
     expect(onSelect).toHaveBeenCalledWith("auto");
   });
 
+  it("selects clear-and-continue with the current mode as answers", async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderSelector([
+      AUTO,
+      ACCEPT_EDITS,
+      DEFAULT_MODE,
+      CLEAR_AND_CONTINUE,
+      REJECT,
+    ]);
+
+    await user.click(
+      screen.getByText("Approve, clear history, and continue from plan"),
+    );
+
+    expect(onSelect).toHaveBeenCalledWith("clearAndContinue", undefined, {
+      executionMode: "auto",
+    });
+  });
+
+  it("does not treat clear-and-continue as a mode in the ModeSelector", () => {
+    renderSelector([AUTO, CLEAR_AND_CONTINUE, REJECT]);
+
+    expect(
+      screen.getByText("Approve, clear history, and continue from plan"),
+    ).toBeTruthy();
+    // ModeSelector options come from approve modes only — clearAndContinue
+    // must stay its own row, not appear as a selectable execution mode value.
+    expect(screen.queryByRole("option", { name: /clear history/i })).toBeNull();
+  });
+
   it("rejects with the typed feedback", async () => {
     const user = userEvent.setup();
-    const { onSelect } = renderSelector([DEFAULT_MODE, REJECT]);
+    const { onSelect } = renderSelector([
+      DEFAULT_MODE,
+      CLEAR_AND_CONTINUE,
+      REJECT,
+    ]);
 
     // Selecting the reject row activates its inline textarea (as before).
-    await user.click(screen.getByText("2."));
+    await user.click(screen.getByText("3."));
     await user.type(
       screen.getByPlaceholderText(/tell the agent what to do differently/i),
       "please use hooks{Enter}",

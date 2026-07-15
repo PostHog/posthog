@@ -104,6 +104,9 @@ const CONTINUE_LABELS: Record<string, string> = {
   bypassPermissions: "Yes, continue bypassing all permissions",
 };
 
+/** Opt-in plan approval: clear planning context, then continue from the plan. */
+export const CLEAR_AND_CONTINUE_OPTION_ID = "clearAndContinue";
+
 export function buildExitPlanModePermissionOptions(
   previousMode?: string,
 ): PermissionOption[] {
@@ -150,6 +153,16 @@ export function buildExitPlanModePermissionOptions(
       options[0] = { ...options[0], name: continueLabel };
     }
   }
+
+  options.push({
+    kind: "allow_once",
+    name: "Yes, clear history and continue from plan",
+    optionId: CLEAR_AND_CONTINUE_OPTION_ID,
+    _meta: {
+      description:
+        "Discard planning conversation tokens and start implementation with a fresh context seeded by this plan",
+    },
+  });
 
   options.push({
     kind: "reject_once",

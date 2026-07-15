@@ -4,6 +4,7 @@ import type {
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
 import type {
+  PermissionMode,
   PermissionRuleValue,
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -38,6 +39,7 @@ import type { Session } from "../types";
 import {
   buildExitPlanModePermissionOptions,
   buildPermissionOptions,
+  CLEAR_AND_CONTINUE_OPTION_ID,
 } from "./permission-options";
 
 const SPEAK_TOOL_ID = qualifiedLocalToolName(SPEAK_TOOL_NAME);
@@ -256,32 +258,72 @@ async function requestPlanApproval(
   });
 }
 
+const PLAN_APPROVAL_MODE_OPTION_IDS = [
+  "auto",
+  "default",
+  "acceptEdits",
+  "bypassPermissions",
+] as const satisfies readonly PermissionMode[];
+
+function isPlanApprovalMode(value: string): value is PermissionMode {
+  return (PLAN_APPROVAL_MODE_OPTION_IDS as readonly string[]).includes(value);
+}
+
+function resolvePlanApprovalMode(
+  optionId: string,
+  response: RequestPermissionResponse,
+  previousMode?: string,
+): PermissionMode | null {
+  if (isPlanApprovalMode(optionId)) {
+    return optionId;
+  }
+
+  // Opt-in clear-and-continue: honor the ModeSelector choice when present,
+  // otherwise fall back to the mode the session was in before plan mode.
+  if (optionId === CLEAR_AND_CONTINUE_OPTION_ID) {
+    const answers = response._meta?.answers as
+      | Record<string, string>
+      | undefined;
+    const fromAnswers = answers?.executionMode;
+    if (typeof fromAnswers === "string" && isPlanApprovalMode(fromAnswers)) {
+      return fromAnswers;
+    }
+    if (previousMode && isPlanApprovalMode(previousMode)) {
+      return previousMode;
+    }
+    return "default";
+  }
+
+  return null;
+}
+
 async function applyPlanApproval(
   response: RequestPermissionResponse,
   context: ToolHandlerContext,
   updatedInput: Record<string, unknown>,
 ): Promise<ToolPermissionResult> {
-  if (
-    response.outcome?.outcome === "selected" &&
-    (response.outcome.optionId === "auto" ||
-      response.outcome.optionId === "default" ||
-      response.outcome.optionId === "acceptEdits" ||
-      response.outcome.optionId === "bypassPermissions")
-  ) {
-    await context.applySessionMode(response.outcome.optionId);
-    await context.updateConfigOption("mode", response.outcome.optionId);
+  if (response.outcome?.outcome === "selected") {
+    const mode = resolvePlanApprovalMode(
+      response.outcome.optionId,
+      response,
+      context.session.modeBeforePlan,
+    );
+    if (mode) {
+      await context.applySessionMode(mode);
+      await context.updateConfigOption("mode", mode);
 
-    return {
-      behavior: "allow",
-      updatedInput,
-      updatedPermissions: context.suggestions ?? [
-        {
-          type: "setMode",
-          mode: response.outcome.optionId,
-          destination: "localSettings",
-        },
-      ],
-    };
+      return {
+        behavior: "allow",
+        updatedInput,
+        updatedPermissions: context.suggestions ?? [
+          {
+            type: "setMode",
+            mode,
+            destination: "localSettings",
+          },
+        ],
+      };
+    }
   }
 
   const customInput = (response._meta as Record<string, unknown> | undefined)

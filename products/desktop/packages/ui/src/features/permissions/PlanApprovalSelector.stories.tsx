@@ -28,6 +28,15 @@ const DEFAULT_MODE: PermissionOption = {
   name: "Yes, and manually approve edits",
   optionId: "default",
 };
+const CLEAR_AND_CONTINUE: PermissionOption = {
+  kind: "allow_once",
+  name: "Yes, clear history and continue from plan",
+  optionId: "clearAndContinue",
+  _meta: {
+    description:
+      "Discard planning conversation tokens and start implementation with a fresh context seeded by this plan",
+  },
+};
 const REJECT: PermissionOption = {
   kind: "reject_once",
   name: "No, and tell the agent what to do differently",
@@ -51,10 +60,21 @@ type Story = StoryObj<typeof PlanApprovalSelector>;
 
 // Non-root / non-sandbox: bypass is not offered. Default is "manually approve".
 export const Default: Story = {
-  args: { options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE, REJECT] },
+  args: {
+    options: [AUTO, ACCEPT_EDITS, DEFAULT_MODE, CLEAR_AND_CONTINUE, REJECT],
+  },
 };
 
 // Sandbox / root: bypass is offered but still not the default.
 export const WithBypass: Story = {
-  args: { options: [BYPASS, AUTO, ACCEPT_EDITS, DEFAULT_MODE, REJECT] },
+  args: {
+    options: [
+      BYPASS,
+      AUTO,
+      ACCEPT_EDITS,
+      DEFAULT_MODE,
+      CLEAR_AND_CONTINUE,
+      REJECT,
+    ],
+  },
 };

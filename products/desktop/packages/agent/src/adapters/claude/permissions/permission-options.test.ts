@@ -10,6 +10,20 @@ describe("buildExitPlanModePermissionOptions", () => {
     expect(options[options.length - 1].optionId).toBe("reject_with_feedback");
   });
 
+  it("includes an opt-in clear-and-continue option before reject", () => {
+    const options = buildExitPlanModePermissionOptions();
+    const clearIndex = options.findIndex(
+      (opt) => opt.optionId === "clearAndContinue",
+    );
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(options[clearIndex]).toMatchObject({
+      optionId: "clearAndContinue",
+      kind: "allow_once",
+      name: "Yes, clear history and continue from plan",
+    });
+    expect(options[clearIndex + 1]?.optionId).toBe("reject_with_feedback");
+  });
+
   it.each([
     {
       previousMode: "default",
