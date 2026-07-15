@@ -1,5 +1,4 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
@@ -116,11 +115,9 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             () => [],
             (): FeedbackConfig | null => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG)
+                // An unset flag is the normal off-state for most users, so fall back silently.
+                // Reporting it as an exception would flood error tracking on every selector read.
                 if (!payload || typeof payload !== 'object') {
-                    posthog.captureException(
-                        new Error('POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG feature flag is not set'),
-                        { tags: { product: 'max_ai' } }
-                    )
                     return null
                 }
                 return {

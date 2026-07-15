@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import * as featureFlagLogic from 'lib/logic/featureFlagLogic'
 
@@ -216,6 +217,20 @@ describe('feedbackPromptLogic', () => {
             logic.mount()
 
             expect(logic.values.messageInterval).toBe(10) // default fallback
+        })
+    })
+
+    describe('feedbackConfig selector', () => {
+        it('does not report an exception when the config flag is unset', () => {
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null)
+
+            logic.unmount()
+            logic = feedbackPromptLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic.mount()
+
+            expect(logic.values.feedbackConfig).toBeNull()
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
     })
 
