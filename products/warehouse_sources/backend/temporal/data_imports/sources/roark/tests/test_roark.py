@@ -91,10 +91,12 @@ class TestIterPagesCursor:
 
 
 class TestIterPagesOffset:
-    def test_walks_offset_until_has_more_false(self) -> None:
+    def test_walks_offset_advancing_by_rows_returned(self) -> None:
+        # A non-final page returning fewer rows than max_page_size must advance the offset by the
+        # rows actually returned, or rows in the gap would be skipped on the next request.
         pages = [
-            {"data": [{"id": "1"}], "pagination": {"limit": 100, "offset": 0, "hasMore": True}},
-            {"data": [{"id": "2"}], "pagination": {"limit": 100, "offset": 100, "hasMore": False}},
+            {"data": [{"id": "1"}, {"id": "2"}, {"id": "3"}], "pagination": {"hasMore": True}},
+            {"data": [{"id": "4"}], "pagination": {"hasMore": False}},
         ]
         captured_urls: list[str] = []
 
@@ -105,9 +107,9 @@ class TestIterPagesOffset:
         with patch.object(roark, "_fetch_page", side_effect=fake_fetch):
             result = list(_iter_pages(MagicMock(), {}, ROARK_ENDPOINTS["issue"], _logger(), resume=None))
 
-        assert [p.resume_state.offset for p in result] == [0, 100]
+        assert [p.resume_state.offset for p in result] == [0, 3]
         assert "offset=0" in captured_urls[0]
-        assert "offset=100" in captured_urls[1]
+        assert "offset=3" in captured_urls[1]
 
     def test_resume_starts_from_saved_offset(self) -> None:
         pages = [{"data": [], "pagination": {"limit": 100, "offset": 200, "hasMore": False}}]
@@ -137,6 +139,13 @@ class TestIterPagesNone:
             result = list(_iter_pages(MagicMock(), {}, ROARK_ENDPOINTS["metric_definition"], _logger(), resume=None))
         assert fetch.call_count == 1
         assert result[0].items == [{"id": "1"}, {"id": "2"}]
+
+    def test_handles_bare_top_level_list_response(self) -> None:
+        # Unpaginated endpoints may return a bare list instead of a `{"data": [...]}` envelope; those
+        # rows must still be synced rather than silently dropped.
+        with patch.object(roark, "_fetch_page", return_value=[{"id": "1"}, {"id": "2"}]):
+            result = list(_iter_pages(MagicMock(), {}, ROARK_ENDPOINTS["metric_definition"], _logger(), resume=None))
+        assert [item["id"] for page in result for item in page.items] == ["1", "2"]
 
 
 class _FakeBatcher:
@@ -251,4 +260,4 @@ class TestFetchPageRetry:
         session.get.return_value = MagicMock(status_code=status, ok=False, text="err")
         # Bypass tenacity's retry wrapping to assert the raised error type directly.
         with pytest.raises(roark.RoarkRetryableError):
-            roark._fetch_page.__wrapped__(session, "https://api.roark.ai/v1/agent", {}, _logger())
+            roark._fetch_page.__wrapped__(session, "https://api.roark.ai/v1/agent", {}, _logger())  # type: ignore[attr-defined]

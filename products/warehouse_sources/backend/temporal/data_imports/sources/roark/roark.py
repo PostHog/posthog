@@ -114,8 +114,11 @@ def _iter_pages(
     base = _base_params(config)
 
     if config.pagination == "none":
-        data = _fetch_page(session, _build_url(config.path, base), headers, logger)
-        yield _Page(items=data.get("data", []) or [], resume_state=RoarkResumeConfig())
+        # Unpaginated endpoints (e.g. metric_definition) may reply with either a `{"data": [...]}`
+        # envelope or a bare top-level list; treat both as the row set rather than dropping the latter.
+        raw: Any = _fetch_page(session, _build_url(config.path, base), headers, logger)
+        items = raw if isinstance(raw, list) else (raw.get("data", []) or [])
+        yield _Page(items=items, resume_state=RoarkResumeConfig())
         return
 
     if config.pagination == "cursor":
@@ -134,16 +137,18 @@ def _iter_pages(
 
     # offset pagination
     offset: int = resume.offset if resume and resume.offset else 0
-    page_size = config.max_page_size or 100
     while True:
         params = {**base, "offset": offset}
         data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-        yield _Page(items=data.get("data", []) or [], resume_state=RoarkResumeConfig(offset=offset))
+        items = data.get("data", []) or []
+        yield _Page(items=items, resume_state=RoarkResumeConfig(offset=offset))
 
         pagination = data.get("pagination", {}) or {}
-        if not pagination.get("hasMore"):
+        if not pagination.get("hasMore") or not items:
             break
-        offset += page_size
+        # Advance by the rows actually returned, never the requested page size: Roark may cap a page
+        # below max_page_size, and jumping by the requested size would skip the rows in the gap.
+        offset += len(items)
 
 
 def get_rows(
