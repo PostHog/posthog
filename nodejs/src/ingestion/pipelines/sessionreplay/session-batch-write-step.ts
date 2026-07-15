@@ -2,7 +2,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { ReplayCycleState } from './pipeline-types'
+import { ReplayCycleState } from './replay-cycle-state'
 
 /**
  * Flush step: write the accumulated batch to storage. Each session's retention was resolved and

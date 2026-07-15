@@ -218,7 +218,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
             keyStore,
             sessionKeyResolutionMaxConcurrency: 20,
             topHog: createMockTopHog(),
-            isDebugLoggingEnabled: () => false,
         })
     }
 

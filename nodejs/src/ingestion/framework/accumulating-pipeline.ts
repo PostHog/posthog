@@ -36,9 +36,9 @@ export type AccumulatingResult<TFlushOut, CFlushOut, R extends string = never> =
       }
 
 /**
- * Constructor config, ordered by when each part runs in a cycle: initialState mints the cycle's
- * accumulator, pipeline processes events, reduce folds every drained result into the state,
- * shouldFlush/maxCycleAgeMs decide when to flush, then flushPipeline persists the state.
+ * Constructor config, in cycle-lifecycle order: maxCycleAgeMs bounds the cycle, onNewCycle mints
+ * its state, pipeline processes events, reduce folds every drained result into the state,
+ * shouldFlush decides when the cycle closes, then flushPipeline persists the state.
  */
 export interface AccumulatingPipelineConfig<
     TRecordIn,
@@ -50,23 +50,23 @@ export interface AccumulatingPipelineConfig<
     CFlushOut,
     R extends string = never,
 > {
+    /** Age trigger interval. The timer only marks a flush due; the flush executes inside next(). */
+    maxCycleAgeMs: number
+    /**
+     * Mints the cycle state — the one accumulator everything folds into (e.g. a fresh session
+     * batch recorder plus the offsets to commit). Runs at the start of every cycle: lazily for the
+     * cycle's first drained result, and again after every flush.
+     */
+    onNewCycle: () => TState | Promise<TState>
     /**
      * Per-message pipeline — a plain chunk pipeline of steps. It knows nothing about cycles or
      * flushes: it takes messages in and emits the data the reducer folds into the state.
      */
     pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    /**
-     * Mints the cycle state — the one accumulator everything folds into (e.g. a fresh session
-     * batch recorder plus the offsets to commit). Runs lazily: for the first drained result, and
-     * again after every flush.
-     */
-    initialState: () => TState | Promise<TState>
     /** Folds every drained record result into the cycle state — see {@link CycleReducer}. */
     reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
     /** Size trigger: flush when this returns true for the current state. */
     shouldFlush: (state: TState) => boolean
-    /** Age trigger interval. The timer only marks a flush due; the flush executes inside next(). */
-    maxCycleAgeMs: number
     /**
      * Flush pipeline that persists the cycle on a flush. It receives a single element — the cycle
      * state — and fans out over sub-units (e.g. per session) internally if it needs to.
@@ -79,8 +79,8 @@ export interface AccumulatingPipelineConfig<
  * state through a separate `flushPipeline` of steps on a size or age trigger.
  *
  * Unlike BatchingPipeline — where each feed() is one batch — the accumulation cycle spans many
- * feed() calls and is closed by `shouldFlush` (size) plus an age timer. `initialState` mints the
- * cycle's accumulator lazily and again after every flush. The record pipeline is a plain chunk
+ * feed() calls and is closed by `shouldFlush` (size) plus an age timer. `onNewCycle` mints the
+ * cycle's state lazily and again after every flush. The record pipeline is a plain chunk
  * pipeline that never sees the cycle; as its results drain, this class surfaces any side effects
  * still on the element contexts (so they surface exactly once, on the turn that produced them) and
  * folds every result into the state via `reduce` — then lets the element go, so nothing
@@ -129,12 +129,12 @@ export class AccumulatingPipeline<
     // via waitForActivity(); it is the liveness mechanism for a future wake-driven drain loop.
     private signal = new ResettableSignal()
 
-    private readonly pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    private readonly initialState: () => TState | Promise<TState>
-    private readonly reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
-    private readonly flushPipeline: ChunkPipeline<TState, TFlushOut, Record<string, never>, CFlushOut, R>
-    private readonly shouldFlush: (state: TState) => boolean
     private readonly maxCycleAgeMs: number
+    private readonly onNewCycle: () => TState | Promise<TState>
+    private readonly pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
+    private readonly reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
+    private readonly shouldFlush: (state: TState) => boolean
+    private readonly flushPipeline: ChunkPipeline<TState, TFlushOut, Record<string, never>, CFlushOut, R>
 
     constructor(
         config: AccumulatingPipelineConfig<
@@ -148,12 +148,12 @@ export class AccumulatingPipeline<
             R
         >
     ) {
-        this.pipeline = config.pipeline
-        this.initialState = config.initialState
-        this.reduce = config.reduce
-        this.flushPipeline = config.flushPipeline
-        this.shouldFlush = config.shouldFlush
         this.maxCycleAgeMs = config.maxCycleAgeMs
+        this.onNewCycle = config.onNewCycle
+        this.pipeline = config.pipeline
+        this.reduce = config.reduce
+        this.shouldFlush = config.shouldFlush
+        this.flushPipeline = config.flushPipeline
     }
 
     /** Arms the age timer. Idempotent-ish: call once after construction. */
@@ -244,7 +244,7 @@ export class AccumulatingPipeline<
         let result = await this.pipeline.next()
         while (result !== null) {
             if (result.length > 0) {
-                let state = this.currentState ?? (await this.initialState())
+                let state = this.currentState ?? (await this.onNewCycle())
                 for (const element of result) {
                     sideEffects.push(...element.context.sideEffects)
                     state = await this.reduce(state, element)

@@ -91,12 +91,16 @@ export function newAccumulatingPipeline<
     CFlushOut = Record<string, never>, // flush-pipeline context out
     R extends string = never, // redirect output names this pipeline can emit
 >(config: {
+    /** Maximum age of a cycle in milliseconds before the timer flushes it */
+    maxCycleAgeMs: number
+    /** Mints the cycle state — lazily for the cycle's first drained result, and again after every flush */
+    onNewCycle: () => TState | Promise<TState>
     /** Pre-built record pipeline (a plain chunk pipeline); it never sees the cycle */
     pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    /** Mints the cycle state — lazily for the first drained result, and again after every flush */
-    initialState: () => TState | Promise<TState>
     /** Folds every drained record result into the cycle state — see {@link CycleReducer} */
     reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
+    /** Size predicate: returns true when the current cycle should flush */
+    shouldFlush: (state: TState) => boolean
     /**
      * Builds the flush pipeline run on the size or age trigger. It receives one element: the cycle
      * state.
@@ -104,20 +108,16 @@ export function newAccumulatingPipeline<
     flush: (
         builder: ChunkPipelineBuilder<TState, TState, Record<string, never>>
     ) => ChunkPipelineBuilder<TState, TFlushOut, Record<string, never>, CFlushOut, R>
-    /** Size predicate: returns true when the current cycle should flush */
-    shouldFlush: (state: TState) => boolean
-    /** Maximum age of a cycle in milliseconds before the timer flushes it */
-    maxCycleAgeMs: number
 }): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, TState, TFlushOut, CFlushOut, R> {
     const flushPipeline = config
         .flush(new ChunkPipelineBuilder(new BufferingChunkPipeline<TState, Record<string, never>>()))
         .build()
     return new AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, TState, TFlushOut, CFlushOut, R>({
+        maxCycleAgeMs: config.maxCycleAgeMs,
+        onNewCycle: config.onNewCycle,
         pipeline: config.pipeline,
-        initialState: config.initialState,
         reduce: config.reduce,
         shouldFlush: config.shouldFlush,
-        maxCycleAgeMs: config.maxCycleAgeMs,
         flushPipeline,
     })
 }

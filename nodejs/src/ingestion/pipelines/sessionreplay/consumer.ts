@@ -327,7 +327,6 @@ export class SessionRecordingIngester {
             keyStore: this.keyStore,
             sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
-            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })
 
         this.pipeline = createSessionReplayPipeline({

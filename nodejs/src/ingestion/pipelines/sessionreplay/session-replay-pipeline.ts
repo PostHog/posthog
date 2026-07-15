@@ -3,33 +3,28 @@ import { Message } from 'node-rdkafka'
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
-import { AccumulatingPipeline, CycleReducer } from '~/ingestion/framework/accumulating-pipeline'
+import { AccumulatingPipeline } from '~/ingestion/framework/accumulating-pipeline'
 import { newAccumulatingPipeline, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { TopHogRegistry, createTopHogWrapper, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { isOkResult } from '~/ingestion/framework/results'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
-import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
+import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
-import { ReplayCycleState } from './pipeline-types'
+import { SessionReplayPipelineOutput } from './pipeline-types'
+import { ReplayCycleState, createReplayCycleReducer, createReplayOnNewCycle } from './replay-cycle-state'
 import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createRecordMetricsStep } from './session-batch-record-metrics-step'
@@ -44,16 +39,7 @@ export interface SessionReplayPipelineInput {
     message: Message
 }
 
-/**
- * What the inner pipeline emits per message: everything the cycle reducer needs to record it —
- * the parsed events plus the team, retention, and encryption key resolved along the way.
- */
-export interface SessionReplayPipelineOutput {
-    team: TeamForReplay
-    parsedMessage: ParsedMessageData
-    retentionPeriod: RetentionPeriod
-    sessionKey: SessionKey
-}
+export type { SessionReplayPipelineOutput } from './pipeline-types'
 
 /**
  * The per-message inner pipeline driven by the session replay pipeline: a plain chunk pipeline of
@@ -88,60 +74,6 @@ export type SessionReplayPipeline = AccumulatingPipeline<
     OverflowOutput // R: redirect output names this pipeline can emit
 >
 
-export interface ReplayCycleReducerConfig {
-    /** TopHog registry for the per-session record metrics. */
-    topHog: TopHogRegistry
-    /** Debug logging matcher for partition-based debugging. */
-    isDebugLoggingEnabled: ValueMatcher<number>
-}
-
-/**
- * The cycle reducer: folds one drained result into the cycle state, exactly once per message.
- * Every message's offset counts — recorded, dropped, or DLQ'd — so the flush's commit advances
- * past every message the cycle covers; OK results are additionally recorded into the state's
- * batch recorder, using the retention and encryption key the pipeline resolved.
- */
-export function createReplayCycleReducer(
-    config: ReplayCycleReducerConfig
-): CycleReducer<ReplayCycleState, SessionReplayPipelineOutput, { message: Message }, OverflowOutput> {
-    const { topHog, isDebugLoggingEnabled } = config
-    const messageSize = topHog.registerSum('message_size_by_session_id')
-    const consumeTime = topHog.registerSum('consume_time_ms_by_session_id')
-
-    return async function reduceReplayCycleState(state, element) {
-        const { partition, offset } = element.context.message
-        const current = state.offsets.get(partition)
-        if (current === undefined || offset > current) {
-            state.offsets.set(partition, offset)
-        }
-
-        if (!isOkResult(element.result)) {
-            return state
-        }
-        const { team, parsedMessage, retentionPeriod, sessionKey } = element.result.value
-
-        // Reset revoked sessions counter once we're consuming
-        SessionRecordingIngesterMetrics.resetSessionsRevoked()
-        if (isDebugLoggingEnabled(parsedMessage.metadata.partition)) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - recording event', {
-                ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
-            })
-        }
-        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
-
-        const labels = { token: parsedMessage.token ?? 'unknown', session_id: parsedMessage.session_id }
-        messageSize.record(labels, parsedMessage.metadata.rawSize)
-        const start = performance.now()
-        const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
-        await state.sessionBatchRecorder.record(messageWithTeam, retentionPeriod, sessionKey)
-        consumeTime.record(labels, performance.now() - start)
-
-        return state
-    }
-}
-
 export interface SessionReplayInnerPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -160,8 +92,6 @@ export interface SessionReplayInnerPipelineConfig {
     sessionKeyResolutionMaxConcurrency: number
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
-    /** Debug logging matcher for partition-based debugging. */
-    isDebugLoggingEnabled: ValueMatcher<number>
 }
 
 export interface SessionReplayPipelineConfig {
@@ -344,11 +274,11 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         Record<string, never>,
         OverflowOutput
     >({
+        maxCycleAgeMs: maxBatchAgeMs,
+        onNewCycle: createReplayOnNewCycle(sessionBatchManager),
         pipeline: recordPipeline,
-        // The cycle state is the accumulator: a fresh recorder from the manager plus the offsets
-        // the cycle covers.
-        initialState: () => ({ sessionBatchRecorder: sessionBatchManager.createBatch(), offsets: new Map() }),
         reduce: createReplayCycleReducer({ topHog, isDebugLoggingEnabled }),
+        shouldFlush: (state) => state.sessionBatchRecorder.size >= maxBatchSizeBytes,
         // The flush lifecycle: write to storage (retention and keys already resolved at record time),
         // commit the offsets the cycle covers (off the state, with in-flight produces awaited
         // first), then record the flush metrics from the write step's block metadata.
@@ -359,7 +289,5 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                     .pipe(createCommitOffsetsStep(offsetManager, promiseScheduler))
                     .pipe(createRecordMetricsStep())
             ),
-        shouldFlush: (state) => state.sessionBatchRecorder.size >= maxBatchSizeBytes,
-        maxCycleAgeMs: maxBatchAgeMs,
     })
 }

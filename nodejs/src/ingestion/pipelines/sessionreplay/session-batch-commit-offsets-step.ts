@@ -3,7 +3,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { ReplayCycleState } from './pipeline-types'
+import { ReplayCycleState } from './replay-cycle-state'
 
 /**
  * Flush step: commit the Kafka offsets the flushed cycle covers, read off the cycle state — every

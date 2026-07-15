@@ -23,11 +23,10 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { ReplayCycleState } from './pipeline-types'
+import { ReplayCycleState, createReplayCycleReducer } from './replay-cycle-state'
 import {
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineOutput,
-    createReplayCycleReducer,
     createSessionReplayInnerPipeline,
 } from './session-replay-pipeline'
 
@@ -192,7 +191,6 @@ describe('session-replay-pipeline', () => {
             keyStore,
             sessionKeyResolutionMaxConcurrency: 20,
             topHog,
-            isDebugLoggingEnabled,
             ...overrides,
         })
     }

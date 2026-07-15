@@ -14,23 +14,26 @@
  *
  * ## How to use it
  *
- * Give `newAccumulatingPipeline(config)` four things:
+ * Give `newAccumulatingPipeline(config)` these things, in cycle-lifecycle
+ * order:
  *
+ * - **`maxCycleAgeMs`** — the age bound on a cycle.
+ * - **`onNewCycle`** — mints the cycle state (e.g. a fresh session batch
+ *   recorder plus the offsets to commit), lazily for the cycle's first
+ *   result and again after every flush.
  * - **`pipeline`** — a plain chunk pipeline of steps (chapters 2–13) that
  *   takes messages in and emits the data to accumulate. It never sees the
  *   cycle.
- * - **`initialState` / `reduce`** — the cycle state and how results fold into
- *   it. `initialState` mints the state (e.g. a fresh session batch recorder
- *   plus the offsets to commit) lazily and again after every flush. The
- *   reducer runs on every result the pipeline emits, one element at a time —
- *   OK and non-OK alike, with the context still attached — so this is the
- *   per-message bookkeeping point: session replay records OK results into
- *   the state's recorder and folds every message's offset in (drops and DLQs
- *   too, so the flush's commit advances past them). Extract what the flush
- *   needs and let the element go; nothing is retained after the reduce.
+ * - **`reduce`** — folds every result the pipeline emits into the state, one
+ *   element at a time — OK and non-OK alike, with the context still attached
+ *   — so this is the per-message bookkeeping point: session replay records
+ *   OK results into the state's recorder and folds every message's offset in
+ *   (drops and DLQs too, so the flush's commit advances past them). Extract
+ *   what the flush needs and let the element go; nothing is retained after
+ *   the reduce.
+ * - **`shouldFlush`** — the size trigger that closes the cycle.
  * - **`flush`** — the pipeline that persists the cycle. It receives ONE
  *   element per flush: the cycle state.
- * - **`shouldFlush` / `maxCycleAgeMs`** — the size and age triggers.
  *
  * Then drive it the way a Kafka consumer does: feed() every poll, loop next()
  * until null. next() returns a discriminated turn — `flushed: false` means
@@ -89,9 +92,10 @@ function buildPipeline(options: {
     recordSideEffect?: () => Promise<unknown>
 }) {
     return newAccumulatingPipeline<Event, Event, NoCtx, NoCtx, State, number[], NoCtx>({
-        pipeline: buildRecordPipeline(options.recordSideEffect),
+        maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
         // Mints the cycle's accumulator — lazily for the first result, and again after every flush.
-        initialState: () => ({ records: [] }),
+        onNewCycle: () => ({ records: [] }),
+        pipeline: buildRecordPipeline(options.recordSideEffect),
         // The reducer sees every drained result exactly once; here it folds the ids in.
         reduce: (state, element) => {
             if (isOkResult(element.result)) {
@@ -99,6 +103,7 @@ function buildPipeline(options: {
             }
             return state
         },
+        shouldFlush: (state) => state.records.length >= options.flushAt,
         // The flush pipeline receives ONE element: the cycle state. Here it "persists" by emitting
         // the accumulated records; session replay writes the state's recorder to S3 and commits the
         // offsets read off the state.
@@ -108,8 +113,6 @@ function buildPipeline(options: {
                     return Promise.resolve(ok(state.records))
                 })
             ),
-        shouldFlush: (state) => state.records.length >= options.flushAt,
-        maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
     })
 }
 

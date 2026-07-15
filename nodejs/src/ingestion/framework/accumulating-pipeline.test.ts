@@ -83,7 +83,7 @@ class EchoRecordPipeline implements ChunkPipeline<RecordIn, RecordIn, Record<str
 }
 
 describe('AccumulatingPipeline', () => {
-    let initialState: jest.Mock
+    let onNewCycle: jest.Mock
     let flushPipeline: RecordsFlushPipeline
     let reducedTypes: PipelineResultType[]
 
@@ -92,7 +92,7 @@ describe('AccumulatingPipeline', () => {
         maxCycleAgeMs?: number
         recordSideEffect?: () => Promise<unknown>
     }) {
-        initialState = jest.fn((): State => ({ records: [] }))
+        onNewCycle = jest.fn((): State => ({ records: [] }))
         flushPipeline = new RecordsFlushPipeline()
         reducedTypes = []
 
@@ -105,8 +105,9 @@ describe('AccumulatingPipeline', () => {
             number[],
             Record<string, never>
         >({
+            maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
+            onNewCycle,
             pipeline: new EchoRecordPipeline(options.recordSideEffect),
-            initialState,
             reduce: (state, element) => {
                 reducedTypes.push(element.result.type)
                 if (isOkResult(element.result)) {
@@ -115,7 +116,6 @@ describe('AccumulatingPipeline', () => {
                 return state
             },
             shouldFlush: (state) => state.records.length >= options.flushAt,
-            maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
             flushPipeline,
         })
     }
@@ -136,7 +136,7 @@ describe('AccumulatingPipeline', () => {
         // record drained, state under threshold → next() finds nothing to flush
         expect(await drainNext(pipeline)).toBeNull()
         // the cycle state was minted exactly once (no flush → no re-mint)
-        expect(initialState).toHaveBeenCalledTimes(1)
+        expect(onNewCycle).toHaveBeenCalledTimes(1)
     })
 
     it('flushes on the size trigger and re-mints the state', async () => {
@@ -153,7 +153,7 @@ describe('AccumulatingPipeline', () => {
         // re-mint is lazy: the next cycle's state is minted when its first result is reduced
         pipeline.feed(feedBatch([4]))
         await drainNext(pipeline)
-        expect(initialState).toHaveBeenCalledTimes(2)
+        expect(onNewCycle).toHaveBeenCalledTimes(2)
         await pipeline.flush()
         expect(flushPipeline.lastFlushedState).toEqual({ records: [4] })
     })
@@ -175,7 +175,7 @@ describe('AccumulatingPipeline', () => {
     it('returns null when there is nothing to record and nothing to flush', async () => {
         const pipeline = createPipeline({ flushAt: 5 })
         expect(await drainNext(pipeline)).toBeNull()
-        expect(initialState).not.toHaveBeenCalled()
+        expect(onNewCycle).not.toHaveBeenCalled()
     })
 
     // The reducer is the per-message bookkeeping point: it must see every drained result exactly

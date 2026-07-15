@@ -11,8 +11,7 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
-import { ReplayCycleState } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
-import { createReplayCycleReducer } from '~/ingestion/pipelines/sessionreplay/session-replay-pipeline'
+import { ReplayCycleState, createReplayCycleReducer } from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -143,7 +142,6 @@ describe('ml-mirror-pipeline', () => {
             keyStore,
             sessionKeyResolutionMaxConcurrency: 20,
             topHog,
-            isDebugLoggingEnabled: () => false,
         })
     }
 
