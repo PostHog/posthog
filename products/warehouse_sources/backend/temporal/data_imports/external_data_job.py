@@ -584,7 +584,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                     id=f"sync-warehouse-person-properties-{job_id}",
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=6),
                 )

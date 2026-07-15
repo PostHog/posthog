@@ -23,7 +23,6 @@ import asyncio
 import hashlib
 import dataclasses
 
-from django.apps import apps
 from django.conf import settings
 
 import structlog
@@ -31,7 +30,7 @@ import pyarrow.parquet as pq
 
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
@@ -53,6 +52,9 @@ class SyncResult:
     changed: int = 0
     existing: int = 0
     produced: int = 0
+    # Changed rows dropped because their distinct_id resolved to no existing person. The most
+    # common "why didn't my property update" answer, so it's tracked and reported explicitly.
+    skipped_missing_person: int = 0
 
 
 # --- pure core ---------------------------------------------------------------------------
@@ -60,7 +62,12 @@ class SyncResult:
 
 def bundle_hash(bundle: dict) -> str:
     """Stable hash of a {property: value} bundle. sort_keys + default=str so re-ordering or
-    non-JSON scalars (datetimes) don't spuriously look changed."""
+    non-JSON scalars (datetimes) don't spuriously look changed.
+
+    The hash covers the source's whole bundle (all of its mapped properties for one person), not
+    each property individually — one changed column re-sends every property the source maps for
+    that person. That's deliberately coarse: re-`$set`ting an unchanged value is a no-op, and one
+    hash per (source, distinct_id) keeps the snapshot a flat two-column parquet."""
     return hashlib.sha256(json.dumps(bundle, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
@@ -108,7 +115,7 @@ def _staged_prefix(team_id: int, schema_id: str, job_id: str) -> str:
 
 
 def _snapshot_path(team_id: int, schema_id: str, source_id: str) -> str:
-    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_snapshot/{team_id}/{schema_id}/{source_id}.parquet"
+    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_snapshot/{team_id}/{source_id}/{schema_id}.parquet"
 
 
 async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[dict]:
@@ -200,17 +207,17 @@ def _produce_intents(team_id: int, token: str, items: list[tuple[str, dict]]) ->
 def _stamp_provenance(
     team_id: int, schema_id: str, source: PersonPropertySyncSource, property_names: list[str]
 ) -> None:
-    # apps.get_model keeps warehouse_sources from importing event_definitions (isolation). PERSON=2
-    # in PropertyDefinition.Type; hard-coded here to avoid the import purely for the enum.
-    person_property_definition = apps.get_model("event_definitions", "PropertyDefinition")
+    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set
+    # lands, so a brand-new property may not have a row yet on the first sync — the next sync's
+    # stamp catches it. Never inserting means this can't race that upsert.
     origin = {
         "source_id": str(source.definition_id),
         "schema_id": str(schema_id),
         "custom_property_source_id": str(source.source_id),
     }
-    person_property_definition.objects.filter(team_id=team_id, type=2, name__in=property_names).update(
-        warehouse_origin=origin
-    )
+    PropertyDefinition.objects.filter(
+        team_id=team_id, type=PropertyDefinition.Type.PERSON, name__in=property_names
+    ).update(warehouse_origin=origin)
 
 
 # --- orchestration -----------------------------------------------------------------------
@@ -240,7 +247,15 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         )
         to_send = [(distinct_id, bundle) for distinct_id, bundle in changed if distinct_id in existing]
         result.existing += len(to_send)
+        result.skipped_missing_person += len(changed) - len(to_send)
         if not to_send:
+            logger.info(
+                "person-property sync: no existing persons among changed rows for source",
+                team_id=team_id,
+                schema_id=str(schema_id),
+                source_id=str(source.source_id),
+                changed=len(changed),
+            )
             continue
 
         produced = await asyncio.to_thread(_produce_intents, team_id, team.api_token, to_send)
@@ -257,6 +272,17 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         sent_ids = {distinct_id for distinct_id, _ in to_send}
         merged = {**prior, **{d: h for d, h in new_hashes.items() if d in sent_ids}}
         await _write_snapshot_hashes(team_id, str(schema_id), str(source.source_id), merged)
+
+        logger.info(
+            "person-property sync: source processed",
+            team_id=team_id,
+            schema_id=str(schema_id),
+            source_id=str(source.source_id),
+            bundles=len(bundles),
+            changed=len(changed),
+            existing=len(to_send),
+            produced=produced,
+        )
 
     await _clear_staged(team_id, str(schema_id), job_id)
     return result
