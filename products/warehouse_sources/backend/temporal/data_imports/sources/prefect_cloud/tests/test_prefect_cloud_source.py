@@ -46,6 +46,10 @@ class TestPrefectCloudSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["account_id", "workspace_id", "api_key"]
 
+    def test_connection_host_fields_force_secret_reentry_on_workspace_change(self):
+        # Both IDs retarget the stored API key, so changing either must require re-entering it.
+        assert self.source.connection_host_fields == ["account_id", "workspace_id"]
+
     def test_api_key_field_is_secret_password(self):
         config = self.source.get_source_config
         api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")

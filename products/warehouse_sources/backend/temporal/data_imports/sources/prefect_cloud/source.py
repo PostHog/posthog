@@ -43,6 +43,13 @@ class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudR
         return ExternalDataSourceType.PREFECTCLOUD
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # account_id and workspace_id select which Prefect Cloud workspace the stored API key is
+        # used against; changing either must require re-entering the secret so a preserved key
+        # can't be retargeted at another workspace the key happens to have access to.
+        return ["account_id", "workspace_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PREFECT_CLOUD,
