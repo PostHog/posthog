@@ -156,6 +156,14 @@ class TestScoutReportPersistence(BaseTest):
         report = SignalReport.objects.get(id=result.report_id)
         assert report.title == "new title"
         assert report.summary == "new summary"
+        # A same-value rewrite is a no-op: it must report nothing modified, or every downstream
+        # consumer (audit note, edited tally, per-action bookkeeping) records a phantom edit.
+        assert (
+            update_scout_report(
+                team_id=self.team.id, report_id=result.report_id, title="new title", summary="new summary"
+            )
+            == []
+        )
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing

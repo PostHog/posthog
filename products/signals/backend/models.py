@@ -397,15 +397,19 @@ class SignalReport(UUIDModel):
         report. The scout report-authoring channel needs one: `emit_report` writes them at creation
         (a report born READY, not transitioned there) and `edit_report` rewrites them afterwards.
 
-        Only the provided fields change; passing neither is a no-op. Returns the modified field names
-        (with `updated_at`) for a targeted `save(update_fields=...)`; does NOT call `.save()` — the
-        caller owns the write so it can batch this with other changes in one transaction.
+        Only the provided fields change; passing neither is a no-op, and so is passing a value equal
+        to the current one — a same-value rewrite must not report the field as modified, or every
+        downstream consumer (the edit audit note, the run's edited tally, the per-action bookkeeping
+        rows) records an edit that changed nothing, corrupting retry-heavy measurement. Returns the
+        modified field names (with `updated_at`) for a targeted `save(update_fields=...)`; does NOT
+        call `.save()` — the caller owns the write so it can batch this with other changes in one
+        transaction.
         """
         updated_fields: set[str] = set()
-        if title is not None:
+        if title is not None and title != self.title:
             self.title = title
             updated_fields.add("title")
-        if summary is not None:
+        if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
         if updated_fields:
