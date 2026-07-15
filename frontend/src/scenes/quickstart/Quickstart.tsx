@@ -7,7 +7,6 @@ import {
     IconApps,
     IconArrowLeft,
     IconBook,
-    IconCheckCircle,
     IconGear,
     IconGraduationCap,
     IconLogomark,
@@ -18,7 +17,6 @@ import {
 import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,6 +24,7 @@ import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -139,7 +138,7 @@ function LiveUsersRightNow(): JSX.Element | null {
                 <span className="relative w-2 h-2 bg-success rounded-full" />
             </span>
             <span>
-                {humanFriendlyLargeNumber(liveUserCount)} {liveUserCount === 1 ? 'user' : 'users'} live right now
+                {humanFriendlyLargeNumber(liveUserCount)} live {liveUserCount === 1 ? 'user' : 'users'}
             </span>
         </Link>
     )
@@ -166,50 +165,7 @@ function HeroImageCycler(): JSX.Element {
     )
 }
 
-function DataSignalsStrip(): JSX.Element | null {
-    const { dataLadder } = useValues(quickstartLogic)
-
-    const steps = [
-        { label: 'SDK installed', done: dataLadder.installed, hint: 'PostHog is receiving data from your app.' },
-        { label: 'First events', done: dataLadder.devEvents, hint: 'Run your app and click around.' },
-        {
-            label: 'Events in production',
-            done: dataLadder.prodEvents,
-            hint: 'Deploy your app. Real users make real data.',
-        },
-        {
-            label: 'Custom events',
-            done: dataLadder.customEvents,
-            hint: "Track what matters to you: posthog.capture('signup completed')",
-        },
-    ]
-
-    if (steps.every((step) => step.done)) {
-        return null
-    }
-
-    return (
-        <LemonCard hoverEffect={false} className="rounded-lg border-transparent shadow-sm p-3">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                <span className="text-sm font-semibold">Your data signals</span>
-                {steps.map((step) => (
-                    <Tooltip key={step.label} title={step.hint} delayMs={0}>
-                        <div className="flex items-center gap-1.5 text-sm">
-                            {step.done ? (
-                                <IconCheckCircle className="text-success text-base shrink-0" />
-                            ) : (
-                                <span className="w-3 h-3 rounded-full border-2 border-current text-muted-alt shrink-0" />
-                            )}
-                            <span className={step.done ? 'text-secondary' : 'font-medium'}>{step.label}</span>
-                        </div>
-                    </Tooltip>
-                ))}
-            </div>
-        </LemonCard>
-    )
-}
-
-function ProjectApiKey(): JSX.Element | null {
+function ProjectToken(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     if (!currentTeam?.api_token) {
@@ -217,26 +173,23 @@ function ProjectApiKey(): JSX.Element | null {
     }
 
     return (
-        <div
-            className="flex items-center gap-1.5 text-sm text-secondary"
-            onClick={() => captureQuickstartAction('copy_api_key')}
+        <Tooltip
+            title="Your project token. Every SDK snippet uses it. It's write-only, so it's safe to include in public apps."
+            delayMs={0}
         >
-            <span>API key</span>
-            <Tooltip
-                title="Your project API key. Every SDK snippet uses it. It's write-only, so it's safe to include in public apps."
-                delayMs={0}
+            <div
+                className="flex items-center gap-2 min-w-0 max-w-full"
+                onClick={() => captureQuickstartAction('copy_project_token')}
+                data-attr="quickstart-copy-project-token"
             >
-                <CopyToClipboardInline
-                    explicitValue={currentTeam.api_token}
-                    description="project API key"
-                    iconSize="xsmall"
-                    className="font-mono"
-                    data-attr="quickstart-copy-api-key"
-                >
-                    {`${currentTeam.api_token.slice(0, 12)}…`}
-                </CopyToClipboardInline>
-            </Tooltip>
-        </div>
+                <LemonLabel className="whitespace-nowrap">Project token</LemonLabel>
+                <div className="min-w-0">
+                    <CodeSnippet compact thing="project token">
+                        {currentTeam.api_token}
+                    </CodeSnippet>
+                </div>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -836,8 +789,9 @@ export function Quickstart(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-8 py-4">
-            <section className="rounded-lg border bg-surface-secondary flex items-stretch gap-6 overflow-hidden">
+        <div className="flex flex-col gap-8 pb-4">
+            {/* Full-bleed: cancel the scene container's margin so the header hugs the viewport edges */}
+            <section className="border-b bg-surface-secondary flex items-stretch gap-6 overflow-hidden mx-[calc(var(--scene-padding)*-1)] mt-[calc(var(--scene-padding)*-1)]">
                 <HeroImageCycler />
                 <div className="flex flex-col justify-center gap-3 min-w-0 flex-1 p-4 md:p-6 md:pl-0">
                     <div>
@@ -860,7 +814,7 @@ export function Quickstart(): JSX.Element {
                                     : `${currentOrganization.member_count} teammates`}
                             </HeaderStat>
                         ) : null}
-                        <ProjectApiKey />
+                        <ProjectToken />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonButton
@@ -902,7 +856,7 @@ export function Quickstart(): JSX.Element {
                 </div>
             </section>
 
-            {installationComplete ? <DataSignalsStrip /> : <InstallHeroCard />}
+            {!installationComplete && <InstallHeroCard />}
 
             <section>
                 <SectionHeader

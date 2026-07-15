@@ -436,18 +436,6 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 ].filter((product): product is QuickstartProduct => product !== null)
             },
         ],
-        dataLadder: [
-            (s) => [s.currentTeam, s.toolSignals],
-            (
-                currentTeam,
-                toolSignals
-            ): { installed: boolean; devEvents: boolean; prodEvents: boolean; customEvents: boolean } => ({
-                installed: !!currentTeam?.ingested_event,
-                devEvents: (toolSignals?.totalEvents ?? 0) > 0,
-                prodEvents: (toolSignals?.prodEvents ?? 0) > 0,
-                customEvents: (toolSignals?.customEvents ?? 0) > 0,
-            }),
-        ],
         featuredProducts: [
             (s) => [s.products],
             (products): QuickstartProduct[] => products.filter((product) => product.featured),
