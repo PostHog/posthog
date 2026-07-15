@@ -12228,6 +12228,23 @@ export namespace Schemas {
       false_label?: string;
     }
 
+    export interface BranchPRMatch {
+      /** Repository the pull request belongs to, as 'owner/name'. */
+      repo: string;
+      /** Pull request number within the repository — pair with `repo` to link to it. */
+      number: number;
+      /**
+         * Pull request title, or null when the snapshot carries no title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+         * @nullable
+         */
+      state: string | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -33438,6 +33455,79 @@ export namespace Schemas {
       last_updated_at: string | null;
     }
 
+    export interface ManagedWarehouseSourceSummary {
+      /** Imported source connection identifier. */
+      source_id: string;
+      /** Display name for the imported source connection. */
+      source_name: string;
+      /** Type of the imported source connection. */
+      source_type: string;
+      /** Rolled-up warehouse readiness state across this source's schemas.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of this source's readiness state. */
+      detail: string;
+      /** Number of this source's schemas visible to the warehouse. */
+      total_schemas: number;
+      /** Number of schemas whose one-time historical copy into the warehouse has completed. */
+      backfilled_schemas: number;
+      /**
+         * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+         * @nullable
+         */
+      pending_batches: number | null;
+      /**
+         * Most recent upstream source import completion across this source's schemas.
+         * @nullable
+         */
+      last_synced_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourcesStatus {
+      /** Rolled-up readiness state for imported sources.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of imported source readiness. */
+      detail: string;
+      /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+      sources: ManagedWarehouseSourceSummary[];
+    }
+
+    export interface ManagedWarehouseDataStatusResponse {
+      /** Highest-priority readiness state across all warehouse datasets.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Events backfill readiness. */
+      events: ManagedWarehouseDatasetStatus;
+      /** Persons backfill readiness. */
+      persons: ManagedWarehouseDatasetStatus;
+      /** Imported source table readiness. */
+      sources: ManagedWarehouseSourcesStatus;
+      /** When this status snapshot was generated. */
+      generated_at: string;
+    }
+
     export interface ManagedWarehouseSourceTableStatus {
       /** Imported source schema identifier. */
       schema_id: string;
@@ -33461,6 +33551,8 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
+      /** Whether the one-time historical copy into the warehouse has completed for this table. */
+      backfilled: boolean;
       /** Backfill chunks already copied into the warehouse. */
       completed_chunks: number;
       /**
@@ -33490,42 +33582,9 @@ export namespace Schemas {
       last_synced_at: string | null;
     }
 
-    export interface ManagedWarehouseSourcesStatus {
-      /** Rolled-up readiness state for imported source tables.
-       *
-       * * `not_configured` - not_configured
-       * * `waiting` - waiting
-       * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
-       * * `up_to_date` - up_to_date
-       * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
-      readiness_state: ManagedWarehouseReadinessStateEnum;
-      /** Human-readable explanation of imported source readiness. */
-      detail: string;
-      /** Per-table source backfill and live import application statuses. */
-      tables: ManagedWarehouseSourceTableStatus[];
-    }
-
-    export interface ManagedWarehouseDataStatusResponse {
-      /** Highest-priority readiness state across all warehouse datasets.
-       *
-       * * `not_configured` - not_configured
-       * * `waiting` - waiting
-       * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
-       * * `up_to_date` - up_to_date
-       * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
-      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
-      /** Events backfill readiness. */
-      events: ManagedWarehouseDatasetStatus;
-      /** Persons backfill readiness. */
-      persons: ManagedWarehouseDatasetStatus;
-      /** Imported source table readiness. */
-      sources: ManagedWarehouseSourcesStatus;
-      /** When this status snapshot was generated. */
-      generated_at: string;
+    export interface ManagedWarehouseSourceSchemasResponse {
+      /** Per-schema backfill and live import application status for the requested source. */
+      schemas: ManagedWarehouseSourceTableStatus[];
     }
 
     export interface MarkToleratedInput {
@@ -35082,11 +35141,24 @@ export namespace Schemas {
       estimated_cost_usd: number | null;
     }
 
+    export interface PRLLMSpend {
+      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+      cost_usd: number;
+      /** Total input (prompt) tokens across the attributed generations. */
+      input_tokens: number;
+      /** Total output (completion) tokens across the attributed generations. */
+      output_tokens: number;
+      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+      generations: number;
+    }
+
     export interface PRCostSummary {
       /** Same spend broken down per workflow. */
       by_workflow: WorkflowCost[];
       /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
       by_run: RunCost[];
+      /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+      llm_spend?: PRLLMSpend | null;
       /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
       jobs_available: boolean;
       /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
@@ -58699,16 +58771,16 @@ export namespace Schemas {
          * @maxLength 500000
          */
       content?: string;
-      /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+      /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts. */
       content_base64?: string;
       /**
          * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
          * @maxLength 255
          */
       content_type?: string;
-      /** Existing run artifact id to use as the initial content source. */
+      /** Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_artifact_id?: string;
-      /** Existing run artifact storage_path to use as the initial content source. */
+      /** Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_storage_path?: string;
       /** Optional metadata to persist with the living artifact. */
       metadata?: TaskRunLivingArtifactCreateRequestMetadata;
@@ -58737,9 +58809,9 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Existing run artifact id to use as the next version content source. */
+      /** Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_artifact_id?: string;
-      /** Existing run artifact storage_path to use as the next version content source. */
+      /** Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_storage_path?: string;
       /** Optional metadata to merge into the artifact registry record. */
       metadata?: TaskRunLivingArtifactEditRequestMetadata;
@@ -62931,6 +63003,13 @@ export namespace Schemas {
      * @minLength 1
      */
     name: string;
+    };
+
+    export type EnvironmentsDataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string;
     };
 
     export type EnvironmentsDatasetItemsListParams = {
@@ -69412,6 +69491,13 @@ export namespace Schemas {
     name: string;
     };
 
+    export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string;
+    };
+
     export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -69857,6 +69943,25 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsResolveBranchParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
+     */
+    branch: string;
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
+     */
+    timestamp?: string;
     };
 
     export type EngineeringAnalyticsRunFailureLogsParams = {

@@ -2121,6 +2121,8 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
 4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled, ready_for_review, synchronize]`,
    `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot + non-draft), one `curl` with the
    bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+   **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
+   label (or mark an already-labeled draft ready).
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
    `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 
@@ -2193,7 +2195,7 @@ eval loop still recomputes to measure reviewer changes. New inline comments are 
 
 **📌 New comments at an unchanged head → nothing, for now (decision 2026-06-29).** When important new human/bot
 review comments appear but the SHA hasn't moved, ReviewHog currently does **nothing**: there's no comment-event
-trigger (the Action fires only on `[labeled, ready_for_review, synchronize]`), and a manual same-head re-trigger
+trigger (the Action fires only on `[labeled, ready_for_review]` since ADR 0002), and a manual same-head re-trigger
 hits the early-exit gate above (or, pre-publish, only re-feeds dedup). This is the right scope **while ReviewHog
 only _reviews_**. It changes once the **Action plane** ("not just find issues — fix them", see Stage 4 →
 _Action plane_) lands: a human reply ("this is wrong" / "please fix this" / answering a finding) should then
