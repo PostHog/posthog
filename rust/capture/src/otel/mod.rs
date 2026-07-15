@@ -186,9 +186,8 @@ pub async fn otel_handler(
     }
     state
         .quota_limiter
-        .report_grace_period_ingestion(&token, span_count as u64)
+        .report_grace_period_admission(&token, &span_events)
         .await;
-
     let restrictions = match &state.event_restriction_service {
         Some(service) => {
             let now_ts = state.timesource.current_time().timestamp();

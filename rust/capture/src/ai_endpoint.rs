@@ -287,7 +287,7 @@ async fn ai_handler_inner(
         }
         state
             .quota_limiter
-            .report_grace_period_ingestion(token, 1)
+            .report_global_grace_period_admission(token, 1)
             .await;
         event_metadata
     } else {
@@ -298,9 +298,8 @@ async fn ai_handler_inner(
             .await?;
         state
             .quota_limiter
-            .report_grace_period_ingestion(token, filtered.len() as u64)
+            .report_grace_period_admission(token, &filtered)
             .await;
-
         // If the event was filtered out by quota limiter, return billing limit error
         filtered
             .into_iter()

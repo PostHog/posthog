@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::prometheus::CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
+use capture::prometheus::CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
@@ -143,7 +143,14 @@ async fn setup_router_with_limits_and_grace(
             vec![]
         };
 
-        redis = redis.zrangebyscore_ret(&key, limited_tokens)
+        redis = redis.zrangebyscore_ret(&key, limited_tokens);
+
+        let scoped_grace_key = format!(
+            "{}{}",
+            QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+            resource.as_str()
+        );
+        redis = redis.zrangebyscore_ret(&scoped_grace_key, vec![]);
     }
 
     let redis = Arc::new(redis);
@@ -241,7 +248,7 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn test_recording_grace_period_counts_ingested_snapshots() {
+async fn test_recording_grace_period_counts_admitted_snapshots() {
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
     let token = "test_token_recording_grace_period";
@@ -271,7 +278,7 @@ async fn test_recording_grace_period_counts_ingested_snapshots() {
             .into_vec()
             .into_iter()
             .find_map(|(key, _, _, value)| {
-                if key.key().name() != CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
                     return None;
                 }
                 let resource = key

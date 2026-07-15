@@ -92,12 +92,16 @@ pub async fn apply_quota_limits(
         return Err(Error::BillingLimitExceeded);
     }
 
-    let ingested_event_count = events
+    let admitted_event_infos: Vec<EventInfo> = events
         .iter()
         .filter(|event| event.result == EventResult::Ok)
-        .count() as u64;
+        .map(|event| EventInfo {
+            name: event.event_name(),
+            has_product_tour_id: event.has_property("product_tour_id"),
+        })
+        .collect();
     limiter
-        .report_grace_period_ingestion(token, ingested_event_count)
+        .report_grace_period_admission_for_event_infos(token, &admitted_event_infos)
         .await;
 
     Ok(())
@@ -119,7 +123,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
-    use crate::prometheus::CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
+    use crate::prometheus::CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
     use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
@@ -268,13 +272,14 @@ mod tests {
         set_global_limit: bool,
         resources_to_limit: &[QuotaResource],
     ) -> CaptureQuotaLimiter {
-        build_limiter_with_grace(token, set_global_limit, false, resources_to_limit).await
+        build_limiter_with_grace(token, set_global_limit, false, &[], resources_to_limit).await
     }
 
     async fn build_limiter_with_grace(
         token: &str,
         set_global_limit: bool,
-        set_grace_period: bool,
+        set_global_grace_period: bool,
+        scoped_resources_in_grace: &[QuotaResource],
         resources_to_limit: &[QuotaResource],
     ) -> CaptureQuotaLimiter {
         let cfg = test_config();
@@ -293,7 +298,7 @@ mod tests {
         };
         redis = redis.zrangebyscore_ret(
             &grace_period_key,
-            if set_grace_period {
+            if set_global_grace_period {
                 vec![token.to_string()]
             } else {
                 vec![]
@@ -312,6 +317,18 @@ mod tests {
                 vec![]
             };
             redis = redis.zrangebyscore_ret(&key, limited_tokens);
+
+            let grace_key = format!(
+                "{}{}",
+                QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+                resource.as_str()
+            );
+            let grace_tokens = if scoped_resources_in_grace.contains(resource) {
+                vec![token.to_string()]
+            } else {
+                vec![]
+            };
+            redis = redis.zrangebyscore_ret(&grace_key, grace_tokens);
         }
 
         let limiter = CaptureQuotaLimiter::new(&cfg, Arc::new(redis), Duration::from_secs(60))
@@ -420,11 +437,18 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn grace_period_counts_only_events_that_remain_ingestable() {
+    async fn grace_period_counts_only_admitted_events() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
         let limiter =
-            build_limiter_with_grace("tok", false, true, &[QuotaResource::Exceptions]).await;
+            build_limiter_with_grace(
+                "tok",
+                false,
+                true,
+                &[],
+                &[QuotaResource::Exceptions],
+            )
+            .await;
         let mut events = vec![
             make_event("$pageview", None),
             make_event("$exception", None),
@@ -444,7 +468,7 @@ mod tests {
                 .into_vec()
                 .into_iter()
                 .find_map(|(key, _, _, value)| {
-                    if key.key().name() != CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL
+                    if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL
                     {
                         return None;
                     }
@@ -462,6 +486,55 @@ mod tests {
                     }
                 });
         assert_eq!(grace_period_count, Some(1));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn scoped_grace_period_takes_precedence_over_global_grace_period() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let limiter = build_limiter_with_grace(
+            "tok",
+            false,
+            true,
+            &[QuotaResource::Exceptions],
+            &[],
+        )
+        .await;
+        let mut events = vec![
+            make_event("$pageview", None),
+            make_event("$exception", None),
+        ];
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+
+        assert!(result.is_ok());
+        let counts: std::collections::HashMap<String, u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| {
+                if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+                    return None;
+                }
+                let resource = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "resource")?
+                    .value()
+                    .to_string();
+                match value {
+                    DebugValue::Counter(count) => Some((resource, count)),
+                    _ => None,
+                }
+            })
+            .collect();
+        assert_eq!(counts.get("events"), Some(&1));
+        assert_eq!(counts.get("exceptions"), Some(&1));
+        assert_eq!(counts.values().sum::<u64>(), 2);
     }
 
     // -----------------------------------------------------------------------

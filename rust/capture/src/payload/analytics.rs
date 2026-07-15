@@ -130,7 +130,7 @@ pub async fn handle_event_payload(
         .await?;
     state
         .quota_limiter
-        .report_grace_period_ingestion(&context.token, events.len() as u64)
+        .report_grace_period_admission(&context.token, &events)
         .await;
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "quota limits filter applied");
 

@@ -16,7 +16,7 @@ use crate::{
     config::Config,
     prometheus::{
         report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL,
-        CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+        CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
     },
 };
 
@@ -131,6 +131,15 @@ impl CaptureQuotaLimiter {
                 ServiceName::Capture,
             )
             .expect(&err_msg),
+            RedisLimiter::new(
+                self.redis_timeout,
+                self.redis_client.clone(),
+                QUOTA_LIMITING_SUSPENDED_CACHE_KEY.to_string(),
+                self.redis_key_prefix.clone(),
+                resource,
+                ServiceName::Capture,
+            )
+            .expect("failed to create scoped billing grace period limiter"),
             event_matcher,
         );
         self.scoped_limiters.push(Box::new(limiter));
@@ -229,17 +238,66 @@ impl CaptureQuotaLimiter {
         Ok(filtered_events)
     }
 
-    pub async fn report_grace_period_ingestion(&self, token: &str, event_count: u64) {
+    pub async fn report_global_grace_period_admission(&self, token: &str, event_count: u64) {
         if event_count == 0 || !self.grace_period_limiter.is_limited(token).await {
             return;
         }
 
-        let resource = Self::get_resource_for_mode(self.capture_mode).as_str();
         counter!(
-            CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
-            "resource" => resource
+            CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+            "resource" => Self::get_resource_for_mode(self.capture_mode).as_str()
         )
         .increment(event_count);
+    }
+
+    pub async fn report_grace_period_admission<T: HasEventName>(
+        &self,
+        token: &str,
+        events: &[T],
+    ) {
+        let event_infos: Vec<EventInfo> = events
+            .iter()
+            .map(|event| EventInfo {
+                name: event.event_name(),
+                has_product_tour_id: event.has_property("$product_tour_id")
+                    || event.has_property("product_tour_id"),
+            })
+            .collect();
+        self.report_grace_period_admission_for_event_infos(token, &event_infos)
+            .await;
+    }
+
+    pub async fn report_grace_period_admission_for_event_infos(
+        &self,
+        token: &str,
+        event_infos: &[EventInfo<'_>],
+    ) {
+        if event_infos.is_empty() {
+            return;
+        }
+
+        let mut unreported_indices: Vec<usize> = (0..event_infos.len()).collect();
+
+        // Scoped resources take precedence so each admitted event is counted once,
+        // even when both scoped and global grace periods overlap.
+        for limiter in &self.scoped_limiters {
+            if !limiter.is_in_grace_period(token).await {
+                continue;
+            }
+            let (matched_indices, unmatched_indices) =
+                limiter.partition_event_indices(event_infos, &unreported_indices);
+            if !matched_indices.is_empty() {
+                counter!(
+                    CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+                    "resource" => limiter.resource().as_str()
+                )
+                .increment(matched_indices.len() as u64);
+            }
+            unreported_indices = unmatched_indices;
+        }
+
+        self.report_global_grace_period_admission(token, unreported_indices.len() as u64)
+            .await;
     }
 
     /// Check if a token is limited for a specific quota resource bucket.
@@ -271,6 +329,7 @@ impl CaptureQuotaLimiter {
 #[async_trait::async_trait]
 trait ScopedLimiterTrait: Send + Sync {
     async fn is_limited(&self, token: &str) -> bool;
+    async fn is_in_grace_period(&self, token: &str) -> bool;
     /// Partition indices into (matched, unmatched) based on event info.
     /// `event_infos` is a slice where index i corresponds to the event at index i.
     fn partition_event_indices(
@@ -285,6 +344,7 @@ trait ScopedLimiterTrait: Send + Sync {
 struct ScopedLimiter<F> {
     resource: QuotaResource,
     limiter: RedisLimiter,
+    grace_period_limiter: RedisLimiter,
     // predicate supplied here should match events TO BE DROPPED
     // if the limit for this team/token has been exceeded
     event_matcher: F,
@@ -294,10 +354,16 @@ impl<F> ScopedLimiter<F>
 where
     F: Fn(EventInfo) -> bool + Send + Sync + Clone,
 {
-    fn new(resource: QuotaResource, limiter: RedisLimiter, event_matcher: F) -> Self {
+    fn new(
+        resource: QuotaResource,
+        limiter: RedisLimiter,
+        grace_period_limiter: RedisLimiter,
+        event_matcher: F,
+    ) -> Self {
         Self {
             resource,
             limiter,
+            grace_period_limiter,
             event_matcher,
         }
     }
@@ -310,6 +376,10 @@ where
 {
     async fn is_limited(&self, token: &str) -> bool {
         self.limiter.is_limited(token).await
+    }
+
+    async fn is_in_grace_period(&self, token: &str) -> bool {
+        self.grace_period_limiter.is_limited(token).await
     }
 
     fn partition_event_indices(
