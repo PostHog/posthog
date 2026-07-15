@@ -69,7 +69,6 @@ You can find your API key in your [Heroku account settings](https://dashboard.he
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
