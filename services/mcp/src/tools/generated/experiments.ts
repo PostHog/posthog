@@ -555,6 +555,7 @@ const experimentList = (): ToolBase<
                 query: {
                     archived: params.archived,
                     created_by_id: params.created_by_id,
+                    deleted: params.deleted,
                     event: params.event,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
