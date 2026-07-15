@@ -10,8 +10,7 @@ import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
     const { overallHealthStatus, checksByCategory, healthIssuesLoading } = useValues(webAnalyticsHealthLogic)
-    const { refreshHealthChecks, refreshHealthChecksIfDue, trackSectionToggled } =
-        useActions(webAnalyticsHealthLogic)
+    const { refreshHealthChecks, refreshHealthChecksIfDue, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
 
     // Kick off the throttled background refresh only when the health tab is actually viewed, not
     // when its tab label mounts the logic on other Web Analytics pages.
