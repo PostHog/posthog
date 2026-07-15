@@ -186,7 +186,7 @@ class AikidoSecuritySourceConfig(config.Config):
 
 @config.config
 class AirOpsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -569,7 +569,7 @@ class BrowserUseSourceConfig(config.Config):
 
 @config.config
 class BrowserbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1639,7 +1639,7 @@ class GridlySourceConfig(config.Config):
 
 @config.config
 class GroqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
