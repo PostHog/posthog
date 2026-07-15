@@ -1361,7 +1361,8 @@ class FloatAppSourceConfig(config.Config):
 
 @config.config
 class FlowluSourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
