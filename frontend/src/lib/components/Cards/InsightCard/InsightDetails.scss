@@ -99,9 +99,8 @@
 }
 
 .SeriesDisplay__value {
-    // Truncate a long value (e.g. a URL) with an ellipsis on a single line instead of wrapping it out of
-    // the box; the full value is available via a tooltip. inline-block (not inline-flex) so text-overflow
-    // applies; line-height matches the height to keep the text vertically centered.
+    // inline-block (not inline-flex) so text-overflow can truncate a long value to one line; line-height
+    // matches height to keep it vertically centered without flex.
     display: inline-block;
     max-width: 100%;
     height: 1.25rem;

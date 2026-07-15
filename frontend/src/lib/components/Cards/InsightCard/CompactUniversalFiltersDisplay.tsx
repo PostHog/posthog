@@ -43,6 +43,16 @@ function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is Un
     return (value as UniversalFiltersGroup).type !== undefined && (value as UniversalFiltersGroup).values !== undefined
 }
 
+// A filter value can be a number, boolean, etc.; render it as text with the full value on hover, since
+// long values (e.g. URLs) are truncated to one line.
+function PropertyValueDisplay({ value }: { value: PropertyFilterBaseValue }): JSX.Element {
+    return (
+        <Tooltip title={String(value)}>
+            <code className="SeriesDisplay__value">{String(value)}</code>
+        </Tooltip>
+    )
+}
+
 export function CompactUniversalFiltersDisplay({
     groupFilter,
     embedded,
@@ -159,20 +169,14 @@ export function CompactUniversalFiltersDisplay({
                                         (Array.isArray(propertyFilter.value) ? (
                                             propertyFilter.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
-                                                    <Tooltip title={String(subValue)}>
-                                                        <code className="SeriesDisplay__value">{String(subValue)}</code>
-                                                    </Tooltip>
+                                                    <PropertyValueDisplay value={subValue} />
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
                                                             1 && ' or '}
                                                 </React.Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (
-                                            <Tooltip title={String(propertyFilter.value)}>
-                                                <code className="SeriesDisplay__value">
-                                                    {String(propertyFilter.value)}
-                                                </code>
-                                            </Tooltip>
+                                            <PropertyValueDisplay value={propertyFilter.value} />
                                         ) : null)}
                                 </>
                             )}

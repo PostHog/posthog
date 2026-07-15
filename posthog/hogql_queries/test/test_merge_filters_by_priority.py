@@ -97,6 +97,17 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["date_from"] == "-30d"
         assert merged["date_to"] == "-1d"
 
+    def test_same_key_on_different_group_types_are_not_treated_as_the_same_filter(self):
+        dashboard_prop = {"key": "name", "value": "Acme", "type": "group", "group_type_index": 0}
+        tile_prop = {"key": "name", "value": "Beta", "type": "group", "group_type_index": 1}
+
+        merged = merge_filters_by_priority(
+            {"properties": [dashboard_prop]},
+            {"properties": [tile_prop]},
+        )
+
+        assert merged["properties"] == [dashboard_prop, tile_prop]
+
     def test_tile_property_with_unhashable_key_does_not_raise(self):
         # `key` comes from unvalidated client JSON and can be a list; must not crash the set-building.
         merged = merge_filters_by_priority(

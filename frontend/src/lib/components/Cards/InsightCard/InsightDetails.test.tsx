@@ -1,4 +1,8 @@
-import { dropDuplicatesOfOverrides, getDateRangeOverrideDisplay, getEffectiveFilterOverrides } from './InsightDetails'
+import {
+    dropDuplicatesOfOverrides,
+    getDateRangeOverrideDisplay,
+    getEffectiveFilterOverrides,
+} from './insightDetailsFilterOverrides'
 
 const browserChrome = { key: '$browser', value: 'Chrome', type: 'event', operator: 'exact' }
 const browserSafari = { key: '$browser', value: 'Safari', type: 'event', operator: 'exact' }

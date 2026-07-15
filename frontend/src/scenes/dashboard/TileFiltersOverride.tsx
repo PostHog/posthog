@@ -27,8 +27,8 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
         <div className="space-y-4 tile-filters-override">
             <div>
                 <p className="text-sm text-muted mb-4">
-                    Set custom filters for this tile. They merge with the dashboard filters, taking precedence where
-                    they overlap.
+                    Set custom filters for this tile. Property filters apply on top of the dashboard's, while the tile's
+                    date range and breakdown replace the dashboard's.
                 </p>
             </div>
 

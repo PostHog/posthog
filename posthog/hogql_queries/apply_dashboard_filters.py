@@ -14,15 +14,17 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
 
 
-def _property_identity(prop: dict) -> tuple[str, Any]:
-    """The (type, key) a property filter targets — the unit at which one layer takes precedence over
-    another. `type` defaults to "event" to match how untyped property filters are interpreted
-    downstream. `key` is coerced to a hashable form since it comes from unvalidated client JSON and
-    must be usable in a set/dict — an unhashable key (e.g. a list) would otherwise raise TypeError."""
+def _property_identity(prop: dict) -> tuple[str, Any, Any]:
+    """The (type, group_type_index, key) a property filter targets — the unit at which one layer takes
+    precedence over another. `type` defaults to "event" to match how untyped property filters are
+    interpreted downstream. `group_type_index` keeps two group types with the same key distinct, so a
+    tile override on one group type doesn't shadow the same key on another. `key` is coerced to a hashable
+    form since it comes from unvalidated client JSON and must be usable in a set/dict — an unhashable key
+    (e.g. a list) would otherwise raise TypeError."""
     key = prop.get("key")
     if isinstance(key, (list, dict)):
         key = json.dumps(key, sort_keys=True)
-    return (prop.get("type") or "event", key)
+    return (prop.get("type") or "event", prop.get("group_type_index"), key)
 
 
 def merge_filters_by_priority(base_filters: dict | None, override_filters: dict | None) -> dict:
@@ -41,8 +43,8 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
     by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
 
-    The frontend re-derives this same precedence in `getEffectiveFilterOverrides` (InsightDetails.tsx)
-    to attribute each shown filter to its source; keep the two in step when changing the tie-break here.
+    The frontend re-derives this precedence in `insightDetailsFilterOverrides.ts` purely to attribute each
+    shown filter to its source (display only); keep that tie-break in step when changing this one.
     """
     if not override_filters:
         return base_filters or {}
@@ -73,7 +75,7 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
     return merged
 
 
-def _without_keys(properties: Any, keys: set[tuple[str, Any]]) -> Any:
+def _without_keys(properties: Any, keys: set[tuple[str, Any, Any]]) -> Any:
     """Drop leaf property filters whose (type, key) is in `keys` from a query's `properties`, which is
     either a flat list of leaves or a `PropertyGroupFilter` dict (a group of `PropertyGroupFilterValue`
     subgroups, themselves arbitrarily nested — AND of ORs of ANDs, etc). Recurses into every nested
@@ -94,7 +96,7 @@ def _without_keys(properties: Any, keys: set[tuple[str, Any]]) -> Any:
     return properties
 
 
-def _strip_query_properties(query: dict, keys: set[tuple[str, Any]]) -> dict:
+def _strip_query_properties(query: dict, keys: set[tuple[str, Any, Any]]) -> dict:
     if query.get("kind") in WRAPPER_NODE_KINDS:
         return {**query, "source": _strip_query_properties(query["source"], keys)}
     if query.get("properties") is not None:
