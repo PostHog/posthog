@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
     AD_ACCOUNTS_PAGE_LIMIT,
+    MAX_AD_ACCOUNT_PAGES,
     SnapchatDateRangeManager,
     format_stats_day_boundary,
     list_ad_accounts,
@@ -532,3 +533,47 @@ class TestListAdAccounts:
 
         with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
             assert list_ad_accounts("token") == []
+
+    def test_page_cap_raises_instead_of_returning_partial(self) -> None:
+        # A looping/oversized next_link must fail closed rather than return the accounts collected so
+        # far as if complete — that would silently present a truncated (or cursor-duplicated) picker.
+        response = MagicMock()
+        response.json.return_value = self._organizations_page(
+            "PostHog", "acc-1", next_link="https://adsapi.snapchat.com/v1/me/organizations?cursor=loop"
+        )
+        session = MagicMock()
+        session.get.return_value = response
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="too many pages"),
+        ):
+            list_ad_accounts("token")
+
+        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES
+
+    @parameterized.expand(
+        [
+            ("cross_origin_host", "https://evil.example.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"),
+            (
+                "non_https_same_host",
+                "http://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2",
+            ),
+        ]
+    )
+    def test_rejects_untrusted_pagination_link_without_following_it(self, _name: str, next_link: str) -> None:
+        # The bearer token rides on each pagination request, so a next_link off Snapchat's HTTPS API
+        # host must be rejected before we re-attach the token to it.
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+        # The token-bearing request to the untrusted host is never made.
+        assert session.get.call_count == 1

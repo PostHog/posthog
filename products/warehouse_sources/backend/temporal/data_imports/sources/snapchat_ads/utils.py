@@ -2,6 +2,7 @@ import copy
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -33,6 +34,24 @@ AD_ACCOUNTS_PAGE_LIMIT = 50
 # Guards against a malformed/looping `next_link`; far above any real org count.
 MAX_AD_ACCOUNT_PAGES = 100
 
+# Every pagination request carries the bearer token, so we only ever follow a `next_link`
+# that stays on Snapchat's API host over HTTPS.
+_EXPECTED_API_HOST = urlsplit(BASE_URL).hostname
+
+
+def _validate_pagination_url(url: str) -> None:
+    """Reject a `next_link` that isn't HTTPS on Snapchat's API host.
+
+    Each pagination request attaches the OAuth bearer token, so a cross-origin
+    `next_link` would leak it to another host. Defense-in-depth behind the egress
+    proxy: fail closed rather than follow an unexpected origin.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != _EXPECTED_API_HOST:
+        raise IntegrationAccountListingError(
+            "Snapchat returned an unexpected pagination link while listing ad accounts. Please try again."
+        )
+
 
 def _raise_for_in_body_failure(body: dict) -> None:
     """Snapchat can report failure in a 200 body via `request_status`, so `raise_for_status()` alone
@@ -48,7 +67,7 @@ def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
     """Snapchat nests them: `organizations[].organization.ad_accounts[]`, with a per-organization
     `sub_request_status` we skip unless it succeeded.
     """
-    session = make_tracked_session()
+    session = make_tracked_session(allow_redirects=False)
     url = f"{BASE_URL}/me/organizations"
     params: dict | None = {"with_ad_accounts": "true", "limit": AD_ACCOUNTS_PAGE_LIMIT}
 
@@ -81,9 +100,15 @@ def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
         if not next_link:
             break
         # next_link is an absolute URL that already carries the cursor and the original query.
+        # Validate its origin before re-attaching the bearer token to it.
+        _validate_pagination_url(next_link)
         url, params = next_link, None
     else:
-        logger.warning("snapchat_ads_list_ad_accounts_page_limit_hit", pages=MAX_AD_ACCOUNT_PAGES)
+        # Hitting the cap means a looping/oversized result set; returning the accounts gathered so
+        # far would silently present a truncated (or cursor-duplicated) picker as complete.
+        raise IntegrationAccountListingError(
+            "Snapchat returned too many pages while listing ad accounts. Please try again."
+        )
 
     if saw_organization and not saw_successful_organization:
         # Every org failed, so an empty list here means "we couldn't read them", not "you have none".
