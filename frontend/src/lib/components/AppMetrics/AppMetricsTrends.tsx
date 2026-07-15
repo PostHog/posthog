@@ -29,7 +29,7 @@ export function AppMetricsTrends({
     )
 
     return (
-        <div className="relative border rounded min-h-[20rem] h-[70vh] bg-white">
+        <div className="relative border rounded min-h-[20rem] h-[70vh] bg-surface-primary">
             {loading ? (
                 <SpinnerOverlay />
             ) : !appMetricsTrends ? (

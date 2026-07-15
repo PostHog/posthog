@@ -113,7 +113,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                         <AppMetricsFilters logicKey={logicKey} />
                     </div>
 
-                    <div className="relative border rounded min-h-[20rem] bg-white flex flex-1 flex-col">
+                    <div className="relative border rounded min-h-[20rem] bg-surface-primary flex flex-1 flex-col">
                         {appMetricsTrendsLoading ? (
                             <div className="flex-1 flex items-center justify-center p-8">
                                 <SpinnerOverlay />
