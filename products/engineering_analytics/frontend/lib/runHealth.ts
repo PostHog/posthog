@@ -1,4 +1,4 @@
-import { isDecisiveFailure } from './lifecycle'
+import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
 export interface HealthRun {
@@ -56,6 +56,8 @@ const FLAKY_SUCCESS_RATE = 0.9
 export interface FleetRow {
     runCount: number
     successRate: number | null
+    /** Workflow name — lets the fleet verdict name what's failing rather than restate the count. */
+    workflowName?: string
     /** Most recent completed run failed; null when nothing has completed for that workflow. */
     latestRunFailed: boolean | null
     /** Last decisive failure in the window, or null if there was none — so a low success rate driven by
@@ -75,6 +77,8 @@ export interface FleetSummary {
     /** Workflows whose latest run has settled (so they're either green or red right now). */
     settledWorkflows: number
     failingNow: number
+    /** Names of the currently-failing workflows (what the verdict subline names). */
+    failingWorkflowNames: string[]
     /** Currently green but below the success-rate floor — flaky. */
     flakyNow: number
     totalRuns: number
@@ -84,6 +88,25 @@ export interface FleetSummary {
     rerunCycles: number
     billableMinutes: number | null
     estimatedCostUsd: number | null
+}
+
+// A completed run that settled in under this many seconds did no real CI work. The common shape is a
+// gate job deciding the rest of the workflow should be skipped (path filters, eligibility checks): the
+// run "succeeds" in seconds with every other job skipped. Those runs are noise on duration surfaces —
+// they pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
+export const NO_OP_RUN_MAX_SECONDS = 10
+
+/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}): completed fast with a benign conclusion —
+ *  the same set `verdictTag` paints as non-warning (passing or cancelled). Everything else is kept
+ *  regardless of speed: decisive failures (broken config fails in seconds) and attention-needing
+ *  conclusions like action_required or startup_failure are signal, not noise. */
+export function isNoOpRun(run: Pick<HealthRun, 'conclusion' | 'durationSeconds'>): boolean {
+    return (
+        run.conclusion != null &&
+        (isPassingConclusion(run.conclusion) || run.conclusion === 'cancelled') &&
+        run.durationSeconds != null &&
+        run.durationSeconds < NO_OP_RUN_MAX_SECONDS
+    )
 }
 
 /** Nearest-rank percentile over an ascending-sorted sample. */
@@ -107,10 +130,16 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const reruns = runs.filter((run) => (run.runAttempt ?? 1) > 1).length
     const passRate = completed.length ? passed / completed.length : null
 
-    const durations = completed
+    // No-op runs stay in the counts and pass rate (they are real runs) but not in the duration
+    // percentiles, so the median/p95 tiles agree with the activity chart, which hides them too. The
+    // all-duration fallback is reserved for ZERO real samples (an intentionally fast workflow, where
+    // "—" would be wrong): even a lone real execution is a more honest median than gate-run noise.
+    const allDurations = completed.map((run) => run.durationSeconds).filter((d): d is number => d != null)
+    const realDurations = completed
+        .filter((run) => !isNoOpRun(run))
         .map((run) => run.durationSeconds)
         .filter((d): d is number => d != null)
-        .sort((a, b) => a - b)
+    const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
     const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     const latestConclusion = byStartDesc[0]?.conclusion ?? null
@@ -154,7 +183,9 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
 export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     const workflowCount = rows.length
     const settledWorkflows = rows.filter((row) => row.latestRunFailed != null).length
-    const failingNow = rows.filter((row) => row.latestRunFailed === true).length
+    const failingRows = rows.filter((row) => row.latestRunFailed === true)
+    const failingNow = failingRows.length
+    const failingWorkflowNames = failingRows.map((row) => row.workflowName).filter((name): name is string => !!name)
     // Flaky = currently green, below the success-rate floor, AND actually failed in the window. The
     // lastFailureAt gate keeps a low success rate from skips/cancels (no real failures) reading as flaky.
     const flakyNow = rows.filter(
@@ -200,6 +231,7 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
         workflowCount,
         settledWorkflows,
         failingNow,
+        failingWorkflowNames,
         flakyNow,
         totalRuns,
         passRate,

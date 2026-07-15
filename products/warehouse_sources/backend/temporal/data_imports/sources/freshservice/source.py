@@ -85,7 +85,6 @@ Your **API key** is on your Freshservice profile settings page (click your profi
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden while the connector's incremental/ordering behavior is verified against a
             # live Freshservice account. Drop this flag to release the source to users.
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

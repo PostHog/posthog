@@ -106,6 +106,7 @@ import {
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
+    IntervalType,
     LabelGroupType,
     SlowQueryPossibilities,
 } from '~/types'
@@ -155,7 +156,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
-        /** Apply a drag-to-zoom date range to the insight's query. */
+        /** Apply a drag-to-zoom date range to the insight's query. Both dates are bucket starts;
+         *  the end is widened to its bucket's end using the query's interval. */
         zoomDateRange: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -235,17 +237,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
-            (s) => [s.querySource, s.display, s.dateRange, s.featureFlags],
-            (q, display, dateRange, featureFlags) => {
+            (s) => [s.querySource, s.display, s.dateRange],
+            (q, display, dateRange) => {
                 if (dateRange?.date_from === 'all') {
                     return false
                 }
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
-                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
-                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                // Funnel compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes.
+                // FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q)) {
                     return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false
@@ -676,10 +678,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
+            eventUsageLogic.actions.reportInsightDragToZoomed(values.querySource?.kind)
+            // Charts emit bucket starts — widen the end to the last selected bucket's end, so
+            // e.g. dragging over the "May" bar of a monthly chart zooms to all of May.
             // Sub-day buckets carry a time component; explicitDate stops the backend from
             // rounding them back out to whole days.
             actions.updateDateRange(
-                { date_from: dateFrom, date_to: dateTo, explicitDate: hasTimeComponent(dateFrom) },
+                {
+                    date_from: dateFrom,
+                    date_to: dateRangeZoomEnd(dateTo, values.interval),
+                    explicitDate: hasTimeComponent(dateFrom),
+                },
                 true
             )
         },
@@ -841,6 +850,25 @@ const getActiveUsersMath = (
  *  `2024-06-10 08:00:00`. A bare `YYYY-MM-DD` means "that whole day". */
 export function hasTimeComponent(date: string): boolean {
     return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(date)
+}
+
+/** Last moment of the bucket starting at `bucketStart`, so a zoom keeps all the data the user
+ *  selected. Drag-to-zoom emits bucket *starts*, so without widening only the last bucket's first
+ *  day/instant survives — e.g. selecting the "May" bar of a monthly chart must zoom to
+ *  `2026-05-01..2026-05-31`, not `..2026-05-01`. Day buckets need no widening (a bare date
+ *  already means the whole day), and without a known interval the start is returned as-is. */
+export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | null | undefined): string {
+    if (!interval || interval === 'day') {
+        return bucketStart
+    }
+    const start = dayjs(bucketStart)
+    if (!start.isValid()) {
+        return bucketStart
+    }
+    if (interval === 'second' || interval === 'minute' || interval === 'hour') {
+        return start.add(1, interval).subtract(1, 'second').format('YYYY-MM-DD HH:mm:ss')
+    }
+    return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
 const handleQuerySourceUpdateSideEffects = (

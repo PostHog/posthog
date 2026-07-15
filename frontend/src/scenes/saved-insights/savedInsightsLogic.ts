@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,6 +24,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
+import { AlertType } from 'products/alerts/frontend/types'
 import {
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,

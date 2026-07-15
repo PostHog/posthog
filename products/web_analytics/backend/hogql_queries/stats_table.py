@@ -27,14 +27,15 @@ from posthog.hogql.property import (
     property_to_expr,
 )
 
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
-from products.web_analytics.backend.hogql_queries.events_prefilter import PrefilterHogQLHasMorePaginator
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
     FrustrationMetricsStrategy,
+    NoJoinPathBounceAvgTimeStrategy,
+    NoJoinPathBounceStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
     SimpleBreakdownStrategy,
@@ -90,22 +91,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         limit = self.query.limit if self.query.limit else None
         offset = self.query.offset if self.query.offset else None
-        if is_web_analytics_events_prefilter_team(self.team.pk):
-            date_from, date_to = self._events_prefilter_date_bounds()
-            self.paginator = PrefilterHogQLHasMorePaginator.create(
-                limit_context=LimitContext.QUERY,
-                team_id=self.team.pk,
-                date_from=date_from,
-                date_to=date_to,
-                limit=limit,
-                offset=offset,
-            )
-        else:
-            self.paginator = HogQLHasMorePaginator.from_limit_context(
-                limit_context=LimitContext.QUERY,
-                limit=limit,
-                offset=offset,
-            )
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY,
+            limit=limit,
+            offset=offset,
+        )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
@@ -155,6 +145,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
+        # No-join variants first: they don't subclass the join strategies.
+        if isinstance(strategy, NoJoinPathBounceAvgTimeStrategy):
+            return "stats_table_no_join_path_bounce_and_avg_time"
+        if isinstance(strategy, NoJoinPathBounceStrategy):
+            return "stats_table_no_join_path_bounce"
         if isinstance(strategy, PathBounceAvgTimeStrategy):
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
@@ -180,8 +175,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             if self.query.conversionGoal:
                 return SimpleBreakdownStrategy(self)
             if self.query.includeAvgTimeOnPage:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceAvgTimeStrategy(self)
                 return PathBounceAvgTimeStrategy(self)
             if self.query.includeBounceRate:
+                if self.should_skip_session_join:
+                    return NoJoinPathBounceStrategy(self)
                 return PathBounceStrategy(self)
 
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
@@ -375,6 +374,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
+    def _lazy_precompute_stale(self) -> Optional[bool]:
+        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
+        # before executing the read; surfacing it on the response lets clients (and the
+        # frontend's 'query completed' telemetry) see it too. None when served fresh.
+        return True if get_query_tag_value("precompute_stale") else None
+
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if not can_use_lazy_precompute(self):
             return None
@@ -408,6 +413,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -434,6 +440,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             offset=offset,
         )
         if rows is None:
+            # The lazy module may have tagged precompute_stale before its read failed;
+            # clear it so the fallback response (and its query_log rows) are not
+            # mislabeled as stale-served.
+            clear_tag("precompute_stale")
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
@@ -496,6 +506,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -554,6 +565,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self._lazy_precompute_stale(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -884,6 +896,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         path = self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["events", "properties", "$host"]), path)
+        return path
+
+    def _bounce_entry_pathname_breakdown_sessions(self):
+        """Same as `_bounce_entry_pathname_breakdown`, but with field chains resolving
+        against the sessions table directly (no-join strategies query FROM sessions)."""
+        path = self._apply_path_cleaning(ast.Field(chain=["$entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["$entry_hostname"]), path)
         return path
 
     def _bounce_entry_pathname_breakdown(self):

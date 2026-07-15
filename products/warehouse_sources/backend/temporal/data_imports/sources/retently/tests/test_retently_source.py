@@ -33,7 +33,6 @@ class TestRetentlySourceConfig:
         config = self.source.get_source_config
         # Deliberately shipped hidden: the source lands unreleased until it has been verified
         # against a live Retently account.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/retently"
 

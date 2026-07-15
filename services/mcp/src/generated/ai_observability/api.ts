@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -24,6 +24,12 @@ export const llmAnalyticsPersonalSpendListQueryProductMax = 64
 export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
 export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+    bucket_minutes: zod
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .optional()
+        .describe(
+            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60'
+        ),
     date_from: zod
         .string()
         .min(1)
@@ -265,14 +271,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -438,14 +447,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .nullish()
                         .describe(
-                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
                         ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
             zod.null(),
         ])
-        .optional(),
+        .optional()
+        .describe(
+            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+        ),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 

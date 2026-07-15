@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +16,8 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import {
     DashboardType,

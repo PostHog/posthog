@@ -4,17 +4,25 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
+from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+
+_DEFAULT_MODEL_CONFIGURATION = {
+    "provider": "openai",
+    "model": "gpt-5-mini",
+    "provider_key_id": None,
+}
 
 
 def _setup_team():
@@ -39,7 +47,38 @@ def _setup_team():
     return team
 
 
+class TestModelConfigurationSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_provider", {"model": "gpt-5-mini"}, "provider"),
+            ("missing_model", {"provider": "openai"}, "model"),
+        ]
+    )
+    def test_partial_update_requires_complete_configuration(
+        self, _name: str, data: dict[str, str], missing_field: str
+    ) -> None:
+        serializer = ModelConfigurationSerializer(data=data, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(serializer.errors[missing_field][0].code, "required")
+
+
 class TestEvaluationConfigsApi(APIBaseTest):
+    def _create_configured_llm_judge(self) -> tuple[Evaluation, LLMModelConfiguration]:
+        model_configuration = LLMModelConfiguration.objects.create(
+            team=self.team, provider="openai", model="gpt-5-mini"
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            model_configuration=model_configuration,
+            created_by=self.user,
+        )
+        return evaluation, model_configuration
+
     def test_unauthenticated_user_cannot_access_evaluation_configs(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
@@ -56,6 +95,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                     "description": "Test Description",
                     "enabled": True,
                     "evaluation_type": "llm_judge",
+                    "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                     "evaluation_config": {"prompt": "Test prompt"},
                     "output_type": "boolean",
                     "output_config": {},
@@ -98,6 +138,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Default target",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -114,6 +155,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Trace target",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -136,6 +178,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Trace custom window",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -154,6 +197,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Trace tiny window",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -172,6 +216,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Generation with stray config",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -190,6 +235,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Trace unknown key",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -208,6 +254,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Bad target",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -232,6 +279,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 {
                     "name": "Will Rollback",
                     "evaluation_type": "llm_judge",
+                    "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                     "evaluation_config": {"prompt": "Test prompt"},
                     "output_type": "boolean",
                     "output_config": {},
@@ -243,7 +291,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
-    def test_can_create_sentiment_evaluation_without_default_report(self):
+    def test_can_create_sentiment_evaluation_with_default_report(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -263,7 +311,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
         self.assertEqual(evaluation.output_type, "sentiment")
         self.assertEqual(evaluation.output_config, {})
-        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
 
     def test_rejects_sentiment_evaluation_with_trace_target(self):
         response = self.client.post(
@@ -306,17 +354,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
 
-    def test_clearing_model_configuration_with_explicit_null(self):
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
-        eval_obj = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test"},
-            output_type="boolean",
-            model_configuration=mc,
-            created_by=self.user,
+    @parameterized.expand([("omitted", False), ("null", True)])
+    def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
+        payload: dict[str, object] = {
+            "name": "Judge without model",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Test"},
+            "output_type": "boolean",
+        }
+        if include_null_configuration:
+            payload["model_configuration"] = None
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            payload,
+            format="json",
         )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "model_configuration")
+        self.assertEqual(Evaluation.objects.count(), 0)
+
+    def test_configured_llm_judge_rejects_clearing_model_configuration(self) -> None:
+        eval_obj, mc = self._create_configured_llm_judge()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
@@ -332,9 +392,82 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {"model_configuration": None},
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "model_configuration")
+        eval_obj.refresh_from_db()
+        self.assertEqual(eval_obj.model_configuration_id, mc.id)
+        self.assertTrue(LLMModelConfiguration.objects.filter(id=mc.id).exists())
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, "model_configuration"),
+            (
+                "incomplete",
+                {"model_configuration": {"provider": "openai"}},
+                "model_configuration__model",
+            ),
+        ]
+    )
+    def test_switching_existing_evaluation_to_llm_judge_requires_model_configuration(
+        self, _name: str, extra_payload: dict[str, object], expected_attr: str
+    ) -> None:
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Hog evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test"},
+                **extra_payload,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], expected_attr)
+        eval_obj.refresh_from_db()
+        self.assertEqual(eval_obj.evaluation_type, "hog")
+
+    @parameterized.expand(
+        [
+            ("hog", "hog", "boolean", {"source": "return true"}),
+            ("sentiment", "sentiment", "sentiment", {"source": "user_messages"}),
+        ]
+    )
+    def test_switching_llm_judge_type_clears_model_configuration(
+        self,
+        _name: str,
+        evaluation_type: str,
+        output_type: str,
+        evaluation_config: dict[str, str],
+    ) -> None:
+        eval_obj, mc = self._create_configured_llm_judge()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {
+                "evaluation_type": evaluation_type,
+                "evaluation_config": evaluation_config,
+                "output_type": output_type,
+                "output_config": {},
+                "model_configuration": None,
+            },
+            format="json",
+        )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
-        self.assertIsNone(eval_obj.model_configuration)
+        self.assertEqual(eval_obj.evaluation_type, evaluation_type)
+        self.assertEqual(eval_obj.output_type, output_type)
+        self.assertEqual(eval_obj.evaluation_config["source"], evaluation_config["source"])
+        self.assertIsNone(eval_obj.model_configuration_id)
         self.assertFalse(LLMModelConfiguration.objects.filter(id=mc.id).exists())
 
     def test_db_constraint_blocks_model_config_on_non_judge_eval(self):
@@ -360,17 +493,21 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_rejects_unsupported_evaluation_output_type_combinations(
         self, _name, evaluation_type, output_type, evaluation_config, output_config
     ):
+        payload = {
+            "name": "Unsupported Evaluation",
+            "enabled": True,
+            "evaluation_type": evaluation_type,
+            "evaluation_config": evaluation_config,
+            "output_type": output_type,
+            "output_config": output_config,
+            "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+        }
+        if evaluation_type == "llm_judge":
+            payload["model_configuration"] = _DEFAULT_MODEL_CONFIGURATION
+
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "Unsupported Evaluation",
-                "enabled": True,
-                "evaluation_type": evaluation_type,
-                "evaluation_config": evaluation_config,
-                "output_type": output_type,
-                "output_config": output_config,
-                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-            },
+            payload,
             format="json",
         )
 
@@ -632,6 +769,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             f"/api/environments/{self.team.id}/evaluations/",
             {
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -659,6 +797,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Test Evaluation",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {},
                 "output_type": "boolean",
                 "output_config": {},
@@ -712,6 +851,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Test with Properties",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Evaluate this"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -749,6 +889,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Typo eval",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Evaluate"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -776,6 +917,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Out of range",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Evaluate"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -791,6 +933,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             {
                 "name": "Boundary",
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Evaluate"},
                 "output_type": "boolean",
                 "output_config": {},
@@ -1009,25 +1152,6 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
-    def test_detaching_model_configuration_enables_via_active_key(self):
-        # The gate must validate the post-detach state, not the stored config.
-        key = self._create_active_key()
-        EvaluationConfig.objects.create(
-            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
-        )
-        eval_obj = self._create_keyless_eval()
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True, "model_configuration": None},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-        self.assertIsNone(eval_obj.model_configuration)
-
     def test_blocks_creating_enabled_keyless_eval_when_not_grandfathered(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
@@ -1035,6 +1159,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
                 "name": "Doomed Eval",
                 "enabled": True,
                 "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "test"},
                 "output_type": "boolean",
                 "output_config": {},

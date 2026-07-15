@@ -28,6 +28,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
     CleanupSweepResult,
     TrackedFile,
 )
+from products.replay_vision.backend.temporal.metrics import record_gemini_cleanup_backlog
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +74,7 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
 
     total_tracked = await index_size()
+    record_gemini_cleanup_backlog(total_tracked)
     hit_max_files_cap = total_tracked > MAX_FILES_PER_SWEEP
 
     scanned = 0

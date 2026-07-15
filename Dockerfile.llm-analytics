@@ -43,6 +43,9 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    # uv sync validates workspace membership even with --no-dev, so every
+    # workspace member must be present in the build context.
+    --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 # Copy project files
@@ -50,6 +53,7 @@ COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY common/migration_utils common/migration_utils/
+COPY common/alerting common/alerting/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/

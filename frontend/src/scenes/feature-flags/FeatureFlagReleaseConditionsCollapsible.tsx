@@ -48,7 +48,7 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -85,6 +85,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -329,6 +330,12 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
+    blastRadiusErrors: Record<string, boolean>
+    calculateBlastRadiusForCondition: (
+        sortKey: string,
+        properties: AnyPropertyFilter[] | undefined,
+        groupTypeIndex: number | null
+    ) => void
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
     getDistinctIdName: (distinctId: string) => string
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
@@ -349,6 +356,7 @@ interface ConditionProps {
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
+    propertySelectErrors: PropertySelectError[] | null | undefined
     openConditions: string[]
     handleOpenConditionsChange: (newKeys: string[]) => void
     flagId?: FeatureFlagLogicProps['id']
@@ -398,6 +406,8 @@ const ConditionContent = ({
     totalGroups,
     affectedCounts,
     totalCounts,
+    blastRadiusErrors,
+    calculateBlastRadiusForCondition,
     aggregationTargetName,
     getDistinctIdName,
     taxonomicGroupTypesForCondition,
@@ -412,6 +422,7 @@ const ConditionContent = ({
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
+    propertySelectErrors,
     openConditions,
     handleOpenConditionsChange,
     flagId,
@@ -615,6 +626,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -654,7 +666,32 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
+                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                            <div
+                                                role="status"
+                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                            >
+                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
+                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        group.sort_key &&
+                                                        calculateBlastRadiusForCondition(
+                                                            group.sort_key,
+                                                            group.properties,
+                                                            resolveAggregationGroupTypeIndex(
+                                                                group.aggregation_group_type_index,
+                                                                releaseFilters.aggregation_group_type_index
+                                                            )
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
                                                 {(() => {
                                                     const affected = group.sort_key
@@ -829,6 +866,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filtersTaxonomicOptions,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         aggregationTargetName,
         getDistinctIdName,
         taxonomicGroupTypesForCondition,
@@ -836,6 +874,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
         properties,
+        propertySelectErrors,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
@@ -860,6 +899,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setIsAnyItemDragging,
         setDraggedGroup,
         setEarlyExit,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -1225,6 +1265,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 totalGroups={filterGroups.length}
                                                 affectedCounts={affectedCounts}
                                                 totalCounts={totalCounts}
+                                                blastRadiusErrors={blastRadiusErrors}
+                                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                                 aggregationTargetName={aggregationTargetName}
                                                 getDistinctIdName={getDistinctIdName}
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
@@ -1239,6 +1281,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                                 releaseFilters={releaseFilters}
                                                 variants={variants}
+                                                propertySelectErrors={propertySelectErrors}
                                                 openConditions={openConditions}
                                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                                 flagId={flagId}
@@ -1300,6 +1343,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
@@ -1314,6 +1359,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1350,6 +1396,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         totalGroups={filterGroups.length}
                                         affectedCounts={affectedCounts}
                                         totalCounts={totalCounts}
+                                        blastRadiusErrors={blastRadiusErrors}
+                                        calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
@@ -1364,6 +1412,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1382,6 +1431,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 totalGroups={filterGroups.length}
                                 affectedCounts={affectedCounts}
                                 totalCounts={totalCounts}
+                                blastRadiusErrors={blastRadiusErrors}
+                                calculateBlastRadiusForCondition={calculateBlastRadiusForCondition}
                                 aggregationTargetName={aggregationTargetName}
                                 getDistinctIdName={getDistinctIdName}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
@@ -1396,6 +1447,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}
+                                propertySelectErrors={propertySelectErrors}
                                 openConditions={openConditions}
                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                 flagId={flagId}

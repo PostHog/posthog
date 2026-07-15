@@ -221,11 +221,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     }),
                     { refresh: 'blocking' }
                 )
-                const issue = response.results[0]
-                let positionEvent = null
-                if (issue.last_event) {
-                    positionEvent = issue.last_event
-                } else {
+                const positionEvent = response.results[0]?.last_event
+                if (!positionEvent) {
                     return null
                 }
                 const initialEvent: ErrorEventType = {

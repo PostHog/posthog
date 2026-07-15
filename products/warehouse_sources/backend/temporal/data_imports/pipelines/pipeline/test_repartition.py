@@ -1,3 +1,4 @@
+import os
 import asyncio
 import datetime
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
+    RepartitionSupersededError,
     RepartitionTarget,
     _rewrite_into_temp,
     measure_partition_bytes,
@@ -47,6 +49,18 @@ def _delta_helper(**kwargs):
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
         "get_delta_table": AsyncMock(return_value=None),
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+def _fake_s3(**kwargs):
+    defaults = {
+        "invalidate_cache": Mock(),
+        "_exists": AsyncMock(return_value=True),
+        "_find": AsyncMock(return_value=[]),
+        "_rm": AsyncMock(),
+        "_copy": AsyncMock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -248,6 +262,37 @@ class TestRewriteIntoTemp:
         # created_at is a timestamp column named like a datetime key → auto-detects datetime mode.
         assert resolved.partition_mode == "datetime"
 
+    def test_resolved_keys_apply_to_batches_after_the_first(self, tmp_path):
+        # Auto-detect swaps the target's primary key (a UUID string) for the detected timestamp
+        # column. Batches after the first must use the resolved key — pairing the resolved
+        # datetime mode with the original UUID key raised ParserError mid-rewrite in production.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(partition_keys=["id"], trigger_reason="test", partition_mode=None),
+                batch_size=3,  # force batches after the resolving first one
+                logger=logger,
+            )
+        )
+
+        assert rows_written == rows
+        assert resolved.partition_mode == "datetime"
+        assert resolved.partition_keys == ["created_at"]
+
 
 class _FakeS3CM:
     """Minimal async-context-manager stand-in for `aget_s3_client()`."""
@@ -403,20 +448,41 @@ class TestPurgeS3Prefix:
 
     def test_enumerates_and_deletes_every_object(self):
         # The fix: delete the listed objects explicitly, not only a recursive rm that can leave strays.
-        # A regression back to a bare `_rm(recursive=True)` would drop this list-delete.
-        s3 = SimpleNamespace(
-            _exists=AsyncMock(return_value=True),
-            _find=AsyncMock(return_value=["bucket/t/_delta_log/0.json", "bucket/t/part-0.parquet"]),
-            _rm=AsyncMock(),
-        )
+        # A regression back to a bare `_rm(recursive=True)` would drop this list-delete. The dircache
+        # must be dropped first — delta-rs writes bypass s3fs, so a cached listing misses its files.
+        s3 = _fake_s3(_find=AsyncMock(return_value=["bucket/t/_delta_log/0.json", "bucket/t/part-0.parquet"]))
         asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        s3.invalidate_cache.assert_called()
         s3._rm.assert_any_await(["s3://bucket/t/_delta_log/0.json", "s3://bucket/t/part-0.parquet"])
 
     def test_noop_when_prefix_absent(self):
-        s3 = SimpleNamespace(_exists=AsyncMock(return_value=False), _find=AsyncMock(), _rm=AsyncMock())
+        s3 = _fake_s3(_exists=AsyncMock(return_value=False))
         asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/gone"))
         s3._find.assert_not_awaited()
         s3._rm.assert_not_awaited()
+
+
+class TestPurgeStaleTempTables:
+    def test_sweeps_every_repartitioned_variant(self):
+        # Temp URIs are claim-scoped, so orphans from superseded/crashed attempts live under other
+        # tokens (and the legacy unsuffixed name). A purge of only the current attempt's temp would
+        # leave those orphans to interleave with — and corrupt — the next rebuild.
+        s3 = _fake_s3(
+            _find=AsyncMock(
+                return_value=[
+                    "bucket/dlt/team_1_src/t__repartitioned/_delta_log/0.json",
+                    "bucket/dlt/team_1_src/t__repartitioned_ab12cd34/part-0.parquet",
+                ]
+            )
+        )
+        asyncio.run(repartition_module._purge_stale_temp_tables(s3, "s3://bucket/dlt/team_1_src/t"))
+        s3._find.assert_awaited_once_with("s3://bucket/dlt/team_1_src", prefix="t__repartitioned")
+        s3._rm.assert_awaited_once_with(
+            [
+                "s3://bucket/dlt/team_1_src/t__repartitioned/_delta_log/0.json",
+                "s3://bucket/dlt/team_1_src/t__repartitioned_ab12cd34/part-0.parquet",
+            ]
+        )
 
 
 class TestSwapTempIntoLiveGuard:
@@ -424,7 +490,7 @@ class TestSwapTempIntoLiveGuard:
         # The core safety invariant: a temp that doesn't hold every expected row must never trigger the
         # destructive delete-of-live. The guard raises before any S3 op, so live stays intact and the
         # caller rebuilds fresh on the next run instead of copying a broken table over live.
-        s3 = SimpleNamespace(_exists=AsyncMock(), _rm=AsyncMock(), _find=AsyncMock(), _copy=AsyncMock())
+        s3 = _fake_s3()
         with (
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=5)),
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
@@ -439,6 +505,209 @@ class TestSwapTempIntoLiveGuard:
                     )
                 )
         s3._rm.assert_not_called()
+
+
+class TestMissingLiveObjectPath:
+    """Classifying missing-object scan errors decides whether a table gets a destructive revive.
+    Under-matching leaves hollow tables looping repartition failures forever; over-matching (temp
+    siblings, other tables) resets healthy tables."""
+
+    LIVE = "s3://bucket/dlt/team_2_stripe_x/charge"
+
+    @parameterized.expand(
+        [
+            (
+                "object_at_location_with_trailing_detail",
+                FileNotFoundError(
+                    "Object at location dlt/team_2_stripe_x/charge/_ph_partition_key=2020-w51/"
+                    "part-00000-abc.parquet: The specified key does not exist."
+                ),
+                "dlt/team_2_stripe_x/charge/_ph_partition_key=2020-w51/part-00000-abc.parquet",
+            ),
+            (
+                "kernel_file_not_found",
+                Exception("Kernel error: File not found: dlt/team_2_stripe_x/charge/part-00001-def.parquet"),
+                "dlt/team_2_stripe_x/charge/part-00001-def.parquet",
+            ),
+            (
+                "arrow_external_wrapped",
+                Exception(
+                    "Kernel error: Arrow error: External: Object at location "
+                    "dlt/team_2_stripe_x/charge/part-2.parquet not found"
+                ),
+                "dlt/team_2_stripe_x/charge/part-2.parquet",
+            ),
+            (
+                "bucket_qualified_path_normalized",
+                FileNotFoundError("Object at location bucket/dlt/team_2_stripe_x/charge/part-3.parquet: gone"),
+                "dlt/team_2_stripe_x/charge/part-3.parquet",
+            ),
+            (
+                "temp_sibling_excluded",
+                FileNotFoundError(
+                    "Object at location dlt/team_2_stripe_x/charge__repartitioned_ab12cd34/part-4.parquet: gone"
+                ),
+                None,
+            ),
+            (
+                "other_table_excluded",
+                FileNotFoundError("Object at location dlt/team_9_stripe_y/invoice/part-5.parquet: gone"),
+                None,
+            ),
+            ("no_path_in_message", FileNotFoundError("The specified key does not exist."), None),
+        ]
+    )
+    def test_classification(self, _name, error, expected):
+        assert repartition_module._missing_live_object_path(error, self.LIVE) == expected
+
+
+class TestMissingLiveObjectRealError:
+    """Drift guard: the cases above fixture message strings we author, so they can't catch delta-rs /
+    pyarrow rewording a missing-file error on a library upgrade — which would silently stop the
+    self-heal from ever firing. This provokes a real error from the installed deltalake by reading a
+    table whose data file is gone, and fails if `_missing_live_object_path` can no longer extract it."""
+
+    def test_real_missing_file_error_is_classified(self, tmp_path):
+        live = str(tmp_path / "live")
+        delta = _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        data_file = delta.file_uris()[0]
+        os.remove(data_file)
+
+        with pytest.raises(Exception) as exc_info:
+            # Same read path the repartition scan takes; surfaces the missing-file error.
+            delta.to_pyarrow_dataset().scanner().to_reader().read_all()
+
+        matched = repartition_module._missing_live_object_path(exc_info.value, live)
+        assert matched is not None, f"error wording drifted past _MISSING_OBJECT_PATTERNS: {exc_info.value!r}"
+        assert matched.endswith(data_file.rsplit("/", 1)[-1])
+
+
+class TestLiveMissingDataFile:
+    """The verification step behind a revive: only a file the *current* log references and that is
+    truly absent counts. Without it, a stale-snapshot race (a reader whose handle predates a
+    legitimate rewrite) would reset a healthy table."""
+
+    def test_returns_uri_when_referenced_and_absent(self, tmp_path):
+        live = str(tmp_path / "live")
+        _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        referenced = deltalake.DeltaTable(live).file_uris()[0]
+        basename = referenced.rsplit("/", 1)[-1]
+
+        s3 = _fake_s3(_exists=AsyncMock(return_value=False))
+        with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            result = asyncio.run(repartition_module._live_missing_data_file(live, {}, f"dlt/x/live/{basename}"))
+        assert result is not None and result.endswith(basename)
+
+    def test_none_when_current_log_no_longer_references_it(self, tmp_path):
+        live = str(tmp_path / "live")
+        _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        result = asyncio.run(
+            repartition_module._live_missing_data_file(live, {}, "dlt/x/live/part-00000-not-referenced.parquet")
+        )
+        assert result is None
+
+    def test_none_when_object_actually_exists(self, tmp_path):
+        live = str(tmp_path / "live")
+        _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        basename = deltalake.DeltaTable(live).file_uris()[0].rsplit("/", 1)[-1]
+
+        s3 = _fake_s3(_exists=AsyncMock(return_value=True))
+        with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            result = asyncio.run(repartition_module._live_missing_data_file(live, {}, f"dlt/x/live/{basename}"))
+        assert result is None
+
+    def test_none_when_live_unreadable(self, tmp_path):
+        result = asyncio.run(
+            repartition_module._live_missing_data_file(str(tmp_path / "absent"), {}, "dlt/x/absent/part.parquet")
+        )
+        assert result is None
+
+
+class TestReviveScheduling:
+    """A live table whose log references data files gone from S3 can never repartition (every rewrite
+    re-reads the missing file) and the sync can't see it either. The repartition must convert that
+    error into a revive marker instead of burning attempts forever."""
+
+    def _run(self, tmp_path, verified_uri):
+        live = str(tmp_path / "live")
+        _write_month_partitioned(live, [(1, datetime.datetime(2024, 1, 15))])
+        helper = _delta_helper(
+            get_table_uri=AsyncMock(return_value="s3://bucket/dlt/x/live"),
+            get_delta_table=AsyncMock(return_value=deltalake.DeltaTable(live)),
+        )
+        schema = _schema(
+            id="s1",
+            repartition_swap=None,
+            set_delta_revive_required=Mock(),
+            clear_repartition_pending=Mock(),
+            clear_repartition_swap=Mock(),
+        )
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="oom", partition_mode="datetime", partition_format="day"
+        )
+        scan_error = FileNotFoundError(
+            "Object at location dlt/x/live/_ph_partition_key=2024-01/part-00000-abc.parquet: "
+            "The specified key does not exist."
+        )
+        with (
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(side_effect=scan_error)),
+            patch.object(repartition_module, "_live_missing_data_file", new=AsyncMock(return_value=verified_uri)),
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+        ):
+            return (
+                asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger)),
+                schema,
+            )
+
+    def test_verified_missing_live_file_schedules_revive(self, tmp_path):
+        result, schema = self._run(tmp_path, verified_uri="s3://bucket/dlt/x/live/part-00000-abc.parquet")
+        assert result["outcome"] == "revive_scheduled"
+        marker = schema.set_delta_revive_required.call_args.args[0]
+        assert marker["reason"] == "repartition_scan_missing_data_file"
+        assert marker["missing_path"] == "dlt/x/live/_ph_partition_key=2024-01/part-00000-abc.parquet"
+        schema.clear_repartition_pending.assert_called_once()
+        schema.clear_repartition_swap.assert_called_once()
+
+    def test_unverified_missing_file_propagates_without_marking(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            self._run(tmp_path, verified_uri=None)
+
+
+class TestSwapCopyOrder:
+    def test_delta_log_copied_after_every_data_file(self):
+        # Crash-safety ordering: a death mid-copy must leave live without a readable log (the
+        # corrupted-log revive heals that) — never a valid log referencing data files that never
+        # arrived, which is stable, undetectable corruption.
+        copied: list[str] = []
+        s3 = _fake_s3(
+            _find=AsyncMock(
+                return_value=[
+                    "bucket/live__repartitioned/_delta_log/00000000000000000000.json",
+                    "bucket/live__repartitioned/_ph_partition_key=a/part-1.parquet",
+                    "bucket/live__repartitioned/_delta_log/00000000000000000001.json",
+                    "bucket/live__repartitioned/_ph_partition_key=b/part-2.parquet",
+                ]
+            ),
+            _copy=AsyncMock(side_effect=lambda src, dst: copied.append(dst)),
+        )
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=4)),
+            patch.object(repartition_module.deltalake, "DeltaTable", return_value=Mock()),
+            patch.object(repartition_module, "_table_row_count", return_value=4),
+        ):
+            asyncio.run(
+                repartition_module._swap_temp_into_live(
+                    temp_uri="s3://bucket/live__repartitioned",
+                    live_uri="s3://bucket/live",
+                    storage_options={},
+                    expected_rows=4,
+                )
+            )
+        log_positions = [i for i, dst in enumerate(copied) if "/_delta_log/" in dst]
+        data_positions = [i for i, dst in enumerate(copied) if "/_delta_log/" not in dst]
+        assert log_positions and data_positions
+        assert min(log_positions) > max(data_positions)
 
 
 class TestResumeWithInvalidTemp:
@@ -466,7 +735,7 @@ class TestResumeWithInvalidTemp:
             set_partitioning_enabled=Mock(),
             stamp_last_repartition_at=Mock(),
         )
-        s3 = SimpleNamespace(_exists=AsyncMock(return_value=True), _rm=AsyncMock(), _find=AsyncMock(return_value=[]))
+        s3 = _fake_s3()
 
         with (
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
@@ -480,6 +749,112 @@ class TestResumeWithInvalidTemp:
         swap.assert_awaited_once()
         schema.set_repartition_swap.assert_called_once()  # fresh temp validated and re-marked
         assert result["outcome"] == "completed"
+
+
+class TestClaimFencing:
+    """A heartbeat-timed-out attempt keeps running as a zombie while its Temporal retry starts; both
+    used to write into the same temp table and corrupt each other (headless `_delta_log`, inflated row
+    counts). The schema-row claim is the fence: a stale attempt must stop at the next check and never
+    reach a destructive step."""
+
+    @pytest.mark.parametrize(
+        "token_reads",
+        [
+            pytest.param(["other"], id="stolen_at_start"),
+            pytest.param(["tok-ours", "other"], id="stolen_before_marker"),
+        ],
+    )
+    def test_superseded_attempt_never_reaches_destructive_steps(self, token_reads, tmp_path):
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = _schema(id="s1", repartition_swap=None, set_repartition_swap=Mock())
+
+        with (
+            patch.object(repartition_module, "_current_claim_token", side_effect=token_reads),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            with pytest.raises(RepartitionSupersededError):
+                asyncio.run(
+                    repartition_table_in_place(
+                        helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                    )
+                )
+
+        schema.set_repartition_swap.assert_not_called()
+        swap.assert_not_awaited()
+
+    def test_rewrite_stops_at_batch_boundary_when_claim_lost(self, tmp_path):
+        # The zombie's damage window is the rewrite loop, so the claim is re-checked before every batch
+        # write — a superseded writer must stop within one batch, not stream its whole table into (and
+        # corrupt) the newer attempt's rebuild.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        ensure = AsyncMock(side_effect=[None, RepartitionSupersededError("stolen")])
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        with pytest.raises(RepartitionSupersededError):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=str(tmp_path / "temp"),
+                    storage_options={},
+                    target=target,
+                    batch_size=1,
+                    logger=logger,
+                    ensure_claim=ensure,
+                )
+            )
+        assert ensure.await_count == 2
+
+    def test_resume_targets_marker_temp_uri_not_claim_scoped(self, tmp_path):
+        # In-flight prod markers predate claim-scoped temp names; a resume must validate and swap the
+        # exact temp the marker records — deriving a fresh claim-scoped name instead would "lose" the
+        # built temp and, with live already deleted mid-swap, strand the recovery.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="day"
+        )
+        schema = _schema(
+            id="s1",
+            repartition_swap={
+                "state": "ready",
+                "temp_uri": "s3://bucket/live__repartitioned",
+                "live_uri": "s3://bucket/live",
+            },
+            clear_repartition_swap=Mock(),
+            clear_repartition_pending=Mock(),
+            set_partitioning_enabled=Mock(),
+            stamp_last_repartition_at=Mock(),
+        )
+
+        with (
+            patch.object(repartition_module, "_current_claim_token", return_value="tok-ours"),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)) as valid,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    helper=helper, schema=schema, target=target, logger=logger, claim_token="tok-ours"
+                )
+            )
+
+        assert result["outcome"] == "completed"
+        valid.assert_awaited_once_with("s3://bucket/live__repartitioned", {})
+        assert swap.await_args is not None
+        assert swap.await_args.kwargs["temp_uri"] == "s3://bucket/live__repartitioned"
 
 
 @pytest.mark.parametrize(

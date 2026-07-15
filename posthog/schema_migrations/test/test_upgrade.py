@@ -2,6 +2,7 @@ import pytest
 
 from posthog.schema import NodeKind
 
+import posthog.schema_migrations as schema_migrations_module
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -32,8 +33,14 @@ def setup_migrations():
     MIGRATIONS[NodeKind.EVENTS_NODE] = {1: EventsNodeMigration()}
     LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 2
     LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 2
+    # Mark as discovered so upgrade() doesn't replace the stubs with the real migrations
+    schema_migrations_module._migrations_discovered = True
 
     yield
+
+    LATEST_VERSIONS.clear()
+    MIGRATIONS.clear()
+    schema_migrations_module._migrations_discovered = False
 
 
 def test_simple_migration():

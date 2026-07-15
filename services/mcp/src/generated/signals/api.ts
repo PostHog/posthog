@@ -23,6 +23,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply."
         ),
+    include_all_statuses: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
@@ -670,13 +676,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax)
                             .optional()
                             .describe(
-                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
                             ),
                         user_uuid: zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                     })
                     .describe(
@@ -823,13 +829,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .max(signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax)
                             .optional()
                             .describe(
-                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
+                                'GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.'
                             ),
                         user_uuid: zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                     })
                     .describe(
@@ -1123,6 +1129,7 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1132,9 +1139,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1152,9 +1160,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1185,6 +1194,7 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1194,9 +1204,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1214,9 +1225,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -1238,6 +1250,7 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'llm_analytics',
             'github',
             'linear',
+            'jira',
             'zendesk',
             'conversations',
             'error_tracking',
@@ -1247,10 +1260,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'health_checks',
             'endpoints',
             'replay_vision',
+            'analytics',
         ])
         .optional()
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `jira` - Jira\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks\n* `endpoints` - Endpoints\n* `replay_vision` - Replay Vision\n* `analytics` - Product analytics'
         ),
     source_type: zod
         .enum([
@@ -1268,10 +1282,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'endpoint_execution_failed',
             'endpoint_breakdown_limit_exceeded',
             'scanner_finding',
+            'anomaly_investigation',
         ])
         .optional()
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `evaluation_report` - Evaluation report\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue\n* `endpoint_execution_failed` - Endpoint execution failed\n* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n* `scanner_finding` - Scanner finding\n* `anomaly_investigation` - Anomaly investigation'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
