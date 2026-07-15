@@ -19621,6 +19621,7 @@ export namespace Schemas {
 
     /**
      * * `pending` - Pending
+     * * `generated` - Generated
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed
@@ -19630,6 +19631,7 @@ export namespace Schemas {
 
     export const DeliveryStatusEnum = {
       Pending: 'pending',
+      Generated: 'generated',
       Delivered: 'delivered',
       PartialFailure: 'partial_failure',
       Failed: 'failed',
@@ -23172,9 +23174,10 @@ export namespace Schemas {
       readonly period_start: string;
       /** End of the evaluation window covered by this report. */
       readonly period_end: string;
-      /** Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'.
+      /** Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.
        *
        * * `pending` - Pending
+       * * `generated` - Generated
        * * `delivered` - Delivered
        * * `partial_failure` - Partial Failure
        * * `failed` - Failed */
