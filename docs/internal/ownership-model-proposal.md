@@ -121,7 +121,7 @@ This keeps all 68 products at zero migration cost and preserves `hogli product:l
 
 Checked every team slug in use against live Slack channels, re-verified 2026-07-15 against the 30 slugs left after the migration:
 
-- 24/30: `#<slug>` exists verbatim — every well-formed `team-*` slug.
+- 24/30: `#<slug>` exists verbatim, so no entry is needed.
 - 6/30 need an entry in the root `teams:` registry (below):
   - `clickhouse`, `conversations`, `batch-exports` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
   - `team-data-stack` → `#group-data-stack`.
