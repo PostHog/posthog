@@ -1,3 +1,11 @@
+developer_instructions = """
+Run commands that depend on PostHog's development environment through
+`bash "$(git rev-parse --show-toplevel)/.codex/with-flox" <command> [args...]`.
+This includes hogli, Python and uv, Node.js and pnpm, Rust and Go, and local-stack
+commands. Basic filesystem, Git, and GitHub commands can run directly. Never use
+a dependency executable inherited from another checkout.
+"""
+
 [sandbox_workspace_write]
 # Flox and dependency managers keep mutable caches outside the worktree.
 writable_roots = [
@@ -11,24 +19,16 @@ writable_roots = [
 network_access = false
 
 [shell_environment_policy]
-# Codex can inherit Flox from the source checkout that spawned its worktree.
-# Commands should activate this worktree instead of trusting those markers.
-exclude = [
-    "CONDA_*",
-    "DIRENV_*",
-    "FLOX_*",
-    "PYTHONPATH",
-    "UV_PROJECT_ENVIRONMENT",
-    "VIRTUAL_ENV*",
-    "_FLOX_*",
-]
+# Keep another checkout's Flox, virtualenv, and compiler paths out of commands.
+inherit = "core"
 # xdist opens a loopback socket even without parallel workers, which the
 # Codex sandbox blocks.
-set = { PYTEST_ADDOPTS = "-p no:xdist" }
+set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
 
 [mcp_servers.phrocs]
-command = "bash"
-args = [".codex/with-flox", "uv", "run", "--no-sync", "python", "tools/phrocs/mcp_server.py"]
+command = ".flox/cache/venv/bin/python"
+args = ["tools/phrocs/mcp_server.py"]
+cwd = ".."
 startup_timeout_sec = 120
 
 [mcp_servers.posthog-local]

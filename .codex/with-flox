@@ -11,6 +11,15 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 flox_bin="$(command -v flox || true)"
 
 if [[ -z "$flox_bin" ]]; then
+    for candidate in /usr/local/bin/flox /opt/homebrew/bin/flox "$HOME/.local/bin/flox"; do
+        if [[ -x "$candidate" ]]; then
+            flox_bin="$candidate"
+            break
+        fi
+    done
+fi
+
+if [[ -z "$flox_bin" ]]; then
     echo "error: Flox is required to provision the PostHog development environment" >&2
     exit 127
 fi
