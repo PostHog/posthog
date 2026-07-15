@@ -11,12 +11,13 @@ import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 
-import { type DailyActivity } from '../mcpDashboardOverviewLogic'
+import { type DailyActivity, type TileErrorKind } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 
 export function ActivityChart({
     daily,
     loading,
+    error,
     theme,
     timezone,
     interval,
@@ -24,6 +25,7 @@ export function ActivityChart({
 }: {
     daily: DailyActivity
     loading: boolean
+    error?: TileErrorKind | null
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -60,6 +62,7 @@ export function ActivityChart({
         <Card className="flex flex-1 flex-col" title="Tool calls and errors">
             <CardState
                 loading={loading}
+                error={error}
                 isEmpty={daily.successes.every((v) => v === 0) && daily.errors.every((v) => v === 0)}
                 skeleton={<Skeleton className="min-h-[300px] flex-1" />}
                 empty={

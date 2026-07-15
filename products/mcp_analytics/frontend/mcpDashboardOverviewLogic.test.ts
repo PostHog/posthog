@@ -593,4 +593,75 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
+
+    describe('loader error handling', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+        })
+
+        // Each loader wraps api.query so a backend failure becomes per-tile state rather than a
+        // rejected promise. An escaping rejection reaches the global kea-loaders onFailure hook and
+        // is reported as an uncaught frontend exception — the noise this whole change exists to stop.
+        // A memory/too-large failure asks for a shorter range; anything else is a transient retry.
+        it.each([
+            ['out-of-memory (513)', { status: 513, code: 'clickhouse_memory_limit_exceeded' }, 'memory'],
+            [
+                'estimated-too-long (512)',
+                { status: 512, detail: 'Estimated query execution time is too long' },
+                'memory',
+            ],
+            [
+                'transient ClickHouse (500)',
+                { status: 500, detail: 'ClickHouse error while executing query.' },
+                'generic',
+            ],
+        ])('classifies a %s failure as a per-tile error without rejecting', async (_label, error, expectedKind) => {
+            jest.spyOn(mockApi, 'query').mockRejectedValue(error)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Every wrapped loader records the classified error; none of them rejected.
+            expect(logic.values.tileErrors.kpis).toBe(expectedKind)
+            expect(logic.values.tileErrors.sessionRows).toBe(expectedKind)
+            expect(logic.values.tileErrors.toolDailyRows).toBe(expectedKind)
+            expect(logic.values.accessDenied).toBe(false)
+        })
+
+        it('treats access-denied as expected: no tile error, and stops reloading', async () => {
+            jest.spyOn(mockApi, 'query').mockRejectedValue({
+                status: 400,
+                detail: "Access control failure. You don't have `viewer` access to the `mcp_analytics` resource.",
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accessDenied).toBe(true)
+            // Access denial is expected, not a broken tile — no scary per-tile error copy.
+            expect(logic.values.tileErrors).toEqual({})
+
+            // A later reload (changing the date filter) fires no further queries once access is denied.
+            const callsAfterMount = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toFinishAllListeners()
+            expect(mockApi.query.mock.calls.length).toBe(callsAfterMount)
+        })
+
+        it('clears tile errors once a later load succeeds', async () => {
+            const spy = jest.spyOn(mockApi, 'query').mockRejectedValue({ status: 500, detail: 'boom' })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.tileErrors.kpis).toBe('generic')
+
+            spy.mockResolvedValue({ results: [] } as any)
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toFinishAllListeners()
+            expect(logic.values.tileErrors).toEqual({})
+        })
+    })
 })

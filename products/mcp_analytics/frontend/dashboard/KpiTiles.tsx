@@ -4,7 +4,7 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
+import { type KPIData, KPIMetric, type TileErrorKind } from '../mcpDashboardOverviewLogic'
 import { formatBucketLabel, formatMs, formatNumber } from './formatters'
 import { MetricTile } from './MetricTile'
 
@@ -15,6 +15,7 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    error?: TileErrorKind | null
     summaryLabel: string
     // Overrides the summary caption — used to flag a tile whose value isn't
     // scoped by the dashboard filters.
@@ -30,6 +31,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
                 loading={tile.loading}
+                error={tile.error}
                 value={metric.value}
                 data={metric.sparkline}
                 labels={metric.sparklineLabels.map(formatBucketLabel)}
@@ -57,6 +59,8 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    kpisError,
+    usersError,
     theme,
 }: {
     kpis: KPIData
@@ -64,6 +68,9 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    // The four count/latency tiles share the KPI loader; the Users tile has its own.
+    kpisError?: TileErrorKind | null
+    usersError?: TileErrorKind | null
     theme: ChartTheme
 }): JSX.Element {
     const tiles: TileSpec[] = [
@@ -75,6 +82,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
+            error: usersError,
             summaryLabel: 'Total',
         },
         {
@@ -84,6 +92,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            error: kpisError,
             summaryLabel: 'Total',
         },
         {
@@ -93,6 +102,7 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
+            error: kpisError,
             summaryLabel: 'Total',
         },
         {
@@ -102,6 +112,7 @@ export function KpiTiles({
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
+            error: kpisError,
             summaryLabel: 'Latest',
         },
         {
@@ -111,6 +122,7 @@ export function KpiTiles({
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading,
+            error: kpisError,
             summaryLabel: 'Latest',
         },
         {

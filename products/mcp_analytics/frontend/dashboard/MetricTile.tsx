@@ -11,12 +11,16 @@ import {
 } from '@posthog/quill-components/metric'
 import { Card, CardContent, cn, Skeleton } from '@posthog/quill-primitives'
 
+import { type TileErrorKind } from '../mcpDashboardOverviewLogic'
+import { tileErrorMessage } from './Card'
+
 export interface MetricTileProps {
     label: string
     value: number
     formatValue: (n: number) => string
     theme: ChartTheme
     loading: boolean
+    error?: TileErrorKind | null
     data?: number[]
     labels?: string[]
     color?: string
@@ -35,6 +39,7 @@ export function MetricTile({
     formatValue,
     theme,
     loading,
+    error,
     data,
     labels,
     color,
@@ -47,6 +52,16 @@ export function MetricTile({
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
+    if (error) {
+        return (
+            <Card size="sm" className={cn('flex-1', className)}>
+                <CardContent className="flex flex-col gap-2">
+                    <div className="text-xs font-medium text-secondary">{label}</div>
+                    <div className="text-[12px] text-secondary text-balance">{tileErrorMessage(error)}</div>
+                </CardContent>
+            </Card>
+        )
+    }
     return (
         <Card size="sm" flush={hasSparkline} className={cn('flex-1', className)}>
             {loading ? (

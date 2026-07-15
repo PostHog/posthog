@@ -34,6 +34,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolDailyRowsLoading,
         toolRows,
         toolRowsLoading,
+        tileErrors,
         dateFilter,
         interval,
         filterTestAccounts,
@@ -88,6 +89,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     intentClusterCount={intentClusterCount}
                     kpisLoading={kpisLoading}
                     usersLoading={usersLoading}
+                    kpisError={tileErrors.kpis}
+                    usersError={tileErrors.users}
                     theme={theme}
                 />
             </section>
@@ -99,20 +102,36 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             <ActivityChart
                                 daily={dailyActivity}
                                 loading={activityRowsLoading}
+                                error={tileErrors.activityRows}
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                        <HarnessDonut
+                            rows={harnessRows}
+                            loading={harnessRowsLoading}
+                            error={tileErrors.harnessRows}
+                            theme={theme}
+                        />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
-                        <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
-                        <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                        <ToolErrorRateChart
+                            rows={toolRows}
+                            loading={toolRowsLoading}
+                            error={tileErrors.toolRows}
+                            theme={theme}
+                        />
+                        <NotableSessionsTable
+                            sessions={notableSessions}
+                            loading={sessionRowsLoading}
+                            error={tileErrors.sessionRows}
+                        />
                     </div>
                     <ToolUsageChart
                         data={toolDailySeries}
                         loading={toolDailyRowsLoading}
+                        error={tileErrors.toolDailyRows}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
