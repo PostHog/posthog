@@ -191,7 +191,9 @@ export function buildEmailMetricInvocationSearchParams(
     return buildHogInvocationsSearchParams({
         date_from: dateFrom,
         date_to: dateTo,
-        log_search: filter.search,
+        // Drives the unified Invocations search box: the message term goes in `search`, and
+        // `log_levels` narrows the message match to the levels that distinguish this outcome.
+        search: filter.search,
         log_levels: filter.levels,
     })
 }

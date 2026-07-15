@@ -11,7 +11,6 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonSnack,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -481,22 +480,16 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
                     <LemonInput
                         type="search"
                         size="small"
-                        placeholder="Search by invocation, event, distinct, or person ID…"
+                        placeholder="Search by ID or log message…"
                         fullWidth
                         value={filters.search ?? ''}
-                        onChange={(value) => setFilters({ search: value || undefined })}
+                        // Clear the drill-down's level narrowing on manual typing — a hand-typed
+                        // search matches log messages at any level, not just WARN/ERROR.
+                        onChange={(value) => setFilters({ search: value || undefined, log_levels: undefined })}
                         prefix={<IconSearch />}
                         allowClear
                     />
                     <PersonFilterPicker id={id} functionKind={functionKind} />
-                    {filters.log_search ? (
-                        <LemonSnack
-                            title="Showing only invocations that logged this message. Clear to see all."
-                            onClose={() => setFilters({ log_search: undefined, log_levels: undefined })}
-                        >
-                            Log contains "{filters.log_search}"
-                        </LemonSnack>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <StatusFilterDropdown
