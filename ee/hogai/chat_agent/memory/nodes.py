@@ -42,7 +42,7 @@ from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI, internal_generation_properties
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.prompt import format_prompt_string
@@ -240,6 +240,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             },
             user=self._user,
             team=self._team,
+            posthog_properties=internal_generation_properties("memory_initializer"),
         ).bind_tools([{"type": "web_search"}])
 
 
@@ -312,6 +313,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             stop_sequences=["[Done]"],
             user=self._user,
             team=self._team,
+            posthog_properties=internal_generation_properties("memory_onboarding"),
         )
 
     async def arouter(self, state: AssistantState) -> Literal["continue", "interrupt"]:
@@ -370,6 +372,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             stop_sequences=["[Done]"],
             user=self._user,
             team=self._team,
+            posthog_properties=internal_generation_properties("memory_onboarding_finalize"),
         )
 
 
@@ -438,7 +441,13 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
+            posthog_properties=internal_generation_properties("memory_collector"),
         ).bind_tools(memory_collector_tools)
 
     async def _aconstruct_messages(self, state: AssistantState) -> list[BaseMessage]:

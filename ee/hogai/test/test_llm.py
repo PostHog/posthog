@@ -10,7 +10,14 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.outputs import ChatGeneration, Generation, LLMResult
 from parameterized import parameterized
 
-from ee.hogai.llm import BILLING_SKIPPED_COUNTER, MaxChatAnthropic, MaxChatOpenAI
+from ee.hogai.llm import (
+    AI_INTERNAL_NODE_PROPERTY,
+    AI_INTERNAL_PROPERTY,
+    BILLING_SKIPPED_COUNTER,
+    MaxChatAnthropic,
+    MaxChatOpenAI,
+    internal_generation_properties,
+)
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
@@ -318,6 +325,34 @@ class TestMaxChatOpenAI(BaseTest):
 
             call_kwargs = mock_generate.call_args.kwargs
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "alert_investigation_agent")
+
+    def test_ai_internal_defaults_to_false(self):
+        # Evals filter on this flag to keep user-facing turns separate from internal utility calls,
+        # so it must be present (and False) on every ordinary generation.
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            llm.generate([[HumanMessage(content="Test query")]])
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"][AI_INTERNAL_PROPERTY], False)
+
+    def test_internal_generation_properties_marks_call_as_internal(self):
+        llm = MaxChatOpenAI(
+            user=self.user,
+            team=self.team,
+            use_responses_api=False,
+            posthog_properties=internal_generation_properties("memory_collector"),
+        )
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            llm.generate([[HumanMessage(content="Test query")]])
+
+            posthog_props = mock_generate.call_args.kwargs["metadata"]["posthog_properties"]
+            self.assertEqual(posthog_props[AI_INTERNAL_PROPERTY], True)
+            self.assertEqual(posthog_props[AI_INTERNAL_NODE_PROPERTY], "memory_collector")
 
     @parameterized.expand(
         [
