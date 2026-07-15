@@ -250,21 +250,28 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
         .collect()
 }
 
-fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> {
+/// Scans a metrics snapshot for a single counter matching `metric_name` and
+/// carrying a label `label_key` == `label_value`.
+fn counter_with_label(
+    snapshotter: &Snapshotter,
+    metric_name: &str,
+    label_key: &str,
+    label_value: &str,
+) -> Option<u64> {
     snapshotter
         .snapshot()
         .into_vec()
         .into_iter()
         .find_map(|(key, _, _, value)| {
-            if key.key().name() != CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL {
+            if key.key().name() != metric_name {
                 return None;
             }
-            let metric_resource = key
+            let metric_label = key
                 .key()
                 .labels()
-                .find(|label| label.key() == "resource")
+                .find(|label| label.key() == label_key)
                 .map(|label| label.value());
-            if metric_resource != Some(resource) {
+            if metric_label != Some(label_value) {
                 return None;
             }
             match value {
@@ -274,28 +281,17 @@ fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> 
         })
 }
 
+fn grace_period_count(snapshotter: &Snapshotter, resource: &str) -> Option<u64> {
+    counter_with_label(
+        snapshotter,
+        CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+        "resource",
+        resource,
+    )
+}
+
 fn dropped_events_count(snapshotter: &Snapshotter, cause: &str) -> Option<u64> {
-    snapshotter
-        .snapshot()
-        .into_vec()
-        .into_iter()
-        .find_map(|(key, _, _, value)| {
-            if key.key().name() != CAPTURE_EVENTS_DROPPED_TOTAL {
-                return None;
-            }
-            let metric_cause = key
-                .key()
-                .labels()
-                .find(|label| label.key() == "cause")
-                .map(|label| label.value());
-            if metric_cause != Some(cause) {
-                return None;
-            }
-            match value {
-                DebugValue::Counter(count) => Some(count),
-                _ => None,
-            }
-        })
+    counter_with_label(snapshotter, CAPTURE_EVENTS_DROPPED_TOTAL, "cause", cause)
 }
 
 #[tokio::test(flavor = "current_thread")]
