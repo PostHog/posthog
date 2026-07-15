@@ -138,7 +138,6 @@ import {
     ExternalDataJob,
     ExternalDataSchemaWithSource,
     ExternalDataSource,
-    ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
@@ -1802,10 +1801,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
-    public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -2575,9 +2570,6 @@ const api = {
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
-        },
-        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().withAction('seed').create()
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
@@ -5878,9 +5870,6 @@ const api = {
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
-        },
-        async connections(options?: ApiMethodOptions | undefined): Promise<ExternalDataSourceConnectionOption[]> {
-            return await new ApiRequest().externalDataSourceConnections().get(options)
         },
         async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()

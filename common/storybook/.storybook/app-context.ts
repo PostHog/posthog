@@ -91,5 +91,6 @@ export const getStorybookAppContext = (): AppContext => ({
         customer_analytics: 'manager',
         llm_analytics: 'manager',
         error_tracking: 'manager',
+        metrics: 'manager',
     },
 })
