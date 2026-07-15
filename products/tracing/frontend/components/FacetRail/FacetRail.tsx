@@ -126,7 +126,9 @@ export function FacetRail(): JSX.Element {
             ref={railRef}
             className="relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: 'min-content', maxWidth: '40%' }}
+            // The width is the user's alone: a fixed min (not min-content) so a long facet value
+            // can never force the rail wider — values truncate to fit instead.
+            style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: COLLAPSE_THRESHOLD_PX, maxWidth: '40%' }}
             data-attr="tracing-facet-rail"
         >
             <div className="px-2 py-1 border-b">

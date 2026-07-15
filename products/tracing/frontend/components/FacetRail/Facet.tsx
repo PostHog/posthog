@@ -203,7 +203,10 @@ function FacetValueButton({
             data-attr={`tracing-facet-${slug}-${slugify(option.value)}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
-                <span className="truncate flex-1">{option.label}</span>
+                {/* Native title so a truncated value is still readable without popover cost per virtualized row. */}
+                <span className="truncate flex-1" title={option.label}>
+                    {option.label}
+                </span>
                 {option.count != null && (
                     <span className="shrink-0 text-muted tabular-nums">{humanFriendlyLargeNumber(option.count)}</span>
                 )}
