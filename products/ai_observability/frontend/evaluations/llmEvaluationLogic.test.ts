@@ -575,8 +575,8 @@ describe('llmEvaluationLogic', () => {
                 expect(logic.values.runsSummary).toBeNull()
             })
 
-            it('calculates summary correctly', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+            it('calculates summary from server-side aggregate counts', async () => {
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {

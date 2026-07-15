@@ -20,7 +20,7 @@ import {
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
-import { queryEvaluationRuns } from '../utils'
+import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
@@ -246,6 +246,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     return await queryEvaluationRuns({
+                        evaluationId: props.evaluationId,
+                        forceRefresh: values.isForceRefresh,
+                    })
+                },
+            },
+        ],
+        runsStats: [
+            null as EvaluationRunsStats | null,
+            {
+                loadRunsStats: async () => {
+                    if (!props.evaluationId || props.evaluationId === 'new') {
+                        return null
+                    }
+
+                    return await queryEvaluationRunsStats({
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
@@ -573,6 +588,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             actions.loadEvaluationRuns()
         },
 
+        loadEvaluationRuns: () => {
+            actions.loadRunsStats()
+        },
+
         regenerateEvaluationSummary: () => {
             posthog.capture('llma evaluation regenerate clicked', {
                 filter: values.evaluationSummaryFilter,
@@ -851,26 +870,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         runsSummary: [
-            (s) => [s.evaluationRuns],
-            (runs) => {
-                if (runs.length === 0) {
+            (s) => [s.runsStats],
+            (stats: EvaluationRunsStats | null) => {
+                if (!stats || stats.total === 0) {
                     return null
                 }
 
-                const successfulRuns = runs.filter((r) => r.result === true).length
-                const failedRuns = runs.filter((r) => r.result === false).length
-                const errorRuns = runs.filter((r) => r.status === 'failed').length
-                // Applicable runs excludes N/A (result === null)
-                const applicableRuns = successfulRuns + failedRuns
-                const completedRuns = runs.filter((r) => r.status === 'completed').length
+                const { total, applicable, passed } = stats
+                // Applicable runs excludes N/A results
+                const failed = applicable - passed
 
                 return {
-                    total: runs.length,
-                    successful: successfulRuns,
-                    failed: failedRuns,
-                    errors: errorRuns,
-                    successRate: applicableRuns > 0 ? Math.round((successfulRuns / applicableRuns) * 100) : 0,
-                    applicabilityRate: completedRuns > 0 ? Math.round((applicableRuns / completedRuns) * 100) : 0,
+                    total,
+                    successful: passed,
+                    failed,
+                    errors: 0,
+                    successRate: applicable > 0 ? Math.round((passed / applicable) * 100) : 0,
+                    applicabilityRate: total > 0 ? Math.round((applicable / total) * 100) : 0,
                 }
             },
         ],
