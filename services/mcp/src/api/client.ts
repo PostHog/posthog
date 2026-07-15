@@ -690,6 +690,33 @@ export class ApiClient {
                     return { success: false, error: error as Error }
                 }
             },
+
+            updatePathCleaningFilters: async ({
+                projectId,
+                filters,
+            }: {
+                projectId: string
+                filters: Array<{ alias: string; regex: string; order: number }>
+            }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                try {
+                    // path_cleaning_filters is a whole-list field on the project — the caller is
+                    // responsible for having merged the desired rules into `filters` first.
+                    const response = await this.fetch(`${this.baseUrl}/api/projects/${projectId}/`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ path_cleaning_filters: filters }),
+                    })
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to update path cleaning filters: ${response.statusText}`)
+                    }
+
+                    const responseData = (await response.json()) as Schemas.ProjectBackwardCompat
+
+                    return { success: true, data: responseData }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
         }
     }
 
