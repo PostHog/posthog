@@ -62,6 +62,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 'commonFilters',
                 'widthOverride',
                 'heightOverride',
+                'isHeightCapped',
             ],
         ],
         actions: [

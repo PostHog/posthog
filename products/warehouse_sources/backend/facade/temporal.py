@@ -16,6 +16,10 @@ self-registers with ``SourceRegistry`` — both re-exported here as the registra
 so the bootstrap never reaches into the source/settings internals directly.
 """
 
+from products.warehouse_sources.backend.temporal.data_imports.person_property_sync_job import (
+    PERSON_PROPERTY_SYNC_ACTIVITIES,
+    PERSON_PROPERTY_SYNC_WORKFLOWS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES, WORKFLOWS
 from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
 from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
@@ -28,6 +32,8 @@ __all__ = [
     "ACTIVITIES",
     "METADATA_ACTIVITIES",
     "METADATA_WORKFLOWS",
+    "PERSON_PROPERTY_SYNC_ACTIVITIES",
+    "PERSON_PROPERTY_SYNC_WORKFLOWS",
     "WORKFLOWS",
     "load_all_sources",
     "prepare_s3_files_for_querying",

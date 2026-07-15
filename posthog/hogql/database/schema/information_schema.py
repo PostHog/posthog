@@ -798,7 +798,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     drift.get(metric.id, False),
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
-                    metric.owner.email if metric.owner_id else None,
+                    metric.owner.email if metric.owner else None,
                     metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
