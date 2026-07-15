@@ -569,3 +569,25 @@ def remediation_for_skip(skipped_reason: str | None) -> str | None:
     if skipped_reason is None:
         return None
     return EMIT_SKIP_REMEDIATION.get(skipped_reason)
+
+
+def scout_run_emit_disabled(*, team_id: int, run_id: uuid.UUID) -> bool:
+    """Whether the scout config the given run was dispatched with has emit disabled (dry-run).
+
+    The team-level `emit_eligibility` in the project profile (org AI-processing consent + source
+    enablement) can't see this per-scout flag, so a dry-run scout would read `can_emit=true` at cold
+    start, do a full research pass, and only learn at emit time that `_preflight_emit_gates` drops
+    everything with `scout_emit_disabled`. Surfacing this at profile-get time lets the scout close
+    out during Orient instead of after authoring.
+
+    Anchored on the run's own config FK (re-read live by pk), matching the per-scout gate in
+    `_preflight_emit_gates` so the profile answer and the emit gate never diverge. Returns False when
+    the run or config can't be resolved: the team-level gates stay authoritative and we don't
+    fabricate a dry-run block from a missing run (the emit gate still fails closed on its own).
+    """
+    config_id = (
+        SignalScoutRun.all_teams.filter(pk=run_id, team_id=team_id).values_list("scout_config_id", flat=True).first()
+    )
+    if config_id is None:
+        return False
+    return SignalScoutConfig.all_teams.filter(pk=config_id, emit=False).exists()

@@ -300,6 +300,10 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
         "ai_processing_approved": ai_processing_approved,
         "source_enabled": source_enabled,
         "can_emit": can_emit,
+        # Team-wide baseline: the shared cached profile can't know which scout is reading it, so the
+        # per-scout dry-run flag is False here. The profile endpoint overlays the real value (and
+        # drops `can_emit`) when a scout passes its `run_id`. See `SignalProjectProfileViewSet`.
+        "scout_dry_run": False,
         "remediation": remediation_for_skip(blocking_reason),
     }
 

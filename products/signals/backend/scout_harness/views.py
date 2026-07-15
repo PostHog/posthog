@@ -111,7 +111,13 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_team_metadata,
     withheld_skills_for_team,
 )
-from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.emit import (
+    EvidenceEntry,
+    InvalidEmitError,
+    emit_finding_sync,
+    remediation_for_skip,
+    scout_run_emit_disabled,
+)
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
     ReportEvidence,
@@ -1069,6 +1075,24 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
 
+def _overlay_scout_dry_run(payload: dict, *, team_id: int, run_id: uuid.UUID) -> None:
+    """Fold the calling scout's per-config dry-run flag into the (team-wide) `emit_eligibility` block.
+
+    Mutates `payload` in place. No-op unless the run's scout config has `emit` disabled; then it sets
+    `scout_dry_run=true`, drops `can_emit` to false, and points `remediation` at the dry-run toggle,
+    matching what `_preflight_emit_gates` reports first at emit time. Keeps the profile's answer and
+    the emit gate in lockstep so a dry-run scout can't read a false `can_emit=true`.
+    """
+    if not scout_run_emit_disabled(team_id=team_id, run_id=run_id):
+        return
+    eligibility = payload.get("inventory", {}).get("emit_eligibility")
+    if not isinstance(eligibility, dict):
+        return
+    eligibility["scout_dry_run"] = True
+    eligibility["can_emit"] = False
+    eligibility["remediation"] = remediation_for_skip("scout_emit_disabled")
+
+
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
@@ -1152,14 +1176,23 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
+        team_id = _canonical_team_id(self)
         profile = get_project_profile(
-            team_id=_canonical_team_id(self),
+            team_id=team_id,
             force_refresh=force_refresh,
             lazy_build=caller_is_internal_scout,
         )
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
-        return Response(ProjectProfileSerializer(profile.as_dict()).data)
+        data = profile.as_dict()
+        # The cached profile is shared across every scout on the team, so its `emit_eligibility` only
+        # knows the org/source gates, not the calling scout's own dry-run `emit` toggle. When a scout
+        # passes its `run_id`, fold that per-config gate in so a dry-run scout reads `can_emit=false`
+        # here at Orient time instead of authoring a report that's silently dropped at emit time.
+        run_id = validated.get("run_id")
+        if caller_is_internal_scout and run_id is not None:
+            _overlay_scout_dry_run(data["payload"], team_id=team_id, run_id=run_id)
+        return Response(ProjectProfileSerializer(data).data)
 
 
 class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

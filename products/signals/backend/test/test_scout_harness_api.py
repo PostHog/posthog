@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -904,6 +905,42 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_reviewer_corrections",
             "top_events",
         }
+
+    # --- per-scout dry-run overlay (run_id) ---
+
+    def _emit_eligibility(self, response) -> dict:
+        return response.json()["payload"]["inventory"]["emit_eligibility"]
+
+    def test_scout_read_with_run_id_flags_own_dry_run(self) -> None:
+        # The reported defect: a dry-run scout (its config has emit disabled) must read
+        # can_emit=false during Orient. The team-wide gates alone report can_emit=true, so without
+        # the run_id overlay it would author a report and only learn at emit time that it's dropped.
+        _authenticate_as_scout(self)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-dry", emit=False)
+        run = _make_run(self.team, scout_config=config, skill_name="signals-scout-dry")
+        body = self._emit_eligibility(self.client.get(self._list_url(), {"run_id": str(run.id)}))
+        assert body["scout_dry_run"] is True
+        assert body["can_emit"] is False
+        assert body["remediation"] and "dry-run" in body["remediation"]
+
+    def test_scout_read_reports_can_emit_when_not_own_dry_run(self) -> None:
+        # The overlay must only fire for a scout that is itself in dry-run: an emitting scout, a
+        # caller that omits run_id, and an unresolvable run_id all fall back to the team-wide
+        # baseline (can_emit true here), so the fix can't over-block emitting scouts.
+        _authenticate_as_scout(self)
+        emitting_config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-emitting", emit=True
+        )
+        emitting_run = _make_run(self.team, scout_config=emitting_config, skill_name="signals-scout-emitting")
+        for label, params in [
+            ("emitting scout's run_id", {"run_id": str(emitting_run.id)}),
+            ("no run_id (team baseline)", {}),
+            ("unknown run_id", {"run_id": str(uuid.uuid4())}),
+        ]:
+            with self.subTest(label):
+                body = self._emit_eligibility(self.client.get(self._list_url(), params))
+                assert body["scout_dry_run"] is False, label
+                assert body["can_emit"] is True, label
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
