@@ -33,7 +33,10 @@ export interface AdmissionDepsBundle {
 
 /** The ingress's own OAuth callback URL for a provider. */
 export function admissionRedirectUri(publicBaseUrl: string | undefined, providerId: string): string {
-    const base = (publicBaseUrl ?? 'https://agents.posthog.com').replace(/\/+$/, '')
+    if (!publicBaseUrl) {
+        throw new Error('identity_callback_url_unconfigured')
+    }
+    const base = publicBaseUrl.replace(/\/+$/, '')
     return `${base}/link/${providerId}/callback`
 }
 

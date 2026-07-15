@@ -28,6 +28,7 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.logLevel).toBe('info')
         expect(cfg.bundleS3Bucket).toBe('prod-bundles')
         expect(cfg.memoryS3Bucket).toBe('prod-memory')
+        expect(cfg.linkRedirectBaseUrl).toBeUndefined()
         // The dev-only defaults must NOT leak into prod: their only guard is
         // `isDev()`, so without this assert a hardcoded phs_ / analytics key
         // could ship to prod unnoticed. Prod must inject these explicitly.

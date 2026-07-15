@@ -242,9 +242,10 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     linkRedirectBaseUrl: z
         .string()
         .url()
-        .default(() => (isDev() ? 'http://localhost:3030' : 'https://agents.posthog.com'))
+        .optional()
+        .transform((value): string | undefined => value ?? (isDev() ? 'http://localhost:3030' : undefined))
         .describe(
-            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress; prod sets the deployed ingress URL.'
+            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress. When unset in prod, linking fails closed without emitting a callback URL.'
         ),
     webSearchProvider: z
         .enum(WEB_SEARCH_PROVIDER_NAMES)

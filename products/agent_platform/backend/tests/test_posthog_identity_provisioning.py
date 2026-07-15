@@ -94,3 +94,19 @@ class TestPostHogIdentityProvisioning(APIBaseTest):
         revision = self._ready_revision({"model": "anthropic/claude-sonnet-4-6"})
         self._promote(revision)
         self.assertEqual(len(self._identity_apps()), 0)
+
+    @override_settings(AGENT_INGRESS_PUBLIC_URL="")
+    def test_promote_does_not_register_dead_callback_when_public_url_is_unset(self) -> None:
+        revision = self._ready_revision(
+            {
+                "model": "anthropic/claude-sonnet-4-6",
+                "identity_providers": [
+                    {"kind": "posthog", "id": "posthog", "scopes": ["user:read"], "client_id": "stale"}
+                ],
+            }
+        )
+        self._promote(revision)
+
+        self.assertEqual(self._identity_apps(), [])
+        revision.refresh_from_db()
+        self.assertNotIn("client_id", revision.spec["identity_providers"][0])
