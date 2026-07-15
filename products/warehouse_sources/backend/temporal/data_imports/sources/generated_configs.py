@@ -842,7 +842,7 @@ class CodySourceConfig(config.Config):
 
 @config.config
 class CohereSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2050,7 +2050,9 @@ class LangSmithSourceConfig(config.Config):
 
 @config.config
 class LangfuseSourceConfig(config.Config):
-    pass
+    public_key: str
+    secret_key: str
+    host: str | None = None
 
 
 @config.config
@@ -2444,7 +2446,7 @@ class NavanSourceConfig(config.Config):
 
 @config.config
 class NebiusAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2612,7 +2614,7 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenRouterSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3239,7 +3241,8 @@ class SafetyCultureSourceConfig(config.Config):
 
 @config.config
 class SageHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
