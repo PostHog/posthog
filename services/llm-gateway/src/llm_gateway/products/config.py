@@ -53,6 +53,14 @@ POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 
+# The OAuth application IDs the PostHog Code ("array"/twig) client authenticates under.
+# The same app backs both the desktop client (via the OAuth consent flow) and the
+# server-minted sandbox run tokens, so an application_id match alone can't tell a user
+# credential from a sandbox one — scope shape does, see `_is_broad_user_code_credential`.
+CODE_OAUTH_APP_IDS: Final[frozenset[str]] = frozenset(
+    {POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}
+)
+
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
 # is the same code regardless of where the task was initiated, so the model
 # allowlist is identical.
@@ -333,12 +341,32 @@ def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]
 
 
+def _is_broad_user_code_credential(auth_method: str, application_id: str | None, scopes: list[str] | None) -> bool:
+    """Whether the caller is a broad, user-consented PostHog Code OAuth credential.
+
+    The Code OAuth app backs both the desktop client and the server-minted sandbox
+    run tokens. A desktop user can only obtain a gateway-usable token through the
+    consent flow with the `*` wildcard scope: `llm_gateway:read` is privileged and,
+    under the app's empty scope ceiling, reachable only via `*` (an explicit request
+    for it is rejected at /authorize). Server-minted run tokens instead carry an
+    explicit resolved scope list and never `*`. So a `*`-scoped Code token is provably
+    a user credential, not a sandbox one.
+    """
+    return (
+        auth_method == "oauth_access_token"
+        and application_id in CODE_OAUTH_APP_IDS
+        and scopes is not None
+        and "*" in scopes
+    )
+
+
 def check_product_access(
     product: str,
     auth_method: str,
     application_id: str | None,
     model: str | None,
     provider: str | None = None,
+    scopes: list[str] | None = None,
 ) -> tuple[bool, str | None]:
     """
     Check if request is authorized for product.
@@ -360,6 +388,20 @@ def check_product_access(
         allowed_application_ids = config.allowed_application_ids or frozenset()
         if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
+
+    # A user-consented Code credential belongs only on the posthog_code product. The
+    # sibling products that also accept the Code OAuth app (background_agents, signals,
+    # slack_app, conversations) are driven solely by server-minted run tokens; letting a
+    # user point their own `*` token at one of those routes would bypass the posthog_code
+    # free-tier model gate, since those products allow premium models and bill elsewhere
+    # or not at all. Gated behind the same flag as the free-tier gate so this stays inert
+    # until the Code billing cutover.
+    if (
+        settings.posthog_code_model_gate_enabled
+        and resolved_product != "posthog_code"
+        and _is_broad_user_code_credential(auth_method, application_id, scopes)
+    ):
+        return False, f"PostHog Code credentials are restricted to the 'posthog_code' product, not '{product}'"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(model, config.allowed_models, provider=provider, settings=settings):
