@@ -82,6 +82,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -184,6 +185,14 @@ SESSION_RECORDING_THROTTLED = Counter(
     "Throttled responses from the session recording API",
     labelnames=["location", "auth_type"],
 )
+
+_OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
+
+
+def _count_session_recording_throttled(location: str, auth_type: str) -> None:
+    SESSION_RECORDING_THROTTLED.labels(location=location, auth_type=auth_type).inc()
+    _OTEL_PLAYBACK.record_counter_twin(SESSION_RECORDING_THROTTLED, 1, {"location": location, "auth_type": auth_type})
+
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -783,7 +792,7 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
             continue
         wait = throttle.wait()
         scope = throttle.scope or "listing"
-        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        _count_session_recording_throttled(location=scope, auth_type=auth_type)
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
@@ -817,7 +826,7 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
             return True
         if super().allow_request(request, view):
             return True
-        SESSION_RECORDING_THROTTLED.labels(location=self.scope, auth_type="sharing_token").inc()
+        _count_session_recording_throttled(location=self.scope, auth_type="sharing_token")
         return False
 
 
@@ -944,7 +953,7 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
+            _count_session_recording_throttled(location="too_many_simultaneous_queries", auth_type=auth_type)
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
@@ -958,7 +967,7 @@ class SessionRecordingViewSet(
             raise
         except (ServerException, Exception) as e:
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
+                _count_session_recording_throttled(location="query_timeout_exceeded", auth_type=auth_type)
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -1546,7 +1555,7 @@ class SessionRecordingViewSet(
     ) -> Response:
         sources: list[dict] = []
 
-        with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2").time():
+        with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             if recording.full_recording_v2_path:
                 # Parse S3 URL to extract prefix (path without query parameters)
                 # Example: s3://bucket/path?range=bytes=0-1372588 -> path
@@ -1766,7 +1775,9 @@ class SessionRecordingViewSet(
         blob_key: str,
         decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+        with _OTEL_PLAYBACK.timed_histogram_twin(
+            STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
+        ):
             with (
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
@@ -1891,7 +1902,7 @@ class SessionRecordingViewSet(
         span_name = f"fetch_{compress_label}_blocks"
 
         async with recording_api_client() as storage:
-            with FETCH_BLOCKS_HISTOGRAM.labels(decompress=str(decompress)).time():
+            with _OTEL_PLAYBACK.timed_histogram_twin(FETCH_BLOCKS_HISTOGRAM, {"decompress": str(decompress)}):
                 with timer(span_name), tracer.start_as_current_span(span_name):
                     return await self._fetch_blocks_parallel(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
@@ -1907,7 +1918,9 @@ class SessionRecordingViewSet(
         decompress: bool = True,
     ) -> HttpResponse:
         async def _run() -> HttpResponse:
-            with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
+            with _OTEL_PLAYBACK.timed_histogram_twin(
+                STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
+            ):
                 blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
 
                 blocks_data = await self._fetch_blocks_with_storage(

@@ -12154,6 +12154,32 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system
+     */
+    export type BillingExemptReasonEnum = typeof BillingExemptReasonEnum[keyof typeof BillingExemptReasonEnum];
+
+
+    export const BillingExemptReasonEnum = {
+      PosthogHealthCheck: 'posthog_health_check',
+      PosthogOnboarding: 'posthog_onboarding',
+      PosthogSystem: 'posthog_system',
+    } as const;
+
+    /**
+     * * `excluded` - Excluded
+     * * `credited` - Credited
+     */
+    export type BillingPathEnum = typeof BillingPathEnum[keyof typeof BillingPathEnum];
+
+
+    export const BillingPathEnum = {
+      Excluded: 'excluded',
+      Credited: 'credited',
+    } as const;
+
+    /**
      * * `email` - email
      */
     export type DedupeKeyEnum = typeof DedupeKeyEnum[keyof typeof DedupeKeyEnum];
@@ -12200,6 +12226,23 @@ export namespace Schemas {
       true_label?: string;
       /** Optional label for a false value. */
       false_label?: string;
+    }
+
+    export interface BranchPRMatch {
+      /** Repository the pull request belongs to, as 'owner/name'. */
+      repo: string;
+      /** Pull request number within the repository — pair with `repo` to link to it. */
+      number: number;
+      /**
+         * Pull request title, or null when the snapshot carries no title.
+         * @nullable
+         */
+      title: string | null;
+      /**
+         * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+         * @nullable
+         */
+      state: string | null;
     }
 
     export interface BreakdownItem {
@@ -30241,9 +30284,10 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureItem {
-      /** Resolved harness labels seen for this exception, deduped and sorted. */
+      /** Resolved harness labels seen for this failure, deduped and sorted. */
       harnesses: string[];
       last_seen: string;
+      /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
       message: string;
       occurrences: number;
     }
@@ -30275,7 +30319,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** The raw $mcp_tool_name to scope $exception events to. */
+      /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
       toolName: string;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -33411,6 +33455,79 @@ export namespace Schemas {
       last_updated_at: string | null;
     }
 
+    export interface ManagedWarehouseSourceSummary {
+      /** Imported source connection identifier. */
+      source_id: string;
+      /** Display name for the imported source connection. */
+      source_name: string;
+      /** Type of the imported source connection. */
+      source_type: string;
+      /** Rolled-up warehouse readiness state across this source's schemas.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of this source's readiness state. */
+      detail: string;
+      /** Number of this source's schemas visible to the warehouse. */
+      total_schemas: number;
+      /** Number of schemas whose one-time historical copy into the warehouse has completed. */
+      backfilled_schemas: number;
+      /**
+         * Imported batches waiting to be applied across this source's schemas, or null when queue status is unavailable.
+         * @nullable
+         */
+      pending_batches: number | null;
+      /**
+         * Most recent upstream source import completion across this source's schemas.
+         * @nullable
+         */
+      last_synced_at: string | null;
+    }
+
+    export interface ManagedWarehouseSourcesStatus {
+      /** Rolled-up readiness state for imported sources.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Human-readable explanation of imported source readiness. */
+      detail: string;
+      /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+      sources: ManagedWarehouseSourceSummary[];
+    }
+
+    export interface ManagedWarehouseDataStatusResponse {
+      /** Highest-priority readiness state across all warehouse datasets.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `backfilling` - backfilling
+       * * `catching_up` - catching_up
+       * * `up_to_date` - up_to_date
+       * * `needs_attention` - needs_attention
+       * * `unknown` - unknown */
+      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
+      /** Events backfill readiness. */
+      events: ManagedWarehouseDatasetStatus;
+      /** Persons backfill readiness. */
+      persons: ManagedWarehouseDatasetStatus;
+      /** Imported source table readiness. */
+      sources: ManagedWarehouseSourcesStatus;
+      /** When this status snapshot was generated. */
+      generated_at: string;
+    }
+
     export interface ManagedWarehouseSourceTableStatus {
       /** Imported source schema identifier. */
       schema_id: string;
@@ -33434,6 +33551,8 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
+      /** Whether the one-time historical copy into the warehouse has completed for this table. */
+      backfilled: boolean;
       /** Backfill chunks already copied into the warehouse. */
       completed_chunks: number;
       /**
@@ -33463,42 +33582,9 @@ export namespace Schemas {
       last_synced_at: string | null;
     }
 
-    export interface ManagedWarehouseSourcesStatus {
-      /** Rolled-up readiness state for imported source tables.
-       *
-       * * `not_configured` - not_configured
-       * * `waiting` - waiting
-       * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
-       * * `up_to_date` - up_to_date
-       * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
-      readiness_state: ManagedWarehouseReadinessStateEnum;
-      /** Human-readable explanation of imported source readiness. */
-      detail: string;
-      /** Per-table source backfill and live import application statuses. */
-      tables: ManagedWarehouseSourceTableStatus[];
-    }
-
-    export interface ManagedWarehouseDataStatusResponse {
-      /** Highest-priority readiness state across all warehouse datasets.
-       *
-       * * `not_configured` - not_configured
-       * * `waiting` - waiting
-       * * `backfilling` - backfilling
-       * * `catching_up` - catching_up
-       * * `up_to_date` - up_to_date
-       * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
-      overall_readiness_state: ManagedWarehouseReadinessStateEnum;
-      /** Events backfill readiness. */
-      events: ManagedWarehouseDatasetStatus;
-      /** Persons backfill readiness. */
-      persons: ManagedWarehouseDatasetStatus;
-      /** Imported source table readiness. */
-      sources: ManagedWarehouseSourcesStatus;
-      /** When this status snapshot was generated. */
-      generated_at: string;
+    export interface ManagedWarehouseSourceSchemasResponse {
+      /** Per-schema backfill and live import application status for the requested source. */
+      schemas: ManagedWarehouseSourceTableStatus[];
     }
 
     export interface MarkToleratedInput {
@@ -35055,11 +35141,24 @@ export namespace Schemas {
       estimated_cost_usd: number | null;
     }
 
+    export interface PRLLMSpend {
+      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+      cost_usd: number;
+      /** Total input (prompt) tokens across the attributed generations. */
+      input_tokens: number;
+      /** Total output (completion) tokens across the attributed generations. */
+      output_tokens: number;
+      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+      generations: number;
+    }
+
     export interface PRCostSummary {
       /** Same spend broken down per workflow. */
       by_workflow: WorkflowCost[];
       /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
       by_run: RunCost[];
+      /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+      llm_spend?: PRLLMSpend | null;
       /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
       jobs_available: boolean;
       /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
@@ -37558,6 +37657,66 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other
+     */
+    export type SignalReportRefundReasonEnum = typeof SignalReportRefundReasonEnum[keyof typeof SignalReportRefundReasonEnum];
+
+
+    export const SignalReportRefundReasonEnum = {
+      PrIncorrect: 'pr_incorrect',
+      PrNotUseful: 'pr_not_useful',
+      Duplicate: 'duplicate',
+      Other: 'other',
+    } as const;
+
+    export interface SignalReportRefund {
+      readonly id: string;
+      /** Why the user refunded this PR (feeds the refund review).
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      readonly reason: SignalReportRefundReasonEnum;
+      /** Optional free-form note captured with the refund. */
+      readonly note: string;
+      /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+       *
+       * * `excluded` - Excluded
+       * * `credited` - Credited */
+      readonly billing_path: BillingPathEnum;
+      /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+      readonly credits: number;
+      /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+      readonly pr_url: string;
+      /** When the first billable PR run was created — the charge this reverses. */
+      readonly pr_run_created_at: string;
+      /**
+         * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      readonly credit_amount_usd: string | null;
+      /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+      readonly billing_synced: boolean;
+      /** When the refund was created. */
+      readonly created_at: string;
+    }
+
+    export type RefundIneligibilityReasonEnum = typeof RefundIneligibilityReasonEnum[keyof typeof RefundIneligibilityReasonEnum];
+
+
+    export const RefundIneligibilityReasonEnum = {
+      AlreadyRefunded: 'already_refunded',
+      BillingExempt: 'billing_exempt',
+      NoBillablePr: 'no_billable_pr',
+      OutOfPeriod: 'out_of_period',
+    } as const;
+
     export interface SignalReport {
       readonly id: string;
       /** @nullable */
@@ -37609,6 +37768,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /** The report's PR refund, when one exists. One refund per report, ever. */
+      readonly refund: SignalReportRefund | null;
+      /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+      readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+       *
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
+      readonly billing_exempt_reason: BillingExemptReasonEnum | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -53957,6 +54126,66 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    export interface SignalReportRefundRequest {
+      /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      reason: SignalReportRefundReasonEnum;
+      /**
+         * Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      note?: string;
+    }
+
+    export interface SignalReportRefundResponse {
+      readonly id: string;
+      /** Why the user refunded this PR (feeds the refund review).
+       *
+       * * `pr_incorrect` - PR incorrect
+       * * `pr_not_useful` - PR not useful
+       * * `duplicate` - Duplicate
+       * * `other` - Other */
+      readonly reason: SignalReportRefundReasonEnum;
+      /** Optional free-form note captured with the refund. */
+      readonly note: string;
+      /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+       *
+       * * `excluded` - Excluded
+       * * `credited` - Credited */
+      readonly billing_path: BillingPathEnum;
+      /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+      readonly credits: number;
+      /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+      readonly pr_url: string;
+      /** When the first billable PR run was created — the charge this reverses. */
+      readonly pr_run_created_at: string;
+      /**
+         * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      readonly credit_amount_usd: string | null;
+      /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+      readonly billing_synced: boolean;
+      /** When the refund was created. */
+      readonly created_at: string;
+      /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
+      readonly already_refunded: boolean;
+    }
+
+    export interface SignalReportRefundSummaryResponse {
+      /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
+      credited_refund_count: number;
+      /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+      credited_credits: number;
+      /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+      period_billable_credits: number;
+    }
+
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
        *
@@ -58542,16 +58771,16 @@ export namespace Schemas {
          * @maxLength 500000
          */
       content?: string;
-      /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+      /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts. */
       content_base64?: string;
       /**
          * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
          * @maxLength 255
          */
       content_type?: string;
-      /** Existing run artifact id to use as the initial content source. */
+      /** Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_artifact_id?: string;
-      /** Existing run artifact storage_path to use as the initial content source. */
+      /** Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_storage_path?: string;
       /** Optional metadata to persist with the living artifact. */
       metadata?: TaskRunLivingArtifactCreateRequestMetadata;
@@ -58580,9 +58809,9 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
-      /** Existing run artifact id to use as the next version content source. */
+      /** Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_artifact_id?: string;
-      /** Existing run artifact storage_path to use as the next version content source. */
+      /** Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
       source_storage_path?: string;
       /** Optional metadata to merge into the artifact registry record. */
       metadata?: TaskRunLivingArtifactEditRequestMetadata;
@@ -62774,6 +63003,13 @@ export namespace Schemas {
      * @minLength 1
      */
     name: string;
+    };
+
+    export type EnvironmentsDataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string;
     };
 
     export type EnvironmentsDatasetItemsListParams = {
@@ -69255,6 +69491,13 @@ export namespace Schemas {
     name: string;
     };
 
+    export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string;
+    };
+
     export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
@@ -69700,6 +69943,25 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsResolveBranchParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
+     */
+    branch: string;
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
+     */
+    timestamp?: string;
     };
 
     export type EngineeringAnalyticsRunFailureLogsParams = {

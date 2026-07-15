@@ -16,7 +16,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
+from products.data_warehouse.backend.facade.api import (
+    pause_external_data_schedule,
+    sync_external_data_job_workflow,
+    unpause_external_data_schedule,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -147,6 +151,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 "<uuid:schema_id>/unpause-schedule/",
                 self.admin_site.admin_view(self.unpause_schedule_view),
                 name="external_data_schema_unpause_schedule",
+            ),
+            path(
+                "<uuid:schema_id>/recreate-schedule/",
+                self.admin_site.admin_view(self.recreate_schedule_view),
+                name="external_data_schema_recreate_schedule",
             ),
         ]
         return custom_urls + urls
@@ -494,6 +503,54 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Failed to unpause schedule: {e}")
         return redirect(_change_url(schema_id))
 
+    def recreate_schedule_view(self, request, schema_id):
+        # Recovery for schemas whose per-schema Temporal schedule is missing (e.g. the source
+        # creation request was killed between committing the rows and creating the schedules,
+        # or the schema was resurrected after a soft-delete). Safe on an existing schedule too:
+        # sync_external_data_job_workflow falls back to updating it in place. Deliberately does
+        # NOT trigger a run: the schedule's stored action is always billable, so operators kick
+        # off an immediate run with the (non-billable by default) "Trigger sync" action instead.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        # Resolve through the admin's scoped object path (get_queryset) rather than a bare
+        # manager .get(), so any queryset scoping applies to this action exactly as it does
+        # to the change form.
+        schema = self.get_object(request, str(schema_id))
+        if schema is None:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
+
+        if not self.has_change_permission(request, schema):
+            raise PermissionDenied
+
+        if not schema.source.supports_scheduled_sync:
+            messages.error(
+                request,
+                "This source is queried directly and does not use per-schema sync schedules.",
+            )
+            return redirect(_change_url(schema_id))
+
+        try:
+            sync_external_data_job_workflow(
+                schema, create=True, should_sync=schema.should_sync, trigger_immediately=False
+            )
+        except Exception as e:
+            messages.error(request, f"Failed to recreate schedule: {e}")
+            return redirect(_change_url(schema_id))
+
+        paused_note = (
+            " The schedule was created paused because sync is disabled for this schema."
+            if not schema.should_sync
+            else ""
+        )
+        messages.success(
+            request,
+            f"Recreated Temporal schedule for {schema.name}. No run was triggered; "
+            f'use "Trigger sync" for an immediate non-billable run.{paused_note}',
+        )
+        return redirect(_change_url(schema_id))
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
@@ -535,6 +592,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["pause_schedule_url"] = reverse("admin:external_data_schema_pause_schedule", args=[obj.id])
             extra_context["unpause_schedule_url"] = reverse(
                 "admin:external_data_schema_unpause_schedule", args=[obj.id]
+            )
+            extra_context["recreate_schedule_url"] = reverse(
+                "admin:external_data_schema_recreate_schedule", args=[obj.id]
             )
 
             # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
