@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -152,14 +153,14 @@ class TestSymbolSetCleanupActivity(BaseTest):
 
 async def _run_workflow_with_mock_activity(
     inputs: SymbolSetCleanupInputs | None,
-    activity_result: SymbolSetCleanupResult,
-) -> tuple[SymbolSetCleanupResult, SymbolSetCleanupInputs]:
-    captured: dict[str, SymbolSetCleanupInputs] = {}
+    activity_result: Callable[[SymbolSetCleanupInputs], SymbolSetCleanupResult],
+) -> tuple[SymbolSetCleanupResult, list[SymbolSetCleanupInputs]]:
+    captured: list[SymbolSetCleanupInputs] = []
 
     @activity.defn(name="cleanup_symbol_sets_activity")
     async def mock_activity(activity_inputs: SymbolSetCleanupInputs) -> SymbolSetCleanupResult:
-        captured["inputs"] = activity_inputs
-        return activity_result
+        captured.append(activity_inputs)
+        return activity_result(activity_inputs)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -177,7 +178,7 @@ async def _run_workflow_with_mock_activity(
                 task_queue=task_queue,
             )
 
-    return result, captured["inputs"]
+    return result, captured
 
 
 class TestSymbolSetCleanupWorkflow:
@@ -186,26 +187,43 @@ class TestSymbolSetCleanupWorkflow:
         assert ErrorTrackingSymbolSetCleanupWorkflow.parse_inputs([]) == SymbolSetCleanupInputs(
             days_old=30,
             delete_unused=True,
-            total_per_run=500000,
+            total_per_run=1000000,
             batch_size=10000,
+            parallelism=8,
             dry_run=False,
         )
 
     @pytest.mark.asyncio
-    async def test_workflow_calls_activity_with_defaults(self) -> None:
-        expected = SymbolSetCleanupResult(objects_processed=1, objects_deleted=1, objects_failed=0)
+    async def test_workflow_splits_total_limit_across_parallel_activities(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=10, batch_size=5, parallelism=3)
 
-        result, activity_inputs = await _run_workflow_with_mock_activity(None, expected)
+        result, activity_inputs = await _run_workflow_with_mock_activity(
+            inputs,
+            lambda activity_inputs: SymbolSetCleanupResult(
+                objects_processed=activity_inputs.total_per_run,
+                objects_deleted=activity_inputs.total_per_run,
+                objects_failed=0,
+            ),
+        )
 
-        assert result == expected
-        assert activity_inputs == SymbolSetCleanupInputs()
+        assert result == SymbolSetCleanupResult(objects_processed=10, objects_deleted=10, objects_failed=0)
+        assert sorted(activity_input.total_per_run for activity_input in activity_inputs) == [3, 3, 4]
+        assert all(activity_input.batch_size == 5 for activity_input in activity_inputs)
+        assert all(activity_input.parallelism == 1 for activity_input in activity_inputs)
 
     @pytest.mark.asyncio
-    async def test_workflow_forwards_inputs(self) -> None:
-        inputs = SymbolSetCleanupInputs(days_old=10, delete_unused=False, total_per_run=100, batch_size=5, dry_run=True)
+    async def test_workflow_runs_dry_run_once(self) -> None:
+        inputs = SymbolSetCleanupInputs(
+            days_old=10,
+            delete_unused=False,
+            total_per_run=100,
+            batch_size=5,
+            parallelism=3,
+            dry_run=True,
+        )
         expected = SymbolSetCleanupResult(objects_processed=0, objects_deleted=0, objects_failed=0, eligible_count=3)
 
-        result, activity_inputs = await _run_workflow_with_mock_activity(inputs, expected)
+        result, activity_inputs = await _run_workflow_with_mock_activity(inputs, lambda _: expected)
 
         assert result == expected
-        assert activity_inputs == inputs
+        assert activity_inputs == [inputs]
