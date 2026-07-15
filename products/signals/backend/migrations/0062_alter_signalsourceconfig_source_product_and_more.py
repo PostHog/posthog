@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0060_signalreportrefund_period_bounds"),
-    ]
+    dependencies = [("signals", "0061_signalteamconfig_autostart_enabled")]
 
     operations = [
         migrations.AlterField(

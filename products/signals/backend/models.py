@@ -140,6 +140,10 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
+    # Master switch for autonomous inbox PRs. Null means the team never set it (autostart stays on
+    # by default); only an explicit False disables it, leaving reports to still generate and notify
+    # while the team reviews and opens PRs manually.
+    autostart_enabled = models.BooleanField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
