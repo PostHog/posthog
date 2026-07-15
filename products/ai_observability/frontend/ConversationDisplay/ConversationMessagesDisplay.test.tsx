@@ -198,6 +198,35 @@ describe('LLMMessageDisplay', () => {
         })
     })
 
+    it('renders message-level tool_calls as tool-call blocks instead of a JSON kwargs dump', async () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+                {
+                    type: 'function',
+                    id: 'call_qeXd2gLSx1ws',
+                    function: { name: 'exec', arguments: { command: 'search ^skill-get$' } },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('exec')
+        expect(container.textContent).toContain('call_qeXd2gLSx1ws')
+        await waitFor(
+            () => {
+                expect(container.textContent).toContain('command')
+                expect(container.textContent).toContain('search ^skill-get$')
+            },
+            { timeout: JSON_VIEWER_TIMEOUT_MS }
+        )
+        expect(container.textContent).not.toContain('tool_calls')
+    })
+
     it('renders content[].type=function with stringified JSON arguments', async () => {
         const message: CompatMessage = {
             role: 'assistant',

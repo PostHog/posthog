@@ -628,6 +628,8 @@ export const LLMMessageDisplay = React.memo(
         messageSentiment?: { label: string; score: number }
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
+        // Tool calls get the dedicated tool-call rendering below instead of the kwargs JSON dump.
+        const toolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0 ? message.tool_calls : null
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
         let resolvedIsRenderingXml = isRenderingXml
 
@@ -658,7 +660,11 @@ export const LLMMessageDisplay = React.memo(
                   }
                   return tool
               })
-            : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
+            : Object.fromEntries(
+                  Object.entries(additionalKwargs).filter(
+                      ([key, value]) => value !== undefined && !(key === 'tool_calls' && toolCalls)
+                  )
+              )
 
         const renderMessageContent = (
             content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[],
@@ -812,7 +818,7 @@ export const LLMMessageDisplay = React.memo(
                             {role}
                             {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
                         </span>
-                        {(content || Object.keys(additionalKwargsEntries).length > 0) && (
+                        {(content || toolCalls || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton
                                     size="small"
@@ -864,6 +870,20 @@ export const LLMMessageDisplay = React.memo(
                         ) : (
                             renderMessageContent(content, searchQuery)
                         )}
+                    </div>
+                )}
+                {show && toolCalls && (
+                    <div className={clsx('space-y-2', !minimal ? 'p-2 border-t' : 'p-1 text-xs')}>
+                        {toolCalls.map((toolCall, index) => (
+                            <React.Fragment key={index}>
+                                {renderContentItem(
+                                    (toolCall.function && !toolCall.type
+                                        ? { ...toolCall, type: 'function' }
+                                        : toolCall) as MultiModalContentItem,
+                                    searchQuery
+                                )}
+                            </React.Fragment>
+                        ))}
                     </div>
                 )}
                 {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
