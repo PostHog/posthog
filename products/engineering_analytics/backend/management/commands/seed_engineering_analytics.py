@@ -333,13 +333,16 @@ _SPAN_SERVICE = "ci-backend"
 
 # (owner_team, module_dir, [(TestClass, test_name, prior_daily, current_daily)]).
 # prior/current_daily are signal spans per day in each half of the window; 0 = quiet.
+# The roster is every distinct owner slug in the repo's ownership files (owners.yaml +
+# products/*/product.yaml, the same map the CI emitter stamps from) as of July 2026, so
+# the team surfaces demo against the real org. Module dirs are real test directories.
 _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     (
         "team-replay",  # worsening: signal doubles in the current window
-        "products/replay/backend/tests",
+        "posthog/session_recordings/test",
         [
             ("TestSessionRecordings", "test_snapshot_batching", 2, 5),
-            ("TestPlaylistSync", "test_playlist_counts_converge", 1, 3),
+            ("TestRecordingPlaylists", "test_playlist_counts_converge", 1, 3),
             ("TestRetentionSweeper", "test_ttl_boundary_day", 0, 2),
         ],
     ),
@@ -355,7 +358,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-ingestion",  # improving: signal halves in the current window
-        "products/ingestion/backend/tests",
+        "posthog/models/test",
         [
             ("TestPersonMerges", "test_concurrent_merge_ordering", 4, 1),
             ("TestKafkaConsumer", "test_rebalance_offset_commit", 3, 1),
@@ -363,21 +366,14 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "conversations",  # spiky: quiet prior, a current-window burst
-        "products/conversations/backend/tests",
+        "products/conversations/backend/api/tests",
         [
             ("TestTicketRouting", "test_assignment_race", 0, 4),
         ],
     ),
     (
-        "team-devex",  # low and flat
-        "products/engineering_analytics/backend/tests",
-        [
-            ("TestCIViews", "test_workflow_health_window", 1, 1),
-        ],
-    ),
-    (
         "team-experiments",  # recovered: prior signal only, lands at zero current
-        "products/experiments/backend/tests",
+        "products/experiments/backend/test",
         [
             ("TestExperimentResults", "test_bayesian_interval_rounding", 3, 0),
             ("TestFeatureFlagRollout", "test_variant_bucketing_stability", 2, 0),
@@ -388,6 +384,184 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
         "products/error_tracking/backend/tests",
         [
             ("TestIssueGrouping", "test_fingerprint_collision", 0, 3),
+        ],
+    ),
+    (
+        "team-data-tools",  # mildly worsening
+        "posthog/hogql/test",
+        [
+            ("TestHogQLParser", "test_lambda_scope_resolution", 2, 3),
+            ("TestHogQLPrinter", "test_materialized_column_rewrite", 1, 1),
+        ],
+    ),
+    (
+        "team-workflows",  # mildly worsening
+        "products/cdp/backend/test",
+        [
+            ("TestHogFunctions", "test_retry_backoff_jitter", 2, 3),
+            ("TestDestinationFilters", "test_event_property_globs", 1, 1),
+        ],
+    ),
+    (
+        "team-product-analytics",  # mildly improving
+        "posthog/hogql_queries/insights/test",
+        [
+            ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
+            ("TestFunnelCorrelation", "test_person_property_breakdown", 1, 1),
+        ],
+    ),
+    (
+        "team-platform-features",  # mildly improving
+        "products/access_control/backend/tests",
+        [
+            ("TestAccessControl", "test_role_membership_cache_invalidation", 2, 1),
+            ("TestOrgInvites", "test_invite_expiry_race", 1, 1),
+        ],
+    ),
+    (
+        "team-ai-observability",  # mildly improving
+        "products/ai_observability/backend/test",
+        [
+            ("TestGenerationCosts", "test_cost_property_rollup", 2, 1),
+            ("TestTraceIngestion", "test_span_attribute_truncation", 1, 1),
+        ],
+    ),
+    (
+        "team-surveys",  # mildly improving
+        "products/surveys/backend/api/test",
+        [
+            ("TestSurveyTargeting", "test_adaptive_sampling_rate", 2, 1),
+        ],
+    ),
+    (
+        "team-warehouse-sources",  # flat
+        "products/warehouse_sources/backend/tests",
+        [
+            ("TestStripeSource", "test_incremental_cursor_persistence", 2, 2),
+            ("TestSourceSchemaSync", "test_nullable_json_columns", 1, 1),
+        ],
+    ),
+    (
+        "team-analytics-platform",  # flat
+        "products/dashboards/backend/test",
+        [
+            ("TestDashboardTiles", "test_tile_refresh_debounce", 2, 2),
+            ("TestAlertChecks", "test_threshold_hysteresis", 1, 1),
+        ],
+    ),
+    (
+        "team-web-analytics",  # one flake fixed, one steady
+        "products/web_analytics/backend/test",
+        [
+            ("TestWebOverview", "test_preaggregated_table_parity", 2, 2),
+            ("TestChannelType", "test_utm_priority_order", 1, 0),
+        ],
+    ),
+    (
+        "team-feature-flags",  # one flake fixed, one steady
+        "products/feature_flags/backend/test",
+        [
+            ("TestFlagMatching", "test_local_evaluation_consistency", 2, 2),
+            ("TestFlagDependencies", "test_cohort_flag_cycle", 1, 0),
+        ],
+    ),
+    (
+        "team-self-driving",  # creeping up
+        "products/signals/backend/test",
+        [
+            ("TestSignalEmission", "test_dedupe_window_replay", 1, 2),
+            ("TestInboxRouting", "test_scout_finding_grouping", 0, 1),
+        ],
+    ),
+    (
+        "team-agents",  # creeping up
+        "products/agent_platform/backend/tests",
+        [
+            ("TestAgentRuns", "test_tool_call_stream_resume", 1, 2),
+        ],
+    ),
+    (
+        "team-managed-warehouse",  # creeping up
+        "products/data_warehouse/backend/tests",
+        [
+            ("TestSavedQueryMaterialization", "test_incremental_refresh_watermark", 1, 2),
+        ],
+    ),
+    (
+        "team-posthog-code",  # creeping up
+        "products/tasks/backend/tests",
+        [
+            ("TestTaskSandbox", "test_worktree_cleanup_on_cancel", 1, 2),
+        ],
+    ),
+    (
+        "team-devex",  # low and flat
+        "products/engineering_analytics/backend/tests",
+        [
+            ("TestCIViews", "test_workflow_health_window", 1, 1),
+        ],
+    ),
+    (
+        "clickhouse",  # low and flat
+        "posthog/clickhouse/test",
+        [
+            ("TestSchemaMigrations", "test_replicated_table_settings", 1, 1),
+        ],
+    ),
+    (
+        "logs",  # low and flat
+        "products/logs/backend/test",
+        [
+            ("TestLogsQuery", "test_attribute_map_filter", 1, 1),
+        ],
+    ),
+    (
+        "team-billing",  # low and flat
+        "ee/billing/test",
+        [
+            ("TestQuotaLimiting", "test_overage_grace_window", 1, 1),
+        ],
+    ),
+    (
+        "team-data-modeling",  # low and flat
+        "products/data_modeling/backend/tests",
+        [
+            ("TestSavedQueryDAG", "test_cyclic_dependency_rejection", 1, 1),
+        ],
+    ),
+    (
+        "team-data-stack",  # low and flat
+        "posthog/dags/tests",
+        [
+            ("TestDagsterAssets", "test_partition_backfill_window", 1, 1),
+        ],
+    ),
+    (
+        "team-growth",  # low and flat
+        "products/growth/backend/tests",
+        [
+            ("TestOnboardingFunnel", "test_activation_email_dedupe", 1, 1),
+        ],
+    ),
+    (
+        "team-ai-gateway",  # recovered small
+        "services/llm-gateway/tests",
+        [
+            ("TestProviderFailover", "test_anthropic_fallback_order", 1, 0),
+        ],
+    ),
+    (
+        "team-ai-research",  # recovered small
+        "ee/hogai/test",
+        [
+            ("TestMemoryCompaction", "test_context_window_eviction", 1, 0),
+        ],
+    ),
+    (
+        "team-mcp-analytics",  # brand new, small
+        "products/mcp_analytics/backend/tests",
+        [
+            ("TestMcpToolEvents", "test_tool_call_attribution", 0, 1),
         ],
     ),
     (
