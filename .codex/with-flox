@@ -2,12 +2,31 @@
 
 set -euo pipefail
 
+prepare=0
+if [[ "${1:-}" == "--prepare" ]]; then
+    prepare=1
+    shift
+fi
+
 if (($# == 0)); then
-    echo "usage: bash .codex/with-flox <command> [args...]" >&2
+    echo "usage: bash .codex/with-flox [--prepare] <command> [args...]" >&2
     exit 2
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+env_file="$repo_root/.flox/cache/codex-env"
+
+cd "$repo_root"
+
+if [[ "$prepare" -eq 0 && -f "$env_file" ]]; then
+    # shellcheck disable=SC1090
+    source "$env_file"
+    if [[ -n "${CODEX_SANDBOX:-}" ]]; then
+        export POSTHOG_DEV_SANDBOX=0
+    fi
+    exec "$@"
+fi
+
 flox_bin="$(command -v flox || true)"
 
 if [[ -z "$flox_bin" ]]; then
@@ -24,34 +43,28 @@ if [[ -z "$flox_bin" ]]; then
     exit 127
 fi
 
-cd "$repo_root"
-
-# Codex worktrees inherit the source checkout's process environment. Clear
-# its activation markers before selecting this worktree's Flox environment.
-# The inner Bash expands Flox's environment.
+# Provision from a minimal environment so the cached file cannot capture ambient
+# credentials or another checkout's activation state.
 # shellcheck disable=SC2016
-exec env \
-    -u CONDA_DEFAULT_ENV \
-    -u DIRENV_DIFF \
-    -u DIRENV_DIR \
-    -u DIRENV_WATCHES \
-    -u FLOX_ACTIVATE_START_SERVICES \
-    -u FLOX_ENV \
-    -u FLOX_ENV_CACHE \
-    -u FLOX_ENV_DESCRIPTION \
-    -u FLOX_ENV_DIRS \
-    -u FLOX_ENV_PROJECT \
-    -u PYTHONPATH \
-    -u UV_PROJECT_ENVIRONMENT \
-    -u VIRTUAL_ENV \
-    -u VIRTUAL_ENV_DISABLE_PROMPT \
-    -u VIRTUAL_ENV_PROMPT \
-    -u _FLOX_ACTIVE_ENVIRONMENTS \
-    -u _FLOX_HOOK_DIFF \
-    -u _FLOX_INVOCATION_TYPE \
+exec env -i \
+    HOME="$HOME" \
+    LANG="${LANG:-C.UTF-8}" \
+    LOGNAME="${LOGNAME:-}" \
+    PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" \
+    SHELL="${SHELL:-/bin/bash}" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    USER="${USER:-}" \
     "$flox_bin" activate --dir "$repo_root" -- bash -c '
+        set -euo pipefail
+        prepare="$1"
+        shift
         export VIRTUAL_ENV="$FLOX_ENV_CACHE/venv"
         export UV_PROJECT_ENVIRONMENT="$VIRTUAL_ENV"
         export PATH="$VIRTUAL_ENV/bin:$PATH"
+        if [[ "$prepare" -eq 1 ]]; then
+            umask 077
+            export -p > "$FLOX_ENV_CACHE/codex-env.tmp"
+            mv "$FLOX_ENV_CACHE/codex-env.tmp" "$FLOX_ENV_CACHE/codex-env"
+        fi
         exec "$@"
-    ' bash "$@"
+    ' bash "$prepare" "$@"
