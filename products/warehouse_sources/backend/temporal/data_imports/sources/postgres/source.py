@@ -622,6 +622,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
                 "your database so it contains data, then re-enable the sync."
             ),
+            # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected table or view is
+            # backed by the pg_stat_statements extension but that extension isn't loaded via
+            # `shared_preload_libraries` on the source — every server-cursor FETCH fails with
+            # "pg_stat_statements must be loaded via ...". Deterministic and only fixable on the
+            # customer's side, so retrying just re-reads into the same error. Dual-layer like
+            # `InsufficientPrivilege` below: the message fragment matches the raw activity-level
+            # `str(e)`, while the `ObjectNotInPrerequisiteState` class-name key catches the
+            # Temporal-wrapped form at the workflow layer. The message key precedes the class-name
+            # key so the actionable message wins (external_data_job picks the first matching reason).
+            "pg_stat_statements must be loaded": (
+                "One of the tables or views you selected to sync is backed by the pg_stat_statements "
+                "extension, but that extension isn't loaded on your database (PostgreSQL reported "
+                '"pg_stat_statements must be loaded via shared_preload_libraries"). Add '
+                "pg_stat_statements to shared_preload_libraries and restart your database, or remove "
+                "that table from the sync, then re-enable the sync."
+            ),
+            # Class-name catch-all for the wrapped form of the pg_stat_statements failure (and any other
+            # SQLSTATE 55000). Kept after the message keys above so their actionable messages win first.
+            "ObjectNotInPrerequisiteState": None,
             # Raised by Postgres while reading a view/materialized view whose own definition calls
             # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
             # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;

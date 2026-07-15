@@ -877,6 +877,29 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'pg_stat_statements must be loaded via "shared_preload_libraries"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: pg_stat_statements must be loaded via "shared_preload_libraries"',
+        ],
+    )
+    def test_pg_stat_statements_not_loaded_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"pg_stat_statements-not-loaded error should be non-retryable: {error_msg}"
+
+    def test_pg_stat_statements_not_loaded_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        # The workflow-wrapped form matches both the message key and the ObjectNotInPrerequisiteState
+        # class-name key; the actionable message must win over the None catch-all.
+        error_msg = 'ObjectNotInPrerequisiteState: pg_stat_statements must be loaded via "shared_preload_libraries"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "pg_stat_statements-not-loaded error should surface an actionable message"
+        assert "shared_preload_libraries" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "cannot call jsonb_each on a non-object",
             "InvalidParameterValue: cannot call jsonb_each on a non-object",
             "cannot call jsonb_each_text on a non-object",
