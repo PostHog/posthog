@@ -297,7 +297,18 @@ def test_uses_configured_bucket_prefix() -> None:
 
 
 class _FakePgConn:
-    """Minimal psycopg.Connection stand-in: context manager + .execute returning a cursor."""
+    """Minimal psycopg.Connection stand-in: context manager + .execute routed by statement."""
+
+    def __init__(
+        self,
+        non_terminal_dates: list[date] | None = None,
+        partitions_by_table: dict[str, list[str]] | None = None,
+        probe_raises: Exception | None = None,
+    ) -> None:
+        self.non_terminal_dates = non_terminal_dates or []
+        self.partitions_by_table = partitions_by_table or {}
+        self.probe_raises = probe_raises
+        self.dropped: list[str] = []
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -305,19 +316,31 @@ class _FakePgConn:
     def __exit__(self, *args: Any) -> Literal[False]:
         return False
 
-    def execute(self, _sql: Any, _params: Any = None) -> MagicMock:
+    def execute(self, sql: Any, params: Any = None) -> MagicMock:
         cursor = MagicMock()
-        cursor.fetchall.return_value = []
+        sql_text = str(sql)
+        if "created_at::date" in sql_text:
+            if self.probe_raises is not None:
+                raise self.probe_raises
+            cursor.fetchall.return_value = [(d,) for d in self.non_terminal_dates]
+        elif "pg_inherits" in sql_text:
+            table = params[0] if params else None
+            cursor.fetchall.return_value = [(name,) for name in self.partitions_by_table.get(table, [])]
+        elif sql_text.startswith("DROP TABLE"):
+            self.dropped.append(sql_text)
+            cursor.fetchall.return_value = []
+        else:
+            cursor.fetchall.return_value = []
         return cursor
 
 
 @contextmanager
-def _patched_pg():
+def _patched_pg(conn: _FakePgConn | None = None):
     # _verify_partitions is stubbed because the fake connection returns no rows, which would
     # otherwise flood `errors` with bogus "partition missing" messages — orthogonal to the
     # S3-cleanup wiring these integration tests cover.
     with (
-        patch.object(activities_module.psycopg.Connection, "connect", return_value=_FakePgConn()) as connect,
+        patch.object(activities_module.psycopg.Connection, "connect", return_value=conn or _FakePgConn()) as connect,
         patch.object(activities_module, "_verify_partitions"),
     ):
         yield connect
@@ -378,3 +401,70 @@ async def test_activity_logs_s3_deleted_count(activity_environment) -> None:
     ]
     assert len(completion_calls) == 1
     assert completion_calls[0].kwargs["s3_deleted_count"] == 2
+
+
+# Retention guard: never destroy non-terminal work
+
+
+def test_cleanup_skips_dates_with_non_terminal_batches() -> None:
+    # Without the blocked-dates check, a stuck run's S3 payloads are deleted at
+    # day 7 while its batches are still loadable — unrecoverable data loss.
+    entries = [
+        f"{BASE}/dt=2020-01-01",
+        f"{BASE}/dt=2020-01-02",
+    ]
+    errors: list[str] = []
+
+    with _patched_s3(entries) as s3:
+        deleted = _cleanup_old_s3_extractions(TODAY, errors, blocked_dates={date(2020, 1, 1)})
+
+    assert deleted == ["dt=2020-01-02"]
+    assert errors == []
+    s3.delete.assert_called_once_with(f"{BASE}/dt=2020-01-02", recursive=True)
+
+
+def test_cleanup_deletes_nothing_when_blocked_dates_unknown() -> None:
+    # A failed probe means we can't tell which payloads are still needed —
+    # deleting blind would destroy them, so the fail-safe is to skip the run.
+    entries = [f"{BASE}/dt=2020-01-01"]
+    errors: list[str] = []
+
+    with _patched_s3(entries) as s3:
+        deleted = _cleanup_old_s3_extractions(TODAY, errors, blocked_dates=None)
+
+    assert deleted == []
+    s3.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_activity_refuses_to_drop_partitions_with_non_terminal_batches(activity_environment) -> None:
+    conn = _FakePgConn(
+        non_terminal_dates=[date(2000, 1, 1)],
+        partitions_by_table={"sourcebatch": ["sourcebatch_20000101", "sourcebatch_20000102"]},
+    )
+
+    with _patched_pg(conn), _patched_s3([f"{BASE}/dt=2000-01-01", f"{BASE}/dt=2000-01-02"]) as s3:
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert result["dropped"] == ["sourcebatch_20000102"]
+    assert result["s3_deleted"] == ["dt=2000-01-02"]
+    assert result["success"] is False
+    assert any("Refusing to drop 2000-01-01" in e for e in result["errors"])
+    s3.delete.assert_called_once_with(f"{BASE}/dt=2000-01-02", recursive=True)
+
+
+@pytest.mark.asyncio
+async def test_activity_skips_all_retention_deletes_when_probe_fails(activity_environment) -> None:
+    conn = _FakePgConn(
+        probe_raises=RuntimeError("queue db unreachable"),
+        partitions_by_table={"sourcebatch": ["sourcebatch_20000101"]},
+    )
+
+    with _patched_pg(conn), _patched_s3([f"{BASE}/dt=2000-01-01"]) as s3:
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert result["dropped"] == []
+    assert result["s3_deleted"] == []
+    assert result["success"] is False
+    assert any("skipping all retention deletes" in e for e in result["errors"])
+    s3.delete.assert_not_called()

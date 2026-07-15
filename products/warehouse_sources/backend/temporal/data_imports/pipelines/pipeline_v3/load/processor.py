@@ -35,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    OwnershipLostError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
     SyncTypeLiteral,
@@ -335,23 +338,20 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
+    # A promotion failure must fail the batch (which retries) rather than let the
+    # job complete with a stale cursor: the next run would re-extract the same
+    # window, duplicating rows for append-type syncs. Retrying is safe — the
+    # already-processed final-batch path re-runs completion idempotently, and
+    # promotion itself is gated on the run_uuid.
     close_old_connections()
-    try:
-        schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
-        promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
-        if promoted:
-            logger.info(
-                "staged_cursor_promoted",
-                run_uuid=export_signal.run_uuid,
-                external_data_schema_id=export_signal.schema_id,
-            )
-    except Exception as e:
-        logger.exception(
-            "staged_cursor_promotion_failed",
+    schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
+    promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
+    if promoted:
+        logger.info(
+            "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
             external_data_schema_id=export_signal.schema_id,
         )
-        capture_exception(e)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -457,6 +457,10 @@ def process_message(
             if verify_ownership is not None:
                 verify_ownership()
             _run_post_load_for_already_processed_batch(export_signal)
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
             _mark_job_completed(export_signal)
             return
 
@@ -667,6 +671,11 @@ def process_message(
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
+
             _mark_job_completed(export_signal)
 
             logger.debug("post_load_operations_complete")
@@ -689,6 +698,10 @@ def process_message(
                     "total_rows": export_signal.total_rows,
                 },
             )
+    except OwnershipLostError:
+        # Benign fencing abandon: the engine re-raises this without writing a
+        # failure status, so it must not count as a load failure in analytics either.
+        raise
     except Exception as e:
         posthoganalytics.capture(
             distinct_id=get_machine_id(),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -12,9 +13,16 @@ import temporalio.activity
 
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "sourcebatchduckgresstatus"]
+BATCH_TABLE = "sourcebatch"
+PARTITIONED_TABLES = [BATCH_TABLE, "sourcebatchstatus", "sourcebatchduckgresstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
+
+# Batch states that still represent unloaded work. Dropping a partition (and its
+# S3 extraction payloads) while any of these remain destroys the data with no way
+# back — and every signal tracking it (freshness gauge, CDC backpressure guard)
+# quietly resets, so the loss would be silent. Mirrors SourceBatch.LatestState.
+NON_TERMINAL_BATCH_STATES = ("pending", "waiting", "executing", "waiting_retry")
 
 # The duckgres apply-marker table is unpartitioned (small rows, UNIQUE-constrained),
 # so retention is DELETE-based. Must comfortably exceed the consumers' eligibility
@@ -62,6 +70,17 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                     logger.exception("Failed to create partition", partition=partition_name)
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
+        # A live batch's newest status can't sit in a partition older than the batch
+        # itself, so blocking the batch's date across all three tables (and the S3
+        # prefixes) preserves everything retention would otherwise destroy.
+        blocked_dates = _dates_with_non_terminal_batches(conn, cutoff, errors)
+        if blocked_dates:
+            for blocked in sorted(blocked_dates):
+                errors.append(
+                    f"Refusing to drop {blocked.isoformat()} partitions: non-terminal batches would be "
+                    f"destroyed along with their S3 payloads. Recover or fail the stuck runs "
+                    f"(manage_warehouse_queue), after which retention resumes."
+                )
         for table in PARTITIONED_TABLES:
             for row in conn.execute(
                 """
@@ -81,6 +100,8 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 except (ValueError, IndexError):
                     continue
                 if partition_date < cutoff:
+                    if blocked_dates is None or partition_date in blocked_dates:
+                        continue
                     try:
                         conn.execute(f"DROP TABLE IF EXISTS {partition_name}")
                         dropped.append(partition_name)
@@ -101,7 +122,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
             errors.append(f"Failed to prune {DUCKGRES_APPLY_TABLE}: {e}")
             logger.exception("Failed to prune duckgres apply markers")
 
-    s3_deleted = _cleanup_old_s3_extractions(today, errors)
+    s3_deleted = _cleanup_old_s3_extractions(today, errors, blocked_dates=blocked_dates)
 
     result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors, s3_deleted=s3_deleted)
 
@@ -126,14 +147,54 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     }
 
 
-def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
-    """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS."""
+def _dates_with_non_terminal_batches(
+    conn: psycopg.Connection,
+    cutoff: date,
+    errors: list[str],
+) -> set[date] | None:
+    """Partition dates before ``cutoff`` whose batches still hold unloaded work.
+
+    Returns None when the probe itself fails — callers must then skip every
+    retention delete this run. Fail-safe: an extra day of retention is
+    recoverable, destroyed batch rows and S3 payloads are not.
+    """
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT created_at::date
+            FROM {BATCH_TABLE}
+            WHERE created_at < %s
+              AND latest_state = ANY(%s)
+            """,
+            [cutoff, list(NON_TERMINAL_BATCH_STATES)],
+        ).fetchall()
+    except Exception as e:
+        errors.append(f"Failed to probe for non-terminal batches; skipping all retention deletes this run: {e}")
+        logger.exception("Failed to probe for non-terminal batches before retention")
+        return None
+    return {row[0] for row in rows}
+
+
+def _cleanup_old_s3_extractions(
+    today: date,
+    errors: list[str],
+    blocked_dates: AbstractSet[date] | None = frozenset(),
+) -> list[str]:
+    """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS.
+
+    ``blocked_dates`` holds dates whose batches are still non-terminal — their
+    payloads must survive until the work resolves. None means the probe failed,
+    so nothing is deleted this run.
+    """
     from products.data_warehouse.backend.facade.api import get_s3_client
+
+    deleted: list[str] = []
+    if blocked_dates is None:
+        return deleted
 
     s3 = get_s3_client()
     base_prefix = f"{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract"
     cutoff = today - timedelta(days=RETENTION_DAYS)
-    deleted: list[str] = []
 
     try:
         entries = s3.ls(base_prefix)
@@ -149,7 +210,7 @@ def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
             partition_date = date.fromisoformat(name[3:])
         except ValueError:
             continue
-        if partition_date < cutoff:
+        if partition_date < cutoff and partition_date not in blocked_dates:
             try:
                 s3.delete(entry, recursive=True)
                 deleted.append(name)

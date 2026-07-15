@@ -52,6 +52,14 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
 FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
 
+# Warn-before-destruction window. Queue partitions and their S3 extraction
+# payloads are dropped after RETENTION_DAYS (7d, see
+# posthog/temporal/warehouse_sources_queue_partition_management/activities.py),
+# after which an unloaded batch is unrecoverable. Runs with non-terminal batches
+# older than this are surfaced loudly so an operator can recover or fail them
+# before the cliff. Must stay comfortably below the retention period.
+RETENTION_WARNING_AGE_SECONDS = 5 * 24 * 60 * 60
+
 
 def pending_batch_select_columns(status_alias: str) -> str:
     return f"""
@@ -361,6 +369,18 @@ class RunActivitySummary:
     # Ages behind the staleness verdict, surfaced so takeover logs are diagnosable.
     last_status_write_age_seconds: float | None = None
     oldest_unclaimed_age_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExpiringRunRef:
+    """A run with non-terminal batches old enough to be nearing queue retention."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    oldest_created_at: datetime
+    non_terminal_batches: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -911,6 +931,42 @@ class BatchQueue:
         if row is None or row[0] is None:
             return None
         return float(row[0])
+
+    @staticmethod
+    async def get_runs_nearing_retention(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        older_than_seconds: int = RETENTION_WARNING_AGE_SECONDS,
+        limit: int = 50,
+    ) -> list[ExpiringRunRef]:
+        """Runs with non-terminal batches older than ``older_than_seconds`` — work about to
+        age past queue retention and be destroyed with its S3 payloads.
+
+        Read from the denormalized state columns and bounded to the pruning window,
+        so the scan touches only the oldest retained partitions.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT
+                    b.run_uuid,
+                    MAX(b.job_id) AS job_id,
+                    b.team_id,
+                    b.schema_id,
+                    MIN(b.created_at) AS oldest_created_at,
+                    COUNT(*) AS non_terminal_batches
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND b.created_at <= now() - make_interval(secs => %(age)s)
+                  AND b.latest_state IN ('pending', 'waiting', 'executing', 'waiting_retry')
+                GROUP BY b.run_uuid, b.team_id, b.schema_id
+                ORDER BY oldest_created_at ASC
+                LIMIT %(limit)s
+                """,
+                {"age": older_than_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+        return [ExpiringRunRef(**row) for row in rows]
 
     @staticmethod
     async def unlock_for_batches(

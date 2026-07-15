@@ -1105,3 +1105,47 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetRunsNearingRetention:
+    # Guards the pre-destruction warning: partition retention drops batch rows and
+    # their S3 payloads unconditionally, so a filter regression here (age direction,
+    # state set) silences the only advance signal of that data loss.
+
+    async def _backdate(self, conn, batch_id: str, days: int) -> None:
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(days => %s) WHERE id = %s",
+            (days, batch_id),
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_only_old_non_terminal_runs(self, conn):
+        old_pending = await _insert_batch(conn, run_uuid="run-old-pending", schema_id="s-a", batch_index=0)
+        await self._backdate(conn, old_pending, days=6)
+
+        old_retry = await _insert_batch(conn, run_uuid="run-old-retry", schema_id="s-b", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=old_retry, job_state="waiting_retry", attempt=1)
+        await self._backdate(conn, old_retry, days=6)
+
+        old_done = await _insert_batch(conn, run_uuid="run-old-done", schema_id="s-c", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=old_done, job_state="succeeded", attempt=1)
+        await self._backdate(conn, old_done, days=6)
+
+        await _insert_batch(conn, run_uuid="run-fresh", schema_id="s-d", batch_index=0)
+
+        expiring = await BatchQueue.get_runs_nearing_retention(conn, older_than_seconds=5 * 24 * 60 * 60)
+
+        assert sorted(ref.run_uuid for ref in expiring) == ["run-old-pending", "run-old-retry"]
+
+    @pytest.mark.asyncio
+    async def test_groups_batches_per_run(self, conn):
+        for index in range(3):
+            batch_id = await _insert_batch(conn, run_uuid="run-old", schema_id="s-a", batch_index=index)
+            await self._backdate(conn, batch_id, days=6)
+
+        expiring = await BatchQueue.get_runs_nearing_retention(conn, older_than_seconds=5 * 24 * 60 * 60)
+
+        assert len(expiring) == 1
+        assert expiring[0].run_uuid == "run-old"
+        assert expiring[0].non_terminal_batches == 3

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -18,15 +19,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
+    ExpiringRunRef,
     FailedRunRef,
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    RUNS_NEARING_RETENTION,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -1683,3 +1687,85 @@ class TestBatchHeartbeat:
         # blip -> continue; renewed -> status refresh; lease lost -> stop
         assert renew.await_count == 3
         refresh.assert_awaited_once()
+
+
+class TestRunsNearingRetentionProbe:
+    # The gauge and error log are the only advance warning before partition
+    # retention destroys unloaded batches with their S3 payloads; dropping the
+    # probe from the reconcile sweep makes that data loss silent again.
+
+    @pytest.mark.asyncio
+    async def test_reconcile_reports_runs_nearing_retention(self):
+        consumer = _make_consumer()
+        ref = ExpiringRunRef(
+            run_uuid="run-1",
+            job_id="job-1",
+            team_id=1,
+            schema_id="schema-1",
+            oldest_created_at=datetime.now(UTC) - timedelta(days=6),
+            non_terminal_batches=2,
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_runs_nearing_retention",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert RUNS_NEARING_RETENTION._value.get() == 1
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_does_not_break_the_reconcile_sweep(self):
+        consumer = _make_consumer()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_runs_nearing_retention",
+                new_callable=AsyncMock,
+                side_effect=Exception("probe exploded"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_failed_runs,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_failed_runs.assert_called_once()
+
+
+class TestIsRetryableError:
+    # A dropped pattern silently reverts a permanent error (deleted schema/job,
+    # data that can never fit) to burning all retry attempts before failing.
+
+    @pytest.mark.parametrize(
+        ("message", "retryable"),
+        [
+            ("value is too large to store in a Decimal128 of precision 24", False),
+            ("Primary key required for incremental syncs", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            ("ExternalDataJob matching query does not exist.", False),
+            ("connection reset by peer", True),
+        ],
+    )
+    def test_pattern_classification(self, message: str, retryable: bool):
+        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable
