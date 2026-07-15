@@ -789,9 +789,8 @@ export function Quickstart(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-8 pb-4">
-            {/* Full-bleed: cancel the scene container's margin so the header hugs the viewport edges */}
-            <section className="border-b bg-surface-secondary flex items-stretch gap-6 overflow-hidden mx-[calc(var(--scene-padding)*-1)] mt-[calc(var(--scene-padding)*-1)]">
+        <div className="flex flex-col gap-8 py-4">
+            <section className="rounded-lg border-transparent shadow-sm bg-surface-secondary flex items-stretch gap-6 overflow-hidden">
                 <HeroImageCycler />
                 <div className="flex flex-col justify-center gap-3 min-w-0 flex-1 p-4 md:p-6 md:pl-0">
                     <div>
