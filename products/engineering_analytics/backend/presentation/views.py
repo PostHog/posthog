@@ -52,6 +52,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     RunFailureLogsSerializer,
     TeamCIActivitySerializer,
     TeamCIHealthListSerializer,
+    TeamMergeTrendSerializer,
     WorkflowCostSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobAggregateSerializer,
@@ -1058,6 +1059,57 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, or source_id")
         return Response(TeamCIActivitySerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_team_merge_trend",
+        parameters=[
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Team slug to scope to (as returned by team_ci_health), matched against the "
+                "GitHub org team slug of the source's team_members snapshot.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
+                "may span at most 30 days.",
+            ),
+            _DATE_TO,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: TeamMergeTrendSerializer,
+            400: OpenApiResponse(
+                description="Missing owner_team, invalid date or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "One team's daily time-to-merge trend: median open→merge seconds of PRs merged by the team's "
+            "members (PR author login → GitHub org team membership), beside the repo-wide median as the "
+            "baseline. Team-level medians only — never per-member figures or cross-team rankings. Timing is "
+            "the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub "
+            "source's team_members snapshot; has_membership_data is false without it."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def team_merge_trend(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_team_merge_trend(
+                team=self.team,
+                owner_team=request.query_params.get("owner_team") or "",
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid owner_team, date, or source_id")
+        return Response(TeamMergeTrendSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_broken_tests",

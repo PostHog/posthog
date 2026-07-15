@@ -33,6 +33,7 @@ import type {
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsTeamCiActivityParams,
     EngineeringAnalyticsTeamCiHealthParams,
+    EngineeringAnalyticsTeamMergeTrendParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
@@ -52,6 +53,7 @@ import type {
     RunFailureLogsApi,
     TeamCIActivityApi,
     TeamCIHealthListApi,
+    TeamMergeTrendApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -713,6 +715,39 @@ export const engineeringAnalyticsTeamCiHealth = async (
     options?: RequestInit
 ): Promise<TeamCIHealthListApi> => {
     return apiMutator<TeamCIHealthListApi>(getEngineeringAnalyticsTeamCiHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsTeamMergeTrendUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/team_merge_trend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/team_merge_trend/`
+}
+
+/**
+ * One team's daily time-to-merge trend: median open→merge seconds of PRs merged by the team's members (PR author login → GitHub org team membership), beside the repo-wide median as the baseline. Team-level medians only — never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
+ */
+export const engineeringAnalyticsTeamMergeTrend = async (
+    projectId: string,
+    params: EngineeringAnalyticsTeamMergeTrendParams,
+    options?: RequestInit
+): Promise<TeamMergeTrendApi> => {
+    return apiMutator<TeamMergeTrendApi>(getEngineeringAnalyticsTeamMergeTrendUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

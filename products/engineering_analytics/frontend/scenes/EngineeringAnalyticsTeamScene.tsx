@@ -27,6 +27,13 @@ import { TeamTestSlopeChart } from '../components/TeamTestSlopeChart'
 import { TeamDailyPoint, TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import { TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
 
+// The two merge-trend lines, defined once for the series and the static legend (identity is
+// never color-alone). The team line carries the accent; the repo baseline stays muted context.
+const MERGE_SERIES = [
+    { label: 'This team', color: 'data-color-1', colorVar: 'var(--data-color-1)' },
+    { label: 'Repo baseline', color: 'muted', colorVar: 'var(--muted)' },
+]
+
 export const scene: SceneExport<TeamDetailLogicProps> = {
     component: EngineeringAnalyticsTeamScene,
     logic: teamDetailLogic,
@@ -54,8 +61,18 @@ const DAILY_SERIES: {
 ]
 
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
-    const { activity, activityLoading, rosterRow, rosterRowLoading, filledDays, window, ownerTeam } =
-        useValues(teamDetailLogic)
+    const {
+        activity,
+        activityLoading,
+        rosterRow,
+        rosterRowLoading,
+        mergeTrend,
+        mergeTrendLoading,
+        filledMergePoints,
+        filledDays,
+        window,
+        ownerTeam,
+    } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
 
     const labels = WINDOW_LABELS[window]
@@ -197,6 +214,67 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     loading={rosterRowLoading}
                 />
             </div>
+
+            {!isUnowned && (
+                <Section
+                    id="team-merge-trend"
+                    title="Time to merge"
+                    note="Median open→merge of PRs merged by this team's members each day, beside the repo-wide median. Coarse timing (draft + review combined); bots excluded; team-level medians only."
+                    busy={mergeTrendLoading}
+                >
+                    {filledMergePoints.length ? (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-4 text-xs text-secondary">
+                                {MERGE_SERIES.map(({ label, colorVar }) => (
+                                    <span key={label} className="flex items-center gap-1.5">
+                                        <span
+                                            className="inline-block size-2 rounded-full"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: colorVar }}
+                                        />
+                                        {label}
+                                    </span>
+                                ))}
+                            </div>
+                            <Sparkline
+                                className="h-32 w-full"
+                                type="line"
+                                data={[
+                                    {
+                                        name: MERGE_SERIES[0].label,
+                                        color: MERGE_SERIES[0].color,
+                                        // NaN gaps the line on days the team merged nothing — zero would read as instant merges.
+                                        values: filledMergePoints.map((p) =>
+                                            p.teamMedianSeconds !== null ? p.teamMedianSeconds / 3600 : NaN
+                                        ),
+                                    },
+                                    {
+                                        name: MERGE_SERIES[1].label,
+                                        color: MERGE_SERIES[1].color,
+                                        values: filledMergePoints.map((p) =>
+                                            p.repoMedianSeconds !== null ? p.repoMedianSeconds / 3600 : NaN
+                                        ),
+                                    },
+                                ]}
+                                labels={filledMergePoints.map((p) => dayjs(p.day).format('MMM D'))}
+                                renderLabel={(label) => label}
+                                renderTooltipValue={(value) =>
+                                    Number.isNaN(value) ? 'no merges' : `${humanFriendlyNumber(value, 1)} h`
+                                }
+                            />
+                        </div>
+                    ) : mergeTrend && !mergeTrend.hasMembershipData ? (
+                        <div className="flex h-32 items-center text-xs text-secondary">
+                            No team membership data. Sync the GitHub source's team_members endpoint (needs the org
+                            Members read grant) to attribute merges to teams.
+                        </div>
+                    ) : (
+                        <div className="flex h-32 items-center text-xs text-secondary">
+                            No merged PRs in this window.
+                        </div>
+                    )}
+                </Section>
+            )}
 
             <Section
                 id="team-trend"

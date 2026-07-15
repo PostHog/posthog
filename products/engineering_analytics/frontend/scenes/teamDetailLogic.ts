@@ -4,9 +4,13 @@ import { loaders } from 'kea-loaders'
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamCiHealth } from '../generated/api'
+import {
+    engineeringAnalyticsTeamCiActivity,
+    engineeringAnalyticsTeamCiHealth,
+    engineeringAnalyticsTeamMergeTrend,
+} from '../generated/api'
 import type { teamDetailLogicType } from './teamDetailLogicType'
-import { TeamCIHealthRow, TeamsWindow } from './teamsLogic'
+import { TeamCIHealthRow, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -33,6 +37,19 @@ export interface TeamActivityData {
     days: TeamDailyPoint[]
     tests: TeamTestSignalRow[]
     truncatedTests: boolean
+}
+
+export interface TeamMergePoint {
+    day: string
+    teamMedianSeconds: number | null
+    teamMergedCount: number
+    repoMedianSeconds: number | null
+    repoMergedCount: number
+}
+
+export interface TeamMergeTrendData {
+    hasMembershipData: boolean
+    points: TeamMergePoint[]
 }
 
 const WINDOW_DAYS: Record<TeamsWindow, number> = { '-24h': 1, '-7d': 7, '-14d': 14, '-30d': 30 }
@@ -71,6 +88,31 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                             lastSeenAt: t.last_seen_at,
                         })),
                         truncatedTests: data.truncated_tests,
+                    }
+                },
+            },
+        ],
+        mergeTrend: [
+            null as TeamMergeTrendData | null,
+            {
+                loadMergeTrend: async (): Promise<TeamMergeTrendData | null> => {
+                    // 'unowned' is an ownership gap, not an org team — a membership join has no meaning there.
+                    if (props.ownerTeam === UNOWNED_TEAM) {
+                        return null
+                    }
+                    const data = await engineeringAnalyticsTeamMergeTrend(projectId(), {
+                        owner_team: props.ownerTeam,
+                        date_from: values.window,
+                    })
+                    return {
+                        hasMembershipData: data.has_membership_data,
+                        points: data.points.map((p) => ({
+                            day: p.day,
+                            teamMedianSeconds: p.team_median_seconds ?? null,
+                            teamMergedCount: p.team_merged_count,
+                            repoMedianSeconds: p.repo_median_seconds ?? null,
+                            repoMergedCount: p.repo_merged_count,
+                        })),
                     }
                 },
             },
@@ -120,15 +162,43 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                 return days
             },
         ],
+        /** Merge-trend points across every day in the window; a day without merges keeps null medians
+         *  so the lines gap honestly instead of dropping to zero. */
+        filledMergePoints: [
+            (s) => [s.mergeTrend, s.window],
+            (mergeTrend: TeamMergeTrendData | null, window: TeamsWindow): TeamMergePoint[] => {
+                if (!mergeTrend?.hasMembershipData) {
+                    return []
+                }
+                const byDay = new Map(mergeTrend.points.map((p) => [dayjs(p.day).format('YYYY-MM-DD'), p]))
+                const points: TeamMergePoint[] = []
+                const start = dayjs().subtract(WINDOW_DAYS[window] - 1, 'day')
+                for (let i = 0; i < WINDOW_DAYS[window]; i++) {
+                    const day = start.add(i, 'day').format('YYYY-MM-DD')
+                    points.push(
+                        byDay.get(day) ?? {
+                            day,
+                            teamMedianSeconds: null,
+                            teamMergedCount: 0,
+                            repoMedianSeconds: null,
+                            repoMergedCount: 0,
+                        }
+                    )
+                }
+                return points
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         setWindow: () => {
             actions.loadActivity()
             actions.loadRosterRow()
+            actions.loadMergeTrend()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadActivity()
         actions.loadRosterRow()
+        actions.loadMergeTrend()
     }),
 ])

@@ -623,6 +623,34 @@ class TeamCIActivity:
 
 
 @dataclass(frozen=True)
+class TeamMergeTrendPoint:
+    """One day of merged-PR timing: the team's median open→merge (via GitHub team membership)
+    beside the repo-wide median over the same merged PRs. Medians are None on a day the
+    respective group merged nothing; counts say how many merges back each median.
+    """
+
+    day: datetime
+    team_median_seconds: float | None
+    team_merged_count: int
+    repo_median_seconds: float | None
+    repo_merged_count: int
+
+
+@dataclass(frozen=True)
+class TeamMergeTrend:
+    """A team's time-to-merge trend over the window. Attribution is PR author login →
+    GitHub org team membership (the ``team_members`` snapshot); only team-level medians
+    are surfaced — never per-member figures or cross-team rankings (SPEC §2/§7).
+    """
+
+    owner_team: str
+    # False when the source has no team_members snapshot synced — the chart has no honest
+    # team attribution, as opposed to "synced but this team merged nothing".
+    has_membership_data: bool
+    points: list[TeamMergeTrendPoint]
+
+
+@dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that

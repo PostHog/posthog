@@ -44,11 +44,13 @@ from posthog.storage import object_storage
 
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
+    TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
+    TEAM_MEMBERS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -252,20 +254,26 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
     return demo_runs
 
 
+# Merged PRs re-spread across two weeks so the 14d merge-trend and cost-per-merge charts have a
+# point in every bucket (the synthetic master stream keeps its own shorter _MASTER_DAYS window).
+_MERGE_SPREAD_DAYS = 14
+
+
 def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
     # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day —
-    # the cost-per-merge trend then collapses into a single bucket. Re-spread merged PRs evenly across
-    # the seeded window (deterministic, index arithmetic) so the trend has a divisor in every bucket.
-    span_hours = _MASTER_DAYS * 24
+    # the cost-per-merge and time-to-merge trends then collapse into a single bucket. Re-spread merged
+    # PRs evenly across the seeded window and derive created_at backwards from a realistic duration mix
+    # (mostly hours-to-two-days, an occasional week-long tail) — clamping merged_at forward against the
+    # snapshot's created_at instead would pile every merge on the capture day at a constant duration.
+    span_hours = _MERGE_SPREAD_DAYS * 24
     merged = [pr for pr in prs if pr.get("merged_at")]
     for index, pr in enumerate(merged):
         merged_at = anchor - timedelta(hours=(index * 11) % span_hours, minutes=(index * 13) % 60)
-        created_raw = pr.get("created_at")
-        if created_raw:
-            created = datetime.fromisoformat(created_raw)
-            if merged_at < created:
-                merged_at = created + timedelta(hours=1)
+        open_hours = 3 + (index * 17) % 45  # 3h–2d for most PRs...
+        if index % 9 == 4:
+            open_hours += 24 * (2 + index % 5)  # ...with a 2–6 day review tail on some
         pr["merged_at"] = merged_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        pr["created_at"] = (merged_at - timedelta(hours=open_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _demo_multi_push(
@@ -575,6 +583,44 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
 ]
 
 
+# GitHub org team membership for the merge-trend join (PR author login → team slug). Fixture
+# authors are assigned deterministically across the roster teams (no random, stable between
+# runs); local-seed only, so the mapping is synthetic — it exists to light up the per-team
+# time-to-merge chart against real PR merge data.
+_GITHUB_TEAM_SLUGS = [slug for slug, _, _ in _SPAN_TEAMS if slug]
+
+
+def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged_counts: dict[str, int] = {}
+    for pr in prs:
+        login = (pr.get("user") or {}).get("login") or ""
+        if login:
+            merged_counts[login] = merged_counts.get(login, 0) + (1 if pr.get("merged_at") else 0)
+    # Deal authors across teams round-robin in merge-volume order, so every team gets a share of
+    # active mergers instead of hash luck leaving some team lines empty. A scattered second
+    # membership mirrors how org teams really overlap and thickens each team's series.
+    logins = sorted(merged_counts, key=lambda login: (-merged_counts[login], login))
+    team_count = len(_GITHUB_TEAM_SLUGS)
+    rows: list[dict[str, Any]] = []
+    for member_index, login in enumerate(logins):
+        primary = member_index % team_count
+        secondary = (member_index * 7 + 3) % team_count
+        for slot, team_index in enumerate((primary, secondary)):
+            if slot and team_index == primary:
+                continue
+            slug = _GITHUB_TEAM_SLUGS[team_index]
+            rows.append(
+                {
+                    "id": 900_000 + member_index,
+                    "login": login,
+                    "team_id": team_index + 1,
+                    "team_slug": slug,
+                    "team_name": slug.removeprefix("team-").replace("-", " ").title(),
+                }
+            )
+    return rows
+
+
 def _seed_trace_spans(team: Team) -> int:
     anchor = timezone.now().replace(microsecond=0)
     rows: list[str] = []
@@ -721,6 +767,10 @@ class Command(BaseCommand):
             jobs = _synthesize_jobs(runs)
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
+            )
+            # Synthetic author→team membership backing the per-team time-to-merge trend.
+            self._upsert_schema_table(
+                team, source, credential, prefix, TEAM_MEMBERS_SCHEMA, TEAM_MEMBERS_COLUMNS, _team_membership_rows(prs)
             )
 
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.

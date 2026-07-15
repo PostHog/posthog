@@ -170,6 +170,9 @@ tools:
     engineering-analytics-team-ci-activity:
         operation: engineering_analytics_team_ci_activity
         enabled: false
+    engineering-analytics-team-merge-trend:
+        operation: engineering_analytics_team_merge_trend
+        enabled: false
     engineering-analytics-team-ci-health:
         operation: engineering_analytics_team_ci_health
         enabled: true

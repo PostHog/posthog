@@ -47,6 +47,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIDailyCount,
     TeamCIHealthItem,
     TeamCIHealthList,
+    TeamMergeTrend,
+    TeamMergeTrendPoint,
     TeamTestSignal,
     TimeToGreenBucket,
     WorkflowCost,
@@ -549,6 +551,42 @@ class TeamCIActivitySerializer(DataclassSerializer):
         extra_kwargs = {
             "owner_team": {"help_text": "The team slug this activity is scoped to, or 'unowned'."},
             "truncated_tests": {"help_text": "True when more owned tests had signal than the test cap."},
+        }
+
+
+class TeamMergeTrendPointSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TeamMergeTrendPoint
+        extra_kwargs = {
+            "day": {"help_text": "Start of the day bucket (team timezone), keyed on merged_at."},
+            "team_median_seconds": {
+                "help_text": "Median open→merge seconds of PRs merged that day by members of this team; "
+                "null on a day the team merged nothing.",
+            },
+            "team_merged_count": {"help_text": "Merged PRs behind the team median that day."},
+            "repo_median_seconds": {
+                "help_text": "Median open→merge seconds of every non-bot PR merged that day — the repo "
+                "baseline the team line compares against; null on a day nothing merged.",
+            },
+            "repo_merged_count": {"help_text": "Merged PRs behind the repo median that day."},
+        }
+
+
+class TeamMergeTrendSerializer(DataclassSerializer):
+    points = TeamMergeTrendPointSerializer(
+        many=True,
+        help_text="Daily median open→merge for the team beside the repo baseline, ascending by day. "
+        "Coarse timing (open→merge combines draft and review time); bots excluded.",
+    )
+
+    class Meta:
+        dataclass = TeamMergeTrend
+        extra_kwargs = {
+            "owner_team": {"help_text": "The team slug this trend is scoped to."},
+            "has_membership_data": {
+                "help_text": "False when the GitHub source has no team_members snapshot synced — the trend "
+                "then has no honest team attribution and `points` is empty.",
+            },
         }
 
 

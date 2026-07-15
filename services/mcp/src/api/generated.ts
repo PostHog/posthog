@@ -59739,6 +59739,34 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface TeamMergeTrendPoint {
+      /** Start of the day bucket (team timezone), keyed on merged_at. */
+      day: string;
+      /**
+         * Median open→merge seconds of PRs merged that day by members of this team; null on a day the team merged nothing.
+         * @nullable
+         */
+      team_median_seconds: number | null;
+      /** Merged PRs behind the team median that day. */
+      team_merged_count: number;
+      /**
+         * Median open→merge seconds of every non-bot PR merged that day — the repo baseline the team line compares against; null on a day nothing merged.
+         * @nullable
+         */
+      repo_median_seconds: number | null;
+      /** Merged PRs behind the repo median that day. */
+      repo_merged_count: number;
+    }
+
+    export interface TeamMergeTrend {
+      /** Daily median open→merge for the team beside the repo baseline, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
+      points: TeamMergeTrendPoint[];
+      /** The team slug this trend is scoped to. */
+      owner_team: string;
+      /** False when the GitHub source has no team_members snapshot synced — the trend then has no honest team attribution and `points` is empty. */
+      has_membership_data: boolean;
+    }
+
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {
@@ -70388,6 +70416,25 @@ export namespace Schemas {
      * A test counts as flaky once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
      */
     min_rerun_passes?: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsTeamMergeTrendParams = {
+    /**
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot.
+     */
+    owner_team: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

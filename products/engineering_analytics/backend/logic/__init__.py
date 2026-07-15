@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunFailureLogs,
     TeamCIActivity,
     TeamCIHealthList,
+    TeamMergeTrend,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
@@ -78,6 +79,7 @@ from products.engineering_analytics.backend.logic.queries.team_ci_health import 
     query_team_ci_activity,
     query_team_ci_health,
 )
+from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -398,6 +400,27 @@ def build_team_ci_activity(
         date_from=parsed_from,
         date_to=parsed_to,
         test_limit=test_limit,
+    )
+
+
+def build_team_merge_trend(
+    *,
+    curated: CuratedGitHubSource,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> TeamMergeTrend:
+    normalized_team = owner_team.strip()
+    if not normalized_team:
+        raise ValueError("owner_team is required")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    return query_team_merge_trend(
+        curated=curated,
+        owner_team=normalized_team,
+        date_from=parsed_from,
+        date_to=parsed_to,
     )
 
 
