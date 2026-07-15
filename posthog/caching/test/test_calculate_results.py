@@ -6,9 +6,11 @@ from unittest.mock import patch
 import orjson
 
 from posthog.schema import (
+    CachedMarketingAnalyticsAggregatedQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
     CachedRetentionQueryResponse,
     CachedTrendsQueryResponse,
+    HogQueryResponse,
     MarketingAnalyticsItem,
     RetentionResult,
 )
@@ -67,6 +69,27 @@ class TestCalculateForQueryBasedInsight(BaseTest):
 
         assert isinstance(insight_result.result[0][0], dict)
         assert insight_result.result[0][0]["key"] == "spend"
+
+    def test_dict_shaped_results_keep_their_shape_with_models_dumped(self):
+        response = CachedMarketingAnalyticsAggregatedQueryResponse(
+            results={"spend": MarketingAnalyticsItem(key="spend", kind="unit", value=1.0)},
+            is_cached=True,
+            last_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            next_allowed_client_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            cache_key="key",
+            timezone="UTC",
+        )
+
+        insight_result = self._calculate(response)
+
+        assert isinstance(insight_result.result, dict)
+        assert isinstance(insight_result.result["spend"], dict)
+        assert insight_result.result["spend"]["key"] == "spend"
+
+    def test_scalar_results_pass_through(self):
+        insight_result = self._calculate(HogQueryResponse(results="ERROR: nope"))
+
+        assert insight_result.result == "ERROR: nope"
 
     def test_plain_dict_results_pass_through_without_copying(self):
         series = {"data": [1.0, 2.0], "label": "series", "action": {"order": 0}}

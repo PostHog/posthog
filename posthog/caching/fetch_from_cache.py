@@ -39,18 +39,21 @@ class SplitCachedResponse:
     """Whether any series/step in results carries a non-null custom_name (so a cache hit may need patching)."""
 
 
+def _item_has_custom_name(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if item.get("custom_name") is not None:
+        return True
+    action = item.get("action")
+    return isinstance(action, dict) and action.get("custom_name") is not None
+
+
 def results_have_custom_names(results: list) -> bool:
     for item in results:
-        if isinstance(item, dict):
-            if item.get("custom_name") is not None:
-                return True
-            action = item.get("action")
-            if isinstance(action, dict) and action.get("custom_name") is not None:
-                return True
-        elif isinstance(item, list):
-            for step in item:
-                if isinstance(step, dict) and step.get("custom_name") is not None:
-                    return True
+        if _item_has_custom_name(item):
+            return True
+        if isinstance(item, list) and any(_item_has_custom_name(step) for step in item):
+            return True
     return False
 
 

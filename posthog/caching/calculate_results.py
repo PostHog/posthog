@@ -11,7 +11,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import ExecutionMode, RawCachedQueryResponse, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
@@ -36,20 +36,22 @@ def _model_field_as_dict(model: BaseModel, field: str) -> Optional[dict]:
     return value
 
 
-def _list_item_as_dict(item: Any) -> Any:
-    if isinstance(item, BaseModel):
-        return item.model_dump(by_alias=True)
-    if isinstance(item, list):
-        # e.g. funnel-breakdown / marketing-analytics results are lists of lists of items
-        return [inner.model_dump(by_alias=True) if isinstance(inner, BaseModel) else inner for inner in item]
-    return item
+def _dump_nested_models(value: Any) -> Any:
+    """Container-preserving conversion of pydantic models to dicts (lists, dicts, scalars pass through)."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(by_alias=True)
+    if isinstance(value, list):
+        return [_dump_nested_models(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _dump_nested_models(item) for key, item in value.items()}
+    return value
 
 
 def _model_list_field_as_dicts(model: BaseModel, field: str) -> Optional[list]:
     value = getattr(model, field, None)
     if value is None:
         return None
-    return [_list_item_as_dict(item) for item in value]
+    return [item.model_dump(by_alias=True) if isinstance(item, BaseModel) else item for item in value]
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
@@ -143,16 +145,21 @@ def calculate_for_query_based_insight(
         # Pull fields off the model instead, converting just the small nested models to dicts
         # (which is what model_dump produced before). The response class may not carry every
         # field (legacy insights shape), hence the getattr defaults.
-        return InsightResult(
+        if raw_results is not None:
             # orjson.Fragment embeds the cached results bytes into the JSON response as-is,
             # skipping the parse/re-serialize round trip. Callers passing allow_raw_results
-            # guarantee the result feeds an orjson renderer. The parsed path must convert
-            # model-typed result items (e.g. RetentionResult, PathsLink) to dicts like
-            # model_dump did — DRF's JSON encoder would otherwise mangle them into
-            # (field, value) tuple arrays.
-            result=orjson.Fragment(raw_results)
-            if raw_results is not None
-            else _model_list_field_as_dicts(process_response, "results"),
+            # guarantee the result feeds an orjson renderer.
+            result: Any = orjson.Fragment(raw_results)
+        else:
+            result = getattr(process_response, "results", None)
+            if result is not None and response_results_contain_models(type(process_response)):
+                # Model-typed results (e.g. RetentionResult, PathsLink) must be dumped to dicts
+                # like model_dump did — DRF's JSON encoder would otherwise mangle them into
+                # (field, value) tuple arrays. Results whose annotation is plain data (the huge
+                # trends/funnels payloads, or scalar/dict-shaped results) pass through untouched.
+                result = _dump_nested_models(result)
+        return InsightResult(
+            result=result,
             has_more=getattr(process_response, "hasMore", None),
             columns=getattr(process_response, "columns", None),
             last_refresh=getattr(process_response, "last_refresh", None),

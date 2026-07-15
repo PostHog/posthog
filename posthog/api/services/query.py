@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional, overload
 
 import structlog
 import pydantic_core
@@ -55,6 +55,52 @@ class RawCachedQueryResponse:
 
     response: BaseModel
     raw_results: bytes
+
+
+# The overloads keep the public contract at `dict | BaseModel` for the vast majority of
+# callers: only allow_raw_results=True can produce a RawCachedQueryResponse.
+@overload
+def process_query_dict(
+    team: Team,
+    query_json: dict,
+    *,
+    dashboard_filters_json: Optional[dict] = ...,
+    variables_override_json: Optional[dict] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: Literal[False] = ...,
+) -> dict | BaseModel: ...
+
+
+@overload
+def process_query_dict(
+    team: Team,
+    query_json: dict,
+    *,
+    dashboard_filters_json: Optional[dict] = ...,
+    variables_override_json: Optional[dict] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
 def process_query_dict(
@@ -129,6 +175,50 @@ def process_query_dict(
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
     )
+
+
+@overload
+def process_query_model(
+    team: Team,
+    query: BaseModel,
+    *,
+    dashboard_filters: Optional[DashboardFilter] = ...,
+    variables_override: Optional[list[HogQLVariable]] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: Literal[False] = ...,
+) -> dict | BaseModel: ...
+
+
+@overload
+def process_query_model(
+    team: Team,
+    query: BaseModel,
+    *,
+    dashboard_filters: Optional[DashboardFilter] = ...,
+    variables_override: Optional[list[HogQLVariable]] = ...,
+    limit_context: Optional[LimitContext] = ...,
+    execution_mode: ExecutionMode = ...,
+    user: Optional[User] = ...,
+    user_access_control: Optional[UserAccessControl] = ...,
+    query_id: Optional[str] = ...,
+    insight_id: Optional[int] = ...,
+    dashboard_id: Optional[int] = ...,
+    is_query_service: bool = ...,
+    cache_age_seconds: Optional[int] = ...,
+    pagination_cursor: Optional[str] = ...,
+    analytics_props: Optional[AnalyticsProps] = ...,
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
 def process_query_model(

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
@@ -211,6 +212,28 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
         "query_type": getattr(query, "kind", "Other"),
         "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
     }
+
+
+def _annotation_mentions_base_model(annotation: Any) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, type):
+        return issubclass(annotation, BaseModel)
+    return any(_annotation_mentions_base_model(arg) for arg in get_args(annotation))
+
+
+@cache
+def response_results_contain_models(response_class: type[BaseModel]) -> bool:
+    """Whether the class's `results` annotation can hold pydantic models (e.g. list[RetentionResult]).
+
+    Responses are only ever built by validating plain data (a cached JSON blob, or the dict a fresh
+    calculation was dumped to), so model instances can appear in `results` exactly where the
+    annotation declares a model type — `Any`/`dict[str, Any]` positions stay plain data.
+    """
+    field = response_class.model_fields.get("results")
+    if field is None:
+        return False
+    return _annotation_mentions_base_model(field.annotation)
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -1474,20 +1497,31 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
+        cached_response_candidate: Optional[dict]
         self.raw_cached_results_bytes = None
         raw_results: Optional[bytes] = None
         if self.serve_raw_cached_results:
             # Serving results as raw bytes skips parsing (and later re-serializing) the results
-            # payload. Only safe when the caller opted in AND neither the query nor the cached
-            # results carry custom series names — otherwise apply_series_custom_names below must
-            # be able to patch the parsed results.
+            # payload. Only safe when the caller opted in AND validation of the parsed results
+            # wouldn't add protection (the response class types them as plain data — for
+            # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
+            # the schema-drift check that triggers recomputation) AND neither the query nor
+            # the cached results carry custom series names — otherwise
+            # apply_series_custom_names below must be able to patch the parsed results.
             split_candidate = cache_manager.get_cache_data_split()
-            cached_response_candidate = split_candidate.header if split_candidate is not None else None
-            if split_candidate is not None and split_candidate.results_bytes is not None:
-                if split_candidate.results_have_custom_names or self._query_has_series_custom_names():
-                    cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)  # type: ignore[index]
-                else:
-                    raw_results = split_candidate.results_bytes
+            if split_candidate is None:
+                cached_response_candidate = None
+            else:
+                cached_response_candidate = split_candidate.header
+                if split_candidate.results_bytes is not None:
+                    if (
+                        response_results_contain_models(CachedResponse)
+                        or split_candidate.results_have_custom_names
+                        or self._query_has_series_custom_names()
+                    ):
+                        cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
+                    else:
+                        raw_results = split_candidate.results_bytes
         else:
             cached_response_candidate = cache_manager.get_cache_data()
 
