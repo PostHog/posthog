@@ -54,7 +54,7 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
@@ -1078,6 +1078,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert len(ctx.captured_queries) == baseline_query_count, (
                 f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline_query_count}; "
                 f"adding insights should not grow the per-request query count."
+            )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_listing_insights_with_alerts_does_not_nplus1(self) -> None:
+        url = f"/api/projects/{self.team.id}/insights/?saved=true&limit=30"
+
+        def _create_insight_with_alerts(short_id: str) -> None:
+            insight_id, _ = self.dashboard_api.create_insight(
+                data={"short_id": short_id, "filters": {"events": [{"id": "$pageview"}]}}
+            )
+            threshold = Threshold.objects.create(
+                team=self.team,
+                insight_id=insight_id,
+                created_by=self.user,
+                configuration={"type": "absolute", "bounds": {"upper": 1}},
+            )
+            # one threshold alert and one detector alert — AlertSerializer emits threshold and
+            # subscribed_users per alert, the two relations that regress to per-alert queries
+            for alert_threshold in (threshold, None):
+                alert = AlertConfiguration.objects.create(
+                    team=self.team,
+                    insight_id=insight_id,
+                    created_by=self.user,
+                    name="alert",
+                    threshold=alert_threshold,
+                    condition={"type": "absolute_value"},
+                    config={"type": "TrendsAlertConfig", "series_index": 0},
+                    detector_config=None if alert_threshold else {"type": "zscore", "threshold": 3},
+                )
+                AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
+
+        _create_insight_with_alerts("first")
+        with capture_db_queries() as ctx:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+        baseline = len(ctx.captured_queries)
+
+        for n in range(2, 5):
+            _create_insight_with_alerts(f"insight-{n}")
+            with capture_db_queries() as ctx:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["results"]) == n
+            assert len(ctx.captured_queries) == baseline, (
+                f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline}; "
+                f"adding insights with alerts should not grow the per-request query count."
             )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
