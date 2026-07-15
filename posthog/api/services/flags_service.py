@@ -20,7 +20,9 @@ _FLAGS_SERVICE_SESSION = internal_requests_session()
 
 # Network blips worth a quick retry on non-SDK debug surfaces (opt-in via max_retries).
 # A refused connection or timeout usually clears on the next attempt; a bad response does not.
-_RETRYABLE_FLAGS_SERVICE_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+# Public so callers (e.g. the evaluation_reasons endpoint) can catch exactly this set
+# themselves, rather than the broader RequestException that also covers HTTP errors.
+RETRYABLE_FLAGS_SERVICE_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
 
 # One page of batch evaluation covers up to ~10k persons evaluated sequentially in the
 # service, so this sits above the service's own per-request timeout (120s) rather than
@@ -124,7 +126,9 @@ def get_flags_from_service(
 
     # Only connection errors / timeouts are retried; a non-2xx HTTP response raises
     # HTTPError out of raise_for_status() and propagates immediately (retrying it is pointless).
-    for attempt in range(max_retries + 1):
+    # Clamp a negative max_retries to 0 rather than letting range() go empty and falling
+    # through to the "unreachable" branch below.
+    for attempt in range(max(max_retries, 0) + 1):
         try:
             response = _FLAGS_SERVICE_SESSION.post(
                 f"{flags_service_url}/flags",
@@ -135,7 +139,7 @@ def get_flags_from_service(
             )
             response.raise_for_status()
             return response.json()
-        except _RETRYABLE_FLAGS_SERVICE_EXCEPTIONS:
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS:
             if attempt >= max_retries:
                 raise
             time.sleep(retry_backoff_seconds * (attempt + 1))

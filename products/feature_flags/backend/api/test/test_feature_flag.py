@@ -13481,3 +13481,24 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("error", response.json())
+
+    @parameterized.expand(
+        [
+            ("http_error", requests.exceptions.HTTPError("500 Server Error", response=MagicMock(status_code=500))),
+            ("malformed_json", requests.exceptions.JSONDecodeError("Expecting value", "", 0)),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_returns_502_for_non_retryable_failures(self, _name, exception, mock_get_flags):
+        # A real HTTP error or an unparseable body from the flags service is not a transient
+        # connection blip: it must not be folded into the same 503 used for those, and a
+        # malformed response must not fall through to an unhandled 500 either.
+        mock_get_flags.side_effect = exception
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertIn("error", response.json())

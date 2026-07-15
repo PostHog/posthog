@@ -206,4 +206,44 @@ describe('relatedFeatureFlagsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
     })
+
+    describe('load errors', () => {
+        beforeEach(() => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: [
+                        200,
+                        { results: MOCK_FLAGS, count: MOCK_FLAGS.length },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]: [
+                        503,
+                        { error: 'Feature flag evaluation service is temporarily unavailable. Please try again.' },
+                    ],
+                },
+            })
+            flagsLogic = featureFlagsLogic()
+            flagsLogic.mount()
+            logic = relatedFeatureFlagsLogic({ distinctId: 'test-user' })
+            logic.mount()
+        })
+
+        it('sets loadError on a failed load and clears it once a retry succeeds', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadError).toBe(true)
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/evaluation_reasons`]:
+                        MOCK_EVALUATION_REASONS,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRelatedFeatureFlags()
+            }).toFinishAllListeners()
+
+            expect(logic.values.loadError).toBe(false)
+        })
+    })
 })

@@ -107,6 +107,20 @@ class TestGetFlagsFromServiceRetries(SimpleTestCase):
 
     @patch("posthog.api.services.flags_service.time.sleep")
     @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    def test_negative_max_retries_raises_underlying_error_not_unreachable(self, mock_post, mock_sleep):
+        # range(max_retries + 1) goes empty for a negative max_retries, which used to skip
+        # the loop body entirely and fall through to the "unreachable" RuntimeError instead
+        # of the connection error that actually happened.
+        mock_post.side_effect = requests.exceptions.ConnectionError("refused")
+
+        with self.assertRaises(requests.exceptions.ConnectionError):
+            get_flags_from_service(token="phc_x", distinct_id="user-1", max_retries=-1)
+
+        self.assertEqual(mock_post.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch("posthog.api.services.flags_service.time.sleep")
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
     def test_does_not_retry_http_error_responses(self, mock_post, mock_sleep):
         # A 4xx/5xx is a real response, not a connection blip — retrying it just hammers the service.
         response = MagicMock()

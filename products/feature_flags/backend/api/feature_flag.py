@@ -16,10 +16,10 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import grpc
+import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
-from requests.exceptions import RequestException
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
@@ -34,7 +34,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.services.flags_service import get_flags_from_service
+from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
@@ -3687,6 +3687,10 @@ class FeatureFlagViewSet(
         query_serializer=EvaluationReasonsQuerySerializer,
         responses={
             200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
+            503: OpenApiResponse(
+                response=ErrorResponseSerializer, description="Flag evaluation service temporarily unavailable"
+            ),
         },
         examples=[
             OpenApiExample(
@@ -3732,7 +3736,7 @@ class FeatureFlagViewSet(
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
         # token so the call bypasses per-team billing. Retry the transient
         # connection blips (the service occasionally times out or refuses the
-        # connection) and turn a persistent failure into a clean 503 instead of
+        # connection) and turn a persistent failure into a clean error instead of
         # an unhandled 500, so the person-profile flags tab can show a retry
         # affordance rather than an empty table that looks like "no flags".
         try:
@@ -3745,12 +3749,22 @@ class FeatureFlagViewSet(
                 internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
                 max_retries=2,
             )
-        except RequestException as e:
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
             logger.warning("evaluation_reasons flags service call failed: %s", e)
             capture_exception(e)
             return Response(
                 {"error": "Feature flag evaluation service is temporarily unavailable. Please try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except (requests.exceptions.HTTPError, requests.exceptions.JSONDecodeError) as e:
+            # A non-2xx response or an unparseable body from the flags service — a real
+            # upstream failure, not the "will probably clear on retry" case above, so it
+            # gets its own status rather than being folded into the 503.
+            logger.warning("evaluation_reasons flags service returned an invalid response: %s", e)
+            capture_exception(e)
+            return Response(
+                {"error": "Feature flag evaluation service returned an unexpected response."},
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
