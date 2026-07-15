@@ -13467,3 +13467,17 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("wanted-active", data)
         self.assertIn("wanted-disabled", data)
         self.assertNotIn("other-disabled", data)
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_returns_503_when_flags_service_unreachable(self, mock_get_flags):
+        # A flags-service connection failure must surface as a clean 503 the person-profile
+        # tab can react to, not an unhandled 500 that renders as an empty (looks like "no flags") table.
+        mock_get_flags.side_effect = requests.exceptions.ConnectionError("connection refused")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("error", response.json())

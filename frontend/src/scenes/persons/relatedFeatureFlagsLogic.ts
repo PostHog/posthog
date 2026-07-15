@@ -98,6 +98,16 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 },
             },
         ],
+        // Track whether the evaluation_reasons request failed so the table can show a
+        // retry affordance instead of rendering as an empty (looks like "no flags") list.
+        loadError: [
+            false,
+            {
+                loadRelatedFeatureFlags: () => false,
+                loadRelatedFeatureFlagsSuccess: () => false,
+                loadRelatedFeatureFlagsFailure: () => true,
+            },
+        ],
     }),
     selectors(({ props, selectors }) => ({
         isLoading: [

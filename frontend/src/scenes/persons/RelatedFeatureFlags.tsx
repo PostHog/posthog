@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -143,11 +143,24 @@ const options = [
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    const { filteredMappedFlags, isLoading, searchTerm, filters, pagination } = useValues(relatedFlagsLogic)
-    const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
+    const { filteredMappedFlags, isLoading, searchTerm, filters, pagination, loadError } = useValues(relatedFlagsLogic)
+    const { setSearchTerm, setFilters, loadRelatedFeatureFlags } = useActions(relatedFlagsLogic)
 
     return (
         <>
+            {loadError && !isLoading && (
+                <LemonBanner
+                    type="error"
+                    className="mb-4"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadRelatedFeatureFlags(),
+                    }}
+                >
+                    Failed to load this person's feature flags. The evaluation service may be temporarily
+                    unavailable.
+                </LemonBanner>
+            )}
             <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
@@ -235,6 +248,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 loading={isLoading}
                 dataSource={filteredMappedFlags}
                 pagination={pagination}
+                emptyState={loadError && !isLoading ? 'Could not load feature flags for this person.' : undefined}
             />
         </>
     )
