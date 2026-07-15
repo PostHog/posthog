@@ -111,6 +111,7 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
 REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
+REFRESH_FAILURE_REASON_NETWORK = "network"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
@@ -1362,25 +1363,39 @@ class OauthIntegration:
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
 
-        res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
-        config = self._parse_token_refresh_response(res)
+        res: requests.Response | None = None
+        config: dict = {}
         used_fallback = False
-
-        # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
-        # credentials can refresh. Retry with the fallback pair so they keep working until they reconnect.
-        if (res.status_code != 200 or not config.get("access_token")) and oauth_config.client_secret_fallback:
-            res = self._post_token_refresh(
-                oauth_config,
-                oauth_config.client_id_fallback or oauth_config.client_id,
-                oauth_config.client_secret_fallback,
-            )
+        try:
+            res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
             config = self._parse_token_refresh_response(res)
-            used_fallback = True
 
-        if res.status_code != 200 or not config.get("access_token"):
-            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+            # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
+            # credentials can refresh. Retry with the fallback pair so they keep working until they reconnect.
+            if (res.status_code != 200 or not config.get("access_token")) and oauth_config.client_secret_fallback:
+                res = self._post_token_refresh(
+                    oauth_config,
+                    oauth_config.client_id_fallback or oauth_config.client_id,
+                    oauth_config.client_secret_fallback,
+                )
+                config = self._parse_token_refresh_response(res)
+                used_fallback = True
+        except requests.RequestException as e:
+            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
+            # this the Celery sweep task errors out before recording the failure, so the backoff and
+            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
+            logger.warning(f"Network error refreshing token for {self}", error=str(e))
+
+        if res is None or res.status_code != 200 or not config.get("access_token"):
+            logger.warning(
+                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+            )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            reason = oauth_refresh_failure_reason(res.status_code, config)
+            reason = (
+                oauth_refresh_failure_reason(res.status_code, config)
+                if res is not None
+                else REFRESH_FAILURE_REASON_NETWORK
+            )
             attempt = record_refresh_failure(self.integration, reason=reason)
             oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt

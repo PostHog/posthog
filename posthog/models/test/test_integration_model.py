@@ -643,6 +643,22 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
+    def test_refresh_network_error_marks_failed_without_raising(self, mock_post, mock_reload):
+        # A timeout must not escape refresh_access_token: the Celery sweep would error out before
+        # recording the failure, leaving the integration without a backoff or the reconnect state.
+        mock_post.side_effect = requests.Timeout("timed out")
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(BING_ADS_CLIENT_ID="new-app-id", BING_ADS_CLIENT_SECRET="new-app-secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert integration.config.get("refresh_failure_count") == 1
+        assert integration.config.get("refresh_next_attempt_at")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_post.return_value.status_code = 200
