@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from prometheus_client import CollectorRegistry
 
+from posthog.models.team.team import Team
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
@@ -667,3 +668,22 @@ class TestWarmCachesQuerysetScoping(BaseTest):
         warm_caches(config, batch_size=100, stagger_ttl=False, team_ids=[self.team.id])
 
         assert self.team.id in warmed_team_ids
+
+
+class TestNarrowTeamQueryset(BaseTest):
+    def test_extra_fields_are_selected_alongside_refresh_fields(self):
+        config = HyperCacheManagementConfig(
+            hypercache=create_test_hypercache(),
+            update_fn=lambda team, ttl=None: True,
+            cache_name="test_cache",
+            refresh_only_fields=["id", "project_id", "organization_id"],
+        )
+
+        team = config.narrow_team_queryset(Team.objects.filter(id=self.team.id), extra_fields=("name",)).get()
+
+        deferred = team.get_deferred_fields()
+        # Columns outside the refresh set stay deferred — a SELECT * regression leaves this empty.
+        assert deferred
+        # Neither the refresh fields nor the extra fields are deferred, so reading
+        # team.name never triggers a per-team lazy load.
+        assert deferred & {"id", "project_id", "organization_id", "name"} == set()

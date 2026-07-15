@@ -430,7 +430,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         increment_delivery("slack", "failed")
 
     if not had_any_target:
-        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
+        # Report generated successfully, but no delivery target is configured, so there is nothing to send.
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.GENERATED
     elif all_failed:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.FAILED
     elif all_errors:
