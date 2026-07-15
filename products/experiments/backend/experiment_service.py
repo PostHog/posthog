@@ -590,6 +590,11 @@ class ExperimentService:
         key of the new order. When the current baseline does not survive into
         ``variant_keys``, nothing is pinned — the launch paths pin against the flag's
         final variant set instead.
+
+        Contract: returns ``stats_config`` itself (the same object) when nothing is
+        pinned, and a new dict only when a baseline was pinned. Callers rely on this
+        identity (``result is not stats_config``) to detect a pin — every no-op branch
+        must keep returning the input object, never an equal copy.
         """
         if (stats_config or {}).get("baseline_variant_key"):
             return stats_config
