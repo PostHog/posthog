@@ -1,4 +1,5 @@
 import { Reader } from '@maxmind/geoip2-node'
+import fs from 'fs/promises'
 
 import { PluginsServerConfig } from '~/types'
 
@@ -109,6 +110,28 @@ describe('GeoIp', () => {
 
             // Simulate the background refresh
             await service['backgroundRefreshMmdb']()
+            expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(2)
+            expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-02' })
+        })
+
+        it('should retry the refresh if the initial metadata read timed out', async () => {
+            // Metadata read times out at startup while the mmdb itself loads fine
+            const realReadFile = fs.readFile
+            jest.spyOn(fs, 'readFile').mockImplementation(((path: any, ...args: any[]) =>
+                String(path).endsWith('.json')
+                    ? Promise.reject(new MmdbLoadTimeoutError(String(path)))
+                    : (realReadFile as any)(path, ...args)) as any)
+
+            const geoip = await service.get()
+            commonCheck(geoip)
+            expect(service['_mmdbMetadata']).toBeUndefined()
+
+            // The mount recovered: metadata is readable again, so the refresh must run
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-02',
+            })
+            await service['backgroundRefreshMmdb']()
+
             expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(2)
             expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-02' })
         })

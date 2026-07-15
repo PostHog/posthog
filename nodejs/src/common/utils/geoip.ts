@@ -62,6 +62,7 @@ export class GeoIPService {
     private _initialMmdbPromise?: Promise<void>
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
+    private _mmdbMetadataTimedOut = false
 
     constructor(private mmdbFileLocation: string) {
         logger.info('🌎', 'GeoIPService created')
@@ -125,8 +126,15 @@ export class GeoIPService {
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
         const metadataLocation = this.mmdbFileLocation.replace('.mmdb', '.json')
         try {
-            return parseJSON(await withMmdbLoadTimeout(fs.readFile(metadataLocation, 'utf8'), metadataLocation))
+            const metadata = parseJSON(
+                await withMmdbLoadTimeout(fs.readFile(metadataLocation, 'utf8'), metadataLocation)
+            )
+            this._mmdbMetadataTimedOut = false
+            return metadata
         } catch (e) {
+            // A timed-out read means the mount is unhealthy, not that the metadata file doesn't
+            // exist — remember it so the background refresh retries instead of assuming self-hosted.
+            this._mmdbMetadataTimedOut = e instanceof MmdbLoadTimeoutError
             logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,
                 location: this.mmdbFileLocation,
@@ -142,7 +150,7 @@ export class GeoIPService {
      */
     private async backgroundRefreshMmdb(): Promise<void> {
         logger.debug('🌎', 'Checking if we need to refresh the MMDB')
-        if (!this._mmdbMetadata) {
+        if (!this._mmdbMetadata && !this._mmdbMetadataTimedOut) {
             geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
             logger.info(
                 '🌎',
@@ -153,7 +161,12 @@ export class GeoIPService {
 
         const metadata = await this.loadMmdbMetadata()
 
-        if (metadata?.date === this._mmdbMetadata.date) {
+        if (!metadata) {
+            geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
+            return
+        }
+
+        if (metadata.date === this._mmdbMetadata?.date) {
             geoipBackgroundRefreshCounter.inc({ result: 'up_to_date' })
             logger.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
             return
@@ -167,7 +180,7 @@ export class GeoIPService {
         const mmdb = await this.loadMmdb('background refresh').catch(() => undefined)
         if (mmdb) {
             this._mmdb = mmdb
-            this._mmdbMetadata = metadata ?? this._mmdbMetadata
+            this._mmdbMetadata = metadata
         } else {
             logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
         }
