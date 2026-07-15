@@ -636,7 +636,6 @@ describe('Hogflow Executor', () => {
                     id: actionId,
 
                     startedAtTimestamp: DateTime.now().minus({ milliseconds: agoMs }).toMillis(),
-
                 }
                 return invocation
             }
