@@ -15,8 +15,8 @@ use crate::{
     config::CaptureMode,
     config::Config,
     prometheus::{
-        report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL,
-        CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+        report_quota_limit_exceeded, CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+        CAPTURE_EVENTS_DROPPED_TOTAL,
     },
 };
 
@@ -250,11 +250,7 @@ impl CaptureQuotaLimiter {
         .increment(event_count);
     }
 
-    pub async fn report_grace_period_admission<T: HasEventName>(
-        &self,
-        token: &str,
-        events: &[T],
-    ) {
+    pub async fn report_grace_period_admission<T: HasEventName>(&self, token: &str, events: &[T]) {
         let event_infos: Vec<EventInfo> = events
             .iter()
             .map(|event| EventInfo {

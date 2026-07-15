@@ -452,14 +452,7 @@ mod tests {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
         let limiter =
-            build_limiter_with_grace(
-                "tok",
-                false,
-                true,
-                &[],
-                &[QuotaResource::Exceptions],
-            )
-            .await;
+            build_limiter_with_grace("tok", false, true, &[], &[QuotaResource::Exceptions]).await;
         let mut events = vec![
             make_event("$pageview", None),
             make_event("$exception", None),
@@ -503,14 +496,8 @@ mod tests {
     async fn scoped_grace_period_takes_precedence_over_global_grace_period() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
-        let limiter = build_limiter_with_grace(
-            "tok",
-            false,
-            true,
-            &[QuotaResource::Exceptions],
-            &[],
-        )
-        .await;
+        let limiter =
+            build_limiter_with_grace("tok", false, true, &[QuotaResource::Exceptions], &[]).await;
         let mut events = vec![
             make_event("$pageview", None),
             make_event("$exception", None),
@@ -552,14 +539,8 @@ mod tests {
     async fn gateway_verified_events_only_count_toward_global_grace_period() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
-        let limiter = build_limiter_with_grace(
-            "tok",
-            false,
-            true,
-            &[QuotaResource::LLMEvents],
-            &[],
-        )
-        .await;
+        let limiter =
+            build_limiter_with_grace("tok", false, true, &[QuotaResource::LLMEvents], &[]).await;
         let mut events = vec![
             make_verified_event("$ai_generation"),
             make_event("$ai_generation", None),
