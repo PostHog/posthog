@@ -66,8 +66,9 @@ type PostProcessOutput = AfterBatchOutput<
  * afterBatch post-process for the session replay record pipeline. For every result (ok, drop, dlq,
  * redirect) it tracks the source message's offset — so dropped and DLQ'd messages advance offsets
  * too — and surfaces the result's side effects (the DLQ/overflow produces result handling attached)
- * so the accumulating pipeline can make them durable before committing. It emits only the OK results,
- * trimmed to a lightweight row with just the messageId kept on the context.
+ * so the accumulating pipeline can make them durable before committing. It emits one element per
+ * result — afterBatch must not change the element count — trimming OK results to a lightweight row
+ * and passing non-OK results through, with just the messageId kept on the context.
  */
 export function createPostProcessStep(
     offsetManager: KafkaOffsetManager
@@ -83,19 +84,19 @@ export function createPostProcessStep(
             })
             sideEffects.push(...element.context.sideEffects)
 
-            if (isOkResult(element.result)) {
-                elements.push({
-                    result: ok({
-                        partition: element.context.message.partition,
-                        timestamp: Date.now(),
-                    }),
-                    context: {
-                        messageId: element.context.messageId,
-                        sideEffects: [],
-                        warnings: [],
-                    },
-                })
-            }
+            elements.push({
+                result: isOkResult(element.result)
+                    ? ok({
+                          partition: element.context.message.partition,
+                          timestamp: Date.now(),
+                      })
+                    : element.result,
+                context: {
+                    messageId: element.context.messageId,
+                    sideEffects: [],
+                    warnings: [],
+                },
+            })
         }
 
         return Promise.resolve(ok({ elements, batchContext: input.batchContext, batchId: input.batchId }, sideEffects))
