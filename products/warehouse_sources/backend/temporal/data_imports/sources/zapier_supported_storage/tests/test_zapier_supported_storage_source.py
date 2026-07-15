@@ -50,7 +50,6 @@ class TestZapierSupportedStorageSource:
         config = self.source.get_source_config
 
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         # docsUrl must match the doc filename so the posthog.com page resolves.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zapier-supported-storage"
 

@@ -65,7 +65,6 @@ You can create an API key from the **API access** tab on the [integrations page]
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -15,6 +15,7 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _SLACK_DELIVERY_CONSTRAINTS,
     _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY,
+    _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
     _build_posthog_code_task_description,
@@ -88,6 +89,27 @@ def test_build_description_omits_canvas_and_file_adapters_when_flag_off():
     assert "choose adapter" not in out
     assert "do not use the `slack_canvas` or `slack_file` adapters" in out
     assert "using adapter `slack_message`" in out
+
+
+def test_build_description_limits_delivery_to_text_when_artifact_flag_off():
+    out = _build_posthog_code_task_description(
+        "do something",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "background", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "2.000"},
+        ],
+        "2.000",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
+        living_artifacts_enabled=False,
+    )
+
+    assert out.endswith("do something")
+    assert _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY in out
+    assert "/living_artifacts/" not in out
+    assert "slack_canvas" not in out
+    assert "slack_file" not in out
+    assert "slack_message" not in out
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
