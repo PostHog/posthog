@@ -102,23 +102,11 @@ export function useCustomParserMaxTool({
         [eventId, storedForMerge, input, output, tools, inputRecognized, outputRecognized, currentTeamId, loadRecipes]
     )
 
-    useAttachedContext(
-        active
-            ? [
-                  { type: 'llm_trace_event', key: eventId },
-                  {
-                      type: 'ai_trace_parser_context',
-                      value: JSON.stringify({
-                          event_type: isGeneration ? 'generation' : 'span',
-                          unrecognized,
-                          sample_input: sampleForContext(input),
-                          sample_output: sampleForContext(output),
-                      }),
-                      label: 'Trace event sample',
-                  },
-              ]
-            : null
-    )
+    // Ambient context gets only the event ref, never the raw input/output: trace payloads are
+    // attacker-controllable (any end user can write into an app's LLM prompt), and a value item
+    // would splice that text into every message sent on the agent surface. The samples stay in
+    // the purpose-limited create_ai_trace_parser tool context below.
+    useAttachedContext(active ? [{ type: 'llm_trace_event', key: eventId }] : null)
 
     const { openMax } = useMaxTool({
         identifier: 'create_ai_trace_parser',
