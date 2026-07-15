@@ -175,8 +175,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/pods", get(list_pods))
         // The consumer debug UI is served per pod; its relative `debug/...`
-        // fetches resolve to the proxy route below.
-        .route("/pods/:name/", get(ui::consumer_debug))
-        .route("/pods/:name/debug/*rest", get(proxy::proxy_debug))
+        // fetches resolve to the proxy route below. Pods are addressed by
+        // namespace + name so identical names across lanes cannot collide.
+        .route("/pods/:namespace/:name/", get(ui::consumer_debug))
+        .route(
+            "/pods/:namespace/:name/debug/*rest",
+            get(proxy::proxy_debug),
+        )
         .with_state(state)
 }

@@ -7,6 +7,9 @@ use tokio::sync::OnceCell;
 
 use crate::config::{Config, PodDiscoveryMode};
 
+/// Pseudo-namespace that static pods are listed and resolved under.
+pub const STATIC_NAMESPACE: &str = "static";
+
 /// A fixed proxy target used by static discovery (local testing), mirroring
 /// the ingestion-consumer's static worker discovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,7 +57,7 @@ impl PodDiscovery {
                         .unwrap_or(&static_pod.address);
                     DiscoveredPod {
                         name: static_pod.name.clone(),
-                        namespace: "static".to_string(),
+                        namespace: STATIC_NAMESPACE.to_string(),
                         ip: Some(host.to_string()),
                         node: None,
                         phase: Some("Static".to_string()),
@@ -93,61 +96,42 @@ impl PodDiscovery {
         }
     }
 
-    /// Resolve a pod name to the `host:port` of its debug API. In kubernetes
-    /// mode the pod is fetched fresh from the API and must match one of the
-    /// configured targets (namespace + label selector) — the debug proxy must
-    /// never dial a client-chosen host.
+    /// Resolve a namespace-qualified pod to the `host:port` of its debug API.
+    /// In kubernetes mode the namespace must be one of the configured targets
+    /// and the pod is fetched fresh from the API and must match one of that
+    /// namespace's label selectors — the debug proxy must never dial a
+    /// client-chosen host. Static pods live under the `static` pseudo-namespace.
     pub async fn resolve_proxy_target(
         &self,
         config: &Config,
+        namespace: &str,
         name: &str,
     ) -> anyhow::Result<Option<String>> {
         match self {
             Self::Static(static_pods) => Ok(static_pods
                 .iter()
+                .filter(|_| namespace == STATIC_NAMESPACE)
                 .find(|static_pod| static_pod.name == name)
                 .map(|static_pod| static_pod.address.clone())),
             Self::Kubernetes(cell) => {
-                let client = Self::client(cell).await?;
                 let targets = config.pod_targets();
-                let mut namespaces: Vec<&str> = Vec::new();
-                for target in &targets {
-                    if !namespaces.contains(&target.namespace.as_str()) {
-                        namespaces.push(&target.namespace);
-                    }
+                let selectors: Vec<&str> = targets
+                    .iter()
+                    .filter(|t| t.namespace == namespace)
+                    .map(|t| t.selector.as_str())
+                    .collect();
+                // Only namespaces we are configured to discover are dialable.
+                if selectors.is_empty() {
+                    return Ok(None);
                 }
-                // Collect matches across every configured namespace: routing
-                // by name alone would silently pick one lane's pod when the
-                // same name exists in another, so ambiguity is an error.
-                let mut matches: Vec<(String, String)> = Vec::new();
-                for namespace in namespaces {
-                    let pod = k8s_awareness::get_pod(client, namespace, name)
-                        .await
-                        .with_context(|| format!("fetch pod '{name}' in '{namespace}'"))?;
-                    let selectors: Vec<&str> = targets
-                        .iter()
-                        .filter(|t| t.namespace == namespace)
-                        .map(|t| t.selector.as_str())
-                        .collect();
-                    if let Some(ip) = pod
-                        .filter(|p| matches_any_selector(&p.labels, &selectors))
-                        .and_then(|p| p.ip)
-                    {
-                        matches.push((namespace.to_string(), ip));
-                    }
-                }
-                match matches.len() {
-                    0 => Ok(None),
-                    1 => Ok(Some(format!("{}:{}", matches[0].1, config.debug_port))),
-                    _ => Err(anyhow!(
-                        "pod name '{name}' is ambiguous across namespaces: {}",
-                        matches
-                            .iter()
-                            .map(|(ns, _)| ns.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                }
+                let client = Self::client(cell).await?;
+                let pod = k8s_awareness::get_pod(client, namespace, name)
+                    .await
+                    .with_context(|| format!("fetch pod '{name}' in '{namespace}'"))?;
+                Ok(pod
+                    .filter(|p| matches_any_selector(&p.labels, &selectors))
+                    .and_then(|p| p.ip)
+                    .map(|ip| format!("{ip}:{}", config.debug_port)))
             }
         }
     }
@@ -249,12 +233,12 @@ mod tests {
         assert!(pods[0].ready);
 
         let target = discovery
-            .resolve_proxy_target(&config, "local")
+            .resolve_proxy_target(&config, STATIC_NAMESPACE, "local")
             .await
             .unwrap();
         assert_eq!(target.as_deref(), Some("127.0.0.1:3301"));
         let missing = discovery
-            .resolve_proxy_target(&config, "unknown")
+            .resolve_proxy_target(&config, STATIC_NAMESPACE, "unknown")
             .await
             .unwrap();
         assert_eq!(missing, None);

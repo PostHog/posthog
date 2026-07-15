@@ -445,7 +445,7 @@
               el("table", {},
                 el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "namespace"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
                 el("tbody", {}, data.pods.map((pod) =>
-                  el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod.name) },
+                  el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod) },
                     el("td", { class: "mono" }, pod.name),
                     el("td", {}, pod.namespace || "–"),
                     el("td", { class: "mono" }, pod.ip || "–"),
@@ -460,13 +460,13 @@
           }
         },
 
-        selectPod(name) {
-          this.selectedPod = name;
+        selectPod(pod) {
+          this.selectedPod = pod.name;
           this.refreshPods();
-          const url = `pods/${encodeURIComponent(name)}/`;
+          const url = `pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/`;
           this.ui.viewer.replaceChildren(
             el("div", { class: "panel" },
-              el("h2", {}, `Debug — ${name}`,
+              el("h2", {}, `Debug — ${pod.name}`,
                 el("a", { href: url, target: "_blank", style: "color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: 0" }, "open in new tab ↗")),
               el("iframe", { class: "debug", src: url }))
           );

@@ -17,7 +17,7 @@ Results are broken down per token (resolved to `team_id` via Postgres when `DATA
 
 ### Consumer debug
 
-Lists live ingestion-consumer pods and serves the consumer's routing debug UI per pod at `/pods/<name>/`, backed by a proxy to the pod's debug API (`/debug/state`, `/debug/load`, SSE `/debug/events`). The UI lives here; the consumer only exposes the JSON/SSE API (gated behind `DEBUG_UI_ENABLED` on the consumer side).
+Lists live ingestion-consumer pods and serves the consumer's routing debug UI per pod at `/pods/<namespace>/<name>/` (static pods use the `static` pseudo-namespace), backed by a proxy to the pod's debug API (`/debug/state`, `/debug/load`, SSE `/debug/events`). The UI lives here; the consumer only exposes the JSON/SSE API (gated behind `DEBUG_UI_ENABLED` on the consumer side).
 
 ## Configuration
 
